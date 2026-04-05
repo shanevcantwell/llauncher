@@ -1,0 +1,23 @@
+[project]
+name = "llauncher"
+version = "0.1.0"
+description = "MCP-first launcher for managing llama.cpp llama-server instances"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.0.0",
+    "mcp>=1.0.0",
+    "psutil>=5.9.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+ui = ["streamlit>=1.30.0"]
+
+[project.scripts]
+llauncher-mcp = "llauncher.mcp.server:main"
+llauncher-ui = "llauncher.ui.app:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
