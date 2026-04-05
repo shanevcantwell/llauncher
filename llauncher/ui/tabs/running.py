@@ -1,5 +1,7 @@
 """Running tab showing active servers and logs."""
 
+import streamlit as st
+
 from llauncher.state import LauncherState
 from llauncher.core.process import stream_logs
 

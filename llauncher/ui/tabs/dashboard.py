@@ -1,5 +1,7 @@
 """Dashboard tab showing model cards with status."""
 
+import streamlit as st
+
 from llauncher.state import LauncherState
 
 
