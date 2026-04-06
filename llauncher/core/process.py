@@ -13,11 +13,51 @@ DEFAULT_SERVER_BINARY = Path.home() / ".local" / "bin" / "llama-server"
 LOG_DIR = Path.home() / ".llauncher" / "logs"
 
 
-def build_command(config: ModelConfig, server_bin: Path = DEFAULT_SERVER_BINARY) -> list[str]:
+def find_available_port(
+    preferred_port: int | None = None,
+    start: int = 8080,
+    end: int = 8999
+) -> tuple[bool, int, str]:
+    """Find an available port for a new server.
+
+    Tries the preferred port first, then scans the range for the first
+    available port.
+
+    Args:
+        preferred_port: Preferred port to try first.
+        start: Start of port range to scan.
+        end: End of port range to scan.
+
+    Returns:
+        Tuple of (success, port, message).
+    """
+    # Try preferred port first
+    if preferred_port is not None:
+        if not is_port_in_use(preferred_port):
+            return True, preferred_port, f"Using preferred port {preferred_port}"
+
+    # Scan range for first available
+    for port in range(start, end + 1):
+        if preferred_port is not None and port == preferred_port:
+            continue  # Skip preferred (already tried)
+        if not is_port_in_use(port):
+            return True, port, f"Auto-allocated port {port}"
+
+    return False, 0, "No available ports in range"
+
+
+def build_command(
+    config: ModelConfig,
+    port: int,
+    host: str = "0.0.0.0",
+    server_bin: Path = DEFAULT_SERVER_BINARY
+) -> list[str]:
     """Build the command line for starting a llama-server.
 
     Args:
         config: Model configuration.
+        port: Port to bind the server to (resolved at runtime).
+        host: Host to bind the server to (defaults to 0.0.0.0).
         server_bin: Path to llama-server binary.
 
     Returns:
@@ -35,8 +75,8 @@ def build_command(config: ModelConfig, server_bin: Path = DEFAULT_SERVER_BINARY)
     # GPU layers
     cmd.extend(["--n-gpu-layers", str(config.n_gpu_layers)])
 
-    # Network
-    cmd.extend(["--host", config.host, "--port", str(config.port)])
+    # Network (port and host are now runtime parameters)
+    cmd.extend(["--host", host, "--port", str(port)])
 
     # Context size
     cmd.extend(["-c", str(config.ctx_size)])
@@ -103,12 +143,16 @@ def build_command(config: ModelConfig, server_bin: Path = DEFAULT_SERVER_BINARY)
 
 def start_server(
     config: ModelConfig,
+    port: int,
+    host: str = "0.0.0.0",
     server_bin: Path = DEFAULT_SERVER_BINARY,
 ) -> subprocess.Popen:
     """Start a llama-server process.
 
     Args:
         config: Model configuration.
+        port: Port to bind the server to.
+        host: Host to bind the server to (defaults to 0.0.0.0).
         server_bin: Path to llama-server binary.
 
     Returns:
@@ -121,7 +165,7 @@ def start_server(
     if not server_bin.exists():
         raise FileNotFoundError(f"Server binary not found: {server_bin}")
 
-    cmd = build_command(config, server_bin)
+    cmd = build_command(config, port, host, server_bin)
 
     # Create logs directory
     LOG_DIR.mkdir(parents=True, exist_ok=True)

@@ -58,7 +58,11 @@ def render_model_list(state: LauncherState) -> None:
                 st.markdown(f"**Model Path**")
                 st.markdown(f"**GPU Layers**")
             with col2:
-                st.markdown(f"`{config.port}`")
+                if is_running:
+                    st.markdown(f"`{status_info.get('port')}` (running)")
+                else:
+                    default_port = config.default_port or "Auto-allocate"
+                    st.markdown(f"`{default_port}`")
                 st.markdown(f"`{config.model_path}`")
                 st.markdown(f"`{config.n_gpu_layers}`")
 
@@ -72,7 +76,8 @@ def render_model_list(state: LauncherState) -> None:
                     key=f"startstop_{name}",
                 ):
                     if is_running:
-                        success, message = state.stop_server(config.port, caller="ui")
+                        running_port = status_info.get("port")
+                        success, message = state.stop_server(running_port, caller="ui")
                         if success:
                             st.success(message)
                         else:
@@ -105,8 +110,9 @@ def render_model_list(state: LauncherState) -> None:
                     key=f"delete_{name}",
                 ):
                     if is_running:
+                        running_port = status_info.get("port")
                         st.error(
-                            f"Cannot delete {name}: server is running on port {config.port}"
+                            f"Cannot delete {name}: server is running on port {running_port}"
                         )
                     else:
                         from llauncher.core.config import ConfigStore
@@ -137,8 +143,12 @@ def render_add_model(state: LauncherState) -> None:
 
         col1, col2, col3 = st.columns(3)
         with col1:
-            port = st.number_input(
-                "Port", min_value=1024, max_value=65535, value=8080
+            default_port = st.number_input(
+                "Default Port (optional)",
+                min_value=1024,
+                max_value=65535,
+                value=8080,
+                help="Leave as 0 for auto-allocation"
             )
         with col2:
             n_gpu_layers = st.number_input(
@@ -148,10 +158,6 @@ def render_add_model(state: LauncherState) -> None:
             ctx_size = st.number_input(
                 "Context Size", min_value=1024, value=131072
             )
-
-        col4, col5, col6 = st.columns(3)
-        with col4:
-            host = st.text_input("Host", value="0.0.0.0")
         with col5:
             threads = st.number_input("Threads (optional)", min_value=0, value=0)
         with col6:
@@ -217,12 +223,14 @@ def render_add_model(state: LauncherState) -> None:
                 from llauncher.models.config import ModelConfig
                 from llauncher.core.config import ConfigStore
 
+                # Convert 0 to None for auto-allocation
+                default_port_val = default_port if default_port >= 1024 else None
+
                 config = ModelConfig(
                     name=name,
                     model_path=model_path,
                     mmproj_path=mmproj_path or None,
-                    port=port,
-                    host=host,
+                    default_port=default_port_val,
                     n_gpu_layers=n_gpu_layers,
                     ctx_size=ctx_size,
                     threads=threads if threads > 0 else None,
@@ -279,11 +287,12 @@ def render_edit_model(state: LauncherState, model_name: str) -> None:
 
         col1, col2, col3 = st.columns(3)
         with col1:
-            port = st.number_input(
-                "Port",
+            default_port = st.number_input(
+                "Default Port (optional)",
                 min_value=1024,
                 max_value=65535,
-                value=config.port,
+                value=config.default_port or 8080,
+                help="Leave as 0 for auto-allocation"
             )
         with col2:
             n_gpu_layers = st.number_input(
@@ -298,10 +307,6 @@ def render_edit_model(state: LauncherState, model_name: str) -> None:
                 min_value=1024,
                 value=config.ctx_size,
             )
-
-        col4, col5, col6 = st.columns(3)
-        with col4:
-            host = st.text_input("Host", value=config.host)
         with col5:
             threads = st.number_input(
                 "Threads (optional)",
@@ -394,8 +399,7 @@ def render_edit_model(state: LauncherState, model_name: str) -> None:
                     update={
                         "model_path": model_path,
                         "mmproj_path": mmproj_path or None,
-                        "port": port,
-                        "host": host,
+                        "default_port": default_port if default_port >= 1024 else None,
                         "n_gpu_layers": n_gpu_layers,
                         "ctx_size": ctx_size,
                         "threads": threads if threads > 0 else None,

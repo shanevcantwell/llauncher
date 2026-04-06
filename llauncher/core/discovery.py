@@ -80,8 +80,7 @@ def parse_launch_script(script: Path) -> ModelConfig | None:
         "name": name,
         "model_path": model_path,
         "mmproj_path": args.get("--mmproj"),
-        "port": _get_port(args),
-        "host": args.get("--host", "0.0.0.0"),
+        "default_port": _get_port(args),
         "n_gpu_layers": int(args.get("--n-gpu-layers", 255)),
         "ctx_size": int(args.get("-c", args.get("--ctx-size", 131072))),
         "threads": _get_int(args, "--threads"),
@@ -177,12 +176,12 @@ def _parse_args(args: list[str]) -> dict[str, str | bool]:
     return result
 
 
-def _get_port(args: dict[str, str | bool]) -> int:
-    """Extract port from args, default to 8080."""
+def _get_port(args: dict[str, str | bool]) -> int | None:
+    """Extract port from args, return None if not specified."""
     port = args.get("--port")
     if port:
         return int(port)
-    return 8080
+    return None  # No default - will be auto-allocated at startup
 
 
 def _get_int(args: dict[str, str | bool], key: str, alt_key: str | None = None) -> int | None:

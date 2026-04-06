@@ -64,7 +64,7 @@ llama-server \\
     assert config is not None
     assert config.name == "test-model"
     assert config.model_path == "/path/to/model.gguf"
-    assert config.port == 8081
+    assert config.default_port == 8081
     assert config.ctx_size == 4096
 
 def test_discover_scripts(tmp_path):

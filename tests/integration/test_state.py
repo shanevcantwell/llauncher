@@ -38,15 +38,15 @@ def test_state_refresh(mock_config_store, sample_model_config):
 def test_can_start_validation(launcher_state, sample_model_config):
     """Test the validation logic in can_start."""
     # Test: Port in use by state
-    running_server = RunningServer(pid=1, port=sample_model_config.port, config_name="other", start_time=datetime.now())
-    launcher_state.running[sample_model_config.port] = running_server
+    running_server = RunningServer(pid=1, port=sample_model_config.default_port, config_name="other", start_time=datetime.now())
+    launcher_state.running[sample_model_config.default_port] = running_server
 
     valid, msg = launcher_state.can_start(sample_model_config)
     assert not valid
     assert "already in use" in msg.lower()
 
     # Test: Port in use by system (mock is_port_in_use)
-    del launcher_state.running[sample_model_config.port]
+    del launcher_state.running[sample_model_config.default_port]
     with patch('llauncher.state.is_port_in_use', return_value=True):
         valid, msg = launcher_state.can_start(sample_model_config)
         assert not valid
@@ -72,36 +72,37 @@ def test_start_server_success(launcher_state, sample_model_config):
     launcher_state.models[sample_model_config.name] = sample_model_config
 
     # Make sure port isn't already running
-    if sample_model_config.port in launcher_state.running:
-        del launcher_state.running[sample_model_config.port]
+    if sample_model_config.default_port in launcher_state.running:
+        del launcher_state.running[sample_model_config.default_port]
 
     mock_proc = MagicMock()
     mock_proc.pid = 5678
 
-    with patch('llauncher.state.is_port_in_use', return_value=False):
-        with patch('llauncher.state.Path.exists', return_value=True):
-            with patch('llauncher.state.process_start_server', return_value=mock_proc) as mock_start:
-                success, msg, proc = launcher_state.start_server(sample_model_config.name)
+    with patch('llauncher.state.find_available_port', return_value=(True, 8081, "Using preferred port 8081")):
+        with patch('llauncher.state.is_port_in_use', return_value=False):
+            with patch('llauncher.state.Path.exists', return_value=True):
+                with patch('llauncher.state.process_start_server', return_value=mock_proc) as mock_start:
+                    success, msg, proc = launcher_state.start_server(sample_model_config.name)
 
-                assert success is True
-                assert proc == mock_proc
-                assert sample_model_config.port in launcher_state.running
-                assert launcher_state.running[sample_model_config.port].pid == 5678
+                    assert success is True
+                    assert proc == mock_proc
+                    assert 8081 in launcher_state.running
+                    assert launcher_state.running[8081].pid == 5678
 
 def test_stop_server_success(launcher_state, sample_model_config):
     """Test stopping a server successfully."""
     # Setup: model is running
     launcher_state.models[sample_model_config.name] = sample_model_config
-    launcher_state.running[sample_model_config.port] = RunningServer(
-        pid=5678, port=sample_model_config.port, config_name=sample_model_config.name, start_time=datetime.now()
+    launcher_state.running[sample_model_config.default_port] = RunningServer(
+        pid=5678, port=sample_model_config.default_port, config_name=sample_model_config.name, start_time=datetime.now()
     )
 
     with patch('llauncher.state.process_stop_server', return_value=True) as mock_stop:
-        success, msg = launcher_state.stop_server(sample_model_config.port)
+        success, msg = launcher_state.stop_server(sample_model_config.default_port)
 
         assert success is True
-        assert sample_model_config.port not in launcher_state.running
-        mock_stop.assert_called_once_with(sample_model_config.port)
+        assert sample_model_config.default_port not in launcher_state.running
+        mock_stop.assert_called_once_with(sample_model_config.default_port)
 
 def test_record_action(launcher_state):
     """Test audit log recording."""

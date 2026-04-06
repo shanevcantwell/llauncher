@@ -15,8 +15,13 @@ class ModelConfig(BaseModel):
     name: str
     model_path: str
     mmproj_path: str | None = None
-    port: int = Field(ge=1024, le=65535)
-    host: str = "0.0.0.0"
+    # Runtime preferences (optional - port is now resolved at startup)
+    default_port: int | None = Field(
+        default=None,
+        ge=1024,
+        le=65535,
+        description="Preferred port for server (auto-allocated if not specified)"
+    )
     n_gpu_layers: int = Field(default=255, ge=0)
     ctx_size: int = Field(default=131072, gt=0)
     threads: int | None = None
@@ -65,7 +70,22 @@ class ModelConfig(BaseModel):
 
     @classmethod
     def from_dict_unvalidated(cls, data: dict) -> "ModelConfig":
-        """Create from dictionary without path validation."""
+        """Create from dictionary without path validation.
+
+        Handles backward compatibility migration:
+        - Migrates "port" field to "default_port"
+        - Drops "host" field (defaults to 0.0.0.0 in build_command)
+        """
+        # Make a copy to avoid mutating the original
+        data = data.copy()
+
+        # Migrate old "port" field to "default_port"
+        if "port" in data and "default_port" not in data:
+            data["default_port"] = data.pop("port")
+
+        # Drop "host" field (will default to 0.0.0.0 in build_command)
+        data.pop("host", None)
+
         cls._skip_path_validation = True
         try:
             return cls.model_validate(data)
@@ -136,10 +156,17 @@ class ChangeRules(BaseModel):
     blacklisted_ports: set[int] = Field(default_factory=lambda: {8080})
     blacklisted_callers: set[str] = Field(default_factory=set)
 
-    def validate_start(self, config: ModelConfig, caller: str) -> tuple[bool, str]:
-        """Validate if a model can be started."""
-        if config.port in self.blacklisted_ports:
-            return False, f"Port {config.port} is blacklisted"
+    def validate_start(self, config: ModelConfig, caller: str, port: int | None = None) -> tuple[bool, str]:
+        """Validate if a model can be started.
+
+        Args:
+            config: Model configuration.
+            caller: Name of the caller.
+            port: Optional resolved port to check (uses default_port if not provided).
+        """
+        check_port = port or config.default_port
+        if check_port is not None and check_port in self.blacklisted_ports:
+            return False, f"Port {check_port} is blacklisted"
         if caller in self.blacklisted_callers:
             return False, f"Caller '{caller}' is blacklisted"
         if self.whitelisted_models and config.name not in self.whitelisted_models:

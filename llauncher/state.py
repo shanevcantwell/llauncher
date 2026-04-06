@@ -12,6 +12,7 @@ from llauncher.core.process import (
     DEFAULT_SERVER_BINARY,
     find_all_llama_servers,
     find_server_by_port,
+    find_available_port,
     is_port_in_use,
     start_server as process_start_server,
     stop_server_by_port as process_stop_server,
@@ -100,7 +101,9 @@ class LauncherState:
 
         return None
 
-    def can_start(self, config: ModelConfig, caller: str = "unknown") -> tuple[bool, str]:
+    def can_start(
+        self, config: ModelConfig, caller: str = "unknown", port: int | None = None
+    ) -> tuple[bool, str]:
         """Validate if a model can be started.
 
         Checks:
@@ -112,20 +115,26 @@ class LauncherState:
         Args:
             config: Model configuration to validate.
             caller: Name of the caller (e.g., "mcp", "ui", "cli").
+            port: Optional specific port to check (uses default_port if not provided).
 
         Returns:
             Tuple of (is_valid, error_message).
         """
-        # Check if port is already in use
-        if config.port in self.running:
-            return False, f"Port {config.port} is already in use by {self.running[config.port].config_name}"
+        # Determine which port to check
+        check_port = port or config.default_port
 
-        # Check if port is in use by any process
-        if is_port_in_use(config.port):
-            return False, f"Port {config.port} is already in use"
+        # If we have a specific port to check, validate it
+        if check_port is not None:
+            # Check if port is already in use by another model
+            if check_port in self.running:
+                return False, f"Port {check_port} is already in use by {self.running[check_port].config_name}"
 
-        # Check change rules
-        valid, msg = self.rules.validate_start(config, caller)
+            # Check if port is in use by any process
+            if is_port_in_use(check_port):
+                return False, f"Port {check_port} is already in use"
+
+        # Check change rules (pass the port we're checking)
+        valid, msg = self.rules.validate_start(config, caller, check_port)
         if not valid:
             return False, msg
 
@@ -163,6 +172,7 @@ class LauncherState:
         self,
         model_name: str,
         caller: str = "unknown",
+        port: int | None = None,
         server_bin: Path = DEFAULT_SERVER_BINARY,
     ) -> tuple[bool, str, subprocess.Popen | None]:
         """Start a server for the given model.
@@ -170,6 +180,8 @@ class LauncherState:
         Args:
             model_name: Name of the model to start.
             caller: Name of the caller.
+            port: Optional port override. If not provided, uses config.default_port
+                  or auto-allocates from available ports.
             server_bin: Path to llama-server binary.
 
         Returns:
@@ -181,26 +193,33 @@ class LauncherState:
 
         config = self.models[model_name]
 
-        # Validate
-        valid, msg = self.can_start(config, caller)
+        # Resolve port: explicit override -> default_port -> auto-allocate
+        preferred = port or config.default_port
+        success, resolved_port, alloc_msg = find_available_port(preferred)
+        if not success:
+            self.record_action("start", model_name, caller, "error", alloc_msg)
+            return False, f"Cannot allocate port: {alloc_msg}", None
+
+        # Validate with the resolved port
+        valid, msg = self.can_start(config, caller, resolved_port)
         if not valid:
             self.record_action("start", model_name, caller, "validation_error", msg)
             return False, msg, None
 
-        # Start the process
+        # Start the process with resolved port
         try:
-            process = process_start_server(config, server_bin)
+            process = process_start_server(config, resolved_port, server_bin=server_bin)
 
-            # Update running state
-            self.running[config.port] = RunningServer(
+            # Update running state with resolved port
+            self.running[resolved_port] = RunningServer(
                 pid=process.pid,
-                port=config.port,
+                port=resolved_port,
                 config_name=model_name,
                 start_time=datetime.now(),
             )
 
-            self.record_action("start", model_name, caller, "success", f"Started on port {config.port}")
-            return True, f"Started {model_name} on port {config.port}", process
+            self.record_action("start", model_name, caller, "success", f"Started on port {resolved_port}")
+            return True, f"Started {model_name} on port {resolved_port}", process
 
         except Exception as e:
             self.record_action("start", model_name, caller, "error", str(e))
@@ -287,5 +306,5 @@ class LauncherState:
 
         return {
             "status": "stopped",
-            "port": config.port,
+            "default_port": config.default_port,
         }

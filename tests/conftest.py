@@ -24,7 +24,7 @@ def sample_model_config():
     return ModelConfig.from_dict_unvalidated({
         "name": "test-model",
         "model_path": "/fake/path/model.gguf",
-        "port": 8081,
+        "default_port": 8081,
         "n_gpu_layers": 255,
         "ctx_size": 4096,
     })

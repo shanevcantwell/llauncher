@@ -44,15 +44,22 @@ def render_model_entry(state: LauncherState, name: str, config) -> None:
             st.markdown(f"**Model**")
             st.markdown(f"**GPU Layers**")
         with col2:
-            st.markdown(f"`{config.port}`")
+            if is_running:
+                # Show actual running port
+                st.markdown(f"`{status_info.get('port')}` (running)")
+            else:
+                # Show default port or "Auto-allocate"
+                default_port = config.default_port or "Auto-allocate"
+                st.markdown(f"`{default_port}`")
             st.markdown(f"`{config.model_path.split('/')[-1]}`")
             st.markdown(f"`{config.n_gpu_layers}`")
 
         # Link to docs if running
         if is_running:
+            running_port = status_info.get("port")
             st.markdown(
-                f"[API Docs](http://localhost:{config.port}/docs) | "
-                f"[Models](http://localhost:{config.port}/v1/models)"
+                f"[API Docs](http://localhost:{running_port}/docs) | "
+                f"[Models](http://localhost:{running_port}/v1/models)"
             )
 
         st.divider()
@@ -62,12 +69,13 @@ def render_model_entry(state: LauncherState, name: str, config) -> None:
 
         with action_col1:
             if is_running:
+                running_port = status_info.get("port")
                 if st.button(
                     "⏹️ Stop",
                     use_container_width=True,
                     key=f"stop_{name}",
                 ):
-                    success, message = state.stop_server(config.port, caller="ui")
+                    success, message = state.stop_server(running_port, caller="ui")
                     if success:
                         st.success(message)
                     else:
@@ -107,8 +115,9 @@ def render_model_entry(state: LauncherState, name: str, config) -> None:
                 key=f"delete_{name}",
             ):
                 if is_running:
+                    running_port = status_info.get("port")
                     st.error(
-                        f"Cannot delete {name}: server is running on port {config.port}"
+                        f"Cannot delete {name}: server is running on port {running_port}"
                     )
                 else:
                     from llauncher.core.config import ConfigStore

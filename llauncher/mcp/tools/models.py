@@ -48,11 +48,17 @@ async def list_models(state: LauncherState, args: dict) -> dict:
 
     for name, config in state.models.items():
         status_info = state.get_model_status(name)
+        # Use running port if available, otherwise default_port
+        if status_info.get("status") == "running":
+            port_info = status_info.get("port")
+        else:
+            port_info = config.default_port or "auto-allocate"
+
         models.append(
             {
                 "name": name,
                 "status": status_info.get("status", "unknown"),
-                "port": config.port,
+                "port": port_info,
                 "model_path": config.model_path,
                 "n_gpu_layers": config.n_gpu_layers,
                 "ctx_size": config.ctx_size,
