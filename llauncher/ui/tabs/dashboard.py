@@ -82,17 +82,24 @@ def render_model_entry(state: LauncherState, name: str, config) -> None:
                 f"[Models](http://localhost:{running_port}/v1/models)"
             )
 
-            # Log viewer for running models
-            log_col1, log_col2 = st.columns([4, 1])
-            with log_col1:
-                with st.expander("📄 Logs (last 200 lines)", expanded=False):
-                    logs = stream_logs(status_info.get("pid"), lines=200)
-                    st.code("\n".join(logs), language="bash", height=300)
-            with log_col2:
-                if st.button("🔄 Refresh Logs", use_container_width=True, key=f"refresh_logs_{name}"):
-                    st.rerun()
-
         st.divider()
+
+        # Log viewer (always available, even if process crashed)
+        log_col1, log_col2 = st.columns([4, 1])
+        with log_col1:
+            with st.expander("📄 Logs (last 200 lines)", expanded=False):
+                logs = stream_logs(
+                    pid=status_info.get("pid") if is_running else None,
+                    model_name=name,
+                    lines=200
+                )
+                if logs:
+                    st.code("\n".join(logs), language="bash", height=300)
+                else:
+                    st.info("No logs available yet")
+        with log_col2:
+            if st.button("🔄 Refresh Logs", use_container_width=True, key=f"refresh_logs_{name}"):
+                st.rerun()
 
         # Actions
         action_col1, action_col2, action_col3 = st.columns(3)
@@ -215,16 +222,16 @@ def render_add_model(state: LauncherState) -> None:
 
             col_adv3, col_adv4, col_adv5 = st.columns(3)
             with col_adv3:
+                n_cpu_moe = st.number_input(
+                    "CPU MOE Threads (-ncmoe, optional)", min_value=0, value=0
+                )
+            with col_adv4:
                 batch_size = st.number_input(
                     "Batch Size (optional)", min_value=0, value=0
                 )
-            with col_adv4:
+            with col_adv5:
                 temperature = st.number_input(
                     "Temperature (optional)", min_value=0.0, value=0.7, step=0.1
-                )
-            with col_adv5:
-                top_k = st.number_input(
-                    "Top-K (optional)", min_value=0, value=40
                 )
 
             min_p = st.number_input(
@@ -266,6 +273,7 @@ def render_add_model(state: LauncherState) -> None:
                     no_mmap=no_mmap,
                     parallel=parallel,
                     mlock=mlock,
+                    n_cpu_moe=n_cpu_moe if n_cpu_moe > 0 else None,
                     batch_size=batch_size if batch_size > 0 else None,
                     temperature=temperature if temperature > 0 else None,
                     top_k=top_k if top_k > 0 else None,
@@ -368,27 +376,19 @@ def render_edit_model(state: LauncherState, model_name: str) -> None:
 
             col_adv3, col_adv4, col_adv5 = st.columns(3)
             with col_adv3:
+                n_cpu_moe = st.number_input(
+                    "CPU MOE Threads (-ncmoe, optional)", min_value=0, value=config.n_cpu_moe or 0
+                )
+            with col_adv4:
                 batch_size = st.number_input(
                     "Batch Size (optional)", min_value=0, value=config.batch_size or 0
                 )
-            with col_adv4:
+            with col_adv5:
                 temperature = st.number_input(
                     "Temperature (optional)",
                     min_value=0.0,
                     value=config.temperature or 0.7,
                     step=0.1,
-                )
-            with col_adv4:
-                top_k = st.number_input(
-                    "Top-K (optional)", min_value=0, value=config.top_k or 40
-                )
-            with col_adv5:
-                min_p = st.number_input(
-                    "Min-P (optional)",
-                    min_value=0.0,
-                    max_value=1.0,
-                    value=config.min_p or 0.1,
-                    step=0.01,
                 )
 
             reverse_prompt = st.text_input(
@@ -427,6 +427,7 @@ def render_edit_model(state: LauncherState, model_name: str) -> None:
                         "no_mmap": no_mmap,
                         "parallel": parallel,
                         "mlock": mlock,
+                        "n_cpu_moe": n_cpu_moe if n_cpu_moe > 0 else None,
                         "batch_size": batch_size if batch_size > 0 else None,
                         "temperature": temperature if temperature > 0 else None,
                         "top_k": top_k if top_k > 0 else None,

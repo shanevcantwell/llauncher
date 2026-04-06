@@ -282,35 +282,41 @@ def find_all_llama_servers() -> list[psutil.Process]:
     return servers
 
 
-def stream_logs(pid: int, lines: int = 100) -> list[str]:
+def stream_logs(pid: int | None = None, model_name: str | None = None, lines: int = 100) -> list[str]:
     """Stream recent log lines for a process.
 
     Args:
-        pid: Process ID.
+        pid: Process ID (optional).
+        model_name: Model name to search logs by (optional).
         lines: Number of lines to return.
 
     Returns:
         List of log lines.
     """
-    # Find the log file for this process
-    try:
-        process = psutil.Process(pid)
-        cmdline = process.cmdline()
+    # If PID provided, try to get port from running process
+    port = None
+    if pid is not None:
+        try:
+            process = psutil.Process(pid)
+            cmdline = process.cmdline()
 
-        # Extract port from command line
-        port = None
-        for i, arg in enumerate(cmdline or []):
-            if arg == "--port" and i + 1 < len(cmdline):
-                port = cmdline[i + 1]
-                break
+            # Extract port from command line
+            for i, arg in enumerate(cmdline or []):
+                if arg == "--port" and i + 1 < len(cmdline):
+                    port = cmdline[i + 1]
+                    break
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
 
-        if port:
-            # Find matching log file
-            for log_file in LOG_DIR.glob(f"*-{port}.log"):
-                return _tail_file(log_file, lines)
+    # If model name provided, search for matching log files
+    if model_name is not None and port is None:
+        for log_file in LOG_DIR.glob(f"{model_name}-*.log"):
+            return _tail_file(log_file, lines)
 
-    except (psutil.NoSuchProcess, psutil.AccessDenied):
-        pass
+    if port:
+        # Find matching log file
+        for log_file in LOG_DIR.glob(f"*-{port}.log"):
+            return _tail_file(log_file, lines)
 
     return []
 
