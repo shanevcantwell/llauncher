@@ -91,6 +91,13 @@ def render_model_card(state: LauncherState, name: str, config) -> None:
                 st.rerun()
 
     with col2:
-        st.button("⚙️ Edit", use_container_width=True, key=f"edit_{name}")
+        if st.button(
+            "⚙️ Edit",
+            use_container_width=True,
+            key=f"edit_{name}",
+        ):
+            st.session_state[f"editing_{name}"] = True
+            st.session_state["selected_page"] = "Manager"
+            st.rerun()
 
     st.divider()

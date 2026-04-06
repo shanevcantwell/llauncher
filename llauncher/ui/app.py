@@ -30,12 +30,20 @@ def main():
 
     # Sidebar navigation
     st.sidebar.header("Navigation")
+
+    # Check if a page was selected via session state (e.g., from Dashboard Edit)
+    selected_page = st.session_state.pop("selected_page", None)
+
     page = st.sidebar.radio(
         "Page navigation",
         ["Dashboard", "Manager", "Running"],
-        index=0,
+        index=0 if selected_page is None else ["Dashboard", "Manager", "Running"].index(selected_page),
         label_visibility="collapsed",
     )
+
+    # Override with session state selection if present
+    if selected_page:
+        page = selected_page
 
     # Refresh button
     if st.sidebar.button("🔄 Refresh", use_container_width=True):
