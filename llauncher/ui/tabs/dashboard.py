@@ -83,9 +83,14 @@ def render_model_entry(state: LauncherState, name: str, config) -> None:
             )
 
             # Log viewer for running models
-            with st.expander("📄 Logs (last 200 lines)", expanded=False):
-                logs = stream_logs(status_info.get("pid"), lines=200)
-                st.code("\n".join(logs), language="bash", height=300)
+            log_col1, log_col2 = st.columns([4, 1])
+            with log_col1:
+                with st.expander("📄 Logs (last 200 lines)", expanded=False):
+                    logs = stream_logs(status_info.get("pid"), lines=200)
+                    st.code("\n".join(logs), language="bash", height=300)
+            with log_col2:
+                if st.button("🔄 Refresh Logs", use_container_width=True, key=f"refresh_logs_{name}"):
+                    st.rerun()
 
         st.divider()
 
@@ -162,6 +167,8 @@ def render_add_model(state: LauncherState) -> None:
     """
     with st.form("add_model_form", clear_on_submit=True):
         name = st.text_input("Model Name", help="Unique identifier for this model")
+        st.markdown("**Model Path**")
+        st.caption("Common locations: ~/.cache/llama.cpp/, ~/models/, /usr/share/llama.cpp/")
         model_path = st.text_input(
             "Model Path", help="Path to the GGUF file (e.g., /path/to/model.gguf)"
         )
@@ -208,36 +215,26 @@ def render_add_model(state: LauncherState) -> None:
 
             col_adv3, col_adv4, col_adv5 = st.columns(3)
             with col_adv3:
+                batch_size = st.number_input(
+                    "Batch Size (optional)", min_value=1, value=0
+                )
+            with col_adv4:
                 temperature = st.number_input(
                     "Temperature (optional)", min_value=0.0, value=0.7, step=0.1
                 )
-            with col_adv4:
+            with col_adv5:
                 top_k = st.number_input(
                     "Top-K (optional)", min_value=0, value=40
                 )
-            with col_adv5:
-                min_p = st.number_input(
-                    "Min-P (optional)", min_value=0.0, max_value=1.0, value=0.1, step=0.01
-                )
+
+            min_p = st.number_input(
+                "Min-P (optional)", min_value=0.0, max_value=1.0, value=0.1, step=0.01
+            )
 
             reverse_prompt = st.text_input(
                 "Reverse Prompt (optional)",
                 help="Halt generation when this string is encountered",
             )
-
-            col_adv6, col_adv7, col_adv8 = st.columns(3)
-            with col_adv6:
-                device = st.text_input(
-                    "Device (Multi-GPU)", help="GPU device selection"
-                )
-            with col_adv7:
-                split_mode = st.text_input(
-                    "Split Mode", help="Multi-GPU split strategy"
-                )
-            with col_adv8:
-                tensor_split = st.text_input(
-                    "Tensor Split", help="GPU memory proportions"
-                )
 
         submitted = st.form_submit_button("Add Model", use_container_width=True)
 
@@ -269,13 +266,11 @@ def render_add_model(state: LauncherState) -> None:
                     no_mmap=no_mmap,
                     parallel=parallel,
                     mlock=mlock,
+                    batch_size=batch_size if batch_size > 0 else None,
                     temperature=temperature if temperature > 0 else None,
                     top_k=top_k if top_k > 0 else None,
                     min_p=min_p if min_p > 0 else None,
                     reverse_prompt=reverse_prompt or None,
-                    device=device or None,
-                    split_mode=split_mode or None,
-                    tensor_split=tensor_split or None,
                 )
 
                 ConfigStore.add_model(config)
@@ -305,6 +300,8 @@ def render_edit_model(state: LauncherState, model_name: str) -> None:
         # Name is read-only during edit
         st.text_input("Model Name", value=model_name, disabled=True)
 
+        st.markdown("**Model Path**")
+        st.caption("Common locations: ~/.cache/llama.cpp/, ~/models/, /usr/share/llama.cpp/")
         model_path = st.text_input(
             "Model Path",
             value=config.model_path,
@@ -371,6 +368,10 @@ def render_edit_model(state: LauncherState, model_name: str) -> None:
 
             col_adv3, col_adv4, col_adv5 = st.columns(3)
             with col_adv3:
+                batch_size = st.number_input(
+                    "Batch Size (optional)", min_value=1, value=config.batch_size or 0
+                )
+            with col_adv4:
                 temperature = st.number_input(
                     "Temperature (optional)",
                     min_value=0.0,
@@ -395,20 +396,6 @@ def render_edit_model(state: LauncherState, model_name: str) -> None:
                 value=config.reverse_prompt or "",
                 help="Halt generation when this string is encountered",
             )
-
-            col_adv6, col_adv7, col_adv8 = st.columns(3)
-            with col_adv6:
-                device = st.text_input(
-                    "Device (Multi-GPU)", value=config.device or "", help="GPU device selection"
-                )
-            with col_adv7:
-                split_mode = st.text_input(
-                    "Split Mode", value=config.split_mode or "", help="Multi-GPU split strategy"
-                )
-            with col_adv8:
-                tensor_split = st.text_input(
-                    "Tensor Split", value=config.tensor_split or "", help="GPU memory proportions"
-                )
 
         col_submit, col_cancel = st.columns(2)
         with col_submit:
@@ -440,13 +427,11 @@ def render_edit_model(state: LauncherState, model_name: str) -> None:
                         "no_mmap": no_mmap,
                         "parallel": parallel,
                         "mlock": mlock,
+                        "batch_size": batch_size if batch_size > 0 else None,
                         "temperature": temperature if temperature > 0 else None,
                         "top_k": top_k if top_k > 0 else None,
                         "min_p": min_p if min_p > 0 else None,
                         "reverse_prompt": reverse_prompt or None,
-                        "device": device or None,
-                        "split_mode": split_mode or None,
-                        "tensor_split": tensor_split or None,
                     }
                 )
 

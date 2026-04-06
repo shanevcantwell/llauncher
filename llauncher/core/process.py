@@ -91,6 +91,10 @@ def build_command(
     # Ubatch size
     cmd.extend(["--ubatch-size", str(config.ubatch_size)])
 
+    # Batch size (optional)
+    if config.batch_size is not None:
+        cmd.extend(["--batch-size", str(config.batch_size)])
+
     # Flash attention
     cmd.extend(["--flash-attn", config.flash_attn])
 
@@ -127,14 +131,6 @@ def build_command(
     if config.mlock:
         cmd.append("--mlock")
 
-    # Multi-GPU
-    if config.device:
-        cmd.extend(["--device", config.device])
-    if config.split_mode:
-        cmd.extend(["--split-mode", config.split_mode])
-    if config.tensor_split:
-        cmd.extend(["--tensor-split", config.tensor_split])
-
     # Extra args
     cmd.extend(config.extra_args)
 
@@ -169,7 +165,7 @@ def start_server(
 
     # Create logs directory
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    log_file = LOG_DIR / f"{config.name}-{config.port}.log"
+    log_file = LOG_DIR / f"{config.name}-{port}.log"
 
     with open(log_file, "w") as log:
         process = subprocess.Popen(

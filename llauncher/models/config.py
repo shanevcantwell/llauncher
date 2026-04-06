@@ -27,6 +27,7 @@ class ModelConfig(BaseModel):
     threads: int | None = None
     threads_batch: int = Field(default=8, gt=0)
     ubatch_size: int = Field(default=512, gt=0)
+    batch_size: int | None = None  # --batch-size / -b
     flash_attn: Literal["on", "off", "auto"] = "on"
     no_mmap: bool = False
     cache_type_k: Literal["f32", "f16", "bf16", "q8_0"] | None = None
@@ -41,10 +42,6 @@ class ModelConfig(BaseModel):
     reverse_prompt: str | None = None
     # Memory management
     mlock: bool = False
-    # Multi-GPU
-    device: str | None = None
-    split_mode: str | None = None
-    tensor_split: str | None = None
     extra_args: list[str] = []
     _skip_path_validation: bool = False  # Internal flag for discovery
 

@@ -86,6 +86,7 @@ def parse_launch_script(script: Path) -> ModelConfig | None:
         "threads": _get_int(args, "--threads"),
         "threads_batch": int(args.get("--threads-batch", 8)),
         "ubatch_size": int(args.get("--ubatch-size", 512)),
+        "batch_size": _get_int(args, "--batch-size", args.get("-b")),
         "flash_attn": args.get("--flash-attn", "on"),
         "no_mmap": "--no-mmap" in args,
         "cache_type_k": args.get("--cache-type-k", args.get("-ctk")),
@@ -100,10 +101,6 @@ def parse_launch_script(script: Path) -> ModelConfig | None:
         "reverse_prompt": args.get("-r", args.get("--reverse-prompt")),
         # Memory management
         "mlock": "--mlock" in args,
-        # Multi-GPU
-        "device": args.get("--device", args.get("-dev")),
-        "split_mode": args.get("--split-mode", args.get("-sm")),
-        "tensor_split": args.get("--tensor-split", args.get("-ts")),
         "extra_args": [],
     }
 

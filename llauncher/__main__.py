@@ -24,7 +24,7 @@ def main():
         for config in configs:
             print(f"\n{config.name}:")
             print(f"  Model: {config.model_path}")
-            print(f"  Port: {config.port}")
+            print(f"  Default Port: {config.default_port or 'Auto-allocate'}")
             print(f"  GPU Layers: {config.n_gpu_layers}")
             print(f"  Context: {config.ctx_size}")
 

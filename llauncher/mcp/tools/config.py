@@ -237,13 +237,14 @@ async def remove_model(state: LauncherState, args: dict) -> dict:
     if name not in state.models:
         return {"success": False, "error": f"Model not found: {name}"}
 
-    # Check if server is running
+    # Check if server is running for this model
     config = state.models[name]
-    if config.port in state.running:
-        return {
-            "success": False,
-            "error": f"Cannot remove model: server is running on port {config.port}",
-        }
+    for port, running_server in state.running.items():
+        if running_server.config_name == name:
+            return {
+                "success": False,
+                "error": f"Cannot remove model: server is running on port {port}",
+            }
 
     # Remove the config
     from llauncher.core.config import ConfigStore
