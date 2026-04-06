@@ -216,7 +216,7 @@ def render_add_model(state: LauncherState) -> None:
             col_adv3, col_adv4, col_adv5 = st.columns(3)
             with col_adv3:
                 batch_size = st.number_input(
-                    "Batch Size (optional)", min_value=1, value=0
+                    "Batch Size (optional)", min_value=0, value=0
                 )
             with col_adv4:
                 temperature = st.number_input(
@@ -369,7 +369,7 @@ def render_edit_model(state: LauncherState, model_name: str) -> None:
             col_adv3, col_adv4, col_adv5 = st.columns(3)
             with col_adv3:
                 batch_size = st.number_input(
-                    "Batch Size (optional)", min_value=1, value=config.batch_size or 0
+                    "Batch Size (optional)", min_value=0, value=config.batch_size or 0
                 )
             with col_adv4:
                 temperature = st.number_input(
