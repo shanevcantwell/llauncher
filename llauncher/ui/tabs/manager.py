@@ -118,7 +118,7 @@ def render_add_model(state: LauncherState) -> None:
         with col4:
             host = st.text_input("Host", value="0.0.0.0")
         with col5:
-            threads = st.number_input("Threads (optional)", min_value=1, value=0)
+            threads = st.number_input("Threads (optional)", min_value=0, value=0)
         with col6:
             flash_attn = st.selectbox("Flash Attention", ["on", "off", "auto"], index=0)
 
