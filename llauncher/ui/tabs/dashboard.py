@@ -14,9 +14,6 @@ def render_dashboard(state: LauncherState) -> None:
     """
     st.header("📊 Dashboard")
 
-    # Auto-refresh for live log updates
-    st.auto_refresh(3, key="log_refresh")
-
     # Check if we're editing a model
     editing_model = None
     for name in state.models:

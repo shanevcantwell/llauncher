@@ -28,43 +28,15 @@ def main():
     # Get state
     state = get_state()
 
-    # Sidebar navigation
-    st.sidebar.header("Navigation")
-
-    # Check if a page was selected via session state (e.g., from Dashboard Edit)
-    selected_page = st.session_state.pop("selected_page", None)
-
-    page = st.sidebar.radio(
-        "Page navigation",
-        ["Dashboard", "Manager", "Running"],
-        index=0 if selected_page is None else ["Dashboard", "Manager", "Running"].index(selected_page),
-        label_visibility="collapsed",
-    )
-
-    # Override with session state selection if present
-    if selected_page:
-        page = selected_page
-
-    # Refresh button
+    # Sidebar - just a refresh button
     if st.sidebar.button("🔄 Refresh", use_container_width=True):
         state.refresh()
         st.rerun()
 
-    # Render selected page
-    if page == "Dashboard":
-        from llauncher.ui.tabs.dashboard import render_dashboard
+    # Render Dashboard (only tab now)
+    from llauncher.ui.tabs.dashboard import render_dashboard
 
-        render_dashboard(state)
-
-    elif page == "Manager":
-        from llauncher.ui.tabs.manager import render_manager
-
-        render_manager(state)
-
-    elif page == "Running":
-        from llauncher.ui.tabs.running import render_running
-
-        render_running(state)
+    render_dashboard(state)
 
 
 if __name__ == "__main__":
