@@ -63,9 +63,42 @@ def render_model_list(state: LauncherState) -> None:
                 st.markdown(f"`{config.n_gpu_layers}`")
 
             # Actions
-            action_col1, action_col2 = st.columns(2)
+            action_col1, action_col2, action_col3 = st.columns(3)
 
             with action_col1:
+                if st.button(
+                    "▶️ Start" if not is_running else "⏹️ Stop",
+                    use_container_width=True,
+                    key=f"startstop_{name}",
+                ):
+                    if is_running:
+                        success, message = state.stop_server(config.port, caller="ui")
+                        if success:
+                            st.success(message)
+                        else:
+                            st.error(message)
+                    else:
+                        valid, msg = state.can_start(config, caller="ui")
+                        if valid:
+                            success, message, _ = state.start_server(name, caller="ui")
+                            if success:
+                                st.success(message)
+                            else:
+                                st.error(message)
+                        else:
+                            st.error(f"Cannot start: {msg}")
+                    st.rerun()
+
+            with action_col2:
+                if st.button(
+                    "✏️ Edit",
+                    use_container_width=True,
+                    key=f"edit_{name}",
+                ):
+                    st.session_state[f"editing_{name}"] = True
+                    st.rerun()
+
+            with action_col3:
                 if st.button(
                     "🗑️ Delete",
                     use_container_width=True,
@@ -82,15 +115,6 @@ def render_model_list(state: LauncherState) -> None:
                         del state.models[name]
                         st.success(f"Deleted {name}")
                         st.rerun()
-
-            with action_col2:
-                if st.button(
-                    "✏️ Edit",
-                    use_container_width=True,
-                    key=f"edit_{name}",
-                ):
-                    st.session_state[f"editing_{name}"] = True
-                    st.rerun()
 
 
 def render_add_model(state: LauncherState) -> None:

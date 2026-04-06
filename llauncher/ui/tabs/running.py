@@ -12,6 +12,9 @@ def render_running(state: LauncherState) -> None:
     Args:
         state: The launcher state.
     """
+    # Auto-refresh logs every 3 seconds
+    st.auto_refresh(3, key="log_refresh")
+
     st.header("🏃 Running Servers")
 
     if not state.running:
