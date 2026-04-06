@@ -139,3 +139,4 @@ cython_debug/
 *.log
 ~/.llauncher/
 llauncher-config.json
+.claude/
