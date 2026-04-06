@@ -118,7 +118,7 @@ def render_add_model(state: LauncherState) -> None:
             )
         with col2:
             n_gpu_layers = st.number_input(
-                "GPU Layers", min_value=0, max_value=255, value=255
+                "GPU Layers", min_value=0, max_value=1024, value=255
             )
         with col3:
             ctx_size = st.number_input(
@@ -213,7 +213,7 @@ def render_edit_model(state: LauncherState, model_name: str) -> None:
             n_gpu_layers = st.number_input(
                 "GPU Layers",
                 min_value=0,
-                max_value=255,
+                max_value=1024,
                 value=config.n_gpu_layers,
             )
         with col3:
