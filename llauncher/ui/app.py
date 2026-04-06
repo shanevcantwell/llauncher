@@ -31,9 +31,10 @@ def main():
     # Sidebar navigation
     st.sidebar.header("Navigation")
     page = st.sidebar.radio(
-        "",
+        "Page navigation",
         ["Dashboard", "Manager", "Running"],
         index=0,
+        label_visibility="collapsed",
     )
 
     # Refresh button

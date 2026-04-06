@@ -41,7 +41,7 @@ def render_model_list(state: LauncherState) -> None:
             f"**{name}** {'🟢' if is_running else '⚫'}",
             expanded=False,
         ):
-            col1, col2 = st.columns(3)
+            col1, col2 = st.columns(2)
             with col1:
                 st.markdown(f"**Port**")
                 st.markdown(f"**Model Path**")
