@@ -25,8 +25,9 @@ class ConfigStore:
 
         try:
             data = json.loads(CONFIG_PATH.read_text())
+            # Use from_dict_unvalidated to skip path validation for persisted configs
             return {
-                name: ModelConfig.model_validate(cfg)
+                name: ModelConfig.from_dict_unvalidated(cfg)
                 for name, cfg in data.items()
             }
         except (json.JSONDecodeError, OSError) as e:

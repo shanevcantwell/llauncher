@@ -93,7 +93,7 @@ def parse_launch_script(script: Path) -> ModelConfig | None:
         "cache_type_v": args.get("--cache-type-v", args.get("-ctv")),
         "n_cpu_moe": _get_int(args, "--n-cpu-moe", args.get("-ncmoe")),
         # Parallel/server slots
-        "parallel": _get_int(args, "--parallel", args.get("--n-parallel", args.get("-np", "1"))),
+        "parallel": _get_parallel(args),
         # Sampling parameters
         "temperature": _get_float(args, "--temp"),
         "top_k": _get_int(args, "--top-k"),
@@ -196,6 +196,22 @@ def _get_int(args: dict[str, str | bool], key: str, alt_key: str | None = None) 
         return int(value)
     except (ValueError, TypeError):
         return None
+
+
+def _get_parallel(args: dict[str, str | bool]) -> int:
+    """Get parallel slots from args, default to 1.
+
+    This always returns an integer (never None) because parallel has a default.
+    """
+    # Check all possible keys for parallel setting
+    for key in ["--parallel", "--n-parallel", "-np"]:
+        value = args.get(key)
+        if value is not None and not isinstance(value, bool):
+            try:
+                return int(value)
+            except (ValueError, TypeError):
+                pass
+    return 1  # Default
 
 
 def _get_float(args: dict[str, str | bool], key: str) -> float | None:
