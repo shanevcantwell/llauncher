@@ -89,9 +89,22 @@ def parse_launch_script(script: Path) -> ModelConfig | None:
         "ubatch_size": int(args.get("--ubatch-size", 512)),
         "flash_attn": args.get("--flash-attn", "on"),
         "no_mmap": "--no-mmap" in args,
-        "cache_type_k": args.get("--cache-type-k"),
-        "cache_type_v": args.get("--cache-type-v"),
-        "n_cpu_moe": _get_int(args, "--n-cpu-moe"),
+        "cache_type_k": args.get("--cache-type-k", args.get("-ctk")),
+        "cache_type_v": args.get("--cache-type-v", args.get("-ctv")),
+        "n_cpu_moe": _get_int(args, "--n-cpu-moe", args.get("-ncmoe")),
+        # Parallel/server slots
+        "parallel": _get_int(args, "--parallel", args.get("--n-parallel", args.get("-np", "1"))),
+        # Sampling parameters
+        "temperature": _get_float(args, "--temp"),
+        "top_k": _get_int(args, "--top-k"),
+        "min_p": _get_float(args, "--min-p"),
+        "reverse_prompt": args.get("-r", args.get("--reverse-prompt")),
+        # Memory management
+        "mlock": "--mlock" in args,
+        # Multi-GPU
+        "device": args.get("--device", args.get("-dev")),
+        "split_mode": args.get("--split-mode", args.get("-sm")),
+        "tensor_split": args.get("--tensor-split", args.get("-ts")),
         "extra_args": [],
     }
 
@@ -172,15 +185,28 @@ def _get_port(args: dict[str, str | bool]) -> int:
     return 8080
 
 
-def _get_int(args: dict[str, str | bool], key: str) -> int | None:
+def _get_int(args: dict[str, str | bool], key: str, alt_key: str | None = None) -> int | None:
     """Safely get an integer value from args."""
-    value = args.get(key)
+    value = args.get(key) or (args.get(alt_key) if alt_key else None)
     if value is None:
         return None
     if isinstance(value, bool):
         return None
     try:
         return int(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def _get_float(args: dict[str, str | bool], key: str) -> float | None:
+    """Safely get a float value from args."""
+    value = args.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    try:
+        return float(value)
     except (ValueError, TypeError):
         return None
 

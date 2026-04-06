@@ -159,6 +159,49 @@ def render_add_model(state: LauncherState) -> None:
 
         no_mmap = st.checkbox("Disable Memory Mapping (no-mmap)", value=False)
 
+        # Additional options (expandable)
+        with st.expander("Advanced Options", expanded=False):
+            col_adv1, col_adv2 = st.columns(2)
+            with col_adv1:
+                parallel = st.number_input(
+                    "Parallel Slots (-np)", min_value=1, value=1
+                )
+            with col_adv2:
+                mlock = st.checkbox("Lock Memory in RAM (mlock)", value=False)
+
+            col_adv3, col_adv4, col_adv5 = st.columns(3)
+            with col_adv3:
+                temperature = st.number_input(
+                    "Temperature (optional)", min_value=0.0, value=0.7, step=0.1
+                )
+            with col_adv4:
+                top_k = st.number_input(
+                    "Top-K (optional)", min_value=0, value=40
+                )
+            with col_adv5:
+                min_p = st.number_input(
+                    "Min-P (optional)", min_value=0.0, max_value=1.0, value=0.1, step=0.01
+                )
+
+            reverse_prompt = st.text_input(
+                "Reverse Prompt (optional)",
+                help="Halt generation when this string is encountered",
+            )
+
+            col_adv6, col_adv7, col_adv8 = st.columns(3)
+            with col_adv6:
+                device = st.text_input(
+                    "Device (Multi-GPU)", help="GPU device selection"
+                )
+            with col_adv7:
+                split_mode = st.text_input(
+                    "Split Mode", help="Multi-GPU split strategy"
+                )
+            with col_adv8:
+                tensor_split = st.text_input(
+                    "Tensor Split", help="GPU memory proportions"
+                )
+
         submitted = st.form_submit_button("Add Model", use_container_width=True)
 
         if submitted:
@@ -185,6 +228,15 @@ def render_add_model(state: LauncherState) -> None:
                     threads=threads if threads > 0 else None,
                     flash_attn=flash_attn,
                     no_mmap=no_mmap,
+                    parallel=parallel,
+                    mlock=mlock,
+                    temperature=temperature if temperature > 0 else None,
+                    top_k=top_k if top_k > 0 else None,
+                    min_p=min_p if min_p > 0 else None,
+                    reverse_prompt=reverse_prompt or None,
+                    device=device or None,
+                    split_mode=split_mode or None,
+                    tensor_split=tensor_split or None,
                 )
 
                 ConfigStore.add_model(config)
@@ -269,6 +321,57 @@ def render_edit_model(state: LauncherState, model_name: str) -> None:
             value=config.no_mmap,
         )
 
+        # Additional options (expandable)
+        with st.expander("Advanced Options", expanded=False):
+            col_adv1, col_adv2 = st.columns(2)
+            with col_adv1:
+                parallel = st.number_input(
+                    "Parallel Slots (-np)", min_value=1, value=config.parallel
+                )
+            with col_adv2:
+                mlock = st.checkbox("Lock Memory in RAM (mlock)", value=config.mlock)
+
+            col_adv3, col_adv4, col_adv5 = st.columns(3)
+            with col_adv3:
+                temperature = st.number_input(
+                    "Temperature (optional)",
+                    min_value=0.0,
+                    value=config.temperature or 0.7,
+                    step=0.1,
+                )
+            with col_adv4:
+                top_k = st.number_input(
+                    "Top-K (optional)", min_value=0, value=config.top_k or 40
+                )
+            with col_adv5:
+                min_p = st.number_input(
+                    "Min-P (optional)",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=config.min_p or 0.1,
+                    step=0.01,
+                )
+
+            reverse_prompt = st.text_input(
+                "Reverse Prompt (optional)",
+                value=config.reverse_prompt or "",
+                help="Halt generation when this string is encountered",
+            )
+
+            col_adv6, col_adv7, col_adv8 = st.columns(3)
+            with col_adv6:
+                device = st.text_input(
+                    "Device (Multi-GPU)", value=config.device or "", help="GPU device selection"
+                )
+            with col_adv7:
+                split_mode = st.text_input(
+                    "Split Mode", value=config.split_mode or "", help="Multi-GPU split strategy"
+                )
+            with col_adv8:
+                tensor_split = st.text_input(
+                    "Tensor Split", value=config.tensor_split or "", help="GPU memory proportions"
+                )
+
         col_submit, col_cancel = st.columns(2)
         with col_submit:
             submitted = st.form_submit_button("Save Changes", use_container_width=True)
@@ -298,6 +401,15 @@ def render_edit_model(state: LauncherState, model_name: str) -> None:
                         "threads": threads if threads > 0 else None,
                         "flash_attn": flash_attn,
                         "no_mmap": no_mmap,
+                        "parallel": parallel,
+                        "mlock": mlock,
+                        "temperature": temperature if temperature > 0 else None,
+                        "top_k": top_k if top_k > 0 else None,
+                        "min_p": min_p if min_p > 0 else None,
+                        "reverse_prompt": reverse_prompt or None,
+                        "device": device or None,
+                        "split_mode": split_mode or None,
+                        "tensor_split": tensor_split or None,
                     }
                 )
 

@@ -27,6 +27,19 @@ class ModelConfig(BaseModel):
     cache_type_k: Literal["f32", "f16", "bf16", "q8_0"] | None = None
     cache_type_v: Literal["f32", "f16", "bf16", "q8_0"] | None = None
     n_cpu_moe: int | None = Field(default=None, ge=0)
+    # Parallel/server slots
+    parallel: int = Field(default=1, gt=0)
+    # Sampling parameters
+    temperature: float | None = None
+    top_k: int | None = None
+    min_p: float | None = None
+    reverse_prompt: str | None = None
+    # Memory management
+    mlock: bool = False
+    # Multi-GPU
+    device: str | None = None
+    split_mode: str | None = None
+    tensor_split: str | None = None
     extra_args: list[str] = []
     _skip_path_validation: bool = False  # Internal flag for discovery
 

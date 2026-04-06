@@ -69,6 +69,32 @@ def build_command(config: ModelConfig, server_bin: Path = DEFAULT_SERVER_BINARY)
     if config.n_cpu_moe:
         cmd.extend(["--n-cpu-moe", str(config.n_cpu_moe)])
 
+    # Parallel/server slots
+    if config.parallel and config.parallel > 1:
+        cmd.extend(["--parallel", str(config.parallel)])
+
+    # Sampling parameters
+    if config.temperature is not None:
+        cmd.extend(["--temp", str(config.temperature)])
+    if config.top_k is not None:
+        cmd.extend(["--top-k", str(config.top_k)])
+    if config.min_p is not None:
+        cmd.extend(["--min-p", str(config.min_p)])
+    if config.reverse_prompt:
+        cmd.extend(["--reverse-prompt", config.reverse_prompt])
+
+    # Memory management
+    if config.mlock:
+        cmd.append("--mlock")
+
+    # Multi-GPU
+    if config.device:
+        cmd.extend(["--device", config.device])
+    if config.split_mode:
+        cmd.extend(["--split-mode", config.split_mode])
+    if config.tensor_split:
+        cmd.extend(["--tensor-split", config.tensor_split])
+
     # Extra args
     cmd.extend(config.extra_args)
 
