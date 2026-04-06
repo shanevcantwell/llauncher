@@ -277,11 +277,19 @@ def render_edit_model(state: LauncherState, model_name: str) -> None:
                     }
                 )
 
-                ConfigStore.update_model(model_name, updated_config)
+                # Check if model exists in ConfigStore (persisted) or is discovered
+                persisted_models = ConfigStore.load()
+                if model_name in persisted_models:
+                    ConfigStore.update_model(model_name, updated_config)
+                    st.success(f"Updated model '{model_name}'")
+                else:
+                    # Discovered model - persist it now
+                    ConfigStore.add_model(updated_config)
+                    st.success(f"Saved model '{model_name}'")
+
                 state.models[model_name] = updated_config
                 del st.session_state[f"editing_{model_name}"]
-                st.success(f"Updated model '{model_name}'")
                 st.rerun()
 
             except Exception as e:
-                st.error(f"Error updating model: {e}")
+                st.error(f"Error saving model: {e}")
