@@ -5,7 +5,8 @@ import json
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent
+from mcp import Tool
+from mcp.types import TextContent
 
 from llauncher.state import LauncherState
 from llauncher.mcp.tools import models as models_tools

@@ -1,6 +1,6 @@
 """MCP tools for server management (start/stop/status)."""
 
-from mcp.types import Tool
+from mcp import Tool
 
 from llauncher.state import LauncherState
 from llauncher.core.process import stream_logs

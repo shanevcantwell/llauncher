@@ -1,6 +1,6 @@
 """MCP tools for model listing and configuration."""
 
-from mcp.types import Tool
+from mcp import Tool
 
 from llauncher.state import LauncherState
 
