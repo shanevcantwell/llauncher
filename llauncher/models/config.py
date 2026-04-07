@@ -38,6 +38,7 @@ class ModelConfig(BaseModel):
     # Sampling parameters
     temperature: float | None = None
     top_k: int | None = None
+    top_p: float | None = None
     min_p: float | None = None
     reverse_prompt: str | None = None
     # Memory management

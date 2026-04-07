@@ -85,21 +85,19 @@ def render_model_entry(state: LauncherState, name: str, config) -> None:
         st.divider()
 
         # Log viewer (always available, even if process crashed)
-        log_col1, log_col2 = st.columns([4, 1])
-        with log_col1:
-            with st.expander("📄 Logs (last 200 lines)", expanded=False):
-                logs = stream_logs(
-                    pid=status_info.get("pid") if is_running else None,
-                    model_name=name,
-                    lines=200
-                )
-                if logs:
-                    st.code("\n".join(logs), language="bash", height=300)
-                else:
-                    st.info("No logs available yet")
-        with log_col2:
-            if st.button("🔄 Refresh Logs", use_container_width=True, key=f"refresh_logs_{name}"):
+        with st.expander("📄 Logs (last 200 lines)", expanded=False):
+            # Refresh button at top of log viewer
+            if st.button("🔄 Refresh", key=f"refresh_logs_{name}", help="Reload logs"):
                 st.rerun()
+            logs = stream_logs(
+                pid=status_info.get("pid") if is_running else None,
+                model_name=name,
+                lines=200
+            )
+            if logs:
+                st.code("\n".join(logs), language="bash", height=300)
+            else:
+                st.info("No logs available yet")
 
         # Actions
         action_col1, action_col2, action_col3 = st.columns(3)
@@ -234,7 +232,18 @@ def render_add_model(state: LauncherState) -> None:
                     "Temperature (optional)", min_value=0.0, value=0.7, step=0.1
                 )
 
-            min_p = st.number_input(
+            # Sampling parameters row 2
+            col_adv6, col_adv7, col_adv8 = st.columns(3)
+            with col_adv6:
+                top_k = st.number_input(
+                    "Top-K (optional)", min_value=0, value=40
+                )
+            with col_adv7:
+                top_p = st.number_input(
+                    "Top-P (optional)", min_value=0.0, max_value=1.0, value=0.9, step=0.01
+                )
+            with col_adv8:
+                min_p = st.number_input(
                 "Min-P (optional)", min_value=0.0, max_value=1.0, value=0.1, step=0.01
             )
 
@@ -277,6 +286,7 @@ def render_add_model(state: LauncherState) -> None:
                     batch_size=batch_size if batch_size > 0 else None,
                     temperature=temperature if temperature > 0 else None,
                     top_k=top_k if top_k > 0 else None,
+                    top_p=top_p if top_p > 0 else None,
                     min_p=min_p if min_p > 0 else None,
                     reverse_prompt=reverse_prompt or None,
                 )
@@ -391,6 +401,21 @@ def render_edit_model(state: LauncherState, model_name: str) -> None:
                     step=0.1,
                 )
 
+            # Sampling parameters row 2
+            col_adv6, col_adv7, col_adv8 = st.columns(3)
+            with col_adv6:
+                top_k = st.number_input(
+                    "Top-K (optional)", min_value=0, value=config.top_k or 40
+                )
+            with col_adv7:
+                top_p = st.number_input(
+                    "Top-P (optional)", min_value=0.0, max_value=1.0, value=config.top_p or 0.9, step=0.01
+                )
+            with col_adv8:
+                min_p = st.number_input(
+                    "Min-P (optional)", min_value=0.0, max_value=1.0, value=config.min_p or 0.1, step=0.01
+                )
+
             reverse_prompt = st.text_input(
                 "Reverse Prompt (optional)",
                 value=config.reverse_prompt or "",
@@ -431,6 +456,7 @@ def render_edit_model(state: LauncherState, model_name: str) -> None:
                         "batch_size": batch_size if batch_size > 0 else None,
                         "temperature": temperature if temperature > 0 else None,
                         "top_k": top_k if top_k > 0 else None,
+                        "top_p": top_p if top_p > 0 else None,
                         "min_p": min_p if min_p > 0 else None,
                         "reverse_prompt": reverse_prompt or None,
                     }

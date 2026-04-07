@@ -97,6 +97,7 @@ def parse_launch_script(script: Path) -> ModelConfig | None:
         # Sampling parameters
         "temperature": _get_float(args, "--temp"),
         "top_k": _get_int(args, "--top-k"),
+        "top_p": _get_float(args, "--top-p"),
         "min_p": _get_float(args, "--min-p"),
         "reverse_prompt": args.get("-r", args.get("--reverse-prompt")),
         # Memory management

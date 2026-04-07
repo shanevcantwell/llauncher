@@ -122,6 +122,8 @@ def build_command(
         cmd.extend(["--temp", str(config.temperature)])
     if config.top_k is not None:
         cmd.extend(["--top-k", str(config.top_k)])
+    if config.top_p is not None:
+        cmd.extend(["--top-p", str(config.top_p)])
     if config.min_p is not None:
         cmd.extend(["--min-p", str(config.min_p)])
     if config.reverse_prompt:
