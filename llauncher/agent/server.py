@@ -7,8 +7,11 @@ Usage:
     llauncher-agent
     # or with custom config
     LAUNCHER_AGENT_PORT=9000 LAUNCHER_AGENT_NODE_NAME="my-node" llauncher-agent
+    # stop running agent
+    llauncher-agent --stop
 """
 
+import argparse
 import logging
 import socket
 import sys
@@ -25,6 +28,93 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+def find_process_on_port(port: int) -> int | None:
+    """Find the PID of the process listening on the given port.
+
+    Args:
+        port: Port number to check.
+
+    Returns:
+        PID of the process, or None if not found.
+    """
+    import os
+
+    # Try to find process using /proc on Linux
+    if sys.platform == "linux":
+        import glob
+
+        for fd_path in glob.glob(f"/proc/*/fd/*"):
+            try:
+                fd = int(fd_path.split("/")[-1])
+                link = os.readlink(fd_path)
+                if "socket:" in link:
+                    # Get the process ID
+                    pid = int(fd_path.split("/")[2])
+                    # Check if this socket is bound to our port
+                    # by reading /proc/net/tcp
+                    with open("/proc/net/tcp") as f:
+                        for line in f:
+                            if ":%.4X " % port in line:
+                                return pid
+            except (ValueError, OSError, FileNotFoundError):
+                continue
+        return None
+
+    # On Windows, we'd need to use netstat or wmi
+    # For now, just return None and let the caller handle it
+    return None
+
+
+def stop_agent(port: int) -> bool:
+    """Stop any agent running on the given port.
+
+    Args:
+        port: Port the agent is listening on.
+
+    Returns:
+        True if agent was stopped, False if no agent found or error.
+    """
+    try:
+        # Try to connect to the agent's health endpoint
+        import httpx
+
+        response = httpx.get(f"http://localhost:{port}/health", timeout=2.0)
+        if response.status_code == 200:
+            # Agent is running, try to find and kill it
+            pid = find_process_on_port(port)
+            if pid:
+                import signal
+                os.kill(pid, signal.SIGTERM)
+                logger.info(f"Agent (PID {pid}) terminated")
+                return True
+
+            # Fallback: try to find via socket
+            import psutil
+
+            for conn in psutil.net_connections(kind="tcp"):
+                if conn.laddr.port == port and conn.status == "LISTEN":
+                    try:
+                        proc = conn.pid
+                        p = psutil.Process(proc)
+                        p.terminate()
+                        logger.info(f"Agent (PID {proc}) terminated")
+                        return True
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        continue
+
+            logger.warning("Agent is running but could not find process to terminate")
+            return False
+        else:
+            logger.info("No agent responding on port")
+            return False
+    except httpx.RequestError:
+        logger.info("No agent running on port")
+        return False
+    except Exception as e:
+        logger.error(f"Error stopping agent: {e}")
+        return False
 
 
 def create_app() -> FastAPI:
@@ -76,7 +166,27 @@ def run_agent(config: AgentConfig) -> None:
 
 def main() -> None:
     """Main entry point for the agent CLI."""
-    # Load config from environment
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="llauncher agent")
+    parser.add_argument(
+        "--stop",
+        action="store_true",
+        help="Stop any running agent and exit",
+    )
+    args = parser.parse_args()
+
+    # Handle --stop flag
+    if args.stop:
+        config = AgentConfig.from_env()
+        success = stop_agent(config.port)
+        if success:
+            logger.info("Agent stopped successfully")
+            sys.exit(0)
+        else:
+            logger.info("No running agent found to stop")
+            sys.exit(0)
+
+    # Load config from environment and start agent
     config = AgentConfig.from_env()
 
     try:

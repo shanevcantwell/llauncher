@@ -39,8 +39,16 @@ def get_aggregator() -> RemoteAggregator:
     return RemoteAggregator(registry)
 
 
-def ensure_local_agent(registry: NodeRegistry) -> None:
-    """Ensure local agent is running and registered."""
+def ensure_local_agent(registry: NodeRegistry, show_loading: bool = False) -> bool:
+    """Ensure local agent is running and registered.
+
+    Args:
+        registry: NodeRegistry instance.
+        show_loading: If True, show loading progress in Streamlit.
+
+    Returns:
+        True if agent is ready, False otherwise.
+    """
     import os
     import socket
     import sys
@@ -51,7 +59,7 @@ def ensure_local_agent(registry: NodeRegistry) -> None:
     # Check if local node exists and is online
     local_node = registry.get_node("local")
     if local_node and local_node.ping():
-        return
+        return True
 
     # Check if port is in use
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -61,7 +69,7 @@ def ensure_local_agent(registry: NodeRegistry) -> None:
             # Something is running - add to registry if not present
             if not local_node:
                 registry.add_node("local", "localhost", AGENT_PORT, overwrite=True)
-            return
+            return True
         except (ConnectionRefusedError, TimeoutError, OSError):
             pass
 
@@ -80,32 +88,133 @@ def ensure_local_agent(registry: NodeRegistry) -> None:
             kwargs["start_new_session"] = True
 
         subprocess.Popen(["llauncher-agent"], **kwargs)
-        time.sleep(2)
 
         # Add to registry if not present
         if not registry.get_node("local"):
             registry.add_node("local", "localhost", AGENT_PORT, overwrite=True)
 
-        # Verify it's running
-        local_node = registry.get_node("local")
-        if local_node and local_node.ping():
-            st.session_state["local_agent_started"] = True
-    except Exception:
-        pass
+        # Wait for agent to be ready with loading feedback
+        max_wait = 10  # seconds
+        waited = 0
+        if show_loading:
+            loading_container = st.container()
+            with loading_container:
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                status_text.text("⏳ Starting local agent...")
+
+        while waited < max_wait:
+            local_node = registry.get_node("local")
+            if local_node and local_node.ping():
+                if show_loading:
+                    progress_bar.progress(100)
+                    status_text.text("✅ Agent ready!")
+                    time.sleep(0.5)
+                    progress_bar.empty()
+                    status_text.empty()
+                return True
+
+            time.sleep(0.5)
+            waited += 0.5
+            if show_loading:
+                progress = min(int((waited / max_wait) * 100), 95)
+                progress_bar.progress(progress)
+
+        # Timeout - show error
+        if show_loading:
+            progress_bar.empty()
+            status_text.empty()
+            st.error("⚠️ Agent failed to start. Check console for errors.")
+
+        return False
+    except Exception as e:
+        if show_loading:
+            st.error(f"⚠️ Failed to start agent: {e}")
+        return False
+
+
+def show_loading_screen(registry: NodeRegistry) -> bool:
+    """Show a full-screen loading overlay while waiting for the agent.
+
+    Args:
+        registry: NodeRegistry instance.
+
+    Returns:
+        True if agent is ready, False if failed.
+    """
+    # Full-screen loading overlay
+    st.markdown("""
+    <style>
+    .loading-screen {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.85);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+        color: white;
+        font-family: sans-serif;
+    }
+    .loading-spinner {
+        border: 4px solid rgba(255, 255, 255, 0.1);
+        border-top: 4px solid #4CAF50;
+        border-radius: 50%;
+        width: 60px;
+        height: 60px;
+        animation: spin 1s linear infinite;
+        margin-bottom: 20px;
+    }
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div class="loading-screen">
+        <div class="loading-spinner"></div>
+        <h2>🚀 Starting llauncher...</h2>
+        <p>Initializing agent and loading models</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    return ensure_local_agent(registry, show_loading=True)
 
 
 def main():
     """Main entry point for the Streamlit app."""
-    st.title("🚀 llauncher")
-    st.markdown("Manage your llama.cpp servers across multiple nodes")
-
     # Get state and registry
     state = get_state()
     registry = get_registry()
     aggregator = get_aggregator()
 
-    # Ensure local agent is running
-    ensure_local_agent(registry)
+    # Check if we need to show loading screen
+    local_node = registry.get_node("local")
+    agent_ready = False
+
+    if local_node and local_node.ping():
+        # Agent already ready, skip loading screen
+        agent_ready = True
+    else:
+        # Show loading screen and wait for agent
+        agent_ready = show_loading_screen(registry)
+
+    # Only render main UI if agent is ready
+    if not agent_ready:
+        st.error("⚠️ Could not connect to local agent. Please try restarting the UI.")
+        st.markdown("### Troubleshooting:")
+        st.markdown("- Check if `llauncher-agent` command is available")
+        st.markdown("- Try running `llauncher-agent` manually in a separate terminal")
+        return
+
+    st.title("🚀 llauncher")
+    st.markdown("Manage your llama.cpp servers across multiple nodes")
 
     # Sidebar
     with st.sidebar:
