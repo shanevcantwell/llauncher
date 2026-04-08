@@ -44,8 +44,9 @@ case "${1:-}" in
         echo ""
         echo "Commands available:"
         echo "  ./run.sh mcp     - Start MCP server"
-        echo "  ./run.sh ui      - Start Streamlit UI"
+        echo "  ./run.sh ui      - Start Streamlit UI (auto-starts agent)"
         echo "  ./run.sh agent   - Start remote management agent"
+        echo "  ./run.sh stop    - Stop running agent"
         echo "  ./run.sh discover - List discovered models"
         ;;
     mcp)
@@ -70,6 +71,10 @@ case "${1:-}" in
         echo "Logs: $PROJECT_DIR/agent.log"
         echo "Stop with: kill \$(cat $PROJECT_DIR/agent.pid)"
         ;;
+    stop)
+        print_info "Stopping remote management agent..."
+        llauncher-agent --stop
+        ;;
     discover)
         print_info "Discovering launch scripts..."
         python -m llauncher discover
@@ -82,9 +87,10 @@ case "${1:-}" in
         echo "Commands:"
         echo "  install   Install llauncher and dependencies"
         echo "  mcp       Start MCP server (for LLM clients)"
-        echo "  ui        Start Streamlit UI (dashboard)"
+        echo "  ui        Start Streamlit UI (auto-starts agent)"
         echo "  agent     Start remote management agent (foreground)"
         echo "  agent-bg  Start remote management agent (background)"
+        echo "  stop      Stop running agent"
         echo "  discover  List discovered launch scripts"
         echo ""
         echo "Environment variables for agent:"
