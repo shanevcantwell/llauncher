@@ -152,7 +152,7 @@ def render_server_entry(
         server: Server info.
     """
     with st.expander(f"**{server.config_name}** on {server.node_name}:⚫", expanded=False):
-        col1, col2 = st.columns(3)
+        col1, col2 = st.columns(2)
         with col1:
             st.markdown(f"**Port**")
             st.markdown(f"**PID**")
