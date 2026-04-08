@@ -414,6 +414,11 @@ def render_add_model(state: LauncherState) -> None:
         submitted = st.form_submit_button("Add Model", use_container_width=True)
 
         if submitted:
+            # Strip whitespace from inputs
+            name = name.strip()
+            model_path = model_path.strip()
+            mmproj_path = mmproj_path.strip() if mmproj_path else None
+
             if not name or not model_path:
                 st.error("Model name and path are required")
                 return
@@ -431,7 +436,7 @@ def render_add_model(state: LauncherState) -> None:
                 config = ModelConfig(
                     name=name,
                     model_path=model_path,
-                    mmproj_path=mmproj_path or None,
+                    mmproj_path=mmproj_path,
                     default_port=default_port_val,
                     n_gpu_layers=n_gpu_layers,
                     ctx_size=ctx_size,
@@ -446,7 +451,7 @@ def render_add_model(state: LauncherState) -> None:
                     top_k=top_k if top_k > 0 else None,
                     top_p=top_p if top_p > 0 else None,
                     min_p=min_p if min_p > 0 else None,
-                    reverse_prompt=reverse_prompt or None,
+                    reverse_prompt=reverse_prompt.strip() if reverse_prompt else None,
                 )
 
                 ConfigStore.add_model(config)
