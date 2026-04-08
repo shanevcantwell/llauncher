@@ -25,7 +25,6 @@ test = [
 
 [project.scripts]
 llauncher-mcp = "llauncher.mcp.server:main"
-llauncher-ui = "llauncher.ui.app:main"
 llauncher-agent = "llauncher.agent.server:main"
 
 [build-system]
