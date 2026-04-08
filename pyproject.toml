@@ -9,6 +9,9 @@ dependencies = [
     "mcp>=1.0.0",
     "psutil>=5.9.0",
     "python-dotenv>=1.0.0",
+    "fastapi>=0.109.0",
+    "uvicorn>=0.27.0",
+    "httpx>=0.26.0",
 ]
 
 [project.optional-dependencies]
@@ -23,6 +26,7 @@ test = [
 [project.scripts]
 llauncher-mcp = "llauncher.mcp.server:main"
 llauncher-ui = "llauncher.ui.app:main"
+llauncher-agent = "llauncher.agent.server:main"
 
 [build-system]
 requires = ["hatchling"]
