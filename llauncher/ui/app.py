@@ -39,21 +39,18 @@ def get_aggregator() -> RemoteAggregator:
     return RemoteAggregator(registry)
 
 
-def ensure_local_agent(registry: NodeRegistry, show_loading: bool = False) -> bool:
-    """Ensure local agent is running and registered.
+def is_agent_ready(registry: NodeRegistry) -> bool:
+    """Check if the local agent is ready.
 
     Args:
         registry: NodeRegistry instance.
-        show_loading: If True, show loading progress in Streamlit.
 
     Returns:
-        True if agent is ready, False otherwise.
+        True if agent is responding, False otherwise.
     """
     import os
     import socket
-    import sys
 
-    # Use same default port as the agent config
     AGENT_PORT = int(os.getenv("LAUNCHER_AGENT_PORT", "8765"))
 
     # Check if local node exists and is online
@@ -73,76 +70,45 @@ def ensure_local_agent(registry: NodeRegistry, show_loading: bool = False) -> bo
         except (ConnectionRefusedError, TimeoutError, OSError):
             pass
 
-    # Port is free, start the agent as a detached background process
-    try:
-        # Cross-platform process detachment:
-        # - Windows: CREATE_NEW_PROCESS_GROUP detaches from console
-        # - Unix: start_new_session creates new session (daemon-like)
-        kwargs = {
-            "stdout": subprocess.DEVNULL,
-            "stderr": subprocess.DEVNULL,
-        }
-        if sys.platform == "win32":
-            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-        else:
-            kwargs["start_new_session"] = True
-
-        subprocess.Popen(["llauncher-agent"], **kwargs)
-
-        # Add to registry if not present
-        if not registry.get_node("local"):
-            registry.add_node("local", "localhost", AGENT_PORT, overwrite=True)
-
-        # Wait for agent to be ready with loading feedback
-        max_wait = 10  # seconds
-        waited = 0
-        if show_loading:
-            loading_container = st.container()
-            with loading_container:
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                status_text.text("⏳ Starting local agent...")
-
-        while waited < max_wait:
-            local_node = registry.get_node("local")
-            if local_node and local_node.ping():
-                if show_loading:
-                    progress_bar.progress(100)
-                    status_text.text("✅ Agent ready!")
-                    time.sleep(0.5)
-                    progress_bar.empty()
-                    status_text.empty()
-                return True
-
-            time.sleep(0.5)
-            waited += 0.5
-            if show_loading:
-                progress = min(int((waited / max_wait) * 100), 95)
-                progress_bar.progress(progress)
-
-        # Timeout - show error
-        if show_loading:
-            progress_bar.empty()
-            status_text.empty()
-            st.error("⚠️ Agent failed to start. Check console for errors.")
-
-        return False
-    except Exception as e:
-        if show_loading:
-            st.error(f"⚠️ Failed to start agent: {e}")
-        return False
+    return False
 
 
-def show_loading_screen(registry: NodeRegistry) -> bool:
-    """Show a full-screen loading overlay while waiting for the agent.
+def start_agent_background(registry: NodeRegistry) -> None:
+    """Start the agent as a detached background process.
 
     Args:
         registry: NodeRegistry instance.
-
-    Returns:
-        True if agent is ready, False if failed.
     """
-    # Full-screen loading overlay
+    import os
+    import sys
+
+    AGENT_PORT = int(os.getenv("LAUNCHER_AGENT_PORT", "8765"))
+
+    # Cross-platform process detachment:
+    # - Windows: CREATE_NEW_PROCESS_GROUP detaches from console
+    # - Unix: start_new_session creates new session (daemon-like)
+    kwargs = {
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+    }
+    if sys.platform == "win32":
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        kwargs["start_new_session"] = True
+
+    subprocess.Popen(["llauncher-agent"], **kwargs)
+
+    # Add to registry if not present
+    if not registry.get_node("local"):
+        registry.add_node("local", "localhost", AGENT_PORT, overwrite=True)
+
+
+def show_loading_screen() -> None:
+    """Show a full-screen loading overlay.
+
+    This function only renders the loading screen and returns immediately.
+    The caller should use st.stop() or st.rerun() to control flow.
+    """
     st.markdown("""
     <style>
     .loading-screen {
@@ -184,8 +150,6 @@ def show_loading_screen(registry: NodeRegistry) -> bool:
     </div>
     """, unsafe_allow_html=True)
 
-    return ensure_local_agent(registry, show_loading=True)
-
 
 def main():
     """Main entry point for the Streamlit app."""
@@ -194,24 +158,36 @@ def main():
     registry = get_registry()
     aggregator = get_aggregator()
 
-    # Check if we need to show loading screen
-    local_node = registry.get_node("local")
-    agent_ready = False
+    # Track startup state in session
+    if "agent_startup_started" not in st.session_state:
+        st.session_state["agent_startup_started"] = False
 
-    if local_node and local_node.ping():
-        # Agent already ready, skip loading screen
-        agent_ready = True
-    else:
-        # Show loading screen and wait for agent
-        agent_ready = show_loading_screen(registry)
+    # Check if agent is ready
+    agent_ready = is_agent_ready(registry)
 
-    # Only render main UI if agent is ready
     if not agent_ready:
-        st.error("⚠️ Could not connect to local agent. Please try restarting the UI.")
-        st.markdown("### Troubleshooting:")
-        st.markdown("- Check if `llauncher-agent` command is available")
-        st.markdown("- Try running `llauncher-agent` manually in a separate terminal")
-        return
+        # Show loading screen
+        show_loading_screen()
+
+        # Start agent if not already started
+        if not st.session_state["agent_startup_started"]:
+            try:
+                start_agent_background(registry)
+                st.session_state["agent_startup_started"] = True
+            except Exception as e:
+                st.session_state["agent_startup_error"] = str(e)
+
+        # Check if we have an error
+        if st.session_state.get("agent_startup_error"):
+            st.stop()
+
+        # Rerun to check if agent is ready now
+        st.rerun()
+        st.stop()  # Always stop after loading screen
+
+    # Agent is ready - clear startup state and show main UI
+    st.session_state["agent_startup_started"] = False
+    st.session_state.pop("agent_startup_error", None)
 
     st.title("🚀 llauncher")
     st.markdown("Manage your llama.cpp servers across multiple nodes")
