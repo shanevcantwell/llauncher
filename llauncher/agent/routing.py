@@ -163,8 +163,8 @@ async def start_server(model_name: str) -> dict:
                 detail=f"Model '{model_name}' is already running on port {server.port}",
             )
 
-    # Attempt to start
-    success, port, message = state.start_server(config, caller="agent")
+    # Attempt to start - pass model_name string, not config object
+    success, message, process = state.start_server(model_name, caller="agent")
 
     if not success:
         raise HTTPException(status_code=409, detail=message)
@@ -172,18 +172,19 @@ async def start_server(model_name: str) -> dict:
     # Refresh to get the new server info
     state.refresh_running_servers()
 
-    # Find the newly started server
+    # Find the newly started server to get port and pid
     for server in state.running.values():
-        if server.config_name == model_name and server.port == port:
+        if server.config_name == model_name:
             return {
                 "success": True,
                 "message": message,
-                "port": port,
+                "port": server.port,
                 "pid": server.pid,
                 "config_name": model_name,
             }
 
-    return {"success": True, "message": message, "port": port}
+    # Fallback if server not found in running list
+    return {"success": True, "message": message}
 
 
 @router.post("/stop/{port}")
