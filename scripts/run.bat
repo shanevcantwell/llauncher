@@ -2,34 +2,63 @@
 REM llauncher - Windows runner script
 REM Usage: run.bat [mcp|ui|agent|discover|install]
 
-SET SCRIPT_DIR=%~dp0
-SET PROJECT_DIR=%SCRIPT_DIR..%
+REM Get the directory where this script is located
+set "SCRIPT_DIR=%~dp0"
+set "PROJECT_DIR=%SCRIPT_DIR%.."
 
-REM Check if virtual environment exists
-IF NOT EXIST "%PROJECT_DIR%\.venv" (
-    echo [INFO] Virtual environment not found. Creating one...
-    cd /d "%PROJECT_DIR%"
-    python -m venv .venv
-    echo [OK] Virtual environment created
+REM Parse command early to handle install differently
+if "%~1"=="" goto :help
+if /i "%~1"=="install" goto :install
+
+REM For all other commands, ensure venv exists first
+if not exist "%PROJECT_DIR%\.venv\Scripts\python.exe" (
+    echo [ERROR] Virtual environment not found.
+    echo Please run: run.bat install
+    exit /b 1
 )
 
-REM Activate virtual environment
-CALL "%PROJECT_DIR%\.venv\Scripts\activate.bat"
+REM Activate virtual environment by setting PATH
+set "PYTHON_EXECUTABLE=%PROJECT_DIR%\.venv\Scripts\python.exe"
+set "PATH=%PROJECT_DIR%\.venv\Scripts;%PATH%"
 
-REM Parse command
-IF "%~1"=="" GOTO :help
-IF "%~1"=="install" GOTO :install
-IF "%~1"=="mcp" GOTO :mcp
-IF "%~1"=="ui" GOTO :ui
-IF "%~1"=="agent" GOTO :agent
-IF "%~1"=="agent-bg" GOTO :agent-bg
-IF "%~1"=="discover" GOTO :discover
+REM Now parse and execute command
+if /i "%~1"=="mcp" goto :mcp
+if /i "%~1"=="ui" goto :ui
+if /i "%~1"=="agent" goto :agent
+if /i "%~1"=="agent-bg" goto :agent-bg
+if /i "%~1"=="discover" goto :discover
 
-GOTO :help
+goto :help
 
 :install
     echo [INFO] Installing llauncher and dependencies...
-    pip install -e ".[ui]" >nul 2>&1
+
+    REM Check if venv exists, create if not
+    if not exist "%PROJECT_DIR%\.venv\Scripts\python.exe" (
+        echo [INFO] Virtual environment not found. Creating one...
+        cd /d "%PROJECT_DIR%"
+        python -m venv .venv
+        if errorlevel 1 (
+            echo [ERROR] Failed to create virtual environment
+            exit /b 1
+        )
+        echo [OK] Virtual environment created
+        echo.
+    )
+
+    REM Upgrade pip and install dependencies
+    echo [INFO] Upgrading pip...
+    "%PROJECT_DIR%\.venv\Scripts\python.exe" -m pip install --upgrade pip >nul 2>&1
+
+    echo [INFO] Installing llauncher with UI dependencies...
+    cd /d "%PROJECT_DIR%"
+    "%PROJECT_DIR%\.venv\Scripts\python.exe" -m pip install -e ".[ui]"
+    if errorlevel 1 (
+        echo [ERROR] Installation failed
+        exit /b 1
+    )
+
+    echo.
     echo [OK] Installation complete
     echo.
     echo Commands available:
@@ -37,36 +66,36 @@ GOTO :help
     echo   run.bat ui        - Start Streamlit UI
     echo   run.bat agent     - Start remote management agent
     echo   run.bat discover  - List discovered models
-    GOTO :end
+    goto :end
 
 :mcp
     echo [INFO] Starting MCP server...
-    python -m llauncher.mcp.server
-    GOTO :end
+    "%PYTHON_EXECUTABLE%" -m llauncher.mcp.server
+    goto :end
 
 :ui
     echo [INFO] Starting Streamlit UI...
-    streamlit run "%PROJECT_DIR%\llauncher\ui\app.py"
-    GOTO :end
+    "%PYTHON_EXECUTABLE%" -m streamlit run "%PROJECT_DIR%\llauncher\ui\app.py"
+    goto :end
 
 :agent
     echo [INFO] Starting remote management agent...
     echo [INFO] Agent will listen on 0.0.0.0:8765
     echo [INFO] Set LAUNCHER_AGENT_PORT and LAUNCHER_AGENT_NODE_NAME to customize
-    llauncher-agent
-    GOTO :end
+    "%PYTHON_EXECUTABLE%" -m llauncher.agent
+    goto :end
 
 :agent-bg
     echo [INFO] Starting remote management agent in background...
-    start /B llauncher-agent > "%PROJECT_DIR%\agent.log" 2>&1
+    start /B "%PYTHON_EXECUTABLE%" -m llauncher.agent > "%PROJECT_DIR%\agent.log" 2>&1
     echo [OK] Agent started in background
     echo Logs: %PROJECT_DIR%\agent.log
-    GOTO :end
+    goto :end
 
 :discover
     echo [INFO] Discovering launch scripts...
-    python -m llauncher discover
-    GOTO :end
+    "%PYTHON_EXECUTABLE%" -m llauncher discover
+    goto :end
 
 :help
     echo llauncher - MCP-first launcher for llama.cpp servers
@@ -88,8 +117,7 @@ GOTO :help
     echo.
     echo First time setup:
     echo   run.bat install
-    GOTO :end
+    goto :end
 
 :end
-REM Keep window open if run double-clicked
-IF "%COMSPEC%"=="" PAUSE
+exit /b 0

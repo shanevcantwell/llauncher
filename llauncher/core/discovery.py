@@ -5,10 +5,11 @@ import shlex
 from pathlib import Path
 from typing import Iterator
 
+from llauncher.core.settings import SCRIPTS_PATH
 from llauncher.models.config import ModelConfig
 
 
-DEFAULT_SCRIPT_PATH = Path.home() / ".local" / "bin"
+DEFAULT_SCRIPT_PATH = SCRIPTS_PATH
 
 
 def discover_scripts(path: Path = DEFAULT_SCRIPT_PATH) -> list[ModelConfig]:

@@ -6,38 +6,48 @@ from pathlib import Path
 
 import psutil
 
+from llauncher.core.settings import (
+    LLAMA_SERVER_PATH,
+    DEFAULT_PORT,
+    BLACKLISTED_PORTS,
+)
 from llauncher.models.config import ModelConfig
 
 
-DEFAULT_SERVER_BINARY = Path.home() / ".local" / "bin" / "llama-server"
+DEFAULT_SERVER_BINARY = LLAMA_SERVER_PATH
 LOG_DIR = Path.home() / ".llauncher" / "logs"
 
 
 def find_available_port(
     preferred_port: int | None = None,
-    start: int = 8080,
+    start: int | None = None,
     end: int = 8999
 ) -> tuple[bool, int, str]:
     """Find an available port for a new server.
 
     Tries the preferred port first, then scans the range for the first
-    available port.
+    available port. Respects BLACKLISTED_PORTS from settings.
 
     Args:
         preferred_port: Preferred port to try first.
-        start: Start of port range to scan.
+        start: Start of port range to scan (defaults to DEFAULT_PORT from settings).
         end: End of port range to scan.
 
     Returns:
         Tuple of (success, port, message).
     """
+    if start is None:
+        start = DEFAULT_PORT
+
     # Try preferred port first
     if preferred_port is not None:
-        if not is_port_in_use(preferred_port):
+        if not is_port_in_use(preferred_port) and preferred_port not in BLACKLISTED_PORTS:
             return True, preferred_port, f"Using preferred port {preferred_port}"
 
     # Scan range for first available
     for port in range(start, end + 1):
+        if port in BLACKLISTED_PORTS:
+            continue  # Skip blacklisted ports
         if preferred_port is not None and port == preferred_port:
             continue  # Skip preferred (already tried)
         if not is_port_in_use(port):
