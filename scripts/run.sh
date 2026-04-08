@@ -1,6 +1,6 @@
 #!/bin/bash
 # llauncher - Linux/Mac runner script
-# Usage: ./run.sh [mcp|ui|discover|install]
+# Usage: ./run.sh [mcp|ui|agent|discover|install]
 
 set -e
 
@@ -45,6 +45,7 @@ case "${1:-}" in
         echo "Commands available:"
         echo "  ./run.sh mcp     - Start MCP server"
         echo "  ./run.sh ui      - Start Streamlit UI"
+        echo "  ./run.sh agent   - Start remote management agent"
         echo "  ./run.sh discover - List discovered models"
         ;;
     mcp)
@@ -54,6 +55,20 @@ case "${1:-}" in
     ui)
         print_info "Starting Streamlit UI..."
         streamlit run "$PROJECT_DIR/llauncher/ui/app.py"
+        ;;
+    agent)
+        print_info "Starting remote management agent..."
+        print_info "Agent will listen on 0.0.0.0:8765"
+        print_info "Set LAUNCHER_AGENT_PORT and LAUNCHER_AGENT_NODE_NAME to customize"
+        llauncher-agent
+        ;;
+    agent-bg)
+        print_info "Starting remote management agent in background..."
+        nohup llauncher-agent > "$PROJECT_DIR/agent.log" 2>&1 &
+        echo $! > "$PROJECT_DIR/agent.pid"
+        print_status "Agent started (PID: $!)"
+        echo "Logs: $PROJECT_DIR/agent.log"
+        echo "Stop with: kill \$(cat $PROJECT_DIR/agent.pid)"
         ;;
     discover)
         print_info "Discovering launch scripts..."
@@ -68,7 +83,14 @@ case "${1:-}" in
         echo "  install   Install llauncher and dependencies"
         echo "  mcp       Start MCP server (for LLM clients)"
         echo "  ui        Start Streamlit UI (dashboard)"
+        echo "  agent     Start remote management agent (foreground)"
+        echo "  agent-bg  Start remote management agent (background)"
         echo "  discover  List discovered launch scripts"
+        echo ""
+        echo "Environment variables for agent:"
+        echo "  LAUNCHER_AGENT_HOST     Host to bind to (default: 0.0.0.0)"
+        echo "  LAUNCHER_AGENT_PORT     Port to listen on (default: 8765)"
+        echo "  LAUNCHER_AGENT_NODE_NAME Friendly name for this node"
         echo ""
         echo "First time setup:"
         echo "  $0 install"
