@@ -37,6 +37,26 @@ pip install -e ".[ui]"
 pip install -e ".[test]"
 ```
 
+## Quick Start
+
+Use the runner scripts for easiest setup:
+
+**Linux/macOS:**
+```bash
+./run.sh install   # Set up virtual environment and install
+./run.sh ui        # Start dashboard (auto-starts agent)
+./run.sh agent     # Start agent in foreground
+./run.sh stop      # Stop running agent
+```
+
+**Windows:**
+```cmd
+run.bat install    # Set up virtual environment and install
+run.bat ui         # Start dashboard (auto-starts agent)
+run.bat agent      # Start agent in foreground
+run.bat stop       # Stop running agent
+```
+
 ## Usage
 
 ### MCP Server
@@ -77,13 +97,19 @@ Or configure in your MCP client (e.g., Claude Code):
 
 ### Streamlit UI
 
-Start the UI:
+Start the UI using the runner script (recommended):
 
+**Linux/macOS:**
 ```bash
-llauncher-ui
-# or
-streamlit run llauncher/ui/app.py
+./run.sh ui
 ```
+
+**Windows:**
+```cmd
+run.bat ui
+```
+
+The UI automatically starts a local agent if one isn't running. You can also start the agent separately with `./run.sh agent` or `run.bat agent`.
 
 #### Dashboard Tab
 - Grid view of all configured models with status indicators (🟢 Running / ⚫ Stopped)
@@ -238,30 +264,47 @@ Each managed node runs a lightweight **agent** that exposes an HTTP API. The "he
 
 On every machine you want to manage (including the head):
 
+**Linux/macOS:**
 ```bash
 git clone https://github.com/shanevcantwell/llauncher
 cd llauncher
-pip install -e ".[ui]"
-```
-
-#### 2. Start the Agent on Each Node
-
-**Linux/macOS:**
-```bash
-# Background service
-nohup llauncher-agent > /dev/null 2>&1 &
-
-# Or with custom port/node name
-LAUNCHER_AGENT_PORT=9000 LAUNCHER_AGENT_NODE_NAME="my-server" llauncher-agent
+./run.sh install
 ```
 
 **Windows:**
 ```cmd
-REM Background (requires PowerShell)
-Start-Process llauncher-agent -WindowStyle Hidden
+git clone https://github.com/shanevcantwell/llauncher
+cd llauncher
+run.bat install
+```
 
-REM Or run in a terminal
-llauncher-agent
+#### 2. Start the Agent on Each Node
+
+**Using runner scripts (recommended):**
+
+**Linux/macOS:**
+```bash
+./run.sh agent     # Foreground
+./run.sh agent-bg  # Background
+./run.sh stop      # Stop agent
+```
+
+**Windows:**
+```cmd
+run.bat agent      # Foreground
+run.bat agent-bg   # Background
+run.bat stop       # Stop agent
+```
+
+**With custom configuration:**
+```bash
+# Linux/macOS
+LAUNCHER_AGENT_PORT=9000 LAUNCHER_AGENT_NODE_NAME="my-server" ./run.sh agent
+
+# Windows (PowerShell)
+$env:LAUNCHER_AGENT_PORT="9000"
+$env:LAUNCHER_AGENT_NODE_NAME="my-server"
+run.bat agent
 ```
 
 **Environment Variables:**
@@ -271,13 +314,20 @@ llauncher-agent
 
 #### 3. Start the Dashboard on the Head Machine
 
+**Linux/macOS:**
 ```bash
-llauncher-ui
+./run.sh ui
+```
+
+**Windows:**
+```cmd
+run.bat ui
 ```
 
 The dashboard will automatically:
-1. Start a local agent on `localhost:8765`
-2. Register itself as the "local" node
+1. Show a loading screen while initializing
+2. Start a local agent if one isn't running
+3. Register itself as the "local" node
 
 #### 4. Add Remote Nodes
 
