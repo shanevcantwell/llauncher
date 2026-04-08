@@ -33,44 +33,58 @@ def get_registry() -> NodeRegistry:
 
 
 @st.cache_resource
-def get_aggregator(registry: NodeRegistry) -> RemoteAggregator:
+def get_aggregator() -> RemoteAggregator:
     """Get or create the remote aggregator (cached across reruns)."""
+    registry = get_registry()
     return RemoteAggregator(registry)
 
 
 def ensure_local_agent(registry: NodeRegistry) -> None:
     """Ensure local agent is running and registered."""
+    import os
     import socket
+    import sys
+
+    # Use same default port as the agent config
+    AGENT_PORT = int(os.getenv("LAUNCHER_AGENT_PORT", "8765"))
 
     # Check if local node exists and is online
     local_node = registry.get_node("local")
     if local_node and local_node.ping():
         return
 
-    # Check if port 8765 is in use
+    # Check if port is in use
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(1)
         try:
-            s.connect(("127.0.0.1", 8765))
+            s.connect(("127.0.0.1", AGENT_PORT))
             # Something is running - add to registry if not present
             if not local_node:
-                registry.add_node("local", "localhost", 8765, overwrite=True)
+                registry.add_node("local", "localhost", AGENT_PORT, overwrite=True)
             return
         except ConnectionRefusedError:
             pass
 
-    # Port is free, start the agent
+    # Port is free, start the agent as a detached background process
     try:
-        proc = subprocess.Popen(
-            ["llauncher-agent"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        # Cross-platform process detachment:
+        # - Windows: CREATE_NEW_PROCESS_GROUP detaches from console
+        # - Unix: start_new_session creates new session (daemon-like)
+        kwargs = {
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+        }
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            kwargs["start_new_session"] = True
+
+        subprocess.Popen(["llauncher-agent"], **kwargs)
         time.sleep(2)
 
         # Add to registry if not present
         if not registry.get_node("local"):
-            registry.add_node("local", "localhost", 8765, overwrite=True)
+            registry.add_node("local", "localhost", AGENT_PORT, overwrite=True)
 
         # Verify it's running
         local_node = registry.get_node("local")
@@ -88,7 +102,7 @@ def main():
     # Get state and registry
     state = get_state()
     registry = get_registry()
-    aggregator = get_aggregator(registry)
+    aggregator = get_aggregator()
 
     # Ensure local agent is running
     ensure_local_agent(registry)
