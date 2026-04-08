@@ -25,7 +25,7 @@ test = [
 
 [project.scripts]
 llauncher-mcp = "llauncher.mcp.server:main"
-llauncher-agent = "llauncher.agent.server:main"
+llauncher-agent = "llauncher.agent:main"
 
 [build-system]
 requires = ["hatchling"]

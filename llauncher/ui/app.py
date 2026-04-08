@@ -62,7 +62,7 @@ def ensure_local_agent(registry: NodeRegistry) -> None:
             if not local_node:
                 registry.add_node("local", "localhost", AGENT_PORT, overwrite=True)
             return
-        except ConnectionRefusedError:
+        except (ConnectionRefusedError, TimeoutError, OSError):
             pass
 
     # Port is free, start the agent as a detached background process
