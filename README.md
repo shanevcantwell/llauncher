@@ -208,6 +208,178 @@ Test files are in `tests/`:
 - `tests/unit/`: Unit tests for models, discovery, and config
 - `tests/integration/`: Integration tests for state management
 
-## License
+## Multi-Node Management (Remote)
+
+llauncher supports managing llama-server instances across multiple machines (Windows and Linux) on a local network from a single dashboard.
+
+### Architecture
+
+Each managed node runs a lightweight **agent** that exposes an HTTP API. The "head" dashboard connects to these agents over the LAN:
+
+```
+┌─────────────────────────────────────┐
+│         HEAD DASHBOARD              │
+│  - Streamlit UI with node selector  │
+│  - Connects to all agents via HTTP  │
+└─────────────┬───────────────────────┘
+              │ LAN (port 8765)
+    ┌─────────┼─────────┐
+    ▼         ▼         ▼
+┌────────┐ ┌────────┐ ┌────────┐
+│ Agent  │ │ Agent  │ │ Agent  │
+│ Linux  │ │Windows │ │ Linux  │
+│ :8765  │ │ :8765  │ │ :8765  │
+└────────┘ └────────┘ └────────┘
+```
+
+### Deployment
+
+#### 1. Install on Each Node
+
+On every machine you want to manage (including the head):
+
+```bash
+git clone https://github.com/shanevcantwell/llauncher
+cd llauncher
+pip install -e ".[ui]"
+```
+
+#### 2. Start the Agent on Each Node
+
+**Linux/macOS:**
+```bash
+# Background service
+nohup llauncher-agent > /dev/null 2>&1 &
+
+# Or with custom port/node name
+LAUNCHER_AGENT_PORT=9000 LAUNCHER_AGENT_NODE_NAME="my-server" llauncher-agent
+```
+
+**Windows:**
+```cmd
+REM Background (requires PowerShell)
+Start-Process llauncher-agent -WindowStyle Hidden
+
+REM Or run in a terminal
+llauncher-agent
+```
+
+**Environment Variables:**
+- `LAUNCHER_AGENT_HOST`: Host to bind to (default: `0.0.0.0`)
+- `LAUNCHER_AGENT_PORT`: Port to listen on (default: `8765`)
+- `LAUNCHER_AGENT_NODE_NAME`: Friendly name for the node
+
+#### 3. Start the Dashboard on the Head Machine
+
+```bash
+llauncher-ui
+```
+
+The dashboard will automatically:
+1. Start a local agent on `localhost:8765`
+2. Register itself as the "local" node
+
+#### 4. Add Remote Nodes
+
+In the dashboard:
+1. Go to the **Nodes** tab
+2. Click **➕ Add New Node**
+3. Enter:
+   - **Node Name**: Friendly name (e.g., `linux-box`, `windows-server`)
+   - **Host**: IP address or hostname (e.g., `192.168.1.100`)
+   - **Port**: Agent port (default: `8765`)
+4. Click **🔍 Test Connection** to verify
+5. Click **➕ Add Node** to register
+
+### Network Configuration
+
+#### Firewall Rules
+
+Ensure port 8765 is open on managed nodes:
+
+**Linux (ufw):**
+```bash
+sudo ufw allow 8765/tcp
+```
+
+**Linux (firewalld):**
+```bash
+sudo firewall-cmd --permanent --add-port=8765/tcp
+sudo firewall-cmd --reload
+```
+
+**Windows (PowerShell):**
+```powershell
+New-NetFirewallRule -DisplayName "llauncher Agent" -Direction Inbound -LocalPort 8765 -Protocol TCP -Action Allow
+```
+
+#### Security Notes
+
+- **Trusted LAN Only**: Agents run without authentication by default. Only expose them on trusted networks.
+- **Bind to Specific Interface**: Use `LAUNCHER_AGENT_HOST` to bind to a specific IP instead of `0.0.0.0`.
+- **Firewall**: Restrict port 8765 to your LAN subnet.
+
+### Usage
+
+#### Dashboard Tab
+
+- **Node Selector** (sidebar): Filter view by specific node or "All Nodes"
+- **Running Servers**: Shows all active servers with node badges
+- **Models**: Lists all configured models grouped by node
+- **Start/Stop**: Control servers on any node
+
+#### Nodes Tab
+
+- **Registered Nodes**: List of all connected nodes with status
+- **Test Connection**: Verify agent connectivity
+- **Remove Node**: Unregister a node from the dashboard
+
+### Troubleshooting
+
+#### "Connection Failed" when adding node
+
+1. Verify agent is running on the remote node:
+   ```bash
+   curl http://<node-ip>:8765/health
+   ```
+
+2. Check firewall rules on the remote node
+
+3. Verify the agent is binding to the correct interface:
+   ```bash
+   # Should show 0.0.0.0:8765 or your LAN IP
+   netstat -tlnp | grep 8765
+   ```
+
+#### Agent won't start
+
+1. Check if port 8765 is already in use:
+   ```bash
+   lsof -i :8765
+   # or
+   netstat -tlnp | grep 8765
+   ```
+
+2. Use a different port:
+   ```bash
+   LAUNCHER_AGENT_PORT=9000 llauncher-agent
+   ```
+
+#### Can't connect from Windows to Linux (or vice versa)
+
+1. Verify network connectivity:
+   ```bash
+   ping <remote-node-ip>
+   ```
+
+2. Check that the agent is not binding to localhost only:
+   - Look for `0.0.0.0:8765` in agent startup logs
+   - If it shows `127.0.0.1:8765`, set `LAUNCHER_AGENT_HOST=0.0.0.0`
+
+### API Documentation
+
+When an agent is running, visit `http://<node-ip>:8765/docs` for interactive API documentation.
+
+### License
 
 MIT
