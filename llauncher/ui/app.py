@@ -200,6 +200,7 @@ def main():
         if st.button("🔄 Refresh All", use_container_width=True):
             state.refresh()
             registry.refresh_all()
+            st.toast("Refreshed all nodes", icon="🔄")
             st.rerun()
 
         st.divider()

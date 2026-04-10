@@ -48,6 +48,7 @@ def render_node_list(registry: NodeRegistry, aggregator) -> None:
     with col1:
         if st.button("🔄 Refresh All", use_container_width=True, key="refresh_all_nodes"):
             registry.refresh_all()
+            st.toast("Refreshed all nodes", icon="🔄")
             st.rerun()
 
     # Node cards
@@ -116,9 +117,15 @@ def render_node_list(registry: NodeRegistry, aggregator) -> None:
                 ):
                     result = node.ping()
                     if result:
-                        st.success(f"Connection successful! Node is online.")
+                        st.toast(
+                            f"Connection successful! {node.name} is online.",
+                            icon="✅"
+                        )
                     else:
-                        st.error(f"Connection failed: {node._error_message}")
+                        st.toast(
+                            f"Connection failed: {node._error_message}",
+                            icon="❌"
+                        )
                     st.rerun()
 
             with action_col2:

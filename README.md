@@ -88,6 +88,7 @@ Or configure in your MCP client (e.g., Claude Code):
 | `get_model_config` | Get full configuration details for a specific model |
 | `start_server` | Start a llama-server instance for a model (with validation) |
 | `stop_server` | Stop a running server by port number |
+| `swap_server` | Atomically swap models on a port with rollback guarantee |
 | `server_status` | Get status summary of all running servers |
 | `get_server_logs` | Fetch recent log lines from a running server |
 | `update_model_config` | Update an existing model's configuration |

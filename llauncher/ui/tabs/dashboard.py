@@ -293,25 +293,36 @@ def render_model_entry_from_dict(
                         result = aggregator.start_on_node(node_name, model["name"])
                         if result:
                             if result.get("success"):
-                                st.success(
-                                    f"Starting {model['name']} on {node_name}..."
+                                st.toast(
+                                    f"Starting {model['name']} on {node_name}...",
+                                    icon="▶️"
                                 )
                             else:
-                                st.error(result.get("error", "Failed to start"))
+                                st.toast(
+                                    result.get("error", "Failed to start"),
+                                    icon="❌"
+                                )
                         st.rerun()
+                    else:
+                        st.toast(
+                            f"Cannot start remote model: no connection to {node_name}",
+                            icon="❌"
+                        )
 
         with action_col2:
-            st.button(
-                "ℹ️ Details",
+            if st.button(
+                "✏️ Edit",
                 use_container_width=True,
-                key=f"details_{node_name}_{model['name']}",
-                on_click=lambda: show_model_details(model),
-            )
-
-
-def show_model_details(model: dict) -> None:
-    """Show model details in an expander."""
-    st.session_state[f"show_details_{model['name']}"] = True
+                key=f"edit_{node_name}_{model['name']}",
+            ):
+                if node_name == "local":
+                    st.session_state[f"editing_{model['name']}"] = True
+                    st.rerun()
+                else:
+                    st.toast(
+                        f"Remote model editing not yet supported",
+                        icon="ℹ️"
+                    )
 
 
 def render_add_model(state: LauncherState) -> None:

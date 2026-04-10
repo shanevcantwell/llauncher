@@ -346,6 +346,73 @@ def _tail_file(path: Path, lines: int) -> list[str]:
         return []
 
 
+def wait_for_server_ready(
+    port: int,
+    timeout: int = 120,
+    check_interval: float = 1.0
+) -> tuple[bool, list[str]]:
+    """Wait for a llama-server to become ready to accept requests.
+
+    Polls for the server to be listening on the port and checks logs
+    for confirmation that the model has loaded.
+
+    Args:
+        port: Port number the server should be listening on.
+        timeout: Maximum seconds to wait (default: 120).
+        check_interval: Seconds between checks (default: 1.0).
+
+    Returns:
+        Tuple of (is_ready, recent_log_lines).
+        is_ready is True if server became ready within timeout.
+        recent_log_lines contains the last 50 log lines for debugging.
+    """
+    import socket
+    import time
+
+    start_time = time.time()
+    last_logs = []
+
+    while time.time() - start_time < timeout:
+        # Check if port is listening
+        port_ready = False
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)
+            result = sock.connect_ex(('127.0.0.1', port))
+            sock.close()
+            port_ready = (result == 0)
+        except OSError:
+            pass
+
+        if port_ready:
+            # Port is listening, now check logs for "listening" or "ready"
+            proc = find_server_by_port(port)
+            if proc:
+                logs = stream_logs(pid=proc.pid, lines=20)
+                last_logs = logs
+                log_text = "\n".join(logs).lower()
+
+                # Check for various ready indicators
+                ready_indicators = [
+                    "listening",
+                    "server started",
+                    "ready to serve",
+                    "rest api listening",
+                ]
+
+                if any(indicator in log_text for indicator in ready_indicators):
+                    return True, logs
+
+        time.sleep(check_interval)
+
+    # Timeout - return whatever logs we have
+    proc = find_server_by_port(port)
+    if proc:
+        last_logs = stream_logs(pid=proc.pid, lines=50)
+
+    return False, last_logs
+
+
 def is_port_in_use(port: int) -> bool:
     """Check if a port is currently in use by any process.
 

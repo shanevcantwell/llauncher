@@ -49,6 +49,8 @@ async def _dispatch_tool(name: str, arguments: dict) -> dict:
         return await servers_tools.start_server(state, arguments)
     elif name == "stop_server":
         return await servers_tools.stop_server(state, arguments)
+    elif name == "swap_server":
+        return await servers_tools.swap_server(state, arguments)
     elif name == "server_status":
         return await servers_tools.server_status(state, arguments)
     elif name == "get_server_logs":
