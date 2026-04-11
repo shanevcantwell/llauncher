@@ -408,3 +408,284 @@ class TestIsPortInUse:
         with patch("psutil.process_iter", return_value=[mock_proc]):
             result = is_port_in_use(8080)
             assert result is False
+
+    def test_port_in_use_equals_format(self):
+        """Port is in use when found with --port=8080 format."""
+        mock_proc = MagicMock()
+        mock_proc.cmdline.return_value = ["llama-server", "--port=8080"]
+
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            result = is_port_in_use(8080)
+            assert result is True
+
+
+class TestFindAvailablePort:
+    """Additional tests for find_available_port edge cases."""
+
+    def test_blacklisted_port_skipped(self):
+        """Blacklisted ports are skipped during allocation."""
+        def port_in_use(p):
+            return p == 9005  # Only 9005 is in use
+
+        # Mock BLACKLISTED_PORTS to include 9000-9002
+        with patch("llauncher.core.process.is_port_in_use", side_effect=port_in_use):
+            with patch("llauncher.core.process.BLACKLISTED_PORTS", [9000, 9001, 9002]):
+                # 9000-9002 are blacklisted, 9003-9004 available, 9005 in use
+                success, port, msg = find_available_port(start=9000, end=9010)
+                assert success is True
+                assert port == 9003  # Should skip blacklisted 9000-9002
+                assert "auto-allocated" in msg.lower()
+
+    def test_preferred_port_skipped_during_scan(self):
+        """Preferred port is skipped during range scan if already tried.
+
+        This specifically tests line 52 where preferred_port is within the
+        scan range and gets skipped because it was already tried.
+        """
+        preferred = 8085
+        call_count = [0]  # Track calls to verify line 52 is hit
+
+        def port_in_use(p):
+            # Track when we check the preferred port during scan
+            if p == preferred:
+                call_count[0] += 1
+            # Preferred port 8085 is in use (failed initial check)
+            # Ports 8080-8084 are also in use
+            # Port 8086 is available
+            return p in [8085, 8080, 8081, 8082, 8083, 8084]
+
+        with patch("llauncher.core.process.is_port_in_use", side_effect=port_in_use):
+            # Preferred 8085 is in the range [8080, 8090] and was already tried
+            # The scan will encounter 8085 at iteration 5 and should skip it via line 52
+            # Line 52 should prevent is_port_in_use from being called for 8085 during scan
+            success, port, msg = find_available_port(preferred_port=preferred, start=8080, end=8090)
+            assert success is True
+            assert port == 8086  # First available after skipping preferred and in-use ports
+            assert "auto-allocated" in msg.lower()
+            # is_port_in_use should be called once for initial preferred check,
+            # then NOT called again for 8085 during scan (line 52 skips it)
+            assert call_count[0] == 1, f"Expected 1 call (initial check only), got {call_count[0]}"
+
+    def test_preferred_port_in_range_but_blacklisted(self):
+        """Preferred port in scan range but blacklisted gets skipped twice."""
+        def port_in_use(p):
+            return p == 8090  # Only 8090 is in use
+
+        with patch("llauncher.core.process.is_port_in_use", side_effect=port_in_use):
+            with patch("llauncher.core.process.BLACKLISTED_PORTS", [8085]):
+                # Preferred 8085 is blacklisted, so initial check fails
+                # Scan starts at 8080, finds it available
+                success, port, msg = find_available_port(preferred_port=8085, start=8080, end=8090)
+                assert success is True
+                assert port == 8080  # First available in range
+
+    def test_no_available_ports_returns_failure(self):
+        """Returns failure when all ports in range are in use."""
+        with patch("llauncher.core.process.is_port_in_use", return_value=True):
+            success, port, msg = find_available_port(start=8080, end=8082)
+            assert success is False
+            assert port == 0
+            assert "no available" in msg.lower()
+
+
+class TestIsPortInUseExceptions:
+    """Tests for is_port_in_use exception handling."""
+
+    def test_is_port_in_use_access_denied(self):
+        """AccessDenied exception is handled gracefully."""
+        mock_proc = MagicMock()
+        mock_proc.cmdline.side_effect = psutil.AccessDenied(12345)
+
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            result = is_port_in_use(8080)
+            assert result is False  # No port found, exception handled
+
+    def test_is_port_in_use_no_such_process(self):
+        """NoSuchProcess exception is handled gracefully."""
+        mock_proc = MagicMock()
+        mock_proc.cmdline.side_effect = psutil.NoSuchProcess(12345, None)
+
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            result = is_port_in_use(8080)
+            assert result is False  # No port found, exception handled
+
+
+class TestWaitForServerReady:
+    """Tests for wait_for_server_ready function."""
+
+    def test_wait_for_server_ready_success(self):
+        """Server becomes ready within timeout."""
+        from llauncher.core.process import wait_for_server_ready
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+
+        def mock_socket(*args, **kwargs):
+            mock_sock = MagicMock()
+            mock_sock.connect_ex.return_value = 0  # Port open
+            mock_sock.settimeout = MagicMock()
+            mock_sock.close = MagicMock()
+            return mock_sock
+
+        # socket is imported inside the function, so patch at module level
+        with patch("llauncher.core.process.find_server_by_port", return_value=mock_proc):
+            with patch("llauncher.core.process.stream_logs", return_value=["server started and listening"]):
+                with patch("socket.socket", side_effect=mock_socket):
+                    with patch("time.sleep"):  # Skip actual sleep
+                        is_ready, logs = wait_for_server_ready(8080, timeout=2, check_interval=0.1)
+
+                        assert is_ready is True
+                        assert logs == ["server started and listening"]
+
+    def test_wait_for_server_ready_timeout(self):
+        """Server does not become ready within timeout."""
+        from llauncher.core.process import wait_for_server_ready
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+
+        def mock_socket(*args, **kwargs):
+            mock_sock = MagicMock()
+            mock_sock.connect_ex.return_value = 0  # Port open but no ready indicator
+            mock_sock.settimeout = MagicMock()
+            mock_sock.close = MagicMock()
+            return mock_sock
+
+        with patch("llauncher.core.process.find_server_by_port", return_value=mock_proc):
+            with patch("llauncher.core.process.stream_logs", return_value=["loading model..."]):
+                with patch("socket.socket", side_effect=mock_socket):
+                    with patch("time.sleep"):  # Skip actual sleep
+                        is_ready, logs = wait_for_server_ready(8080, timeout=0.2, check_interval=0.1)
+
+                        assert is_ready is False
+                        assert logs == ["loading model..."]
+
+    def test_wait_for_server_ready_port_never_opens(self):
+        """Port never opens within timeout."""
+        from llauncher.core.process import wait_for_server_ready
+
+        def mock_socket(*args, **kwargs):
+            mock_sock = MagicMock()
+            mock_sock.connect_ex.return_value = 1  # Port closed
+            mock_sock.settimeout = MagicMock()
+            mock_sock.close = MagicMock()
+            return mock_sock
+
+        with patch("llauncher.core.process.find_server_by_port", return_value=None):
+            with patch("socket.socket", side_effect=mock_socket):
+                with patch("time.sleep"):  # Skip actual sleep
+                    is_ready, logs = wait_for_server_ready(8080, timeout=0.2, check_interval=0.1)
+
+                    assert is_ready is False
+                    assert logs == []
+
+    def test_wait_for_server_ready_os_error(self):
+        """OSError during socket connection is handled gracefully."""
+        from llauncher.core.process import wait_for_server_ready
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+
+        def mock_socket(*args, **kwargs):
+            mock_sock = MagicMock()
+            mock_sock.connect_ex.side_effect = OSError("Network unreachable")
+            mock_sock.settimeout = MagicMock()
+            mock_sock.close = MagicMock()
+            return mock_sock
+
+        with patch("llauncher.core.process.find_server_by_port", return_value=mock_proc):
+            with patch("llauncher.core.process.stream_logs", return_value=[]):
+                with patch("socket.socket", side_effect=mock_socket):
+                    with patch("time.sleep"):  # Skip actual sleep
+                        is_ready, logs = wait_for_server_ready(8080, timeout=0.2, check_interval=0.1)
+
+                        assert is_ready is False
+                        assert logs == []
+
+
+class TestStopServerExceptions:
+    """Tests for stop_server exception handling."""
+
+    def test_stop_by_pid_no_such_process_during_children(self):
+        """NoSuchProcess during children termination is handled."""
+        mock_proc = MagicMock()
+        mock_proc.children.side_effect = psutil.NoSuchProcess(12345, None)
+
+        with patch("psutil.Process", return_value=mock_proc):
+            result = stop_server_by_pid(12345)
+
+            # Should still try to terminate main process
+            assert result is True
+            mock_proc.terminate.assert_called_once()
+
+
+class TestFindServerExceptions:
+    """Tests for find_server exception handling."""
+
+    def test_find_all_servers_zombie_process(self):
+        """ZombieProcess exception is handled in find_all_llama_servers."""
+        mock_proc = MagicMock()
+        mock_proc.name.return_value = "llama-server"
+        mock_proc.cmdline.side_effect = psutil.ZombieProcess(12345, None)
+
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            results = find_all_llama_servers()
+            assert results == []  # Zombie process skipped
+
+    def test_find_server_by_port_equals_format(self):
+        """Find server with --port=8080 format."""
+        mock_proc = MagicMock()
+        mock_proc.name.return_value = "llama-server"
+        mock_proc.cmdline.return_value = ["llama-server", "--port=8080"]
+
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            result = find_server_by_port(8080)
+            assert result == mock_proc
+
+
+class TestStreamLogsExceptions:
+    """Tests for stream_logs exception handling."""
+
+    def test_stream_logs_no_such_process(self):
+        """NoSuchProcess exception when getting cmdline is handled."""
+        mock_proc = MagicMock()
+        mock_proc.cmdline.side_effect = psutil.NoSuchProcess(12345, None)
+
+        with patch("psutil.Process", return_value=mock_proc):
+            with patch("llauncher.core.process.LOG_DIR") as mock_log_dir:
+                mock_log_dir.glob.return_value = []
+                result = stream_logs(pid=12345)
+                assert result == []
+
+    def test_stream_logs_access_denied(self):
+        """AccessDenied exception when getting cmdline is handled."""
+        mock_proc = MagicMock()
+        mock_proc.cmdline.side_effect = psutil.AccessDenied(12345)
+
+        with patch("psutil.Process", return_value=mock_proc):
+            with patch("llauncher.core.process.LOG_DIR") as mock_log_dir:
+                mock_log_dir.glob.return_value = []
+                result = stream_logs(pid=12345)
+                assert result == []
+
+
+class TestTailFileExceptions:
+    """Tests for _tail_file exception handling."""
+
+    def test_tail_file_os_error(self, tmp_path):
+        """OSError during file read is handled."""
+        log_file = tmp_path / "test.log"
+        log_file.write_text("line1\nline2\n")
+
+        with patch("builtins.open", side_effect=OSError("Permission denied")):
+            result = _tail_file(log_file, 10)
+            assert result == []
+
+    def test_tail_file_unicode_error(self, tmp_path):
+        """UnicodeError during file read is handled."""
+        log_file = tmp_path / "test.log"
+        log_file.write_bytes(b"\xff\xfe invalid utf8")
+
+        with patch("builtins.open", side_effect=UnicodeError("Invalid encoding")):
+            result = _tail_file(log_file, 10)
+            assert result == []
