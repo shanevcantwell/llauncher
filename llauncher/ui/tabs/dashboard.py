@@ -133,7 +133,7 @@ def render_model_card(
     model: dict,
     running_server: RemoteServerInfo | None = None,
 ) -> None:
-    """Render a unified model card with all controls.
+    """Render a unified model entry with all controls (collapsed expander).
 
     Args:
         state: The launcher state.
@@ -145,128 +145,133 @@ def render_model_card(
     """
     model_name = model["name"]
     is_running = running_server is not None
+    status_icon = "🟢" if is_running else "⚫"
 
-    # Header with Edit button
-    header_col1, header_col2 = st.columns([4, 1])
-    with header_col1:
-        st.markdown(f"**{model_name}**")
-    with header_col2:
-        if st.button("✏️", use_container_width=True, key=f"edit_{node_name}_{model_name}"):
-            if node_name == "local":
-                st.session_state[f"editing_{model_name}"] = True
-                st.rerun()
+    # Create expander label with status LED indicator
+    expander_label = f"**{model_name}** ({node_name}) {status_icon}"
+
+    with st.expander(expander_label, expanded=False):
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f"**Port**")
+            st.markdown(f"**Model**")
+            st.markdown(f"**GPU Layers**")
+        with col2:
+            if is_running and running_server:
+                st.markdown(f"`{running_server.port}` (running)")
+                # Show uptime for running servers
+                st.markdown(f"*Uptime: {format_uptime(running_server.uptime_seconds)}*")
             else:
-                st.toast("Remote model editing not yet supported", icon="ℹ️")
+                default_port = model.get("default_port") or "Auto-allocate"
+                st.markdown(f"`{default_port}`")
+            model_path = model.get("model_path", "")
+            st.markdown(f"`{model_path.split('/')[-1]}`")
+            st.markdown(f"`{model.get('n_gpu_layers', 'N/A')}`")
 
-    st.divider()
-
-    if is_running and running_server:
-        # Running state
-        st.markdown(f"Status: **🟢 Running** on port {running_server.port}")
-        st.markdown(f"Uptime: {format_uptime(running_server.uptime_seconds)}")
-
-        # API docs link
-        if node_name == "local":
-            st.markdown(
-                f"[📖 API Docs](http://localhost:{running_server.port}/docs) | "
-                f"[🔌 Models](http://localhost:{running_server.port}/v1/models)"
-            )
-        else:
-            st.markdown(
-                f"*Server running on remote node {node_name}. Access via node's IP.*"
-            )
+        # API docs link if running
+        if is_running and running_server:
+            if node_name == "local":
+                st.markdown(
+                    f"[📖 API Docs](http://localhost:{running_server.port}/docs) | "
+                    f"[🔌 Models](http://localhost:{running_server.port}/v1/models)"
+                )
+            else:
+                st.markdown(
+                    f"*Server running on remote node {node_name}. Access via node's IP.*"
+                )
 
         st.divider()
 
-        # Action buttons
-        action_col1, action_col2 = st.columns(2)
-        with action_col1:
-            if st.button(
-                "⏹️ Stop Server",
-                use_container_width=True,
-                key=f"stop_{node_name}_{running_server.port}",
-            ):
-                if node_name == "local":
-                    success, message = state.stop_server(running_server.port, caller="ui")
-                elif aggregator:
-                    result = aggregator.stop_on_node(node_name, running_server.port)
-                    success = result.get("success", False) if result else False
-                    message = result.get("message", "Unknown error") if result else "Failed"
-                else:
-                    success = False
-                    message = "Cannot stop: no connection to node"
+        # Toggleable logs expander (only for running servers)
+        if is_running and running_server:
+            with st.expander("📄 Logs (last 100 lines)", expanded=False):
+                if st.button("🔄 Refresh", key=f"refresh_logs_{node_name}_{running_server.port}"):
+                    st.rerun()
 
-                if success:
-                    st.success(message)
+                if node_name == "local":
+                    logs = stream_logs(pid=running_server.pid, lines=100)
+                elif aggregator:
+                    logs = aggregator.get_logs_on_node(node_name, running_server.port, 100) or []
                 else:
-                    st.error(message)
-                st.rerun()
+                    logs = []
+
+                if logs:
+                    st.code("\n".join(logs), language="bash", height=200)
+                else:
+                    st.info("No logs available")
+
+            st.divider()
+
+        # Actions
+        action_col1, action_col2 = st.columns(2)
+
+        with action_col1:
+            if is_running and running_server:
+                if st.button(
+                    "⏹️ Stop",
+                    use_container_width=True,
+                    key=f"stop_{node_name}_{running_server.port}",
+                ):
+                    if node_name == "local":
+                        success, message = state.stop_server(running_server.port, caller="ui")
+                    elif aggregator:
+                        result = aggregator.stop_on_node(node_name, running_server.port)
+                        success = result.get("success", False) if result else False
+                        message = result.get("message", "Unknown error") if result else "Failed"
+                    else:
+                        success = False
+                        message = "Cannot stop: no connection to node"
+
+                    if success:
+                        st.success(message)
+                    else:
+                        st.error(message)
+                    st.rerun()
+            else:
+                if st.button(
+                    "▶️ Start",
+                    use_container_width=True,
+                    key=f"start_{node_name}_{model_name}",
+                ):
+                    if node_name == "local":
+                        config = state.models.get(model_name)
+                        if config:
+                            valid, msg = state.can_start(config, caller="ui")
+                            if valid:
+                                success, message, _ = state.start_server(model_name, caller="ui")
+                                if success:
+                                    st.success(message)
+                                else:
+                                    st.error(message)
+                            else:
+                                st.error(f"Cannot start: {msg}")
+                        else:
+                            st.error(f"Model config not found: {model_name}")
+                    elif aggregator:
+                        result = aggregator.start_on_node(node_name, model_name)
+                        if result:
+                            if result.get("success"):
+                                st.toast(f"Starting {model_name} on {node_name}...", icon="▶️")
+                            else:
+                                st.toast(result.get("error", "Failed to start"), icon="❌")
+                        st.rerun()
+                    else:
+                        st.toast(
+                            f"Cannot start remote model: no connection to {node_name}",
+                            icon="❌"
+                        )
 
         with action_col2:
-            st.button("📄 View Logs", use_container_width=True, key=f"view_logs_{node_name}_{running_server.port}")
-
-        # Toggleable logs expander
-        with st.expander("▼ Live Logs (last 100 lines)", expanded=False):
-            if st.button("🔄 Refresh", key=f"refresh_logs_{node_name}_{running_server.port}"):
-                st.rerun()
-
-            if node_name == "local":
-                logs = stream_logs(pid=running_server.pid, lines=100)
-            elif aggregator:
-                logs = aggregator.get_logs_on_node(node_name, running_server.port, 100) or []
-            else:
-                logs = []
-
-            if logs:
-                st.code("\n".join(logs), language="bash", height=200)
-            else:
-                st.info("No logs available")
-
-    else:
-        # Stopped state
-        default_port = model.get("default_port") or "Auto-allocate"
-        st.markdown(f"Status: **⚫ Stopped**")
-        st.markdown(f"Default Port: `{default_port}`")
-        st.markdown(f"Model: `{model.get('model_path', '').split('/')[-1]}`")
-        st.markdown(f"GPU Layers: `{model.get('n_gpu_layers', 'N/A')}`")
-
-        st.divider()
-
-        # Start button
-        if st.button(
-            "▶️ Start Server",
-            use_container_width=True,
-            key=f"start_{node_name}_{model_name}",
-        ):
-            if node_name == "local":
-                # Local start
-                config = state.models.get(model_name)
-                if config:
-                    valid, msg = state.can_start(config, caller="ui")
-                    if valid:
-                        success, message, _ = state.start_server(model_name, caller="ui")
-                        if success:
-                            st.success(message)
-                        else:
-                            st.error(message)
-                    else:
-                        st.error(f"Cannot start: {msg}")
+            if st.button(
+                "✏️ Edit",
+                use_container_width=True,
+                key=f"edit_{node_name}_{model_name}",
+            ):
+                if node_name == "local":
+                    st.session_state[f"editing_{model_name}"] = True
+                    st.rerun()
                 else:
-                    st.error(f"Model config not found: {model_name}")
-            elif aggregator:
-                # Remote start
-                result = aggregator.start_on_node(node_name, model_name)
-                if result:
-                    if result.get("success"):
-                        st.toast(f"Starting {model_name} on {node_name}...", icon="▶️")
-                    else:
-                        st.toast(result.get("error", "Failed to start"), icon="❌")
-                st.rerun()
-            else:
-                st.toast(
-                    f"Cannot start remote model: no connection to {node_name}",
-                    icon="❌"
-                )
+                    st.toast("Remote model editing not yet supported", icon="ℹ️")
 
 
 def render_add_model(state: LauncherState) -> None:
