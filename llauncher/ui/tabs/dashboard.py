@@ -94,11 +94,17 @@ def render_dashboard(
 
     # Get models to display
     if registry and aggregator and selected_node:
-        # Show only selected node's models
-        all_models = aggregator.get_all_models()
+        if selected_node == "local":
+            # Show only local models when "local" node is selected
+            all_models = {"local": [m.to_dict() for m in state.models.values()]}
+        else:
+            # Show only selected remote node's models
+            all_models = aggregator.get_all_models()
     elif registry and aggregator:
-        # Show all models grouped by node
+        # Show all models grouped by node (All Nodes view)
         all_models = aggregator.get_all_models()
+        # Merge in local models for "All Nodes" view
+        all_models["local"] = [m.to_dict() for m in state.models.values()]
     else:
         # Show only local models
         all_models = {"local": [m.to_dict() for m in state.models.values()]}
