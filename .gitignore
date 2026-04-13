@@ -140,3 +140,4 @@ cython_debug/
 ~/.llauncher/
 llauncher-config.json
 .claude/
+.mcp.json
