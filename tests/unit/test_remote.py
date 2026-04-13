@@ -121,6 +121,240 @@ class TestRemoteNode:
         assert info["node_name"] == "test-node"
         assert info["os"] == "Linux"
 
+    @patch("httpx.Client")
+    def test_ping_error_status(self, mock_client_class):
+        """Test ping with non-200 status code sets ERROR status."""
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.get = MagicMock(return_value=mock_response)
+
+        mock_client_class.return_value = mock_client
+
+        node = RemoteNode("test-node", "localhost", port=8765)
+        result = node.ping()
+
+        assert result is False
+        assert node.status == NodeStatus.ERROR
+        assert "Unexpected status" in node._error_message
+
+    @patch("httpx.Client")
+    def test_get_node_info_failure(self, mock_client_class):
+        """Test get_node_info returns None on failure."""
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.get = MagicMock(return_value=mock_response)
+
+        mock_client_class.return_value = mock_client
+
+        node = RemoteNode("test-node", "localhost", port=8765)
+        info = node.get_node_info()
+
+        assert info is None
+        assert node.status == NodeStatus.OFFLINE
+
+    @patch("httpx.Client")
+    def test_get_status_success(self, mock_client_class):
+        """Test get_status returns running servers."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json = MagicMock(
+            return_value={
+                "node": "test-node",
+                "running_servers": [{"pid": 12345, "port": 8080, "config_name": "model1"}],
+                "total_running": 1,
+            }
+        )
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.get = MagicMock(return_value=mock_response)
+
+        mock_client_class.return_value = mock_client
+
+        node = RemoteNode("test-node", "localhost", port=8765)
+        status = node.get_status()
+
+        assert status is not None
+        assert status["total_running"] == 1
+        assert node.status == NodeStatus.ONLINE
+
+    @patch("httpx.Client")
+    def test_get_models_success(self, mock_client_class):
+        """Test get_models returns model list."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json = MagicMock(
+            return_value=[
+                {"name": "model1", "model_path": "/path/model.gguf"},
+                {"name": "model2", "model_path": "/path/model2.gguf"},
+            ]
+        )
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.get = MagicMock(return_value=mock_response)
+
+        mock_client_class.return_value = mock_client
+
+        node = RemoteNode("test-node", "localhost", port=8765)
+        models = node.get_models()
+
+        assert models is not None
+        assert len(models) == 2
+        assert node.status == NodeStatus.ONLINE
+
+    @patch("httpx.Client")
+    def test_start_server_success(self, mock_client_class):
+        """Test start_server returns success result."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json = MagicMock(
+            return_value={"success": True, "message": "Started", "port": 8080}
+        )
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.post = MagicMock(return_value=mock_response)
+
+        mock_client_class.return_value = mock_client
+
+        node = RemoteNode("test-node", "localhost", port=8765)
+        result = node.start_server("test-model")
+
+        assert result is not None
+        assert result["success"] is True
+        assert result["port"] == 8080
+
+    @patch("httpx.Client")
+    def test_start_server_not_found(self, mock_client_class):
+        """Test start_server returns 404 error for missing model."""
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.post = MagicMock(return_value=mock_response)
+
+        mock_client_class.return_value = mock_client
+
+        node = RemoteNode("test-node", "localhost", port=8765)
+        result = node.start_server("nonexistent-model")
+
+        assert result is not None
+        assert result["success"] is False
+        assert "not found" in result["error"]
+
+    @patch("httpx.Client")
+    def test_start_server_conflict(self, mock_client_class):
+        """Test start_server returns 409 error for already running."""
+        mock_response = MagicMock()
+        mock_response.status_code = 409
+        mock_response.json = MagicMock(return_value={"detail": "Already running"})
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.post = MagicMock(return_value=mock_response)
+
+        mock_client_class.return_value = mock_client
+
+        node = RemoteNode("test-node", "localhost", port=8765)
+        result = node.start_server("test-model")
+
+        assert result is not None
+        assert result["success"] is False
+        assert "Already running" in result["error"]
+
+    @patch("httpx.Client")
+    def test_stop_server_success(self, mock_client_class):
+        """Test stop_server returns success result."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json = MagicMock(
+            return_value={"success": True, "message": "Stopped"}
+        )
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.post = MagicMock(return_value=mock_response)
+
+        mock_client_class.return_value = mock_client
+
+        node = RemoteNode("test-node", "localhost", port=8765)
+        result = node.stop_server(8080)
+
+        assert result is not None
+        assert result["success"] is True
+
+    @patch("httpx.Client")
+    def test_stop_server_not_found(self, mock_client_class):
+        """Test stop_server returns 404 error for missing server."""
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.post = MagicMock(return_value=mock_response)
+
+        mock_client_class.return_value = mock_client
+
+        node = RemoteNode("test-node", "localhost", port=8765)
+        result = node.stop_server(9999)
+
+        assert result is not None
+        assert result["success"] is False
+        assert "port 9999" in result["error"]
+
+    @patch("httpx.Client")
+    def test_get_logs_success(self, mock_client_class):
+        """Test get_logs returns log lines."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json = MagicMock(
+            return_value={
+                "port": 8080,
+                "lines": ["Line 1", "Line 2", "Line 3"],
+            }
+        )
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.get = MagicMock(return_value=mock_response)
+
+        mock_client_class.return_value = mock_client
+
+        node = RemoteNode("test-node", "localhost", port=8765)
+        logs = node.get_logs(8080, lines=100)
+
+        assert logs is not None
+        assert logs == ["Line 1", "Line 2", "Line 3"]
+
+    @patch("httpx.Client")
+    def test_get_logs_failure(self, mock_client_class):
+        """Test get_logs returns None on failure."""
+        mock_client_class.side_effect = httpx.RequestError("Connection failed")
+
+        node = RemoteNode("test-node", "localhost", port=8765)
+        logs = node.get_logs(8080)
+
+        assert logs is None
+        assert node.status == NodeStatus.OFFLINE
+
 
 class TestRemoteServerInfo:
     """Tests for the RemoteServerInfo class."""
@@ -441,3 +675,135 @@ class TestRemoteAggregator:
         assert "total_servers" in summary
         assert "nodes" in summary
         assert "servers" in summary
+
+    @patch("httpx.Client")
+    def test_stop_on_node_success(self, mock_client_class):
+        """Test stopping a server on a specific node."""
+        mock_stop_response = MagicMock()
+        mock_stop_response.status_code = 200
+        mock_stop_response.json = MagicMock(
+            return_value={"success": True, "message": "Stopped"}
+        )
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.post = MagicMock(return_value=mock_stop_response)
+
+        mock_client_class.return_value = mock_client
+
+        registry = NodeRegistry()
+        registry.add_node("test-node-stop", "192.168.1.96", 8765)
+        aggregator = RemoteAggregator(registry)
+
+        result = aggregator.stop_on_node("test-node-stop", 8080)
+
+        assert result is not None
+        assert result["success"] is True
+
+        # Cleanup
+        registry.remove_node("test-node-stop")
+
+    def test_stop_on_nonexistent_node(self):
+        """Test stopping on a nonexistent node returns error."""
+        registry = NodeRegistry()
+        aggregator = RemoteAggregator(registry)
+
+        result = aggregator.stop_on_node("nonexistent", 8080)
+
+        assert result is not None
+        assert result["success"] is False
+        assert "not found" in result["error"]
+
+    @patch("httpx.Client")
+    def test_get_logs_on_node_success(self, mock_client_class):
+        """Test getting logs for a server on a specific node."""
+        mock_logs_response = MagicMock()
+        mock_logs_response.status_code = 200
+        mock_logs_response.json = MagicMock(
+            return_value={"port": 8080, "lines": ["Log line 1", "Log line 2"]}
+        )
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.get = MagicMock(return_value=mock_logs_response)
+
+        mock_client_class.return_value = mock_client
+
+        registry = NodeRegistry()
+        registry.add_node("test-node-logs", "192.168.1.95", 8765)
+        aggregator = RemoteAggregator(registry)
+
+        logs = aggregator.get_logs_on_node("test-node-logs", 8080, lines=100)
+
+        assert logs is not None
+        assert logs == ["Log line 1", "Log line 2"]
+
+        # Cleanup
+        registry.remove_node("test-node-logs")
+
+    def test_get_logs_on_nonexistent_node(self):
+        """Test getting logs from a nonexistent node returns None."""
+        registry = NodeRegistry()
+        aggregator = RemoteAggregator(registry)
+
+        logs = aggregator.get_logs_on_node("nonexistent", 8080)
+
+        assert logs is None
+
+    @patch("httpx.Client")
+    def test_get_all_servers_empty_nodes(self, mock_client_class):
+        """Test getting servers when no nodes are configured."""
+        registry = NodeRegistry()
+        aggregator = RemoteAggregator(registry)
+
+        servers = aggregator.get_all_servers()
+
+        assert servers == []
+
+    @patch("httpx.Client")
+    def test_get_all_models_empty_nodes(self, mock_client_class):
+        """Test getting models when no nodes are configured."""
+        registry = NodeRegistry()
+        aggregator = RemoteAggregator(registry)
+
+        models = aggregator.get_all_models()
+
+        assert models == {}
+
+    @patch("httpx.Client")
+    def test_get_all_servers_node_offline(self, mock_client_class):
+        """Test getting servers when node is offline."""
+        mock_client_class.side_effect = httpx.RequestError("Connection refused")
+
+        registry = NodeRegistry()
+        registry.add_node("offline-node", "192.168.1.94", 8765)
+        aggregator = RemoteAggregator(registry)
+
+        servers = aggregator.get_all_servers()
+
+        # Should return empty list for offline node
+        offline_servers = [s for s in servers if s.node_name == "offline-node"]
+        assert len(offline_servers) == 0
+
+        # Cleanup
+        registry.remove_node("offline-node")
+
+    @patch("httpx.Client")
+    def test_get_all_models_node_offline(self, mock_client_class):
+        """Test getting models when node is offline."""
+        mock_client_class.side_effect = httpx.RequestError("Connection refused")
+
+        registry = NodeRegistry()
+        registry.add_node("offline-node-models", "192.168.1.93", 8765)
+        aggregator = RemoteAggregator(registry)
+
+        models = aggregator.get_all_models()
+
+        # Should return empty list for offline node
+        offline_models = models.get("offline-node-models", [])
+        assert offline_models == []
+
+        # Cleanup
+        registry.remove_node("offline-node-models")
