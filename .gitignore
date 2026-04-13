@@ -141,3 +141,4 @@ cython_debug/
 llauncher-config.json
 .claude/
 .mcp.json
+docs/scratchpad/
