@@ -249,3 +249,49 @@ class TestLogViewerLogic:
         pid = status_info.get("pid") if is_running else None
         assert pid is None
         # When pid is None, model_name is used instead
+
+
+class TestUptimeFormatting:
+    """Tests for format_uptime function."""
+
+    def test_format_uptime_hours_minutes_seconds(self):
+        """Format uptime with hours, minutes, and seconds."""
+        from llauncher.ui.utils import format_uptime
+
+        result = format_uptime(9245)  # 2h 34m 5s
+        assert result == "2h 34m 5s"
+
+    def test_format_uptime_hours_minutes(self):
+        """Format uptime with hours and minutes only."""
+        from llauncher.ui.utils import format_uptime
+
+        result = format_uptime(9000)  # 2h 30m 0s
+        assert result == "2h 30m"
+
+    def test_format_uptime_minutes_seconds(self):
+        """Format uptime with minutes and seconds only."""
+        from llauncher.ui.utils import format_uptime
+
+        result = format_uptime(305)  # 5m 5s
+        assert result == "5m 5s"
+
+    def test_format_uptime_seconds_only(self):
+        """Format uptime with seconds only."""
+        from llauncher.ui.utils import format_uptime
+
+        result = format_uptime(45)
+        assert result == "45s"
+
+    def test_format_uptime_zero(self):
+        """Format uptime of zero seconds."""
+        from llauncher.ui.utils import format_uptime
+
+        result = format_uptime(0)
+        assert result == "0s"
+
+    def test_format_uptime_large(self):
+        """Format large uptime value."""
+        from llauncher.ui.utils import format_uptime
+
+        result = format_uptime(90061)  # 25h 1m 1s
+        assert result == "25h 1m 1s"
