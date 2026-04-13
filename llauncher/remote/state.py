@@ -21,31 +21,50 @@ class RemoteAggregator:
             registry: NodeRegistry instance. Creates one if not provided.
         """
         self.registry = registry or NodeRegistry()
+        self._model_cache: dict[str, list[dict]] = {}
+        self._server_cache: dict[str, list[RemoteServerInfo]] = {}
 
     def get_all_servers(self) -> list[RemoteServerInfo]:
         """Get all running servers across all nodes.
 
         Returns:
             List of RemoteServerInfo from all online nodes.
+            For offline nodes, returns cached data with offline flag in config_name.
         """
         servers = []
 
         for node in self.registry:
             status = node.get_status()
-            if status is None:
-                continue
-
-            for server_data in status.get("running_servers", []):
-                server = RemoteServerInfo(
-                    node_name=node.name,
-                    pid=server_data["pid"],
-                    port=server_data["port"],
-                    config_name=server_data["config_name"],
-                    start_time=server_data["start_time"],
-                    uptime_seconds=server_data["uptime_seconds"],
-                    logs_path=server_data.get("logs_path"),
-                )
-                servers.append(server)
+            if status is not None:
+                # Cache successful result
+                server_list = []
+                for server_data in status.get("running_servers", []):
+                    server = RemoteServerInfo(
+                        node_name=node.name,
+                        pid=server_data["pid"],
+                        port=server_data["port"],
+                        config_name=server_data["config_name"],
+                        start_time=server_data["start_time"],
+                        uptime_seconds=server_data["uptime_seconds"],
+                        logs_path=server_data.get("logs_path"),
+                    )
+                    server_list.append(server)
+                self._server_cache[node.name] = server_list
+                servers.extend(server_list)
+            elif node.name in self._server_cache:
+                # Return cached data with offline indicator for offline nodes
+                for server in self._server_cache[node.name]:
+                    # Create a copy with offline indicator in config_name
+                    server_copy = RemoteServerInfo(
+                        node_name=server.node_name,
+                        pid=server.pid,
+                        port=server.port,
+                        config_name=f"{server.config_name} [OFFLINE]",
+                        start_time=server.start_time,
+                        uptime_seconds=server.uptime_seconds(),
+                        logs_path=server.logs_path,
+                    )
+                    servers.append(server_copy)
 
         return servers
 
@@ -54,13 +73,25 @@ class RemoteAggregator:
 
         Returns:
             Dictionary mapping node names to their model lists.
+            For offline nodes, returns cached data with _offline=True flag.
         """
         models_by_node = {}
 
         for node in self.registry:
             models = node.get_models()
             if models is not None:
+                # Cache successful result
+                self._model_cache[node.name] = models
                 models_by_node[node.name] = models
+            elif node.name in self._model_cache:
+                # Return cached data with offline indicator for offline nodes
+                offline_models = []
+                for model in self._model_cache[node.name]:
+                    # Add offline flag to indicate this is cached data
+                    model_copy = model.copy()
+                    model_copy["_offline"] = True
+                    offline_models.append(model_copy)
+                models_by_node[node.name] = offline_models
 
         return models_by_node
 

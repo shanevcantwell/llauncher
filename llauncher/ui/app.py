@@ -1,8 +1,5 @@
 """Streamlit UI for llauncher with multi-node support."""
 
-import subprocess
-import time
-
 import streamlit as st
 
 from llauncher.state import LauncherState
@@ -20,23 +17,25 @@ st.set_page_config(
 )
 
 
-@st.cache_resource
 def get_state() -> LauncherState:
-    """Get or create the launcher state (cached across reruns)."""
-    return LauncherState()
+    """Get or create the launcher state (using session state for persistence)."""
+    if "state" not in st.session_state:
+        st.session_state["state"] = LauncherState()
+    return st.session_state["state"]
 
 
-@st.cache_resource
 def get_registry() -> NodeRegistry:
-    """Get or create the node registry (cached across reruns)."""
-    return NodeRegistry()
+    """Get or create the node registry (using session state for persistence)."""
+    if "registry" not in st.session_state:
+        st.session_state["registry"] = NodeRegistry()
+    return st.session_state["registry"]
 
 
-@st.cache_resource
 def get_aggregator() -> RemoteAggregator:
-    """Get or create the remote aggregator (cached across reruns)."""
-    registry = get_registry()
-    return RemoteAggregator(registry)
+    """Get or create the remote aggregator (using session state for persistence)."""
+    if "aggregator" not in st.session_state:
+        st.session_state["aggregator"] = RemoteAggregator(get_registry())
+    return st.session_state["aggregator"]
 
 
 def is_agent_ready(registry: NodeRegistry) -> bool:
@@ -48,29 +47,7 @@ def is_agent_ready(registry: NodeRegistry) -> bool:
     Returns:
         True if agent is responding, False otherwise.
     """
-    import os
-    import socket
-
-    AGENT_PORT = int(os.getenv("LAUNCHER_AGENT_PORT", "8765"))
-
-    # Check if local node exists and is online
-    local_node = registry.get_node("local")
-    if local_node and local_node.ping():
-        return True
-
-    # Check if port is in use
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.settimeout(1)
-        try:
-            s.connect(("127.0.0.1", AGENT_PORT))
-            # Something is running - add to registry if not present
-            if not local_node:
-                registry.add_node("local", "localhost", AGENT_PORT, overwrite=True)
-            return True
-        except (ConnectionRefusedError, TimeoutError, OSError):
-            pass
-
-    return False
+    return registry.is_local_agent_ready()
 
 
 def start_agent_background(registry: NodeRegistry) -> None:
@@ -79,28 +56,8 @@ def start_agent_background(registry: NodeRegistry) -> None:
     Args:
         registry: NodeRegistry instance.
     """
-    import os
-    import sys
-
-    AGENT_PORT = int(os.getenv("LAUNCHER_AGENT_PORT", "8765"))
-
-    # Cross-platform process detachment:
-    # - Windows: CREATE_NEW_PROCESS_GROUP detaches from console
-    # - Unix: start_new_session creates new session (daemon-like)
-    kwargs = {
-        "stdout": subprocess.DEVNULL,
-        "stderr": subprocess.DEVNULL,
-    }
-    if sys.platform == "win32":
-        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-    else:
-        kwargs["start_new_session"] = True
-
-    subprocess.Popen(["llauncher-agent"], **kwargs)
-
-    # Add to registry if not present
-    if not registry.get_node("local"):
-        registry.add_node("local", "localhost", AGENT_PORT, overwrite=True)
+    # Note: We don't check the return value here as the UI handles errors via session state
+    registry.start_local_agent()
 
 
 def show_loading_screen() -> None:

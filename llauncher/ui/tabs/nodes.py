@@ -1,6 +1,5 @@
 """Node management tab for multi-node llauncher."""
 
-import subprocess
 import time
 
 import streamlit as st
@@ -252,46 +251,24 @@ def check_and_prompt_local_agent(registry: NodeRegistry) -> None:
     Args:
         registry: NodeRegistry instance.
     """
-    import socket
-
-    # Check if agent is running on localhost
-    local_node = registry.get_node("local")
-    if local_node:
-        if local_node.ping():
-            return  # Local agent is running
-
-    # Check if port 8765 is in use
-    import socket as sock
-
-    with sock.socket(sock.AF_INET, sock.SOCK_STREAM) as s:
-        s.settimeout(1)
-        try:
-            s.connect(("127.0.0.1", 8765))
-            return  # Something is running on the port
-        except ConnectionRefusedError:
-            pass
+    # Check if agent is running using registry method
+    if registry.is_local_agent_ready():
+        return  # Local agent is running
 
     # Prompt to start local agent
     if st.sidebar.button("🚀 Start Local Agent", use_container_width=True):
         try:
-            # Start agent in background
-            proc = subprocess.Popen(
-                ["llauncher-agent"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            st.sidebar.success("Starting local agent...")
-            time.sleep(2)
+            # Start agent using registry method
+            if registry.start_local_agent():
+                st.sidebar.success("Starting local agent...")
+                time.sleep(2)
 
-            # Add to registry if not present
-            if not registry.get_node("local"):
-                registry.add_node("local", "localhost", 8765, overwrite=True)
-                st.rerun()
-
-            # Test connection
-            local_node = registry.get_node("local")
-            if local_node and local_node.ping():
-                st.sidebar.success("Local agent is running!")
+                # Test connection
+                local_node = registry.get_node("local")
+                if local_node and local_node.ping():
+                    st.sidebar.success("Local agent is running!")
+                else:
+                    st.sidebar.error("Failed to start local agent")
             else:
                 st.sidebar.error("Failed to start local agent")
         except Exception as e:

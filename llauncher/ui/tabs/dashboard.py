@@ -6,8 +6,126 @@ from llauncher.state import LauncherState
 from llauncher.core.process import stream_logs
 from llauncher.remote.registry import NodeRegistry
 from llauncher.remote.state import RemoteAggregator
-from llauncher.remote.node import RemoteServerInfo
+from llauncher.remote.node import RemoteServerInfo, NodeStatus
 from llauncher.ui.utils import format_uptime
+
+
+def get_servers_to_display(
+    state: LauncherState,
+    registry: NodeRegistry | None = None,
+    aggregator: RemoteAggregator | None = None,
+    selected_node: str | None = None,
+) -> list[RemoteServerInfo]:
+    """Get servers to display based on current view.
+
+    Args:
+        state: The launcher state (local).
+        registry: NodeRegistry for remote nodes.
+        aggregator: RemoteAggregator for multi-node state.
+        selected_node: Name of selected node or None for all.
+
+    Returns:
+        List of RemoteServerInfo to display.
+    """
+    servers = []
+
+    if registry and aggregator and selected_node:
+        # Show only selected node
+        if selected_node == "local":
+            # Local node only
+            state.refresh()
+            for port, server in state.running.items():
+                servers.append(
+                    RemoteServerInfo(
+                        node_name="local",
+                        pid=server.pid,
+                        port=server.port,
+                        config_name=server.config_name,
+                        start_time=server.start_time.isoformat(),
+                        uptime_seconds=server.uptime_seconds(),
+                        logs_path=server.logs_path,
+                    )
+                )
+        else:
+            # Specific remote node
+            servers.extend(get_node_servers(aggregator, selected_node))
+    elif registry and aggregator:
+        # Show all nodes (remote + local)
+        servers.extend(aggregator.get_all_servers())
+        state.refresh()
+        for port, server in state.running.items():
+            servers.append(
+                RemoteServerInfo(
+                    node_name="local",
+                    pid=server.pid,
+                    port=server.port,
+                    config_name=server.config_name,
+                    start_time=server.start_time.isoformat(),
+                    uptime_seconds=server.uptime_seconds(),
+                    logs_path=server.logs_path,
+                )
+            )
+    else:
+        # Show only local
+        state.refresh()
+        for port, server in state.running.items():
+            servers.append(
+                RemoteServerInfo(
+                    node_name="local",
+                    pid=server.pid,
+                    port=server.port,
+                    config_name=server.config_name,
+                    start_time=server.start_time.isoformat(),
+                    uptime_seconds=server.uptime_seconds(),
+                    logs_path=server.logs_path,
+                )
+            )
+
+    return servers
+
+
+def get_models_to_display(
+    state: LauncherState,
+    registry: NodeRegistry | None = None,
+    aggregator: RemoteAggregator | None = None,
+    selected_node: str | None = None,
+) -> dict[str, list[dict]]:
+    """Get models to display based on current view.
+
+    Args:
+        state: The launcher state (local).
+        registry: NodeRegistry for remote nodes.
+        aggregator: RemoteAggregator for multi-node state.
+        selected_node: Name of selected node or None for all.
+
+    Returns:
+        Dictionary mapping node names to their model lists.
+    """
+    all_models = {}
+
+    if registry and aggregator and selected_node:
+        if selected_node == "local":
+            # Show only local models when "local" node is selected
+            all_models["local"] = [m.to_dict() for m in state.models.values()]
+        else:
+            # Show only selected remote node's models
+            all_models = aggregator.get_all_models()
+    elif registry and aggregator:
+        # Show all models grouped by node (All Nodes view)
+        all_models = aggregator.get_all_models()
+        # Merge in local models for "All Nodes" view
+        all_models["local"] = [m.to_dict() for m in state.models.values()]
+    else:
+        # Show only local models
+        all_models["local"] = [m.to_dict() for m in state.models.values()]
+
+    return all_models
+
+
+def get_node_servers(aggregator: RemoteAggregator, node_name: str) -> list[RemoteServerInfo]:
+    """Get servers for a specific node."""
+    all_servers = aggregator.get_all_servers()
+    return [s for s in all_servers if s.node_name == node_name]
 
 
 def render_dashboard(
@@ -49,35 +167,9 @@ def render_dashboard(
     with st.expander("➕ Add New Model", expanded=False):
         render_add_model(state)
 
-    # Get servers to display
-    if registry and aggregator and selected_node:
-        # Show only selected node
-        servers = get_node_servers(aggregator, selected_node)
-        show_local = selected_node == "local"
-    elif registry and aggregator:
-        # Show all remote nodes
-        servers = aggregator.get_all_servers()
-        show_local = True  # Include local in "All Nodes" view
-    else:
-        # Show only local
-        servers = []
-        show_local = True
-
-    # Combine with local servers if needed
-    if show_local:
-        state.refresh()
-        for port, server in state.running.items():
-            servers.append(
-                RemoteServerInfo(
-                    node_name="local",
-                    pid=server.pid,
-                    port=server.port,
-                    config_name=server.config_name,
-                    start_time=server.start_time.isoformat(),
-                    uptime_seconds=server.uptime_seconds(),
-                    logs_path=server.logs_path,
-                )
-            )
+    # Get servers and models to display using helper functions
+    servers = get_servers_to_display(state, registry, aggregator, selected_node)
+    all_models = get_models_to_display(state, registry, aggregator, selected_node)
 
     if not servers and not state.models:
         st.info("No models configured. Use the 'Add New Model' section above to add one.")
@@ -91,23 +183,6 @@ def render_dashboard(
     for server in servers:
         key = (server.node_name, server.config_name)
         running_server_map[key] = server
-
-    # Get models to display
-    if registry and aggregator and selected_node:
-        if selected_node == "local":
-            # Show only local models when "local" node is selected
-            all_models = {"local": [m.to_dict() for m in state.models.values()]}
-        else:
-            # Show only selected remote node's models
-            all_models = aggregator.get_all_models()
-    elif registry and aggregator:
-        # Show all models grouped by node (All Nodes view)
-        all_models = aggregator.get_all_models()
-        # Merge in local models for "All Nodes" view
-        all_models["local"] = [m.to_dict() for m in state.models.values()]
-    else:
-        # Show only local models
-        all_models = {"local": [m.to_dict() for m in state.models.values()]}
 
     if not all_models and not state.models:
         return
@@ -153,8 +228,20 @@ def render_model_card(
     is_running = running_server is not None
     status_icon = "🟢" if is_running else "⚫"
 
-    # Create expander label with status LED indicator
-    expander_label = f"**{model_name}** ({node_name}) {status_icon}"
+    # Get node status for additional node health indicator
+    node_status_icon = "⚪"  # Default to unknown
+    if registry:
+        node = registry.get_node(node_name)
+        if node:
+            if node.status == NodeStatus.ONLINE:
+                node_status_icon = "🟢"
+            elif node.status == NodeStatus.ERROR:
+                node_status_icon = "🔴"
+            else:  # OFFLINE or other
+                node_status_icon = "⚫"
+
+    # Create expander label with status LED indicators
+    expander_label = f"**{model_name}** ({node_name}) {node_status_icon} {status_icon}"
 
     with st.expander(expander_label, expanded=False):
         col1, col2 = st.columns(2)

@@ -152,6 +152,70 @@ class NodeRegistry:
                 info[name] = node_info
         return info
 
+    def is_local_agent_ready(self) -> bool:
+        """Check if the local agent is ready.
+
+        Returns:
+            True if agent is responding, False otherwise.
+        """
+        import os
+        import socket
+
+        AGENT_PORT = int(os.getenv("LAUNCHER_AGENT_PORT", "8765"))
+
+        # Check if local node exists and is online
+        local_node = self.get_node("local")
+        if local_node and local_node.ping():
+            return True
+
+        # Check if port is in use
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(1)
+            try:
+                s.connect(("127.0.0.1", AGENT_PORT))
+                # Something is running - add to registry if not present
+                if not local_node:
+                    self.add_node("local", "localhost", AGENT_PORT, overwrite=True)
+                return True
+            except (ConnectionRefusedError, TimeoutError, OSError):
+                pass
+
+        return False
+
+    def start_local_agent(self) -> bool:
+        """Start the agent as a detached background process and register it.
+
+        Returns:
+            True if agent was started successfully, False otherwise.
+        """
+        import os
+        import sys
+        import subprocess
+
+        AGENT_PORT = int(os.getenv("LAUNCHER_AGENT_PORT", "8765"))
+
+        # Cross-platform process detachment:
+        # - Windows: CREATE_NEW_PROCESS_GROUP detaches from console
+        # - Unix: start_new_session creates new session (daemon-like)
+        kwargs = {
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+        }
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            kwargs["start_new_session"] = True
+
+        try:
+            subprocess.Popen(["llauncher-agent"], **kwargs)
+
+            # Add to registry if not present
+            if not self.get_node("local"):
+                self.add_node("local", "localhost", AGENT_PORT, overwrite=True)
+            return True
+        except Exception:
+            return False
+
     def to_dict(self) -> dict:
         """Convert registry to dictionary representation."""
         return {
