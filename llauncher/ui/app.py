@@ -208,10 +208,14 @@ def main():
         # Node selector
         st.subheader("🖥️ Node")
 
-        # Build node options
+        # Build node options with offline filtering
+        show_offline = st.session_state.get("show_offline_nodes", True)
         node_options = ["All Nodes"]
         for node in registry:
-            status = "🟢" if node.status == NodeStatus.ONLINE else "⚫"
+            is_online = node.status == NodeStatus.ONLINE
+            if not is_online and not show_offline:
+                continue  # Skip offline nodes if toggle is off
+            status = "🟢" if is_online else "⚫"
             node_options.append(f"{status} {node.name}")
 
         selected = st.selectbox(
@@ -226,6 +230,16 @@ def main():
             st.session_state["selected_node"] = None
         else:
             st.session_state["selected_node"] = selected.replace("🟢 ", "").replace("⚫ ", "")
+
+        st.divider()
+
+        # Options
+        st.subheader("🔧 Options")
+        st.session_state["show_offline_nodes"] = st.checkbox(
+            "Show offline nodes",
+            value=st.session_state.get("show_offline_nodes", True),
+            help="Uncheck to hide offline nodes from the selector",
+        )
 
     # Tab navigation
     tab1, tab2 = st.tabs(["📊 Dashboard", "🖥️ Nodes"])

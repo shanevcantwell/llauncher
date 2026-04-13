@@ -57,7 +57,7 @@ def render_dashboard(
     elif registry and aggregator:
         # Show all remote nodes
         servers = aggregator.get_all_servers()
-        show_local = False
+        show_local = True  # Include local in "All Nodes" view
     else:
         # Show only local
         servers = []

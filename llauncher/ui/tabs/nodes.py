@@ -129,17 +129,21 @@ def render_node_list(registry: NodeRegistry, aggregator) -> None:
                     st.rerun()
 
             with action_col2:
-                if st.button(
-                    "🗑️ Remove Node",
-                    use_container_width=True,
-                    key=f"remove_{node.name}",
-                ):
-                    success, message = registry.remove_node(node.name)
-                    if success:
-                        st.success(message)
-                    else:
-                        st.error(message)
-                    st.rerun()
+                if node.name == "local":
+                    # Local node is auto-managed and cannot be removed
+                    st.info("Local node is auto-managed and cannot be removed")
+                else:
+                    if st.button(
+                        "🗑️ Remove Node",
+                        use_container_width=True,
+                        key=f"remove_{node.name}",
+                    ):
+                        success, message = registry.remove_node(node.name)
+                        if success:
+                            st.success(message)
+                        else:
+                            st.error(message)
+                        st.rerun()
 
 
 def render_add_node_form(registry: NodeRegistry) -> None:
