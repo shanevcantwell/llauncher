@@ -29,6 +29,7 @@ def get_tools() -> list[Tool]:
                             "threads": {"type": "integer"},
                             "flash_attn": {"type": "string", "enum": ["on", "off", "auto"]},
                             "no_mmap": {"type": "boolean"},
+                            "extra_args": {"type": "string", "description": "Additional command-line arguments (space-separated)"},
                         },
                     },
                 },
@@ -75,6 +76,7 @@ def get_tools() -> list[Tool]:
                             "threads": {"type": "integer"},
                             "flash_attn": {"type": "string"},
                             "no_mmap": {"type": "boolean"},
+                            "extra_args": {"type": "string", "description": "Additional command-line arguments (space-separated, use quotes for args with spaces)"},
                         },
                         "required": ["name", "model_path"],
                     },
@@ -135,6 +137,8 @@ async def update_model_config(state: LauncherState, args: dict) -> dict:
         updated_config.flash_attn = updates["flash_attn"]
     if "no_mmap" in updates:
         updated_config.no_mmap = updates["no_mmap"]
+    if "extra_args" in updates:
+        updated_config.extra_args = updates["extra_args"]
 
     # Validate the updated config
     try:

@@ -43,7 +43,7 @@ class ModelConfig(BaseModel):
     reverse_prompt: str | None = None
     # Memory management
     mlock: bool = False
-    extra_args: list[str] = []
+    extra_args: str = ""  # Free-form string added to command line (e.g., "--mcp-config /path/to/.mcp.json")
     _skip_path_validation: bool = False  # Internal flag for discovery
 
     @field_validator("model_path", mode="before")
@@ -73,6 +73,7 @@ class ModelConfig(BaseModel):
         Handles backward compatibility migration:
         - Migrates "port" field to "default_port"
         - Drops "host" field (defaults to 0.0.0.0 in build_command)
+        - Migrates "extra_args" from list[str] to str
         """
         # Make a copy to avoid mutating the original
         data = data.copy()
@@ -83,6 +84,10 @@ class ModelConfig(BaseModel):
 
         # Drop "host" field (will default to 0.0.0.0 in build_command)
         data.pop("host", None)
+
+        # Migrate extra_args from list[str] to str (backward compatibility)
+        if "extra_args" in data and isinstance(data["extra_args"], list):
+            data["extra_args"] = " ".join(data["extra_args"])
 
         cls._skip_path_validation = True
         try:

@@ -422,6 +422,11 @@ def render_add_model(state: LauncherState) -> None:
                 help="Halt generation when this string is encountered",
             )
 
+            extra_args = st.text_input(
+                "Extra Args (optional)",
+                help="Additional command-line arguments (e.g., '--mcp-config /path/to/file.json')",
+            )
+
         submitted = st.form_submit_button("Add Model", use_container_width=True)
 
         if submitted:
@@ -463,6 +468,7 @@ def render_add_model(state: LauncherState) -> None:
                     top_p=top_p if top_p > 0 else None,
                     min_p=min_p if min_p > 0 else None,
                     reverse_prompt=reverse_prompt.strip() if reverse_prompt else None,
+                    extra_args=extra_args.strip() if extra_args else "",
                 )
 
                 ConfigStore.add_model(config)
@@ -590,6 +596,12 @@ def render_edit_model(state: LauncherState, model_name: str | None = None) -> No
                 "Reverse Prompt", value=config.reverse_prompt or ""
             )
 
+            extra_args = st.text_input(
+                "Extra Args",
+                value=config.extra_args or "",
+                help="Additional command-line arguments",
+            )
+
         col_submit, col_cancel = st.columns(2)
         with col_submit:
             submitted = st.form_submit_button("Save Changes", use_container_width=True)
@@ -627,6 +639,7 @@ def render_edit_model(state: LauncherState, model_name: str | None = None) -> No
                         "top_p": top_p if top_p > 0 else None,
                         "min_p": min_p if min_p > 0 else None,
                         "reverse_prompt": reverse_prompt or None,
+                        "extra_args": extra_args or "",
                     }
                 )
 

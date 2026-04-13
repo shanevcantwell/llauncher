@@ -1,5 +1,6 @@
 """Process management for llama-server instances."""
 
+import shlex
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -143,8 +144,9 @@ def build_command(
     if config.mlock:
         cmd.append("--mlock")
 
-    # Extra args
-    cmd.extend(config.extra_args)
+    # Extra args (parse free-form string into arguments)
+    if config.extra_args:
+        cmd.extend(shlex.split(config.extra_args))
 
     return cmd
 

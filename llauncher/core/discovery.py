@@ -103,7 +103,7 @@ def parse_launch_script(script: Path) -> ModelConfig | None:
         "reverse_prompt": args.get("-r", args.get("--reverse-prompt")),
         # Memory management
         "mlock": "--mlock" in args,
-        "extra_args": [],
+        "extra_args": "",
     }
 
     # Use unvalidated constructor for discovered scripts

@@ -60,7 +60,7 @@ def full_config():
             "min_p": 0.1,
             "reverse_prompt": "STOP",
             "mlock": True,
-            "extra_args": ["--custom-flag", "value"],
+            "extra_args": "--custom-flag value",
         }
     )
 
@@ -185,12 +185,19 @@ class TestBuildCommand:
         assert "--parallel" not in cmd
 
     def test_extra_args_extended(self, minimal_config):
-        """extra_args are extended to command."""
-        minimal_config.extra_args = ["--extra1", "val1", "--extra2"]
+        """extra_args string is parsed and extended to command."""
+        minimal_config.extra_args = "--extra1 val1 --extra2"
         cmd = build_command(minimal_config, port=8080)
         assert "--extra1" in cmd
         assert "val1" in cmd
         assert "--extra2" in cmd
+
+    def test_extra_args_with_quoted_strings(self, minimal_config):
+        """extra_args properly handles quoted strings with spaces."""
+        minimal_config.extra_args = '--reverse-prompt "You are helpful"'
+        cmd = build_command(minimal_config, port=8080)
+        assert "--reverse-prompt" in cmd
+        assert "You are helpful" in cmd
 
     def test_custom_host(self, minimal_config):
         """Custom host parameter is used."""
