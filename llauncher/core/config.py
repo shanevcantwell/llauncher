@@ -36,7 +36,10 @@ class ConfigStore:
 
     @classmethod
     def save(cls, models: dict[str, ModelConfig]) -> None:
-        """Save configurations to disk.
+        """Save configurations to disk atomically.
+
+        Writes to a temporary file first, then renames to prevent
+        corruption if the process is interrupted mid-write.
 
         Args:
             models: Dictionary of model configurations.
@@ -45,8 +48,11 @@ class ConfigStore:
 
         data = {name: cfg.to_dict() for name, cfg in models.items()}
 
-        with open(CONFIG_PATH, "w") as f:
+        # Write to temp file first, then rename for atomicity
+        temp_path = CONFIG_PATH.with_suffix(".tmp")
+        with open(temp_path, "w") as f:
             json.dump(data, f, indent=2)
+        temp_path.rename(CONFIG_PATH)
 
     @classmethod
     def merge_discovered(

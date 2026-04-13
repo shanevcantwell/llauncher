@@ -168,7 +168,7 @@ Get the full configuration for a specific model.
     "min_p": null,
     "reverse_prompt": null,
     "mlock": false,
-    "extra_args": []
+    "extra_args": ""
   },
   "status": {
     "status": "running",
