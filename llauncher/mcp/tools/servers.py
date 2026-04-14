@@ -19,7 +19,7 @@ def get_tools() -> list[Tool]:
     return [
         Tool(
             name="start_server",
-            description="Start a llama-server for a specific model by name",
+            description="Start a llama-server for a specific model by name. The model_name must exactly match a model from list_models identification.name.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -47,7 +47,7 @@ def get_tools() -> list[Tool]:
         ),
         Tool(
             name="swap_server",
-            description="Atomically swap models on a port with rollback guarantee. Stops any server on the port and starts the new model. If the new model fails to start, the old model is automatically restored. Guarantees that when this call returns, a model is serving on the port (either the new one on success, or the old one on failure).",
+            description="Atomically swap models on a port with rollback guarantee. Stops any server on the port and starts the new model. If the new model fails to start, the old model is automatically restored. Guarantees that when this call returns, a model is serving on the port (either the new one on success, or the old one on failure). The model_name must exactly match a model from list_models identification.name.",
             inputSchema={
                 "type": "object",
                 "properties": {

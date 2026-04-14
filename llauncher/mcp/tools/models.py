@@ -37,51 +37,53 @@ def get_tools() -> list[Tool]:
 async def list_models(state: LauncherState, args: dict) -> dict:
     """List all configured models with status.
 
+    Returns structured data separating model identification from status information
+    to prevent confusion between model names and port numbers.
+
     Args:
         state: The launcher state.
         args: Tool arguments (empty for this tool).
 
     Returns:
-        Dictionary with list of models and their status.
+        Dictionary with list of models. Each model includes:
+        - identification: model name and path
+        - status: running status, port, and PID if applicable
     """
     models = []
 
     for name, config in state.models.items():
         status_info = state.get_model_status(name)
-        # Use running port if available, otherwise default_port
-        if status_info.get("status") == "running":
-            port_info = status_info.get("port")
-        else:
-            port_info = config.default_port or "auto-allocate"
-
-        models.append(
-            {
+        model_entry = {
+            "identification": {
                 "name": name,
-                "status": status_info.get("status", "unknown"),
-                "port": port_info,
-                "model_path": config.model_path,
-                "n_gpu_layers": config.n_gpu_layers,
-                "ctx_size": config.ctx_size,
-                **(
-                    {"pid": status_info["pid"]}
-                    if status_info.get("status") == "running"
-                    else {}
-                ),
+                "model_path": config.model_path
+            },
+            "status": {
+                "state": status_info.get("status", "unknown"),
+                "port": status_info.get("port") if status_info.get("status") == "running" else None,
+                "default_port": config.default_port,
+                **({"pid": status_info["pid"]} if status_info.get("status") == "running" else {})
             }
-        )
+        }
+        models.append(model_entry)
 
     return {"models": models, "count": len(models)}
 
 
 async def get_model_config(state: LauncherState, args: dict) -> dict:
-    """Get full configuration for a specific model.
+    """Get full configuration for a specific model by name.
+
+    Returns structured data separating model identification from configuration and status.
 
     Args:
         state: The launcher state.
         args: Tool arguments including 'name'.
 
     Returns:
-        Dictionary with model configuration.
+        Dictionary with model configuration. Includes:
+        - identification: model name and path
+        - configuration: full model configuration
+        - status: running status, port, and PID if applicable
     """
     name = args.get("name")
 
@@ -95,7 +97,15 @@ async def get_model_config(state: LauncherState, args: dict) -> dict:
     status_info = state.get_model_status(name)
 
     return {
-        "name": name,
-        "config": config.to_dict(),
-        "status": status_info,
+        "identification": {
+            "name": name,
+            "model_path": config.model_path
+        },
+        "configuration": config.to_dict(),
+        "status": {
+            "state": status_info.get("status", "unknown"),
+            "port": status_info.get("port") if status_info.get("status") == "running" else None,
+            "default_port": config.default_port,
+            **({"pid": status_info["pid"]} if status_info.get("status") == "running" else {})
+        }
     }
