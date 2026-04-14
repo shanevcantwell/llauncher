@@ -7,7 +7,6 @@ from datetime import datetime
 from pathlib import Path
 
 from llauncher.core.config import ConfigStore
-from llauncher.core.discovery import discover_scripts
 from llauncher.core.process import (
     DEFAULT_SERVER_BINARY,
     find_all_llama_servers,
@@ -47,9 +46,8 @@ class LauncherState:
 
     def refresh(self) -> None:
         """Refresh state from disk and process list."""
-        # Load and merge configurations
-        discovered = discover_scripts()
-        self.models = ConfigStore.merge_discovered(discovered)
+        # Load configurations from config.json (single source of truth)
+        self.models = ConfigStore.load()
 
         # Refresh running servers
         self.refresh_running_servers()

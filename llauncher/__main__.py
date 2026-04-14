@@ -11,24 +11,13 @@ def main():
     parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
     parser.add_argument(
         "command",
-        choices=["discover", "mcp", "ui"],
+        choices=["mcp", "ui"],
         help="Command to run",
     )
 
     args = parser.parse_args()
 
-    if args.command == "discover":
-        from llauncher.core.discovery import discover_scripts
-
-        configs = discover_scripts()
-        for config in configs:
-            print(f"\n{config.name}:")
-            print(f"  Model: {config.model_path}")
-            print(f"  Default Port: {config.default_port or 'Auto-allocate'}")
-            print(f"  GPU Layers: {config.n_gpu_layers}")
-            print(f"  Context: {config.ctx_size}")
-
-    elif args.command == "mcp":
+    if args.command == "mcp":
         from llauncher.mcp.server import main as mcp_main
 
         mcp_main()

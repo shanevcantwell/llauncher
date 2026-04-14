@@ -32,7 +32,6 @@ def sample_model_config():
 @pytest.fixture
 def launcher_state(mock_config_store):
     """LauncherState with mocked dependencies."""
-    # Mock discovery and process management to avoid real side effects
-    with patch('llauncher.core.discovery.discover_scripts', return_value=[]):
-        with patch('llauncher.core.process.find_all_llama_servers', return_value=[]):
-            yield LauncherState()
+    # Mock process management to avoid real side effects
+    with patch('llauncher.core.process.find_all_llama_servers', return_value=[]):
+        yield LauncherState()

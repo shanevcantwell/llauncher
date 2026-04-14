@@ -1,7 +1,6 @@
 """Core services for llauncher."""
 
 from llauncher.core.config import ConfigStore
-from llauncher.core.discovery import discover_scripts, parse_launch_script
 from llauncher.core.process import (
     build_command,
     find_all_llama_servers,
@@ -13,8 +12,6 @@ from llauncher.core.process import (
 
 __all__ = [
     "ConfigStore",
-    "discover_scripts",
-    "parse_launch_script",
     "build_command",
     "find_all_llama_servers",
     "find_server_by_port",

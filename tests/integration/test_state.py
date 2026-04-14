@@ -11,30 +11,23 @@ def test_state_refresh(mock_config_store, sample_model_config):
     # 1. Setup: Add a model to ConfigStore
     ConfigStore.add_model(sample_model_config)
 
-    # 2. Mock discovery to return a second model with different path
-    discovered_config = sample_model_config.model_copy(
-        update={"name": "discovered", "model_path": "/discovered/path/model.gguf"}
-    )
-
-    # 3. Mock running servers - use the discovered model's path so _find_model_by_path matches
+    # 2. Mock running servers - use the model's path so _find_model_by_path matches
     mock_proc = MagicMock()
     mock_proc.pid = 1234
-    mock_proc.cmdline.return_value = ["llama-server", "--port", "8081", "-m", discovered_config.model_path]
+    mock_proc.cmdline.return_value = ["llama-server", "--port", "8081", "-m", sample_model_config.model_path]
 
-     # Patch where the functions are USED (in state.py), not where they're defined
-    with patch('llauncher.state.discover_scripts', return_value=[discovered_config]):
-        with patch('llauncher.state.find_all_llama_servers', return_value=[mock_proc]):
-            state = LauncherState()
+    with patch('llauncher.state.find_all_llama_servers', return_value=[mock_proc]):
+        state = LauncherState()
 
-            # Check models (merged)
-            assert sample_model_config.name in state.models
-            assert discovered_config.name in state.models
+        # Check models (only from ConfigStore, no discovery)
+        assert sample_model_config.name in state.models
+        # No discovered models should be present
 
-            # Check running (the one we mocked)
-            assert 8081 in state.running
-            assert state.running[8081].pid == 1234
-            # Since 'discovered' is in state.models, it should find it
-            assert state.running[8081].config_name == "discovered"
+        # Check running (the one we mocked)
+        assert 8081 in state.running
+        assert state.running[8081].pid == 1234
+        # Since the model is in state.models, it should find it
+        assert state.running[8081].config_name == sample_model_config.name
 
 def test_can_start_validation(launcher_state, sample_model_config):
     """Test the validation logic in can_start."""
@@ -124,17 +117,15 @@ class TestLauncherStateEdgeCases:
     @pytest.fixture
     def state_with_models(self):
         """Create a state with some models configured."""
-        with patch("llauncher.state.discover_scripts", return_value={}):
-            with patch("llauncher.state.ConfigStore.merge_discovered", return_value={}):
-                state = LauncherState()
-                # Add a test model
-                config = ModelConfig.from_dict_unvalidated({
-                    "name": "test-model",
-                    "model_path": str(Path.home() / "test.model"),
-                    "default_port": 8080,
-                })
-                state.models["test-model"] = config
-                return state
+        state = LauncherState()
+        # Add a test model
+        config = ModelConfig.from_dict_unvalidated({
+            "name": "test-model",
+            "model_path": str(Path.home() / "test.model"),
+            "default_port": 8080,
+        })
+        state.models["test-model"] = config
+        return state
 
     def test_refresh_running_servers_empty_cmdline(self, state_with_models):
         """Processes with empty cmdline are skipped."""

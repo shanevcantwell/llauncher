@@ -40,19 +40,6 @@ def test_config_store_load_nonexistent(mock_config_store):
     models = ConfigStore.load()
     assert models == {}
 
-def test_config_store_merge_discovered(mock_config_store, sample_model_config):
-    """Test merging discovered scripts with persisted configs."""
-    # Persist one model
-    ConfigStore.add_model(sample_model_config)
-
-    # Discovered model (different name)
-    discovered_config = sample_model_config.model_copy(update={"name": "discovered-model"})
-
-    merged = ConfigStore.merge_discovered([discovered_config])
-
-    assert sample_model_config.name in merged
-    assert discovered_config.name in merged
-    assert len(merged) == 2
 
 def test_config_store_update_model(mock_config_store, sample_model_config):
     """Test updating an existing model."""

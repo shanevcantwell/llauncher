@@ -54,30 +54,7 @@ class ConfigStore:
             json.dump(data, f, indent=2)
         temp_path.rename(CONFIG_PATH)
 
-    @classmethod
-    def merge_discovered(
-        cls, discovered: list[ModelConfig]
-    ) -> dict[str, ModelConfig]:
-        """Merge discovered scripts with persisted configs.
-
-        Persisted configs take precedence over discovered scripts.
-
-        Args:
-            discovered: List of configs discovered from scripts.
-
-        Returns:
-            Merged dictionary of all configurations.
-        """
-        # Start with persisted configs
-        merged = cls.load()
-
-        # Add discovered scripts that aren't in persisted configs
-        for config in discovered:
-            if config.name not in merged:
-                merged[config.name] = config
-
-        return merged
-
+ 
     @classmethod
     def add_model(cls, config: ModelConfig) -> None:
         """Add a new model configuration.

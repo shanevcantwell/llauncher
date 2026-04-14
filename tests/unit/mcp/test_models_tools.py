@@ -57,31 +57,31 @@ class TestListModels:
 
     @pytest.mark.asyncio
     async def test_list_models_running(self, mock_state):
-        """Running model shows port and status."""
+        """Running model shows port and status in structured format."""
         result = await list_models(mock_state, {})
 
         assert len(result["models"]) == 2
-        running = next(m for m in result["models"] if m["name"] == "running-model")
-        assert running["status"] == "running"
-        assert running["port"] == 8080
-        assert running["pid"] == 12345
+        running = next(m for m in result["models"] if m["identification"]["name"] == "running-model")
+        assert running["status"]["state"] == "running"
+        assert running["status"]["port"] == 8080
+        assert running["status"]["pid"] == 12345
 
     @pytest.mark.asyncio
     async def test_list_models_stopped(self, mock_state):
-        """Stopped model shows auto-allocate."""
+        """Stopped model shows auto-allocate in structured format."""
         result = await list_models(mock_state, {})
 
-        stopped = next(m for m in result["models"] if m["name"] == "stopped-model")
-        assert stopped["status"] == "stopped"
-        assert stopped["port"] == "auto-allocate"
+        stopped = next(m for m in result["models"] if m["identification"]["name"] == "stopped-model")
+        assert stopped["status"]["state"] == "stopped"
+        assert stopped["status"]["port"] is None  # default_port is None, so port should be None in status
 
     @pytest.mark.asyncio
     async def test_list_models_multiple(self, mock_state):
-        """Multiple models with mixed status."""
+        """Multiple models with mixed status in structured format."""
         result = await list_models(mock_state, {})
 
         assert len(result["models"]) == 2
-        names = [m["name"] for m in result["models"]]
+        names = [m["identification"]["name"] for m in result["models"]]
         assert "running-model" in names
         assert "stopped-model" in names
 
@@ -91,11 +91,12 @@ class TestGetModelConfig:
 
     @pytest.mark.asyncio
     async def test_get_model_config_success(self, mock_state):
-        """Returns full config and status."""
+        """Returns full config and status in structured format."""
         result = await get_model_config(mock_state, {"name": "running-model"})
 
-        assert result["name"] == "running-model"
-        assert "config" in result
+        assert result["identification"]["name"] == "running-model"
+        assert "configuration" in result
+        assert "status" in result
 
     @pytest.mark.asyncio
     async def test_get_model_config_missing_name(self):
