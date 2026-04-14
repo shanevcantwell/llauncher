@@ -52,7 +52,7 @@ class ConfigStore:
         temp_path = CONFIG_PATH.with_suffix(".tmp")
         with open(temp_path, "w") as f:
             json.dump(data, f, indent=2)
-        temp_path.rename(CONFIG_PATH)
+        temp_path.replace(CONFIG_PATH)
 
  
     @classmethod
