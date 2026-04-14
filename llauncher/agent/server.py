@@ -13,6 +13,8 @@ Usage:
 
 import argparse
 import logging
+import os
+import signal
 import socket
 import sys
 
@@ -39,7 +41,6 @@ def find_process_on_port(port: int) -> int | None:
     Returns:
         PID of the process, or None if not found.
     """
-    import os
 
     # Try to find process using /proc on Linux
     if sys.platform == "linux":
@@ -85,7 +86,6 @@ def stop_agent(port: int) -> bool:
             # Agent is running, try to find and kill it
             pid = find_process_on_port(port)
             if pid:
-                import signal
                 os.kill(pid, signal.SIGTERM)
                 logger.info(f"Agent (PID {pid}) terminated")
                 return True
@@ -185,14 +185,18 @@ def main() -> None:
         else:
             logger.info("No running agent found to stop")
             sys.exit(0)
+        # If we get here, sys.exit didn't exit (e.g., because it was mocked in tests)
+        return
 
     # Load config from environment and start agent
     config = AgentConfig.from_env()
 
     try:
         run_agent(config)
+        # Normal exit if run_agent completed successfully
+        sys.exit(0)
     except KeyboardInterrupt:
-        logger.info("Agent shutdown requested")
+        logger.info("Agent requested shutdown")
         sys.exit(0)
     except Exception as e:
         logger.error(f"Agent failed: {e}")
