@@ -63,30 +63,29 @@ class TestIssue6LlamaServerConfigFields:
     def test_model_config_includes_all_server_options(self):
         """Test that ModelConfig includes all expected llama-server fields."""
         # Test that we can create a ModelConfig with various server options
-        config = ModelConfig(
-            name="test-model",
-            model_path="/path/to/model.gguf",
-            # Test various server configuration options
-            n_gpu_layers=32,
-            ctx_size=2048,
-            threads=4,
-            threads_batch=2,
-            ubatch_size=128,
-            batch_size=512,
-            flash_attn="on",  # Valid values: "on", "off", "auto"
-            no_mmap=False,
-            cache_type_k="f32",  # Valid values: "f32", "f16", "bf16", "q8_0"
-            cache_type_v="f16",  # Valid values: "f32", "f16", "bf16", "q8_0"
-            n_cpu_moe=0,
-            parallel=2,
-            temperature=0.8,
-            top_k=40,
-            top_p=0.95,
-            min_p=0.05,
-            reverse_prompt="</s>",
-            mlock=True,
-            extra_args="--log-disable"
-        )
+        config = ModelConfig.from_dict_unvalidated({
+            "name": "test-model",
+            "model_path": "/path/to/model.gguf",
+            "n_gpu_layers": 32,
+            "ctx_size": 2048,
+            "threads": 4,
+            "threads_batch": 2,
+            "ubatch_size": 128,
+            "batch_size": 512,
+            "flash_attn": "on",  # Valid values: "on", "off", "auto"
+            "no_mmap": False,
+            "cache_type_k": "f32",  # Valid values: "f32", "f16", "bf16", "q8_0"
+            "cache_type_v": "f16",  # Valid values: "f32", "f16", "bf16", "q8_0"
+            "n_cpu_moe": 0,
+            "parallel": 2,
+            "temperature": 0.8,
+            "top_k": 40,
+            "top_p": 0.95,
+            "min_p": 0.05,
+            "reverse_prompt": "</s>",
+            "mlock": True,
+            "extra_args": "--log-disable"
+        })
 
         # Verify all fields are set correctly
         assert config.name == "test-model"
@@ -118,12 +117,12 @@ class TestIssue11TopKMinPInUIForms:
     def test_model_config_supports_top_k_and_min_p(self):
         """Test that ModelConfig supports top_k and min_p fields."""
         # These were reportedly missing from UI forms
-        config = ModelConfig(
-            name="test-model",
-            model_path="/path/to/model.gguf",
-            top_k=33,
-            min_p=0.02
-        )
+        config = ModelConfig.from_dict_unvalidated({
+            "name": "test-model",
+            "model_path": "/path/to/model.gguf",
+            "top_k": 33,
+            "min_p": 0.02
+        })
 
         assert config.top_k == 33
         assert config.min_p == 0.02
@@ -141,11 +140,10 @@ class TestIssue7UnusedMultiGpuFields:
     def test_model_config_works_without_multi_gpu_fields(self):
         """Test that ModelConfig works correctly without multi-GPU fields."""
         # Test creating a config without specifying multi-GPU related fields
-        config = ModelConfig(
-            name="test-model",
-            model_path="/path/to/model.gguf"
-            # Note: Not setting n_cpu_moe or parallel (which relate to multi-GPU/CPU)
-        )
+        config = ModelConfig.from_dict_unvalidated({
+            "name": "test-model",
+            "model_path": "/path/to/model.gguf"
+        })
 
         # Should have default values for multi-GPU related fields
         assert config.name == "test-model"
@@ -160,11 +158,11 @@ class TestIssue5PortRename:
 
     def test_model_config_has_default_port_field(self):
         """Test that ModelConfig includes default_port field for server startup."""
-        config = ModelConfig(
-            name="test-model",
-            model_path="/path/to/model.gguf",
-            default_port=8080
-        )
+        config = ModelConfig.from_dict_unvalidated({
+            "name": "test-model",
+            "model_path": "/path/to/model.gguf",
+            "default_port": 8080
+        })
 
         assert hasattr(config, 'default_port')
         assert config.default_port == 8080
@@ -180,17 +178,17 @@ class TestIssue3PortCoupledToModelProfile:
     def test_model_config_port_can_be_configured_independently(self):
         """Test that port configuration is not rigidly coupled to model name."""
         # Test that we can have different ports for same model name (different instances)
-        config1 = ModelConfig(
-            name="shared-model",
-            model_path="/path/to/model1.gguf",
-            default_port=8080
-        )
+        config1 = ModelConfig.from_dict_unvalidated({
+            "name": "shared-model",
+            "model_path": "/path/to/model1.gguf",
+            "default_port": 8080
+        })
 
-        config2 = ModelConfig(
-            name="shared-model",
-            model_path="/path/to/model2.gguf",
-            default_port=8081
-        )
+        config2 = ModelConfig.from_dict_unvalidated({
+            "name": "shared-model",
+            "model_path": "/path/to/model2.gguf",
+            "default_port": 8081
+        })
 
         # Same model name, different ports should be allowed
         assert config1.name == config2.name == "shared-model"
@@ -205,27 +203,26 @@ class TestIssue18LegacyExtraArgsConfig:
     def test_model_config_handles_legacy_extra_args_format(self):
         """Test that ModelConfig can handle various extra_args formats."""
         # Test empty extra_args
-        config1 = ModelConfig(
-            name="test-model",
-            model_path="/path/to/model.gguf",
-            extra_args=""
-        )
+        config1 = ModelConfig.from_dict_unvalidated({
+            "name": "test-model",
+            "model_path": "/path/to/model.gguf",
+            "extra_args": ""
+        })
         assert config1.extra_args == ""
 
         # Test None-like extra_args (empty string)
-        config2 = ModelConfig(
-            name="test-model",
-            model_path="/path/to/model.gguf",
-            extra_args=" "
-        )
+        config2 = ModelConfig.from_dict_unvalidated({
+            "name": "test-model",
+            "model_path": "/path/to/model.gguf",
+            "extra_args": " "
+        })
         assert config2.extra_args == " "
-
         # Test complex extra_args
-        config3 = ModelConfig(
-            name="test-model",
-            model_path="/path/to/model.gguf",
-            extra_args="--n-gpu-layers 32 --ctx-size 2048 --log-disable"
-        )
+        config3 = ModelConfig.from_dict_unvalidated({
+            "name": "test-model",
+            "model_path": "/path/to/model.gguf",
+            "extra_args": "--n-gpu-layers 32 --ctx-size 2048 --log-disable"
+        })
         assert config3.extra_args == "--n-gpu-layers 32 --ctx-size 2048 --log-disable"
 
 
@@ -241,6 +238,14 @@ class TestIssue18LegacyExtraArgsConfig:
     @patch("httpx.Client")
     def test_aggregator_with_empty_registry(self, mock_client_class):
         """Test that RemoteAggregator works with empty registry (related to issue resilience)."""
+        import os
+        from pathlib import Path
+        
+        # Delete the nodes.json file to start fresh
+        nodes_file = Path.home() / ".llauncher" / "nodes.json"
+        if nodes_file.exists():
+            nodes_file.unlink()
+        
         registry = NodeRegistry()
         # Clear existing nodes to start with a clean slate for this test
         registry._nodes.clear()

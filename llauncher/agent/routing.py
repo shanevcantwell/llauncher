@@ -226,6 +226,56 @@ async def stop_server(port: int) -> dict:
     }
 
 
+@router.post("/start-with-eviction/{model_name}")
+async def start_server_with_eviction(model_name: str, port: int | None = None) -> dict:
+    """Start a server, evicting any existing server on the target port.
+
+    Args:
+        model_name: Name of the model configuration to start.
+        port: Optional specific port (uses model's default_port if not provided).
+
+    Returns:
+        Start result with port and PID.
+
+    Raises:
+        HTTPException 404: Model not found.
+        HTTPException 409: Eviction failed or other error.
+    """
+    state = get_state()
+    state.refresh()
+
+    if model_name not in state.models:
+        raise HTTPException(status_code=404, detail=f"Model not found: {model_name}")
+
+    config = state.models[model_name]
+
+    # Resolve port
+    target_port = port if port is not None else config.default_port
+    if target_port is None:
+        raise HTTPException(status_code=400, detail="No port specified and no default_port configured")
+
+    # Use the start_with_eviction method
+    success, message = state.start_with_eviction(model_name, target_port, caller="agent")
+
+    if not success:
+        raise HTTPException(status_code=409, detail=message)
+
+    # Refresh and find the new server
+    state.refresh_running_servers()
+
+    for server in state.running.values():
+        if server.config_name == model_name:
+            return {
+                "success": True,
+                "message": message,
+                "port": server.port,
+                "pid": server.pid,
+                "config_name": model_name,
+            }
+
+    return {"success": True, "message": message}
+
+
 @router.get("/logs/{port}")
 async def get_logs(port: int, lines: Annotated[int, None] = None) -> dict:
     """Get recent log lines for a server.

@@ -236,7 +236,11 @@ class LauncherState:
         # Validate
         valid, msg = self.can_stop(port, caller)
         if not valid:
-            model = self.running.get(port, RunningServer(0, port, "unknown", datetime.now()))
+            existing_model = self.running.get(port)
+            if existing_model:
+                model = existing_model
+            else:
+                model = RunningServer(pid=0, port=port, config_name="unknown", start_time=datetime.now())
             self.record_action("stop", model.config_name, caller, "validation_error", msg)
             return False, msg
 
@@ -251,6 +255,70 @@ class LauncherState:
         else:
             self.record_action("stop", "unknown", caller, "error", "Process not found")
             return False, "Failed to stop server"
+
+    def start_with_eviction(
+        self,
+        model_name: str,
+        port: int,
+        caller: str = "unknown",
+        server_bin: Path = DEFAULT_SERVER_BINARY,
+    ) -> tuple[bool, str]:
+        """Start a server, stopping any existing server on the target port first.
+
+        For local nodes only. Remote eviction requires agent-side coordination.
+
+        Args:
+            model_name: Name of the model to start.
+            port: Port to use (will evict if already in use).
+            caller: Name of the caller.
+            server_bin: Path to llama-server binary.
+
+        Returns:
+            Tuple of (success, message).
+        """
+        if model_name not in self.models:
+            self.record_action("start", model_name, caller, "error", "Model not found")
+            return False, f"Model not found: {model_name}"
+
+        config = self.models[model_name]
+
+        # Track if eviction will happen (before modifying state)
+        port_was_occupied = port in self.running
+
+        # Stop any existing server on this port
+        if port_was_occupied:
+            existing_model = self.running[port].config_name
+            stop_success, stop_msg = self.stop_server(port, caller)
+            if not stop_success:
+                self.record_action("evict", model_name, caller, "error",
+                                 f"Failed to stop existing server: {stop_msg}")
+                return False, f"Cannot evict: failed to stop {existing_model} on port {port}: {stop_msg}"
+            self.record_action("evict", model_name, caller, "success",
+                             f"Stopped {existing_model} on port {port}")
+
+        # Validate the port is free now
+        valid, msg = self.can_start(config, caller, port)
+        if not valid:
+            self.record_action("start", model_name, caller, "validation_error", msg)
+            return False, msg
+
+        # Start the process
+        try:
+            process = process_start_server(config, port, server_bin=server_bin)
+            self.running[port] = RunningServer(
+                pid=process.pid,
+                port=port,
+                config_name=model_name,
+                start_time=datetime.now(),
+            )
+            self.record_action("start", model_name, caller, "success", f"Started on port {port}")
+            if port_was_occupied:
+                return True, f"Started {model_name} on port {port} (evicted previous server)"
+            else:
+                return True, f"Started {model_name} on port {port}"
+        except Exception as e:
+            self.record_action("start", model_name, caller, "error", str(e))
+            return False, f"Failed to start: {e}"
 
     def record_action(
         self,

@@ -67,9 +67,9 @@ class TestDashboardSyntax:
         from llauncher.ui.tabs import dashboard
 
         # If this imports successfully, all dependencies are available
+        # Only check for functions that actually exist in dashboard.py
         assert hasattr(dashboard, "render_dashboard")
-        assert hasattr(dashboard, "render_server_entry")
-        assert hasattr(dashboard, "render_model_entry_from_dict")
+        assert hasattr(dashboard, "render_model_card")
         assert hasattr(dashboard, "render_add_model")
         assert hasattr(dashboard, "render_edit_model")
 

@@ -259,41 +259,76 @@ class TestRenderModelCard:
         mock_registry = MagicMock()
         mock_aggregator = MagicMock()
         mock_running_server = MagicMock()
+        mock_running_server.port = 8080
+        mock_running_server.config_name = "model1"
+        mock_running_server.uptime_seconds = 3600  # Return int for format_uptime
+        mock_running_server.pid = 12345  # Return int for stream_logs
+        mock_running_server.logs_path = "/tmp/logs"  # Return string for logs_path
 
         with patch("llauncher.ui.tabs.dashboard.st") as mock_st:
-            mock_st.expander = MagicMock(return_value=MagicMock(__enter__=MagicMock(), __exit__=MagicMock()))
+            # Mock expander for the details section
+            mock_expander = MagicMock()
+            mock_expander.__enter__ = MagicMock(return_value=None)
+            mock_expander.__exit__ = MagicMock(return_value=None)
+            mock_st.expander.return_value = mock_expander
+
+            # Mock columns - returns a list with the number of elements matching the input list length
+            def mock_columns(n):
+                count = len(n) if isinstance(n, list) else n
+                return [MagicMock() for _ in range(count)]
+            mock_st.columns.side_effect = mock_columns
+
             mock_st.markdown = MagicMock()
             mock_st.divider = MagicMock()
             mock_st.button = MagicMock(return_value=False)
 
             render_model_card(
                 mock_state, mock_registry, mock_aggregator,
-                "local", {"name": "model1"}, mock_running_server
+                "local", {"name": "model1", "default_port": 8080}, mock_running_server
             )
 
             # Should show running status indicators
             mock_st.expander.assert_called()
+            # Should have called columns for name + button
+            mock_st.columns.assert_any_call([4, 1])
 
     def test_render_model_card_stopped(self):
         """Test rendering for stopped server."""
         from llauncher.ui.tabs.dashboard import render_model_card
 
         mock_state = MagicMock()
+        mock_state.models = {
+            "model1": MagicMock(default_port=8080)
+        }
         mock_registry = MagicMock()
         mock_aggregator = MagicMock()
 
         with patch("llauncher.ui.tabs.dashboard.st") as mock_st:
-            mock_st.expander = MagicMock(return_value=MagicMock(__enter__=MagicMock(), __exit__=MagicMock()))
+            # Mock expander for the details section
+            mock_expander = MagicMock()
+            mock_expander.__enter__ = MagicMock(return_value=None)
+            mock_expander.__exit__ = MagicMock(return_value=None)
+            mock_st.expander.return_value = mock_expander
+
+            # Mock columns - returns a list with the number of elements matching the input list length
+            def mock_columns(n):
+                count = len(n) if isinstance(n, list) else n
+                return [MagicMock() for _ in range(count)]
+            mock_st.columns.side_effect = mock_columns
+
             mock_st.markdown = MagicMock()
+            mock_st.divider = MagicMock()
             mock_st.button = MagicMock(return_value=False)
 
             render_model_card(
                 mock_state, mock_registry, mock_aggregator,
-                "local", {"name": "model1"}, None
+                "local", {"name": "model1", "default_port": 8080}, None
             )
 
             # Should show stopped status
             mock_st.expander.assert_called()
+            # Should have called columns for name + button
+            mock_st.columns.assert_any_call([4, 1])
 
 
 class TestRenderAddModel:
