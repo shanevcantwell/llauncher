@@ -61,7 +61,7 @@ class RemoteAggregator:
                         port=server.port,
                         config_name=f"{server.config_name} [OFFLINE]",
                         start_time=server.start_time,
-                        uptime_seconds=server.uptime_seconds(),
+                        uptime_seconds=server.uptime_seconds,
                         logs_path=server.logs_path,
                     )
                     servers.append(server_copy)

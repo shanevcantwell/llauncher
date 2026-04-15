@@ -978,3 +978,234 @@ class TestAgentRouting:
         assert "pid" not in data
         assert "config_name" not in data
 
+
+class TestAgentServerFunctions:
+    """Tests for agent server utility functions (test_agent.py)."""
+
+    def test_find_process_on_port_windows(self, monkeypatch):
+        """Test find_process_on_port on Windows returns None."""
+        from llauncher.agent.server import find_process_on_port
+
+        # Mock sys.platform to be windows
+        monkeypatch.setattr("sys.platform", "win32")
+
+        # Should return None for non-Linux platforms
+        assert find_process_on_port(8080) is None
+
+    def test_stop_agent_no_response_httpx_request_error(self, monkeypatch):
+        """Test stop_agent when httpx.get raises RequestError."""
+        from llauncher.agent.server import stop_agent
+        import httpx
+
+        # Mock httpx.get to raise RequestError
+        monkeypatch.setattr("httpx.get", lambda url, timeout: (_ for _ in ()).throw(httpx.RequestError("Connection refused")))
+
+        # Mock other dependencies that shouldn't be called
+        monkeypatch.setattr("llauncher.agent.server.find_process_on_port", lambda port: None)
+        monkeypatch.setattr("psutil.net_connections", lambda kind: [])
+
+        result = stop_agent(8080)
+
+        assert result is False
+
+    def test_stop_agent_httpx_request_error(self, monkeypatch):
+        """Test stop_agent when httpx.get raises generic RequestError."""
+        from llauncher.agent.server import stop_agent
+        import httpx
+
+        # Mock httpx.get to raise RequestError
+        monkeypatch.setattr("httpx.get", lambda url, timeout: (_ for _ in ()).throw(httpx.RequestError("Timeout")))
+
+        # Mock other dependencies
+        monkeypatch.setattr("llauncher.agent.server.find_process_on_port", lambda port: None)
+        monkeypatch.setattr("psutil.net_connections", lambda kind: [])
+
+        result = stop_agent(8080)
+
+        assert result is False
+
+    def test_run_agent_success(self, monkeypatch):
+        """Test run_agent with successful uvicorn.run."""
+        from llauncher.agent.server import run_agent
+        from llauncher.agent.config import AgentConfig
+        import llauncher.agent.server
+
+        # Mock uvicorn.run to capture arguments
+        captured_args = {}
+        def mock_run(app, host=None, port=None, log_level="info"):
+            captured_args.update({"app": app, "host": host, "port": port, "log_level": log_level})
+
+        monkeypatch.setattr("uvicorn.run", mock_run)
+
+        # Mock logging
+        monkeypatch.setattr(llauncher.agent.server.logger, "info", lambda msg, *args: None)
+
+        # Mock socket.gethostname
+        monkeypatch.setattr("socket.gethostname", lambda: "test-host")
+
+        config = AgentConfig(host="127.0.0.1", port=9000, node_name="test-node")
+        run_agent(config)
+
+        # Verify uvicorn.run was called with correct arguments
+        assert captured_args["port"] == 9000
+        assert captured_args["host"] == "127.0.0.1"
+        assert captured_args["log_level"] == "info"
+
+    def test_run_agent_warning_on_0_0_0_0(self, monkeypatch):
+        """Test run_agent logs warning when binding to 0.0.0.0."""
+        from llauncher.agent.server import run_agent
+        from llauncher.agent.config import AgentConfig
+        import llauncher.agent.server
+
+        # Mock uvicorn.run
+        monkeypatch.setattr("uvicorn.run", lambda *args, **kwargs: None)
+
+        # Capture log messages
+        info_msgs = []
+        warning_msgs = []
+        monkeypatch.setattr(llauncher.agent.server.logger, "info", lambda msg, *args: info_msgs.append(msg % args) if args else info_msgs.append(msg))
+        monkeypatch.setattr(llauncher.agent.server.logger, "warning", lambda msg, *args: warning_msgs.append(msg % args) if args else warning_msgs.append(msg))
+
+        monkeypatch.setattr("socket.gethostname", lambda: "test-host")
+
+        config = AgentConfig(host="0.0.0.0", port=9000, node_name="test-node")
+        run_agent(config)
+
+        # Check warning was logged for binding to all interfaces
+        assert any("binding to 0.0.0.0" in msg for msg in warning_msgs)
+
+    def test_main_stop_flag_with_agent_stopped(self, monkeypatch):
+        """Test main with --stop flag when agent is successfully stopped."""
+        from llauncher.agent.server import main
+        import sys
+        import llauncher.agent.server
+
+        # Mock sys.argv with --stop
+        monkeypatch.setattr("sys.argv", ["llauncher-agent", "--stop"])
+
+        # Mock AgentConfig
+        from llauncher.agent.config import AgentConfig
+        mock_config = AgentConfig(host="127.0.0.1", port=8000)
+        monkeypatch.setattr("llauncher.agent.config.AgentConfig.from_env", lambda: mock_config)
+
+        # Mock stop_agent to return True
+        monkeypatch.setattr("llauncher.agent.server.stop_agent", lambda port: True)
+
+        # Track sys.exit calls
+        exit_code = None
+        def mock_exit(code):
+            nonlocal exit_code
+            exit_code = code
+
+        monkeypatch.setattr(sys, "exit", mock_exit)
+
+        # Mock logger
+        monkeypatch.setattr("llauncher.agent.server.logger.info", lambda msg, *args: None)
+
+        main()
+
+        assert exit_code == 0
+
+    def test_main_stop_flag_agent_not_found(self, monkeypatch):
+        """Test main with --stop flag when no agent is running."""
+        from llauncher.agent.server import main
+        import sys
+        import llauncher.agent.server
+
+        # Mock sys.argv with --stop
+        monkeypatch.setattr("sys.argv", ["llauncher-agent", "--stop"])
+
+        # Mock AgentConfig
+        from llauncher.agent.config import AgentConfig
+        mock_config = AgentConfig(host="127.0.0.1", port=8000)
+        monkeypatch.setattr("llauncher.agent.config.AgentConfig.from_env", lambda: mock_config)
+
+        # Mock stop_agent to return False (agent not found)
+        monkeypatch.setattr("llauncher.agent.server.stop_agent", lambda port: False)
+
+        # Track sys.exit calls
+        exit_code = None
+        def mock_exit(code):
+            nonlocal exit_code
+            exit_code = code
+
+        monkeypatch.setattr(sys, "exit", mock_exit)
+
+        # Mock logger
+        monkeypatch.setattr("llauncher.agent.server.logger.info", lambda msg, *args: None)
+
+        main()
+
+        assert exit_code == 0
+
+    def test_main_keyboard_interrupt(self, monkeypatch):
+        """Test main handles KeyboardInterrupt gracefully."""
+        from llauncher.agent.server import main
+        import sys
+        import llauncher.agent.server
+
+        # Mock sys.argv without --stop
+        monkeypatch.setattr("sys.argv", ["llauncher-agent"])
+
+        # Mock AgentConfig
+        from llauncher.agent.config import AgentConfig
+        mock_config = AgentConfig(host="127.0.0.1", port=8000)
+        monkeypatch.setattr("llauncher.agent.config.AgentConfig.from_env", lambda: mock_config)
+
+        # Mock run_agent to raise KeyboardInterrupt
+        def mock_run_agent(config):
+            raise KeyboardInterrupt()
+
+        monkeypatch.setattr("llauncher.agent.server.run_agent", mock_run_agent)
+
+        # Track sys.exit calls
+        exit_code = None
+        def mock_exit(code):
+            nonlocal exit_code
+            exit_code = code
+
+        monkeypatch.setattr(sys, "exit", mock_exit)
+
+        # Mock logger.info to avoid output
+        monkeypatch.setattr("llauncher.agent.server.logger.info", lambda msg, *args: None)
+
+        main()
+
+        assert exit_code == 0
+
+    def test_main_run_agent_exception(self, monkeypatch):
+        """Test main when run_agent raises an exception."""
+        from llauncher.agent.server import main
+        import sys
+        import llauncher.agent.server
+
+        # Mock sys.argv without --stop
+        monkeypatch.setattr("sys.argv", ["llauncher-agent"])
+
+        # Mock AgentConfig
+        from llauncher.agent.config import AgentConfig
+        mock_config = AgentConfig(host="127.0.0.1", port=8000)
+        monkeypatch.setattr("llauncher.agent.config.AgentConfig.from_env", lambda: mock_config)
+
+        # Mock run_agent to raise an exception
+        def mock_run_agent(config):
+            raise RuntimeError("Failed to start")
+
+        monkeypatch.setattr("llauncher.agent.server.run_agent", mock_run_agent)
+
+        # Track sys.exit calls
+        exit_code = None
+        def mock_exit(code):
+            nonlocal exit_code
+            exit_code = code
+
+        # Capture error logs
+        error_msg = None
+        monkeypatch.setattr("llauncher.agent.server.logger.error", lambda msg, *args: error_msg.__setitem__(0, msg % args if args else msg) if error_msg else None)
+
+        monkeypatch.setattr(sys, "exit", mock_exit)
+
+        main()
+
+        assert exit_code == 1
+
