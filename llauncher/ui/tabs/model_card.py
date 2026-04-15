@@ -45,7 +45,7 @@ def render_model_card(
         if is_running and running_server:
             if st.button(
                 status_icon,
-                key=f"toggle_stop_{node_name}_{running_server.port}",
+                key=f"toggle_stop_{node_name}_{model_name}",
                 help=f"Stop {model_name}",
                 use_container_width=True,
             ):
@@ -204,7 +204,7 @@ def _render_model_details(
     if running_server:
         st.divider()
         with st.expander("📄 Logs (last 100 lines)", expanded=False):
-            if st.button("🔄 Refresh", key=f"refresh_logs_{node_name}_{running_server.port}"):
+            if st.button("🔄 Refresh", key=f"refresh_logs_{node_name}_{model_name}"):
                 st.rerun()
 
             if node_name == "local":
@@ -222,11 +222,11 @@ def _render_model_details(
     # Edit button (only for stopped models on local)
     st.divider()
     if not running_server and node_name == "local":
-        if st.button("✏️ Edit", use_container_width=True, key=f"edit_{node_name}_{model_name}"):
+        if st.button("✏️ Edit", use_container_width=True, key=f"edit_{node_name}_{model_name}_enabled"):
             st.session_state[f"editing_{model_name}"] = True
             st.rerun()
     elif not running_server:
-        st.button("✏️ Edit", use_container_width=True, key=f"edit_{node_name}_{model_name}", disabled=True)
+        st.button("✏️ Edit", use_container_width=True, key=f"edit_{node_name}_{model_name}_disabled", disabled=True)
         st.caption("Remote model editing not yet supported")
 
 
