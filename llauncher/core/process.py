@@ -1,5 +1,6 @@
 """Process management for llama-server instances."""
 
+import re
 import shlex
 import subprocess
 from datetime import datetime
@@ -179,17 +180,24 @@ def start_server(
 
     # Create logs directory
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    log_file = LOG_DIR / f"{config.name}-{port}.log"
 
-    with open(log_file, "w") as log:
-        process = subprocess.Popen(
-            cmd,
-            stdout=log,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,  # Create new process group for clean termination
-        )
+    # Sanitize config name to prevent path traversal and invalid characters
+    sanitized_name = re.sub(r'[^\w\-]', '_', config.name)
+    log_file = LOG_DIR / f"{sanitized_name}-{port}.log"
+    # Resolve to ensure we stay within LOG_DIR
+    log_file = log_file.resolve()
 
-    return process
+    try:
+        with open(log_file, "w") as log:
+            process = subprocess.Popen(
+                cmd,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,  # Create new process group for clean termination
+            )
+        return process
+    except OSError as e:
+        raise OSError(f"Failed to create log file {log_file}: {e}")
 
 
 def stop_server_by_port(port: int) -> bool:

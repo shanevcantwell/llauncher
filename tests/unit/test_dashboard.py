@@ -253,7 +253,7 @@ class TestRenderModelCard:
 
     def test_render_model_card_running(self):
         """Test rendering for running server."""
-        from llauncher.ui.tabs.dashboard import render_model_card
+        from llauncher.ui.tabs.model_card import render_model_card
 
         mock_state = MagicMock()
         mock_registry = MagicMock()
@@ -265,7 +265,7 @@ class TestRenderModelCard:
         mock_running_server.pid = 12345  # Return int for stream_logs
         mock_running_server.logs_path = "/tmp/logs"  # Return string for logs_path
 
-        with patch("llauncher.ui.tabs.dashboard.st") as mock_st:
+        with patch("llauncher.ui.tabs.model_card.st") as mock_st:
             # Mock expander for the details section
             mock_expander = MagicMock()
             mock_expander.__enter__ = MagicMock(return_value=None)
@@ -294,7 +294,7 @@ class TestRenderModelCard:
 
     def test_render_model_card_stopped(self):
         """Test rendering for stopped server."""
-        from llauncher.ui.tabs.dashboard import render_model_card
+        from llauncher.ui.tabs.model_card import render_model_card
 
         mock_state = MagicMock()
         mock_state.models = {
@@ -303,7 +303,7 @@ class TestRenderModelCard:
         mock_registry = MagicMock()
         mock_aggregator = MagicMock()
 
-        with patch("llauncher.ui.tabs.dashboard.st") as mock_st:
+        with patch("llauncher.ui.tabs.model_card.st") as mock_st:
             # Mock expander for the details section
             mock_expander = MagicMock()
             mock_expander.__enter__ = MagicMock(return_value=None)
@@ -336,11 +336,11 @@ class TestRenderAddModel:
 
     def test_render_add_model_form(self):
         """Test rendering add model form."""
-        from llauncher.ui.tabs.dashboard import render_add_model
+        from llauncher.ui.tabs.forms import render_add_model
 
         mock_state = MagicMock()
 
-        with patch("llauncher.ui.tabs.dashboard.st") as mock_st:
+        with patch("llauncher.ui.tabs.forms.st") as mock_st:
             mock_st.form = MagicMock(return_value=MagicMock(__enter__=MagicMock(), __exit__=MagicMock()))
             mock_st.form_submit_button = MagicMock(return_value=False)
             mock_st.text_input = MagicMock(return_value="")
@@ -359,7 +359,7 @@ class TestRenderEditModel:
 
     def test_render_edit_model_model_name_not_found(self):
         """Test when model_name is provided but not in state."""
-        from llauncher.ui.tabs.dashboard import render_edit_model
+        from llauncher.ui.tabs.forms import render_edit_model
 
         mock_state = MagicMock()
         mock_state.models = {}
@@ -371,7 +371,7 @@ class TestRenderEditModel:
 
     def test_render_edit_model_no_selected_model(self):
         """Test when model_name is None and no session state."""
-        from llauncher.ui.tabs.dashboard import render_edit_model
+        from llauncher.ui.tabs.forms import render_edit_model
 
         mock_state = MagicMock()
         mock_state.models = {}

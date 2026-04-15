@@ -269,13 +269,19 @@ class LauncherState:
 
         Args:
             model_name: Name of the model to start.
-            port: Port to use (will evict if already in use).
+            port: Port to use (will evict if already in use). Must be between 1024-65535.
             caller: Name of the caller.
             server_bin: Path to llama-server binary.
 
         Returns:
             Tuple of (success, message).
         """
+        # Validate port range
+        if port < 1024 or port > 65535:
+            self.record_action("start", model_name, caller, "error",
+                             f"Invalid port {port}: must be between 1024-65535")
+            return False, f"Invalid port: {port}. Must be between 1024-65535."
+
         if model_name not in self.models:
             self.record_action("start", model_name, caller, "error", "Model not found")
             return False, f"Model not found: {model_name}"
