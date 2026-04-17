@@ -9,9 +9,9 @@ from mcp import Tool
 from mcp.types import TextContent
 
 from llauncher.state import LauncherState
-from llauncher.mcp.tools import models as models_tools
-from llauncher.mcp.tools import servers as servers_tools
-from llauncher.mcp.tools import config as config_tools
+from llauncher.mcp_server.tools import models as models_tools
+from llauncher.mcp_server.tools import servers as servers_tools
+from llauncher.mcp_server.tools import config as config_tools
 
 
 # Global state instance

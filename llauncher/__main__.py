@@ -18,7 +18,7 @@ def main():
     args = parser.parse_args()
 
     if args.command == "mcp":
-        from llauncher.mcp.server import main as mcp_main
+        from llauncher.mcp_server.server import main as mcp_main
 
         mcp_main()
 

@@ -18,9 +18,8 @@ Web-based dashboard for human operators:
 - **Manager**: Add new models or edit existing configurations
 - **Running**: View live logs from active servers with Stop controls
 
-### Discovery & Configuration
-- **Script Discovery**: Automatically finds `launch-*.sh` scripts in `~/.local/bin`
-- **Config Persistence**: Store configurations in `~/.llauncher/config.json`
+### Configuration
+- **Config Persistence**: Store configurations in `~/.llauncher/config.json` (single source of truth)
 - **Validation**: Model paths verified, port conflicts detected, blacklists enforced
 
 ## Installation
@@ -131,60 +130,46 @@ The UI automatically starts a local agent if one isn't running. You can also sta
 
 ### CLI
 
-Discover configured models:
+llauncher provides an MCP server and Streamlit UI for model management. Use the runner scripts to start services:
 
 ```bash
-python -m llauncher discover
+./run.sh mcp    # Start MCP server
+./run.sh ui     # Start Streamlit dashboard
 ```
 
 ## Configuration
 
-Models can be configured in two ways:
-
-### Launch Scripts
-Create `launch-*.sh` scripts in `~/.local/bin`. The script name becomes the model name (e.g., `launch-mistral.sh` → `mistral`):
-
-```bash
-#!/bin/bash
-llama-server \
-  -m /path/to/model.gguf \
-  --mmproj /path/to/mmproj.gguf \
-  --n-gpu-layers 255 \
-  --port 8081 \
-  --host 0.0.0.0 \
-  -c 131072 \
-  --flash-attn on \
-  --no-mmap
-```
-
-Supported arguments are parsed automatically:
-- `-m` / `--model`: Model path (required)
-- `--mmproj`: Multimodal projector path (for vision models)
-- `--n-gpu-layers`: GPU offload layers (0-1024)
-- `--port`: Server port
-- `--host`: Bind address
-- `-c` / `--ctx-size`: Context size
-- `--threads`: Thread count
-- `--flash-attn`: Flash attention (on/off/auto)
-- `--no-mmap`: Disable memory mapping
-- And more...
-
-### Config File
-Persist configurations in `~/.llauncher/config.json`. Persisted configs take precedence over discovered scripts and can be edited via the UI or MCP tools.
+Create model configurations directly in `~/.llauncher/config.json`. Configs can be managed via the UI or MCP tools.
 
 Example config entry:
+
+
 ```json
 {
   "mistral": {
     "name": "mistral",
     "model_path": "/path/to/model.gguf",
     "mmproj_path": null,
-    "port": 8081,
-    "host": "0.0.0.0",
+    "default_port": 8081,
     "n_gpu_layers": 255,
     "ctx_size": 131072,
+    "threads": 8,
+    "threads_batch": 8,
+    "ubatch_size": 512,
+    "batch_size": null,
     "flash_attn": "on",
-    "no_mmap": false
+    "no_mmap": false,
+    "cache_type_k": "f32",
+    "cache_type_v": "f32",
+    "n_cpu_moe": null,
+    "parallel": 1,
+    "temperature": null,
+    "top_k": null,
+    "top_p": null,
+    "min_p": null,
+    "reverse_prompt": null,
+    "mlock": false,
+    "extra_args": ""
   }
 }
 ```
@@ -206,16 +191,24 @@ llauncher/
 ├── llauncher/
 │   ├── __init__.py
 │   ├── __main__.py
-│   ├── state.py           # StateManager
-│   ├── models/
-│   │   └── config.py      # Pydantic models
+│   ├── agent/             # HTTP agent for multi-node management
+│   │   ├── config.py
+│   │   ├── routing.py
+│   │   └── server.py
 │   ├── core/
-│   │   ├── discovery.py   # Script parser
+│   │   ├── config.py      # Config persistence
 │   │   ├── process.py     # Process management
-│   │   └── config.py      # Config persistence
+│   │   └── settings.py    # Global settings
 │   ├── mcp/
 │   │   ├── server.py      # MCP server
 │   │   └── tools/         # Tool implementations
+│   ├── models/
+│   │   └── config.py      # Pydantic models
+│   ├── remote/            # Multi-node support
+│   │   ├── node.py
+│   │   ├── registry.py
+│   │   └── state.py
+│   ├── state.py           # StateManager
 │   └── ui/
 │       ├── app.py         # Streamlit app
 │       └── tabs/          # UI components
@@ -232,7 +225,7 @@ pytest --cov=llauncher --cov-report=term-missing
 ```
 
 Test files are in `tests/`:
-- `tests/unit/`: Unit tests for models, discovery, and config
+- `tests/unit/`: Unit tests for models, config, and process
 - `tests/integration/`: Integration tests for state management
 
 ## Multi-Node Management (Remote)
