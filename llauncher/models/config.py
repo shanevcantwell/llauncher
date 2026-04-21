@@ -40,6 +40,7 @@ class ModelConfig(BaseModel):
     top_k: int | None = None
     top_p: float | None = None
     min_p: float | None = None
+    repeat_penalty: float | None = None
     reverse_prompt: str | None = None
     # Memory management
     mlock: bool = False

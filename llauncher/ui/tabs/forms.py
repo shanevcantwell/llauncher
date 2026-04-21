@@ -98,6 +98,14 @@ def render_add_model(state: LauncherState) -> None:
                     step=0.01,
                 )
 
+            repeat_penalty = st.number_input(
+                "Repeat Penalty (optional)",
+                min_value=0.0,
+                value=1.1,
+                step=0.01,
+                help="Penalize repeat sequences of tokens (1.0 = disabled)",
+            )
+
             reverse_prompt = st.text_input(
                 "Reverse Prompt (optional)",
                 help="Halt generation when this string is encountered",
@@ -114,7 +122,8 @@ def render_add_model(state: LauncherState) -> None:
             _process_add_model(state, name, model_path, mmproj_path, default_port,
                              n_gpu_layers, ctx_size, threads, flash_attn,
                              no_mmap, parallel, mlock, n_cpu_moe, batch_size,
-                             temperature, top_k, top_p, min_p, reverse_prompt, extra_args)
+                             temperature, top_k, top_p, min_p, repeat_penalty,
+                             reverse_prompt, extra_args)
 
 
 def _process_add_model(
@@ -136,6 +145,7 @@ def _process_add_model(
     top_k: int,
     top_p: float,
     min_p: float,
+    repeat_penalty: float,
     reverse_prompt: str,
     extra_args: str,
 ) -> None:
@@ -160,6 +170,7 @@ def _process_add_model(
         top_k: Top-K value.
         top_p: Top-P value.
         min_p: Min-P value.
+        repeat_penalty: Repeat penalty value.
         reverse_prompt: Reverse prompt string.
         extra_args: Additional command-line arguments.
     """
@@ -199,6 +210,7 @@ def _process_add_model(
             top_k=top_k if top_k > 0 else None,
             top_p=top_p if top_p > 0 else None,
             min_p=min_p if min_p > 0 else None,
+            repeat_penalty=repeat_penalty if repeat_penalty > 0 else None,
             reverse_prompt=reverse_prompt.strip() if reverse_prompt else None,
             extra_args=extra_args.strip() if extra_args else "",
         )
@@ -324,6 +336,14 @@ def render_edit_model(state: LauncherState, model_name: str | None = None) -> No
                     step=0.01,
                 )
 
+            repeat_penalty = st.number_input(
+                "Repeat Penalty",
+                min_value=0.0,
+                value=config.repeat_penalty or 1.1,
+                step=0.01,
+                help="Penalize repeat sequences of tokens (1.0 = disabled)",
+            )
+
             reverse_prompt = st.text_input(
                 "Reverse Prompt", value=config.reverse_prompt or ""
             )
@@ -348,7 +368,8 @@ def render_edit_model(state: LauncherState, model_name: str | None = None) -> No
             _process_edit_model(state, model_name, model_path, mmproj_path, default_port,
                               n_gpu_layers, ctx_size, threads, flash_attn, no_mmap,
                               parallel, mlock, n_cpu_moe, batch_size, temperature,
-                              top_k, top_p, min_p, reverse_prompt, extra_args)
+                              top_k, top_p, min_p, repeat_penalty, reverse_prompt,
+                              extra_args)
 
 
 def _process_edit_model(
@@ -370,6 +391,7 @@ def _process_edit_model(
     top_k: int,
     top_p: float,
     min_p: float,
+    repeat_penalty: float,
     reverse_prompt: str,
     extra_args: str,
 ) -> None:
@@ -394,6 +416,7 @@ def _process_edit_model(
         top_k: Top-K value.
         top_p: Top-P value.
         min_p: Min-P value.
+        repeat_penalty: Repeat penalty value.
         reverse_prompt: Reverse prompt string.
         extra_args: Additional command-line arguments.
     """
@@ -427,6 +450,7 @@ def _process_edit_model(
                 "top_k": top_k if top_k > 0 else None,
                 "top_p": top_p if top_p > 0 else None,
                 "min_p": min_p if min_p > 0 else None,
+                "repeat_penalty": repeat_penalty if repeat_penalty > 0 else None,
                 "reverse_prompt": reverse_prompt or None,
                 "extra_args": extra_args or "",
             }

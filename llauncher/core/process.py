@@ -138,6 +138,8 @@ def build_command(
         cmd.extend(["--top-p", str(config.top_p)])
     if config.min_p is not None:
         cmd.extend(["--min-p", str(config.min_p)])
+    if config.repeat_penalty is not None:
+        cmd.extend(["--repeat-penalty", str(config.repeat_penalty)])
     if config.reverse_prompt:
         cmd.extend(["--reverse-prompt", config.reverse_prompt])
 

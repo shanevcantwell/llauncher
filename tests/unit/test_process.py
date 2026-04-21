@@ -58,6 +58,7 @@ def full_config():
             "top_k": 40,
             "top_p": 0.9,
             "min_p": 0.1,
+            "repeat_penalty": 1.5,
             "reverse_prompt": "STOP",
             "mlock": True,
             "extra_args": "--custom-flag value",
@@ -173,6 +174,8 @@ class TestBuildCommand:
         assert str(full_config.top_p) in cmd
         assert "--min-p" in cmd
         assert str(full_config.min_p) in cmd
+        assert "--repeat-penalty" in cmd
+        assert str(full_config.repeat_penalty) in cmd
         assert "--reverse-prompt" in cmd
         assert full_config.reverse_prompt in cmd
         assert "--mlock" in cmd
@@ -204,6 +207,19 @@ class TestBuildCommand:
         cmd = build_command(minimal_config, port=8080, host="127.0.0.1")
         assert "--host" in cmd
         assert "127.0.0.1" in cmd
+
+    def test_repeat_penalty_none_not_included(self, minimal_config):
+        """repeat_penalty=None does not include --repeat-penalty flag."""
+        minimal_config.repeat_penalty = None
+        cmd = build_command(minimal_config, port=8080)
+        assert "--repeat-penalty" not in cmd
+
+    def test_repeat_penalty_included(self, minimal_config):
+        """repeat_penalty=1.5 includes --repeat-penalty flag with correct value."""
+        minimal_config.repeat_penalty = 1.5
+        cmd = build_command(minimal_config, port=8080)
+        assert "--repeat-penalty" in cmd
+        assert "1.5" in cmd
 
 
 class TestStartServer:

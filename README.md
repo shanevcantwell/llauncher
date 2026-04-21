@@ -167,6 +167,7 @@ Example config entry:
     "top_k": null,
     "top_p": null,
     "min_p": null,
+    "repeat_penalty": null,
     "reverse_prompt": null,
     "mlock": false,
     "extra_args": ""
