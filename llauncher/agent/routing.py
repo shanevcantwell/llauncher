@@ -86,6 +86,7 @@ async def get_status() -> dict:
             "start_time": server.start_time.isoformat(),
             "uptime_seconds": server.uptime_seconds(),
             "logs_path": server.logs_path,
+            "model_config": state.models.get(server.config_name).to_dict() if server.config_name in state.models else None,
         }
         for server in state.running.values()
     ]
@@ -124,6 +125,7 @@ async def list_models() -> list[dict]:
                 "default_port": config.default_port,
                 "n_gpu_layers": config.n_gpu_layers,
                 "ctx_size": config.ctx_size,
+                "np": config.np,
                 "running": running_port is not None,
                 "running_port": running_port,
             }

@@ -24,6 +24,7 @@ class ModelConfig(BaseModel):
     )
     n_gpu_layers: int = Field(default=255, ge=0)
     ctx_size: int = Field(default=131072, gt=0)
+    np: int | None = Field(default=None, ge=1, description="Number of KV cache pages")
     threads: int | None = None
     threads_batch: int = Field(default=8, gt=0)
     ubatch_size: int = Field(default=512, gt=0)
