@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 
-from llauncher.mcp.tools.models import list_models, get_model_config, get_tools
+from llauncher.mcp_server.tools.models import list_models, get_model_config, get_tools
 from llauncher.models.config import ModelConfig, RunningServer
 from datetime import datetime
 
@@ -18,12 +18,16 @@ def mock_state():
         "name": "running-model",
         "model_path": "/path/to/running.gguf",
         "default_port": 8080,
+        "ctx_size": 32768,
+        "np": 4,
     })
 
     stopped_config = ModelConfig.from_dict_unvalidated({
         "name": "stopped-model",
         "model_path": "/path/to/stopped.gguf",
         "default_port": None,  # Auto-allocate
+        "ctx_size": 65536,
+        "np": None,
     })
 
     state.models = {
@@ -84,6 +88,33 @@ class TestListModels:
         names = [m["identification"]["name"] for m in result["models"]]
         assert "running-model" in names
         assert "stopped-model" in names
+
+    @pytest.mark.asyncio
+    async def test_list_models_returns_default_port(self, mock_state):
+        """list_models includes default_port in status info."""
+        result = await list_models(mock_state, {})
+
+        running = next(m for m in result["models"] if m["identification"]["name"] == "running-model")
+        assert running["status"]["default_port"] == 8080
+
+    @pytest.mark.asyncio
+    async def test_get_model_config_returns_full_config(self, mock_state):
+        """get_model_config returns configuration dict with ctx_size and np."""
+        result = await get_model_config(mock_state, {"name": "running-model"})
+
+        config = result["configuration"]
+        assert "ctx_size" in config
+        assert "np" in config
+        assert config["ctx_size"] == 32768
+        assert config["np"] == 4
+
+    @pytest.mark.asyncio
+    async def test_get_model_config_np_none(self, mock_state):
+        """get_model_config handles np=None correctly."""
+        result = await get_model_config(mock_state, {"name": "stopped-model"})
+
+        config = result["configuration"]
+        assert config["np"] is None
 
 
 class TestGetModelConfig:

@@ -25,6 +25,47 @@ def reset_state(client):
     routing._state = None
 
 
+class _MockModelConfig:
+    """Simple model config mock with proper method signatures."""
+
+    def __init__(self, **kwargs):
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+
+    def to_dict(self):
+        return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
+
+
+class _MockServerInfo:
+    """Simple running server mock with proper method signatures."""
+
+    def __init__(self, **kwargs):
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+
+    def uptime_seconds(self):
+        return getattr(self, '_uptime', 3600)
+        if name == 'logs_path':
+            try:
+                return object.__getattribute__(self, 'logs_path')
+            except AttributeError:
+                return None
+        return object.__getattribute__(self, name)
+
+
+class _MockState:
+    """Simple state holder with real method signatures."""
+
+    models: dict = {}
+    running: dict = {}
+
+    def refresh(self):
+        pass
+
+    def refresh_running_servers(self):
+        pass
+
+
 class TestHealthEndpoint:
     """Tests for the /health endpoint."""
 
@@ -85,6 +126,80 @@ class TestStatusEndpoint:
         assert isinstance(data["running_servers"], list)
         assert data["total_running"] == len(data["running_servers"])
 
+    def test_status_includes_model_config_per_server(self, client):
+        """Test that /status includes model_config with ctx_size and np per server."""
+        from llauncher.agent import routing
+
+        # Clear any state from other tests
+        routing._state = None
+
+        mock_state = _MockState()
+        mock_state.models = {
+            'test-model': _MockModelConfig(
+                name='test-model',
+                model_path='/fake/model.gguf',
+                default_port=8080,
+                ctx_size=2048,
+                np=4,
+                n_gpu_layers=32,
+            ),
+        }
+        mock_state.running = {
+            8080: _MockServerInfo(
+                pid=12345,
+                port=8080,
+                config_name='test-model',
+                logs_path=None,
+                start_time=type('obj', (object,), {'isoformat': lambda self: '2024-01-01T00:00:00'})(),
+                _uptime=3600,
+            ),
+        }
+
+        routing._state = mock_state
+
+        response = client.get("/status")
+        data = response.json()
+
+        assert data["total_running"] == 1
+        server = data["running_servers"][0]
+
+        # model_config should be present with np and ctx_size
+        assert "model_config" in server
+        assert server["model_config"] is not None
+        mc = server["model_config"]
+        assert "ctx_size" in mc
+        assert "np" in mc
+        assert mc["ctx_size"] == 2048
+        assert mc["np"] == 4
+
+    def test_status_model_config_none_for_unknown_server(self, client):
+        """Test that model_config is None when config lookup fails."""
+        from llauncher.agent import routing
+
+        routing._state = None
+
+        mock_state = _MockState()
+        mock_state.models = {}  # No models configured
+        mock_state.running = {
+            8080: _MockServerInfo(
+                pid=12345,
+                port=8080,
+                config_name='unknown-model',
+                logs_path=None,
+                start_time=type('obj', (object,), {'isoformat': lambda self: '2024-01-01T00:00:00'})(),
+                _uptime=3600,
+            ),
+        }
+
+        routing._state = mock_state
+
+        response = client.get("/status")
+        data = response.json()
+
+        server = data["running_servers"][0]
+        assert "model_config" in server
+        assert server["model_config"] is None
+
 
 class TestModelsEndpoint:
     """Tests for the /models endpoint."""
@@ -112,6 +227,7 @@ class TestModelsEndpoint:
             assert "default_port" in model
             assert "n_gpu_layers" in model
             assert "ctx_size" in model
+            assert "np" in model
             assert "running" in model
 
 

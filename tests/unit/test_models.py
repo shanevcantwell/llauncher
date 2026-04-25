@@ -91,6 +91,7 @@ class TestModelConfigFieldRoundtrip:
             "default_port": 8080,
             "n_gpu_layers": 100,
             "ctx_size": 32768,
+            "np": 4,
             "threads": 8,
             "threads_batch": 16,
             "ubatch_size": 1024,
@@ -138,6 +139,7 @@ class TestModelConfigFieldRoundtrip:
         assert restored.reverse_prompt == original_data["reverse_prompt"]
         assert restored.mlock == original_data["mlock"]
         assert restored.extra_args == original_data["extra_args"]
+        assert restored.np == original_data["np"]
 
     def test_optional_fields_defaults(self):
         """Test optional fields have correct defaults when not specified."""
@@ -169,6 +171,7 @@ class TestModelConfigFieldRoundtrip:
         assert config.reverse_prompt is None
         assert config.mlock is False
         assert config.extra_args == ""
+        assert config.np is None
 
 
 class TestModelConfigPortMigration:
@@ -274,6 +277,47 @@ class TestModelConfigFieldValidators:
         }
         with pytest.raises(ValueError):
             ModelConfig.from_dict_unvalidated(data)
+
+    def test_np_valid_values(self):
+        """Test valid np values are accepted."""
+        for value in [1, 2, 4, 8]:
+            data = {
+                "name": "test-model",
+                "model_path": "/fake/path/model.gguf",
+                "np": value,
+            }
+            config = ModelConfig.from_dict_unvalidated(data)
+            assert config.np == value
+
+    def test_np_invalid_values(self):
+        """Test invalid np values raise errors."""
+        for value in [0, -1]:
+            data = {
+                "name": "test-model",
+                "model_path": "/fake/path/model.gguf",
+                "np": value,
+            }
+            with pytest.raises(ValueError):
+                ModelConfig.from_dict_unvalidated(data)
+
+    def test_np_defaults_to_none(self):
+        """Test np defaults to None when not specified."""
+        data = {
+            "name": "test-model",
+            "model_path": "/fake/path/model.gguf",
+        }
+        config = ModelConfig.from_dict_unvalidated(data)
+        assert config.np is None
+
+    def test_np_none_serializes_to_none(self):
+        """Test that np=None serializes to null/None in to_dict()."""
+        data = {
+            "name": "test-model",
+            "model_path": "/fake/path/model.gguf",
+        }
+        config = ModelConfig.from_dict_unvalidated(data)
+        serialized = config.to_dict()
+        assert serialized["np"] is None
 
     def test_flash_attn_valid_values(self):
         """Test valid flash_attn values."""
