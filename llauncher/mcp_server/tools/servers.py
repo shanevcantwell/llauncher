@@ -1,17 +1,9 @@
 """MCP tools for server management (start/stop/status)."""
 
-from pathlib import Path
-
 from mcp import Tool
 
 from llauncher.state import LauncherState
-from llauncher.core.process import (
-    stream_logs,
-    wait_for_server_ready,
-    stop_server_by_pid,
-    find_server_by_port,
-)
-from llauncher.core.config import ConfigStore
+from llauncher.core.process import stream_logs
 
 
 def get_tools() -> list[Tool]:
@@ -198,6 +190,10 @@ async def get_server_logs(state: LauncherState, args: dict) -> dict:
 async def swap_server(state: LauncherState, args: dict) -> dict:
     """Atomically swap models on a port with rollback guarantee.
 
+    Delegates to LauncherState._start_with_eviction_impl() which implements
+    the full 5-phase swap flow (pre-flight, stop-old, start-new, readiness,
+    rollback). This thin wrapper maps the EvictionResult into the MCP response dict.
+
     Contract:
     - On success (success=true): new model is serving on the port
     - On failure with rollback (success=false, rolled_back=true): old model restored and serving
@@ -215,184 +211,26 @@ async def swap_server(state: LauncherState, args: dict) -> dict:
     new_model_name = args.get("model_name")
     timeout = args.get("timeout", 120)
 
-    # Validate required arguments
     if port is None:
-        return {
-            "success": False,
-            "error": "Missing required argument: port",
-            "port_state": "unchanged",
-        }
+        return {"success": False, "error": "Missing required argument: port", "port_state": "unchanged"}
 
     if not new_model_name:
-        return {
-            "success": False,
-            "error": "Missing required argument: model_name",
-            "port_state": "unchanged",
-        }
+        return {"success": False, "error": "Missing required argument: model_name", "port_state": "unchanged"}
 
-    # === PHASE 1: PRE-FLIGHT VALIDATION ===
-
-    # 1. Validate new model exists
-    if new_model_name not in state.models:
-        return {
-            "success": False,
-            "error": f"Model not found: {new_model_name}",
-            "port_state": "unchanged",
-        }
-
-    new_config = state.models[new_model_name]
-
-    # 2. Validate new model path exists
-    if not Path(new_config.model_path).exists():
-        return {
-            "success": False,
-            "error": f"New model path does not exist: {new_config.model_path}",
-            "port_state": "unchanged",
-        }
-
-    # 3. Check if new model is already running elsewhere
-    for running_port, server in state.running.items():
-        if server.config_name == new_model_name and running_port != port:
-            return {
-                "success": False,
-                "error": f"Model '{new_model_name}' already running on port {running_port}",
-                "port_state": "unchanged",
-            }
-
-    # Capture old model info BEFORE any state changes
-    old_model_name = None
-    old_model_config = None
-
-    if port in state.running:
-        old_model_name = state.running[port].config_name
-
-        # CRITICAL: Old model must have persisted config for rollback
-        if old_model_name not in state.models:
-            return {
-                "success": False,
-                "error": f"Cannot swap: old model '{old_model_name}' has no persisted config for rollback. Add it via add_model or the UI first.",
-                "port_state": "unchanged",
-            }
-
-        old_model_config = state.models[old_model_name]
-
-        # 4. Validate old model path still exists (for rollback)
-        if not Path(old_model_config.model_path).exists():
-            return {
-                "success": False,
-                "error": f"Cannot swap: old model '{old_model_name}' path no longer exists. Cannot guarantee rollback.",
-                "port_state": "unchanged",
-            }
-
-    # === PHASE 2: STOP OLD MODEL ===
-
-    if old_model_name:
-        success, msg = state.stop_server(port, caller="mcp")
-        if not success:
-            return {
-                "success": False,
-                "error": f"Failed to stop old model '{old_model_name}': {msg}",
-                "port_state": "unchanged",
-            }
-
-    # === PHASE 3: START NEW MODEL ===
-
-    success, message, process = state.start_server(
+    result = state._start_with_eviction_impl(
         model_name=new_model_name,
-        caller="mcp",
         port=port,
+        caller="mcp",
+        readiness_timeout=timeout,
+        strict_rollback=True,
     )
 
-    if not success:
-        # ROLLBACK: New model failed to start, restart old one
-        if old_model_config:
-            rollback_success, rollback_msg, rollback_process = state.start_server(
-                model_name=old_model_name,
-                caller="mcp",
-                port=port,
-            )
-
-            if rollback_success:
-                # Wait for rollback to be ready
-                ready, _ = wait_for_server_ready(port, timeout=60)
-                if ready:
-                    return {
-                        "success": False,
-                        "error": f"New model failed to start: {message}. Rolled back to '{old_model_name}'.",
-                        "rolled_back": True,
-                        "port_state": "restored",
-                        "restored_model": old_model_name,
-                        "port": port,
-                    }
-
-        # Rollback also failed - catastrophic
-        return {
-            "success": False,
-            "error": f"Swap failed and rollback failed: {message}",
-            "rolled_back": False,
-            "port_state": "unavailable",
-            "port": port,
-            "warning": "PORT IS UNAVAILABLE - manual intervention required",
-        }
-
-    # === PHASE 4: WAIT FOR NEW MODEL READY ===
-
-    ready, logs = wait_for_server_ready(port, timeout=timeout)
-
-    if not ready:
-        # ROLLBACK: New model didn't become ready in time
-        # Terminate the failing new model
-        stop_server_by_pid(process.pid)
-
-        if old_model_config:
-            # Start old model again
-            rollback_success, rollback_msg, rollback_process = state.start_server(
-                model_name=old_model_name,
-                caller="mcp",
-                port=port,
-            )
-
-            if rollback_success:
-                # Wait for rollback to be ready
-                rollback_ready, _ = wait_for_server_ready(port, timeout=60)
-                if rollback_ready:
-                    return {
-                        "success": False,
-                        "error": f"New model '{new_model_name}' failed to become ready within {timeout}s. Rolled back to '{old_model_name}'.",
-                        "rolled_back": True,
-                        "port_state": "restored",
-                        "restored_model": old_model_name,
-                        "port": port,
-                        "startup_logs": logs,
-                    }
-
-        # Both failed - catastrophic
-        return {
-            "success": False,
-            "error": f"Swap failed and rollback failed",
-            "rolled_back": False,
-            "port_state": "unavailable",
-            "port": port,
-            "warning": "PORT IS UNAVAILABLE - manual intervention required",
-            "startup_logs": logs,
-        }
-
-    # === PHASE 5: SUCCESS ===
-
-    # Refresh state to pick up the new server
-    state.refresh_running_servers()
-
-    # Get the PID from the refreshed state
-    new_pid = None
-    if port in state.running:
-        new_pid = state.running[port].pid
-
     return {
-        "success": True,
-        "port": port,
-        "previous_model": old_model_name,
-        "new_model": new_model_name,
-        "pid": new_pid,
-        "rolled_back": False,
-        "port_state": "serving",
+        "success": result.success,
+        "port_state": result.port_state,
+        "error": result.error if not result.success else None,
+        "rolled_back": result.rolled_back,
+        "restored_model": result.restored_model or None,
+        "previous_model": result.previous_model or None,
+        "new_model": result.new_model_attempted or None,
     }

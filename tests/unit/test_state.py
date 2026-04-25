@@ -10,7 +10,7 @@ from llauncher.models.config import ModelConfig, RunningServer
 
 
 class TestStartWithEviction:
-    """Tests for start_with_eviction method."""
+    """Tests for start_with_eviction method (backward-compat wrapper)."""
 
     @pytest.fixture
     def mock_state(self, tmp_path):
@@ -43,7 +43,7 @@ class TestStartWithEviction:
         })
 
     def test_start_with_eviction_successful(self, mock_state):
-        """Test successful eviction and start."""
+        """Test successful eviction and start (compat wrapper)."""
         # Setup: Model exists, port occupied by another server
         mock_state.models = {
             "new_model": self.make_model("new_model", 8080),
@@ -59,28 +59,30 @@ class TestStartWithEviction:
             )
         }
 
-        # Mock both process_start_server and process_stop_server
+        # Mock process_start_server, process_stop_server, wait_for_server_ready,
+        # AND refresh_running_servers (which would otherwise wipe self.running)
         with patch("llauncher.state.process_start_server") as mock_start, \
              patch("llauncher.state.process_stop_server", return_value=True), \
-             patch("llauncher.state.is_port_in_use", return_value=False):
+             patch("llauncher.state.wait_for_server_ready", return_value=True), \
+             patch.object(mock_state, "refresh_running_servers"):
 
             mock_process = MagicMock()
             mock_process.pid = 5678
             mock_start.return_value = mock_process
 
-            # Execute
+            # Execute via compat wrapper
             success, message = mock_state.start_with_eviction(
                 model_name="new_model",
                 port=8080,
                 caller="test",
             )
 
-        # Assert
+        # Assert: compat wrapper returns (success, message)
         assert success is True, f"Expected success, got: {message}"
-        assert "evicted" in message.lower()
+        assert "Started new_model on port 8080" in message
         assert 8080 in mock_state.running
         assert mock_state.running[8080].config_name == "new_model"
-        # Verify stop was called for old server
+        # Verify evict action was logged with success
         evict_entries = [e for e in mock_state.audit if e.action == "evict"]
         assert len(evict_entries) == 1
         assert evict_entries[0].result == "success"
@@ -100,7 +102,7 @@ class TestStartWithEviction:
         )
 
         assert success is False
-        assert "Model not found" in message
+        assert "not found" in message.lower()
         assert mock_state.audit[-1].result == "error"
 
     def test_start_with_eviction_port_not_occupied(self, mock_state):
@@ -113,7 +115,8 @@ class TestStartWithEviction:
         mock_state.running = {}
 
         with patch("llauncher.state.process_start_server") as mock_start, \
-             patch("llauncher.state.is_port_in_use", return_value=False):
+             patch("llauncher.state.wait_for_server_ready", return_value=True), \
+             patch.object(mock_state, "refresh_running_servers"):
 
             mock_process = MagicMock()
             mock_process.pid = 5678
@@ -126,9 +129,8 @@ class TestStartWithEviction:
             )
 
         assert success is True
-        # Should not mention eviction when port was free
-        assert "evicted" not in message.lower()
-        assert "Started" in message
+        # No eviction happened; compat message shows what was started
+        assert "Started new_model on port 8080" in message
 
     def test_start_with_eviction_stop_fails(self, mock_state):
         """Test eviction when stopping existing server fails."""
@@ -147,8 +149,7 @@ class TestStartWithEviction:
         }
 
         # Mock process_stop_server to fail
-        with patch("llauncher.state.process_stop_server", return_value=False), \
-             patch("llauncher.state.is_port_in_use", return_value=False):
+        with patch("llauncher.state.process_stop_server", return_value=False):
             success, message = mock_state.start_with_eviction(
                 model_name="new_model",
                 port=8080,
@@ -164,7 +165,7 @@ class TestStartWithEviction:
         assert evict_entries[0].result == "error"
 
     def test_start_with_eviction_start_fails(self, mock_state):
-        """Test eviction when starting new server fails."""
+        """Test eviction when starting new server fails (no rollback in non-strict mode)."""
         mock_state.models = {
             "new_model": self.make_model("new_model", 8080),
         }
@@ -181,8 +182,7 @@ class TestStartWithEviction:
 
         # Mock stop_server to succeed, but process_start_server to fail
         with patch("llauncher.state.process_stop_server", return_value=True), \
-             patch("llauncher.state.process_start_server", side_effect=Exception("Failed to start server")), \
-             patch("llauncher.state.is_port_in_use", return_value=False):
+             patch("llauncher.state.process_start_server", side_effect=Exception("Failed to start server")):
 
             success, message = mock_state.start_with_eviction(
                 model_name="new_model",
@@ -194,7 +194,7 @@ class TestStartWithEviction:
         assert "Failed to start" in message
 
     def test_start_with_eviction_same_model_running(self, mock_state):
-        """Test eviction when same model is already running (idempotent)."""
+        """Test eviction when same model is already running (stops and restarts)."""
         mock_state.models = {
             "existing_model": self.make_model("existing_model", 8080),
         }
@@ -211,7 +211,8 @@ class TestStartWithEviction:
 
         with patch("llauncher.state.process_start_server") as mock_start, \
              patch("llauncher.state.process_stop_server", return_value=True), \
-             patch("llauncher.state.is_port_in_use", return_value=False):
+             patch("llauncher.state.wait_for_server_ready", return_value=True), \
+             patch.object(mock_state, "refresh_running_servers"):
 
             mock_process = MagicMock()
             mock_process.pid = 5678
@@ -225,8 +226,204 @@ class TestStartWithEviction:
 
         # Should succeed (stops and restarts the same model)
         assert success is True
+        assert "Started existing_model" in message
         assert 8080 in mock_state.running
         assert mock_state.running[8080].config_name == "existing_model"
+
+
+class TestEvictionRollback:
+    """Tests for the 5-phase eviction rollback decision tree (ADR-002).
+
+    These tests validate _start_with_eviction_impl directly, covering:
+    - Pre-flight failures (model not found)
+    - Evict+start failure with strict_rollback=True → port_state=restored
+    - Readiness timeout → rollback succeeds → port_state=restored
+    - Non-strict mode with old config missing → port_state=unavailable
+    - Both start and rollback failing → port_state=unavailable
+    - Empty port (no eviction) → simple success path
+    """
+
+    def _make_mock_state(self, tmp_path):
+        """Create a bare LauncherState with models and running servers set up manually."""
+        state = LauncherState.__new__(LauncherState)
+        state.models = {}
+        state.running = {}
+        state.audit = []
+        state.rules = MagicMock()
+        state.rules.validate_start.return_value = (True, "OK")
+        state.rules.validate_stop.return_value = (True, "OK")
+        self._tmp_path = tmp_path
+        return state
+
+    def _make_model(self, name: str, port: int) -> ModelConfig:
+        """Create a valid ModelConfig for testing."""
+        gguf_path = str(self._tmp_path / f"{name}.gguf")
+        Path(gguf_path).touch()
+        return ModelConfig.from_dict_unvalidated({
+            "name": name,
+            "model_path": gguf_path,
+            "default_port": port,
+            "n_gpu_layers": 255,
+            "ctx_size": 4096,
+        })
+
+    def _make_running_server(self, config: ModelConfig, pid: int = 12345) -> RunningServer:
+        """Create a RunningServer for testing."""
+        return RunningServer(
+            pid=pid,
+            port=config.default_port,
+            config_name=config.name,
+            start_time=datetime.now(),
+        )
+
+    # ─── Test 1: Pre-flight fails — model not found, port state unchanged ───
+    def test_pre_flight_model_not_found_untouched(self, tmp_path):
+        """Phase 1: Model lookup fails; nothing changed."""
+        state = self._make_mock_state(tmp_path)
+        # No models at all — model NOT in config
+        result = state._start_with_eviction_impl("nonexistent_model", 8080, caller="test")
+
+        assert result.success is False
+        assert result.port_state == "unchanged"
+        assert "not found" in result.error.lower()
+        assert len(state.running) == 0  # nothing changed
+        assert len(state.audit) == 1
+        assert state.audit[0].action == "start"
+        assert state.audit[0].result == "error"
+
+    # ─── Test 2: Evict + start fails, strict_rollback succeeds → port_state=restored ───
+    def test_evict_start_fail_strict_rollback_succeeds(self, tmp_path):
+        """Phase 3 start exception + Phase 3 rollback → restored."""
+        state = self._make_mock_state(tmp_path)
+
+        # Set up: old model running on port 8080
+        old_config = self._make_model("old_model", 8080)
+        new_config = self._make_model("new_model", 9999)
+        state.models = {"old_model": old_config, "new_model": new_config}
+        state.running[8080] = self._make_running_server(old_config, pid=12345)
+
+        # Mock: stop succeeds, new start fails, rollback succeeds + ready
+        with patch("llauncher.state.process_stop_server", return_value=True), \
+             patch("llauncher.state.process_start_server") as mock_start, \
+             patch("llauncher.state.wait_for_server_ready", return_value=True):
+            # First call = new model start (fails), second call = rollback start (succeeds)
+            mock_start.side_effect = [Exception("OOM kill"), MagicMock(pid=54321)]
+
+            result = state._start_with_eviction_impl(
+                "new_model", 8080, caller="test", strict_rollback=True,
+            )
+
+        assert result.success is False
+        assert result.port_state == "restored"
+        assert result.rolled_back is True
+        assert result.restored_model == "old_model"
+
+    # ─── Test 3: New starts but readiness times out → rollback succeeds → restored ───
+    def test_evict_start_success_readiness_timeout_rollback_succeeds(self, tmp_path):
+        """Phase 4 readiness failure + Phase 4 rollback → restored."""
+        state = self._make_mock_state(tmp_path)
+
+        old_config = self._make_model("old_model", 8080)
+        new_config = self._make_model("new_model", 9999)
+        state.models = {"old_model": old_config, "new_model": new_config}
+        state.running[8080] = self._make_running_server(old_config, pid=12345)
+
+        with patch("llauncher.state.process_stop_server", return_value=True), \
+             patch("llauncher.state.process_start_server") as mock_start, \
+             patch("llauncher.state.stop_server_by_pid"), \
+             patch("llauncher.state.wait_for_server_ready") as mock_ready:
+            # Phase 4 readiness returns False (timeout) → rollback → ready=True
+            mock_ready.side_effect = [False, True]
+            mock_start.side_effect = [MagicMock(pid=111), MagicMock(pid=222)]
+
+            result = state._start_with_eviction_impl(
+                "new_model", 8080, caller="test",
+                readiness_timeout=5, strict_rollback=True,
+            )
+
+        assert result.success is False
+        assert result.port_state == "restored"
+        assert result.rolled_back is True
+        assert "Readiness timeout" in result.error
+
+    # ─── Test 4: Non-strict mode, old config missing → port_state=unavailable (no rollback) ───
+    def test_evict_start_success_then_ready_timeout_no_rollback(self, tmp_path):
+        """Non-strict rollback: readiness fails, no rollback attempt → unavailable."""
+        state = self._make_mock_state(tmp_path)
+
+        new_config = self._make_model("new_model", 9999)
+        state.models = {"new_model": new_config}
+        # Old model is running but NOT in config (deleted from disk)
+        old_deleted_config = ModelConfig.from_dict_unvalidated({
+            "name": "old_deleted",
+            "model_path": "/nonexistent/old.gguf",
+            "default_port": 8080,
+            "n_gpu_layers": 255,
+            "ctx_size": 4096,
+        })
+        state.running[8080] = RunningServer(
+            pid=12345, port=8080, config_name="old_deleted",
+            start_time=datetime.now(),
+        )
+
+        with patch("llauncher.state.process_stop_server", return_value=True), \
+             patch("llauncher.state.process_start_server", return_value=MagicMock(pid=111)), \
+             patch("llauncher.state.stop_server_by_pid"), \
+             patch("llauncher.state.wait_for_server_ready", return_value=False):
+
+            result = state._start_with_eviction_impl(
+                "new_model", 8080, caller="test",
+                readiness_timeout=5, strict_rollback=False,
+            )
+
+        assert result.success is False
+        assert result.port_state == "unavailable"
+        assert result.rolled_back is False
+        assert "Readiness timeout" in result.error
+
+    # ─── Test 5: Both new start and rollback fail → port_state=unavailable ───
+    def test_both_fail_unavailable(self, tmp_path):
+        """Start fails + rollback also raises → unavailable."""
+        state = self._make_mock_state(tmp_path)
+
+        old_config = self._make_model("old_model", 8080)
+        new_config = self._make_model("new_model", 9999)
+        state.models = {"old_model": old_config, "new_model": new_config}
+        state.running[8080] = self._make_running_server(old_config, pid=12345)
+
+        with patch("llauncher.state.process_stop_server", return_value=True), \
+             patch("llauncher.state.process_start_server",
+                   side_effect=Exception("start failed")):
+
+            result = state._start_with_eviction_impl(
+                "new_model", 8080, caller="test", strict_rollback=True,
+            )
+
+        assert result.success is False
+        assert result.port_state == "unavailable"
+        assert result.rolled_back is False
+        assert "Rollback failed" in result.error
+
+    # ─── Test 6: Empty port — simple start, no eviction, no regression ───
+    def test_empty_port_no_eviction(self, tmp_path):
+        """No servers running → simple start path."""
+        state = self._make_mock_state(tmp_path)
+
+        config = self._make_model("test_model", 9999)
+        state.models = {"test_model": config}
+        # No servers running — port is free
+
+        with patch("llauncher.state.process_start_server", return_value=MagicMock(pid=789)), \
+             patch("llauncher.state.wait_for_server_ready", return_value=True):
+
+            result = state._start_with_eviction_impl("test_model", 9999, caller="test")
+
+        assert result.success is True
+        assert result.port_state == "serving"
+        assert result.previous_model == ""
+        assert len(state.audit) == 1
+        assert state.audit[0].action == "start"
+        assert state.audit[0].result == "success"
 
 
 class TestLauncherStateBase:

@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 
-from llauncher.mcp.tools.servers import (
+from llauncher.mcp_server.tools.servers import (
     start_server,
     stop_server,
     swap_server,
@@ -11,7 +11,8 @@ from llauncher.mcp.tools.servers import (
     get_server_logs,
     get_tools,
 )
-from llauncher.models.config import RunningServer, ModelConfig
+from llauncher.models.config import RunningServer
+from llauncher.state import EvictionResult
 from datetime import datetime
 
 
@@ -146,7 +147,7 @@ class TestGetServerLogs:
     @pytest.mark.asyncio
     async def test_get_server_logs_success(self, mock_state):
         """Returns logs from stream_logs()."""
-        with patch("llauncher.mcp.tools.servers.stream_logs", return_value=["log line 1", "log line 2"]):
+        with patch("llauncher.mcp_server.tools.servers.stream_logs", return_value=["log line 1", "log line 2"]):
             result = await get_server_logs(mock_state, {"port": 8080})
 
             assert result["logs"] == ["log line 1", "log line 2"]
@@ -154,7 +155,7 @@ class TestGetServerLogs:
     @pytest.mark.asyncio
     async def test_get_server_logs_custom_lines(self, mock_state):
         """Custom lines parameter passed through."""
-        with patch("llauncher.mcp.tools.servers.stream_logs") as mock_stream:
+        with patch("llauncher.mcp_server.tools.servers.stream_logs") as mock_stream:
             await get_server_logs(mock_state, {"port": 8080, "lines": 500})
 
             mock_stream.assert_called_once()
@@ -187,9 +188,13 @@ class TestSwapServer:
 
     @pytest.mark.asyncio
     async def test_swap_server_model_not_found(self):
-        """Returns error if new model doesn't exist."""
+        """Returns error if new model doesn't exist (delegated to _start_with_eviction_impl)."""
         mock_state = MagicMock()
-        mock_state.models = {}
+        mock_state._start_with_eviction_impl.return_value = EvictionResult(
+            success=False,
+            port_state="unchanged",
+            error="Model 'nonexistent' not found in config",
+        )
 
         result = await swap_server(mock_state, {"port": 8080, "model_name": "nonexistent"})
 
@@ -199,21 +204,15 @@ class TestSwapServer:
 
     @pytest.mark.asyncio
     async def test_swap_server_new_model_already_running(self):
-        """Returns error if new model is already running elsewhere."""
+        """Returns error if new model is already running elsewhere (delegated)."""
         mock_state = MagicMock()
-        mock_state.models = {"new-model": MagicMock(model_path="/exists")}
-        mock_state.running = {
-            8081: RunningServer(
-                pid=11111,
-                port=8081,
-                config_name="new-model",
-                start_time=datetime.now(),
-            )
-        }
+        mock_state._start_with_eviction_impl.return_value = EvictionResult(
+            success=False,
+            port_state="unchanged",
+            error="Model 'new-model' is already running on port 8081",
+        )
 
-        with patch("llauncher.mcp.tools.servers.Path") as mock_path:
-            mock_path.exists.return_value = True
-            result = await swap_server(mock_state, {"port": 8080, "model_name": "new-model"})
+        result = await swap_server(mock_state, {"port": 8080, "model_name": "new-model"})
 
         assert result["success"] is False
         assert "already running" in result["error"].lower()
@@ -221,44 +220,36 @@ class TestSwapServer:
 
     @pytest.mark.asyncio
     async def test_swap_server_old_model_no_persisted_config(self):
-        """Returns error if old model has no persisted config for rollback."""
+        """Returns error if old model has no persisted config for rollback (delegated)."""
         mock_state = MagicMock()
-        mock_state.models = {"new-model": MagicMock(model_path="/exists")}
-        mock_state.running = {
-            8080: RunningServer(
-                pid=12345,
-                port=8080,
-                config_name="script-only-model",  # Not in state.models
-                start_time=datetime.now(),
-            )
-        }
+        mock_state._start_with_eviction_impl.return_value = EvictionResult(
+            success=False,
+            port_state="unchanged",
+            error="Cannot evict: no config for running model 'script-only-model'",
+            previous_model="script-only-model",
+        )
 
-        with patch("llauncher.mcp.tools.servers.Path") as mock_path:
-            mock_path.exists.return_value = True
-            result = await swap_server(mock_state, {"port": 8080, "model_name": "new-model"})
+        result = await swap_server(mock_state, {"port": 8080, "model_name": "new-model"})
 
         assert result["success"] is False
-        assert "persisted config" in result["error"].lower()
+        assert "persisted config" in result["error"].lower() or "no config" in result["error"].lower()
         assert result["port_state"] == "unchanged"
 
     @pytest.mark.asyncio
     async def test_swap_server_success_no_previous_model(self):
         """Successful swap when port is empty."""
         mock_state = MagicMock()
-        mock_state.models = {"new-model": MagicMock(model_path="/exists")}
-        mock_state.running = {}
+        mock_state._start_with_eviction_impl.return_value = EvictionResult(
+            success=True,
+            port_state="serving",
+            error="",
+            new_model_attempted="new-model",
+            previous_model="",
+        )
 
-        mock_process = MagicMock()
-        mock_process.pid = 12345
-        mock_state.start_server.return_value = (True, "Started", mock_process)
-
-        with patch("llauncher.mcp.tools.servers.wait_for_server_ready", return_value=(True, [])):
-            with patch("llauncher.mcp.tools.servers.Path") as mock_path:
-                mock_path.exists.return_value = True
-                result = await swap_server(mock_state, {"port": 8080, "model_name": "new-model"})
+        result = await swap_server(mock_state, {"port": 8080, "model_name": "new-model"})
 
         assert result["success"] is True
-        assert result["port"] == 8080
         assert result["previous_model"] is None
         assert result["new_model"] == "new-model"
         assert result["port_state"] == "serving"
@@ -268,30 +259,15 @@ class TestSwapServer:
     async def test_swap_server_success_with_previous_model(self):
         """Successful swap when replacing existing model."""
         mock_state = MagicMock()
-        old_config = MagicMock(model_path="/old/model.gguf")
-        new_config = MagicMock(model_path="/new/model.gguf")
-        mock_state.models = {
-            "old-model": old_config,
-            "new-model": new_config,
-        }
-        mock_state.running = {
-            8080: RunningServer(
-                pid=11111,
-                port=8080,
-                config_name="old-model",
-                start_time=datetime.now(),
-            )
-        }
+        mock_state._start_with_eviction_impl.return_value = EvictionResult(
+            success=True,
+            port_state="serving",
+            error="",
+            new_model_attempted="new-model",
+            previous_model="old-model",
+        )
 
-        mock_process = MagicMock()
-        mock_process.pid = 22222
-        mock_state.start_server.return_value = (True, "Started", mock_process)
-        mock_state.stop_server.return_value = (True, "Stopped")
-
-        with patch("llauncher.mcp.tools.servers.wait_for_server_ready", return_value=(True, [])):
-            with patch("llauncher.mcp.tools.servers.Path") as mock_path:
-                mock_path.exists.return_value = True
-                result = await swap_server(mock_state, {"port": 8080, "model_name": "new-model"})
+        result = await swap_server(mock_state, {"port": 8080, "model_name": "new-model"})
 
         assert result["success"] is True
         assert result["previous_model"] == "old-model"
@@ -302,34 +278,16 @@ class TestSwapServer:
     async def test_swap_server_rollback_on_start_failure(self):
         """Rolls back to old model if new model fails to start."""
         mock_state = MagicMock()
-        old_config = MagicMock(model_path="/old/model.gguf")
-        new_config = MagicMock(model_path="/new/model.gguf")
-        mock_state.models = {
-            "old-model": old_config,
-            "new-model": new_config,
-        }
-        mock_state.running = {
-            8080: RunningServer(
-                pid=11111,
-                port=8080,
-                config_name="old-model",
-                start_time=datetime.now(),
-            )
-        }
+        mock_state._start_with_eviction_impl.return_value = EvictionResult(
+            success=False,
+            port_state="restored",
+            error="Failed to start",
+            rolled_back=True,
+            restored_model="old-model",
+            previous_model="old-model",
+        )
 
-        # First start (new model) fails, second start (rollback) succeeds
-        mock_old_process = MagicMock()
-        mock_old_process.pid = 11111
-        mock_state.start_server.side_effect = [
-            (False, "Failed to start", None),  # New model fails
-            (True, "Rolled back", mock_old_process),  # Old model succeeds
-        ]
-        mock_state.stop_server.return_value = (True, "Stopped")
-
-        with patch("llauncher.mcp.tools.servers.wait_for_server_ready", return_value=(True, [])):
-            with patch("llauncher.mcp.tools.servers.Path") as mock_path:
-                mock_path.exists.return_value = True
-                result = await swap_server(mock_state, {"port": 8080, "model_name": "new-model"})
+        result = await swap_server(mock_state, {"port": 8080, "model_name": "new-model"})
 
         assert result["success"] is False
         assert result["rolled_back"] is True
@@ -340,47 +298,41 @@ class TestSwapServer:
     async def test_swap_server_rollback_on_timeout(self):
         """Rolls back to old model if new model times out."""
         mock_state = MagicMock()
-        old_config = MagicMock(model_path="/old/model.gguf")
-        new_config = MagicMock(model_path="/new/model.gguf")
-        mock_state.models = {
-            "old-model": old_config,
-            "new-model": new_config,
-        }
-        mock_state.running = {
-            8080: RunningServer(
-                pid=11111,
-                port=8080,
-                config_name="old-model",
-                start_time=datetime.now(),
-            )
-        }
+        mock_state._start_with_eviction_impl.return_value = EvictionResult(
+            success=False,
+            port_state="restored",
+            error="Readiness timeout after 30s.",
+            rolled_back=True,
+            restored_model="old-model",
+            previous_model="old-model",
+        )
 
-        mock_new_process = MagicMock()
-        mock_new_process.pid = 22222
-        mock_old_process = MagicMock()
-        mock_old_process.pid = 11111
-
-        # New model starts but times out, old model restarts successfully
-        mock_state.start_server.side_effect = [
-            (True, "Started", mock_new_process),  # New model starts
-            (True, "Rolled back", mock_old_process),  # Old model restarts
-        ]
-        mock_state.stop_server.return_value = (True, "Stopped")
-
-        with patch("llauncher.mcp.tools.servers.wait_for_server_ready", side_effect=[
-            (False, ["log1", "log2"]),  # Timeout
-            (True, []),  # Rollback succeeds
-        ]):
-            with patch("llauncher.mcp.tools.servers.stop_server_by_pid"):
-                with patch("llauncher.mcp.tools.servers.Path") as mock_path:
-                    mock_path.exists.return_value = True
-                    result = await swap_server(mock_state, {"port": 8080, "model_name": "new-model", "timeout": 30})
+        result = await swap_server(mock_state, {"port": 8080, "model_name": "new-model", "timeout": 30})
 
         assert result["success"] is False
         assert result["rolled_back"] is True
         assert result["port_state"] == "restored"
         assert "timeout" in result["error"].lower() or "ready" in result["error"].lower()
-        assert "startup_logs" in result
+
+    @pytest.mark.asyncio
+    async def test_swap_server_catastrophic_failure(self):
+        """Port becomes unavailable when both start and rollback fail."""
+        mock_state = MagicMock()
+        mock_state._start_with_eviction_impl.return_value = EvictionResult(
+            success=False,
+            port_state="unavailable",
+            error="Swap failed: ConnectionError. Rollback failed — manual intervention required.",
+            rolled_back=False,
+            new_model_attempted="new-model",
+            previous_model="old-model",
+        )
+
+        result = await swap_server(mock_state, {"port": 8080, "model_name": "new-model"})
+
+        assert result["success"] is False
+        assert result["rolled_back"] is False
+        assert result["port_state"] == "unavailable"
+        assert result["error"] is not None
 
 
 class TestGetTools:

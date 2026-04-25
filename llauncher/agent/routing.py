@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException
 
-from llauncher.state import LauncherState
+from llauncher.state import EvictionResult, LauncherState
 
 router = APIRouter()
 
@@ -254,26 +254,30 @@ async def start_server_with_eviction(model_name: str, port: int | None = None) -
     if target_port is None:
         raise HTTPException(status_code=400, detail="No port specified and no default_port configured")
 
-    # Use the start_with_eviction method
-    success, message = state.start_with_eviction(model_name, target_port, caller="agent")
+    # Call the eviction implementation directly for structured result
+    result = state._start_with_eviction_impl(
+        model_name, target_port, caller="agent", readiness_timeout=120, strict_rollback=False
+    )
 
-    if not success:
-        raise HTTPException(status_code=409, detail=message)
+    if result.port_state == "unavailable":
+        raise HTTPException(status_code=503, detail=result.error)
 
-    # Refresh and find the new server
+    if not result.success:
+        raise HTTPException(status_code=409, detail=result.error)
+
+    # Refresh to get the new server info
     state.refresh_running_servers()
 
-    for server in state.running.values():
-        if server.config_name == model_name:
-            return {
-                "success": True,
-                "message": message,
-                "port": server.port,
-                "pid": server.pid,
-                "config_name": model_name,
-            }
-
-    return {"success": True, "message": message}
+    running_server = state.running.get(target_port)
+    return {
+        "success": True,
+        "port": target_port,
+        "pid": running_server.pid if running_server else None,
+        "config_name": model_name,
+        "previous_model": result.previous_model or None,
+        "new_model": result.new_model_attempted,
+        "port_state": result.port_state,
+    }
 
 
 @router.get("/logs/{port}")

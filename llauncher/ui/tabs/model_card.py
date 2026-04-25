@@ -140,9 +140,15 @@ def _render_eviction_dialog(
             use_container_width=True,
             type="primary",
         ):
-            success, message = state.start_with_eviction(model_name, port, caller="ui")
+            result = state.start_with_eviction_compat(model_name, port, caller="ui")
+            success, message = result
+
             if success:
-                st.toast(message, icon="✅")
+                st.toast("Server started successfully", icon="✅")
+            elif message and ("rolled back" in message.lower() or "restored" in message.lower()):
+                st.toast(f"Swap failed — rolled back to server ({message})", icon="⚠️")
+            elif message and ("unavailable" in message.lower() or "manual intervention" in message.lower()):
+                st.toast(f"Port unavailable — manual intervention required ({message})", icon="❌")
             else:
                 st.toast(f"Eviction failed: {message}", icon="❌")
             st.rerun()

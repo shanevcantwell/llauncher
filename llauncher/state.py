@@ -14,7 +14,9 @@ from llauncher.core.process import (
     find_available_port,
     is_port_in_use,
     start_server as process_start_server,
+    stop_server_by_pid,
     stop_server_by_port as process_stop_server,
+    wait_for_server_ready,
 )
 from llauncher.models.config import (
     AuditEntry,
@@ -22,6 +24,37 @@ from llauncher.models.config import (
     ModelConfig,
     RunningServer,
 )
+
+
+_EVICT_DELIM = "|DELIM|"
+
+
+@dataclass
+class EvictionResult:
+    """Result of an eviction-and-start operation.
+
+    Provides structured information about what happened during a
+    start-with-eviction flow, including rollback state and diagnostic logs.
+    """
+
+    success: bool
+    port_state: str          # "unchanged" | "restored" | "serving" | "unavailable"
+    error: str
+    rolled_back: bool = False
+    restored_model: str = ""
+    previous_model: str = ""
+    new_model_attempted: str = ""
+    startup_logs: list[str] = field(default_factory=list)
+
+
+def _parse_eviction_result(result):
+    """Split EvictionResult into (success, message) for legacy callers."""
+    if isinstance(result, EvictionResult):
+        msg = result.error if not result.success else f"Started {result.new_model_attempted} on port via eviction"
+        if result.rolled_back:
+            msg += f" | rolled_back to {result.restored_model}"
+        return result.success, msg
+    return result  # already a tuple
 
 
 @dataclass
@@ -256,75 +289,301 @@ class LauncherState:
             self.record_action("stop", "unknown", caller, "error", "Process not found")
             return False, "Failed to stop server"
 
-    def start_with_eviction(
+    def _start_with_eviction_impl(
         self,
         model_name: str,
         port: int,
         caller: str = "unknown",
         server_bin: Path = DEFAULT_SERVER_BINARY,
-    ) -> tuple[bool, str]:
-        """Start a server, stopping any existing server on the target port first.
+        readiness_timeout: int = 120,
+        strict_rollback: bool = False,
+    ) -> EvictionResult:
+        """Start a server with eviction of any existing process on the target port.
 
-        For local nodes only. Remote eviction requires agent-side coordination.
+        Implements a 5-phase decision tree with full rollback support:
+        1. Pre-flight checks (no state changes)
+        2. Stop old model (if port occupied)
+        3. Start new model (with rollback on failure)
+        4. Readiness poll (with rollback on timeout)
+        5. Success or detailed failure with diagnostics
 
         Args:
             model_name: Name of the model to start.
             port: Port to use (will evict if already in use). Must be between 1024-65535.
             caller: Name of the caller.
             server_bin: Path to llama-server binary.
+            readiness_timeout: Seconds to wait for /status readiness after starting.
+            strict_rollback: If True, requires old model config+path exist for rollback.
 
         Returns:
-            Tuple of (success, message).
+            EvictionResult with structured outcome information.
         """
-        # Validate port range
-        if port < 1024 or port > 65535:
-            self.record_action("start", model_name, caller, "error",
-                             f"Invalid port {port}: must be between 1024-65535")
-            return False, f"Invalid port: {port}. Must be between 1024-65535."
+        # ── Phase 1: Pre-flight (no state changes) ──────────────────────
 
+        # 1. Look up model config
         if model_name not in self.models:
             self.record_action("start", model_name, caller, "error", "Model not found")
-            return False, f"Model not found: {model_name}"
+            return EvictionResult(
+                success=False,
+                port_state="unchanged",
+                error=f"Model '{model_name}' not found in config",
+            )
 
         config = self.models[model_name]
 
-        # Track if eviction will happen (before modifying state)
-        port_was_occupied = port in self.running
+        # 2. Check model path exists
+        model_path = Path(config.model_path)
+        if not model_path.exists():
+            self.record_action("start", model_name, caller, "error", f"Model path missing: {config.model_path}")
+            return EvictionResult(
+                success=False,
+                port_state="unchanged",
+                error=f"Model path missing: {config.model_path}",
+            )
 
-        # Stop any existing server on this port
-        if port_was_occupied:
-            existing_model = self.running[port].config_name
+        # 3. Check new model not already running elsewhere on a different port
+        for existing_port, srv in self.running.items():
+            if srv.config_name == model_name and existing_port != port:
+                return EvictionResult(
+                    success=False,
+                    port_state="unchanged",
+                    error=f"Model '{model_name}' is already running on port {existing_port}",
+                )
+
+        # 4-5. If port occupied, check old config exists and capture previous_model
+        previous_model = ""
+        if port in self.running:
+            previous_model = self.running[port].config_name
+            if strict_rollback and previous_model and previous_model not in self.models:
+                self.record_action("evict", model_name, caller, "error",
+                                   f"Cannot evict: no config for existing model '{previous_model}'")
+                return EvictionResult(
+                    success=False,
+                    port_state="unchanged",
+                    error=f"Cannot evict: no config for running model '{previous_model}'",
+                    previous_model=previous_model,
+                )
+            if strict_rollback and previous_model:
+                old_config = self.models[previous_model]
+                if not Path(old_config.model_path).exists():
+                    self.record_action("evict", model_name, caller, "error",
+                                       f"Cannot evict: old model path missing for '{previous_model}'")
+                    return EvictionResult(
+                        success=False,
+                        port_state="unchanged",
+                        error=f"Cannot evict: model path missing for '{previous_model}'",
+                        previous_model=previous_model,
+                    )
+
+        # Validate port range
+        if port < 1024 or port > 65535:
+            self.record_action("start", model_name, caller, "error",
+                               f"Invalid port {port}: must be between 1024-65535")
+            return EvictionResult(
+                success=False,
+                port_state="unchanged",
+                error=f"Invalid port: {port}. Must be between 1024-65535.",
+            )
+
+        # ── Phase 2: Stop old model (if port occupied) ──────────────────
+
+        new_started = False
+        new_pid = 0
+
+        if port in self.running:
             stop_success, stop_msg = self.stop_server(port, caller)
             if not stop_success:
                 self.record_action("evict", model_name, caller, "error",
-                                 f"Failed to stop existing server: {stop_msg}")
-                return False, f"Cannot evict: failed to stop {existing_model} on port {port}: {stop_msg}"
+                                   f"Failed to stop existing server: {stop_msg}")
+                return EvictionResult(
+                    success=False,
+                    port_state="unchanged",
+                    error=f"Cannot evict: Failed to stop existing server on port {port}",
+                    previous_model=previous_model,
+                )
             self.record_action("evict", model_name, caller, "success",
-                             f"Stopped {existing_model} on port {port}")
+                               f"Stopped {previous_model} on port {port}")
 
-        # Validate the port is free now
-        valid, msg = self.can_start(config, caller, port)
-        if not valid:
-            self.record_action("start", model_name, caller, "validation_error", msg)
-            return False, msg
+        # ── Phase 3: Start new model ────────────────────────────────────
 
-        # Start the process
+        start_exception = None
         try:
             process = process_start_server(config, port, server_bin=server_bin)
+            new_pid = process.pid
             self.running[port] = RunningServer(
                 pid=process.pid,
                 port=port,
                 config_name=model_name,
                 start_time=datetime.now(),
             )
+            new_started = True
             self.record_action("start", model_name, caller, "success", f"Started on port {port}")
-            if port_was_occupied:
-                return True, f"Started {model_name} on port {port} (evicted previous server)"
-            else:
-                return True, f"Started {model_name} on port {port}"
         except Exception as e:
+            start_exception = e
             self.record_action("start", model_name, caller, "error", str(e))
-            return False, f"Failed to start: {e}"
+
+        # Rollback logic (if start fails)
+        if start_exception is not None and strict_rollback and previous_model and previous_model in self.models:
+            old_config = self.models[previous_model]
+            try:
+                old_process = process_start_server(old_config, port, server_bin=server_bin)
+                self.running[port] = RunningServer(
+                    pid=old_process.pid,
+                    port=port,
+                    config_name=previous_model,
+                    start_time=datetime.now(),
+                )
+                self.record_action("rollback", previous_model, caller, "success",
+                                   f"Rolled back old server on port {port}")
+                return EvictionResult(
+                    success=False,
+                    port_state="restored",
+                    error=str(start_exception),
+                    rolled_back=True,
+                    restored_model=previous_model,
+                    previous_model=previous_model,
+                )
+            except Exception:
+                self.running.pop(port, None)
+                return EvictionResult(
+                    success=False,
+                    port_state="unavailable",
+                    error=f"Swap failed: {start_exception}. Rollback failed — manual intervention required.",
+                    previous_model=previous_model,
+                )
+
+        if start_exception is not None:
+            return EvictionResult(
+                success=False,
+                port_state="unavailable",
+                error=f"Failed to start: {start_exception}",
+                previous_model=previous_model,
+                new_model_attempted=model_name,
+            )
+
+        # ── Phase 4: Readiness poll ─────────────────────────────────────
+
+        try:
+            ready = wait_for_server_ready(port, timeout=readiness_timeout)
+            if not ready:
+                # Terminate new process
+                stop_server_by_pid(new_pid)
+                self.running.pop(port, None)
+
+                # Rollback logic on readiness failure
+                if strict_rollback and previous_model and previous_model in self.models:
+                    old_config = self.models[previous_model]
+                    try:
+                        old_process = process_start_server(old_config, port, server_bin=server_bin)
+                        self.running[port] = RunningServer(
+                            pid=old_process.pid,
+                            port=port,
+                            config_name=previous_model,
+                            start_time=datetime.now(),
+                        )
+                        self.record_action("rollback", previous_model, caller, "success",
+                                           f"Rolled back old server on port {port} (readiness failure)")
+                        return EvictionResult(
+                            success=False,
+                            port_state="restored",
+                            error=f"Readiness timeout after {readiness_timeout}s.",
+                            rolled_back=True,
+                            restored_model=previous_model,
+                            previous_model=previous_model,
+                        )
+                    except Exception:
+                        self.running.pop(port, None)
+                        return EvictionResult(
+                            success=False,
+                            port_state="unavailable",
+                            error=f"Readiness timeout after {readiness_timeout}s. Rollback failed — manual intervention required.",
+                            previous_model=previous_model,
+                            new_model_attempted=model_name,
+                        )
+
+                return EvictionResult(
+                    success=False,
+                    port_state="unavailable",
+                    error=f"Readiness timeout after {readiness_timeout}s.",
+                    previous_model=previous_model,
+                    new_model_attempted=model_name,
+                )
+        except Exception as e:
+            # wait_for_server_ready itself raised
+            stop_server_by_pid(new_pid)
+            self.running.pop(port, None)
+
+            if strict_rollback and previous_model and previous_model in self.models:
+                old_config = self.models[previous_model]
+                try:
+                    old_process = process_start_server(old_config, port, server_bin=server_bin)
+                    self.running[port] = RunningServer(
+                        pid=old_process.pid,
+                        port=port,
+                        config_name=previous_model,
+                        start_time=datetime.now(),
+                    )
+                    self.record_action("rollback", previous_model, caller, "success",
+                                       f"Rolled back old server on port {port} (readiness error)")
+                    return EvictionResult(
+                        success=False,
+                        port_state="restored",
+                        error=f"Readiness check failed: {e}",
+                        rolled_back=True,
+                        restored_model=previous_model,
+                        previous_model=previous_model,
+                    )
+                except Exception:
+                    self.running.pop(port, None)
+                    return EvictionResult(
+                        success=False,
+                        port_state="unavailable",
+                        error=f"Readiness check failed: {e}. Rollback failed — manual intervention required.",
+                        previous_model=previous_model,
+                        new_model_attempted=model_name,
+                    )
+
+            return EvictionResult(
+                success=False,
+                port_state="unavailable",
+                error=f"Readiness check failed: {e}",
+                previous_model=previous_model,
+                new_model_attempted=model_name,
+            )
+
+        # ── Phase 5: Success ────────────────────────────────────────────
+
+        self.refresh_running_servers()
+        return EvictionResult(
+            success=True,
+            port_state="serving",
+            error="",
+            new_model_attempted=model_name,
+            previous_model=previous_model,
+        )
+
+    def start_with_eviction_compat(
+        self,
+        model_name: str,
+        port: int,
+        caller: str = "unknown",
+        server_bin: Path = DEFAULT_SERVER_BINARY,
+    ) -> tuple[bool, str]:
+        """Backward-compatible wrapper returning (success, message).
+
+        Calls _start_with_eviction_impl and converts the EvictionResult
+        into the legacy tuple format expected by older callers.
+        """
+        result = self._start_with_eviction_impl(
+            model_name, port, caller, server_bin,
+            readiness_timeout=120, strict_rollback=False,
+        )
+        msg = result.error if not result.success else f"Started {result.new_model_attempted} on port {port}"
+        if result.rolled_back:
+            msg += f" — rolled back to {result.restored_model}"
+        return result.success, msg
+
+    start_with_eviction = start_with_eviction_compat  # legacy alias
 
     def record_action(
         self,
