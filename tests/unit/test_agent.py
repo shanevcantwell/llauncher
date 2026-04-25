@@ -76,6 +76,7 @@ class TestHealthEndpoint:
         data = response.json()
         assert data["status"] == "healthy"
         assert "node" in data
+        assert "version" in data
 
     def test_health_returns_node_name(self, client):
         """Test that health endpoint returns node name."""
@@ -83,6 +84,17 @@ class TestHealthEndpoint:
         data = response.json()
         assert isinstance(data["node"], str)
         assert len(data["node"]) > 0
+
+    def test_health_returns_version_string(self, client):
+        """Test that health endpoint returns a semantic version string."""
+        import re
+
+        response = client.get("/health")
+        data = response.json()
+        assert isinstance(data["version"], str)
+        # Should match semver-like pattern (e.g. 0.1.0, 0.1.1)
+        assert re.match(r"^\d+\.\d+\.\d+$", data["version"]), \
+            f"Version should follow semantic versioning, got: {data['version']}"
 
 
 class TestNodeInfoEndpoint:

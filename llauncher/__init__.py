@@ -7,5 +7,5 @@ load_dotenv()
 
 from llauncher.state import LauncherState
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __all__ = ["LauncherState"]

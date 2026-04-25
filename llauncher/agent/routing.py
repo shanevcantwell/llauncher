@@ -34,9 +34,15 @@ async def health_check() -> dict:
     """Liveness probe endpoint.
 
     Returns:
-        Simple health status.
+        Health status with node name and installed version.
     """
-    return {"status": "healthy", "node": get_node_name()}
+    from llauncher import __version__ as llauncher_version
+
+    return {
+        "status": "healthy",
+        "node": get_node_name(),
+        "version": llauncher_version,
+    }
 
 
 @router.get("/node-info")
