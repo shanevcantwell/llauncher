@@ -49,6 +49,10 @@ async def list_models(state: LauncherState, args: dict) -> dict:
         - identification: model name and path
         - status: running status, port, and PID if applicable
     """
+    # Per-call refresh — ADR-006 pattern: zero-staleness on every read.
+    from llauncher.mcp_server.server import get_mcp_state  # late binding to avoid circular import
+    get_mcp_state().refresh()  # type: ignore[union-attr]
+
     models = []
 
     for name, config in state.models.items():
@@ -85,6 +89,10 @@ async def get_model_config(state: LauncherState, args: dict) -> dict:
         - configuration: full model configuration
         - status: running status, port, and PID if applicable
     """
+    # Per-call refresh — ADR-006 pattern: zero-staleness on every read.
+    from llauncher.mcp_server.server import get_mcp_state  # late binding to avoid circular import
+    get_mcp_state().refresh()  # type: ignore[union-attr]
+
     name = args.get("name")
 
     if not name:

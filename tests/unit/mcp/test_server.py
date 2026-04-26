@@ -67,99 +67,112 @@ class TestDispatchTool:
     @pytest.mark.asyncio
     async def test_dispatch_tool_models(self):
         """Dispatch to models tools."""
-        # TODO (post Phase 1): wrap with:
-        #   with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
-        #       mock_get.return_value = MagicMock()
-        with patch("llauncher.mcp_server.server.models_tools.list_models", return_value="models_result"):
-            result = await _dispatch_tool("list_models", {})
-            assert result == "models_result"
+        with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
+            mock_get.return_value = MagicMock()
+            with patch("llauncher.mcp_server.server.models_tools.list_models", return_value="models_result"):
+                result = await _dispatch_tool("list_models", {})
+                assert result == "models_result"
 
     @pytest.mark.asyncio
     async def test_dispatch_tool_servers(self):
         """Dispatch to servers tools."""
-        # TODO (post Phase 1): add get_mcp_state() mock wrapper
-        with patch("llauncher.mcp_server.server.servers_tools.start_server", return_value="server_result"):
-            result = await _dispatch_tool("start_server", {})
-            assert result == "server_result"
+        with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
+            mock_get.return_value = MagicMock()
+            with patch("llauncher.mcp_server.server.servers_tools.start_server", return_value="server_result"):
+                result = await _dispatch_tool("start_server", {})
+                assert result == "server_result"
 
     @pytest.mark.asyncio
     async def test_dispatch_tool_config(self):
         """Dispatch to config tools."""
-        # TODO (post Phase 1): add get_mcp_state() mock wrapper
-        with patch("llauncher.mcp_server.server.config_tools.add_model", return_value="config_result"):
-            result = await _dispatch_tool("add_model", {})
-            assert result == "config_result"
+        with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
+            mock_get.return_value = MagicMock()
+            with patch("llauncher.mcp_server.server.config_tools.add_model", return_value="config_result"):
+                result = await _dispatch_tool("add_model", {})
+                assert result == "config_result"
 
     @pytest.mark.asyncio
     async def test_dispatch_tool_unknown(self):
         """Unknown tool raises ValueError."""
-        # TODO (post Phase 1): add get_mcp_state() mock wrapper
-        with pytest.raises(ValueError, match="Unknown tool"):
-            await _dispatch_tool("unknown_tool", {})
+        # get_mcp_state mock prevents real LauncherState creation.
+        # ValueError still propagates because it's raised by _dispatch_tool,
+        # not by any mocked handler.
+        with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
+            mock_get.return_value = MagicMock()
+            with pytest.raises(ValueError, match="Unknown tool"):
+                await _dispatch_tool("unknown_tool", {})
 
     @pytest.mark.asyncio
     async def test_dispatch_tool_get_model_config(self):
         """Dispatch to get_model_config tool."""
-        # TODO (post Phase 1): add get_mcp_state() mock wrapper
-        with patch("llauncher.mcp_server.server.models_tools.get_model_config", return_value="get_model_config_result"):
-            result = await _dispatch_tool("get_model_config", {})
-            assert result == "get_model_config_result"
+        with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
+            mock_get.return_value = MagicMock()
+            with patch("llauncher.mcp_server.server.models_tools.get_model_config", return_value="get_model_config_result"):
+                result = await _dispatch_tool("get_model_config", {})
+                assert result == "get_model_config_result"
 
     @pytest.mark.asyncio
     async def test_dispatch_tool_stop_server(self):
         """Dispatch to stop_server tool."""
-        # TODO (post Phase 1): add get_mcp_state() mock wrapper
-        with patch("llauncher.mcp_server.server.servers_tools.stop_server", return_value="stop_server_result"):
-            result = await _dispatch_tool("stop_server", {})
-            assert result == "stop_server_result"
+        with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
+            mock_get.return_value = MagicMock()
+            with patch("llauncher.mcp_server.server.servers_tools.stop_server", return_value="stop_server_result"):
+                result = await _dispatch_tool("stop_server", {})
+                assert result == "stop_server_result"
 
     @pytest.mark.asyncio
     async def test_dispatch_tool_swap_server(self):
         """Dispatch to swap_server tool."""
-        # TODO (post Phase 1): add get_mcp_state() mock wrapper
-        with patch("llauncher.mcp_server.server.servers_tools.swap_server", return_value="swap_server_result"):
-            result = await _dispatch_tool("swap_server", {})
-            assert result == "swap_server_result"
+        with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
+            mock_get.return_value = MagicMock()
+            with patch("llauncher.mcp_server.server.servers_tools.swap_server", return_value="swap_server_result"):
+                result = await _dispatch_tool("swap_server", {})
+                assert result == "swap_server_result"
 
     @pytest.mark.asyncio
     async def test_dispatch_tool_server_status(self):
         """Dispatch to server_status tool."""
-        # TODO (post Phase 1): add get_mcp_state() mock wrapper
-        with patch("llauncher.mcp_server.server.servers_tools.server_status", return_value="server_status_result"):
-            result = await _dispatch_tool("server_status", {})
-            assert result == "server_status_result"
+        with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
+            mock_get.return_value = MagicMock()
+            with patch("llauncher.mcp_server.server.servers_tools.server_status", return_value="server_status_result"):
+                result = await _dispatch_tool("server_status", {})
+                assert result == "server_status_result"
 
     @pytest.mark.asyncio
     async def test_dispatch_tool_get_server_logs(self):
         """Dispatch to get_server_logs tool."""
-        # TODO (post Phase 1): add get_mcp_state() mock wrapper
-        with patch("llauncher.mcp_server.server.servers_tools.get_server_logs", return_value="get_server_logs_result"):
-            result = await _dispatch_tool("get_server_logs", {})
-            assert result == "get_server_logs_result"
+        with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
+            mock_get.return_value = MagicMock()
+            with patch("llauncher.mcp_server.server.servers_tools.get_server_logs", return_value="get_server_logs_result"):
+                result = await _dispatch_tool("get_server_logs", {})
+                assert result == "get_server_logs_result"
 
     @pytest.mark.asyncio
     async def test_dispatch_tool_update_model_config(self):
         """Dispatch to update_model_config tool."""
-        # TODO (post Phase 1): add get_mcp_state() mock wrapper
-        with patch("llauncher.mcp_server.server.config_tools.update_model_config", return_value="update_model_config_result"):
-            result = await _dispatch_tool("update_model_config", {})
-            assert result == "update_model_config_result"
+        with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
+            mock_get.return_value = MagicMock()
+            with patch("llauncher.mcp_server.server.config_tools.update_model_config", return_value="update_model_config_result"):
+                result = await _dispatch_tool("update_model_config", {})
+                assert result == "update_model_config_result"
 
     @pytest.mark.asyncio
     async def test_dispatch_tool_validate_config(self):
         """Dispatch to validate_config tool."""
-        # TODO (post Phase 1): add get_mcp_state() mock wrapper
-        with patch("llauncher.mcp_server.server.config_tools.validate_config", return_value="validate_config_result"):
-            result = await _dispatch_tool("validate_config", {})
-            assert result == "validate_config_result"
+        with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
+            mock_get.return_value = MagicMock()
+            with patch("llauncher.mcp_server.server.config_tools.validate_config", return_value="validate_config_result"):
+                result = await _dispatch_tool("validate_config", {})
+                assert result == "validate_config_result"
 
     @pytest.mark.asyncio
     async def test_dispatch_tool_remove_model(self):
         """Dispatch to remove_model tool."""
-        # TODO (post Phase 1): add get_mcp_state() mock wrapper
-        with patch("llauncher.mcp_server.server.config_tools.remove_model", return_value="remove_model_result"):
-            result = await _dispatch_tool("remove_model", {})
-            assert result == "remove_model_result"
+        with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
+            mock_get.return_value = MagicMock()
+            with patch("llauncher.mcp_server.server.config_tools.remove_model", return_value="remove_model_result"):
+                result = await _dispatch_tool("remove_model", {})
+                assert result == "remove_model_result"
 
 
 class TestMainFunctions:

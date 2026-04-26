@@ -95,20 +95,20 @@ class TestDispatchToolAllTools:
         ]
 
         for tool_name, module_path in tool_tests:
-            # TODO (post Phase 1): add outer wrapper:
-            #   with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
-            #       mock_get.return_value = MagicMock()
-            expected_result = f"{tool_name}_result"
-            with patch(module_path, return_value=expected_result) as mock_func:
-                result = await _dispatch_tool(tool_name, {"test_arg": "test_value"})
-                assert result == expected_result
-                mock_func.assert_called_once()
+            with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
+                mock_get.return_value = MagicMock()
+                expected_result = f"{tool_name}_result"
+                with patch(module_path, return_value=expected_result) as mock_func:
+                    result = await _dispatch_tool(tool_name, {"test_arg": "test_value"})
+                    assert result == expected_result
+                    mock_func.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_dispatch_tool_unknown_tool(self):
         """Test that unknown tool raises ValueError."""
         from llauncher.mcp_server.server import _dispatch_tool
 
-        # TODO (post Phase 1): add get_mcp_state() mock wrapper
-        with pytest.raises(ValueError, match="Unknown tool"):
-            await _dispatch_tool("unknown_tool", {})
+        with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
+            mock_get.return_value = MagicMock()
+            with pytest.raises(ValueError, match="Unknown tool"):
+                await _dispatch_tool("unknown_tool", {})
