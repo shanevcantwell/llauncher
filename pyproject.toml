@@ -24,6 +24,7 @@ test = [
 ]
 
 [project.scripts]
+llauncher = "llauncher.cli:app"
 llauncher-mcp = "llauncher.mcp.server:main"
 llauncher-agent = "llauncher.agent:main"
 
