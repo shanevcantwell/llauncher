@@ -146,9 +146,8 @@ async def server_status(state: LauncherState, args: dict) -> dict:
     Returns:
         Dictionary with list of running servers.
     """
-    # Per-call refresh — zero-staleness on every read (ADR-006).
-    from llauncher.mcp_server.server import get_mcp_state  # type: ignore[import-not-found, unused-ignore]
-    get_mcp_state().refresh()
+    # Per-call refresh via dispatch-provided state (Fix #31/#32 — no circular import, single refresh)
+    state.refresh()
     servers = []
 
     for port, server in state.running.items():
@@ -170,9 +169,8 @@ async def get_server_logs(state: LauncherState, args: dict) -> dict:
     Returns:
         Dictionary with log lines.
     """
-    # Per-call refresh — prevents reading from stale server data; always re-reads running servers (ADR-006).
-    from llauncher.mcp_server.server import get_mcp_state  # type: ignore[import-not-found, unused-ignore]
-    get_mcp_state().refresh()
+    # Per-call refresh via dispatch-provided state (Fix #31/#32 — no circular import, single refresh)
+    state.refresh()
 
     port = args.get("port")
     lines = args.get("lines", 100)

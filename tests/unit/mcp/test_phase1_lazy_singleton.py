@@ -5,7 +5,7 @@ These tests verify the architectural fix for stale data in MCP read tool respons
 """
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, ANY
 
 
 def _reset_mcp_state():
@@ -58,64 +58,72 @@ class TestGetMcpState:
 
 
 class TestReadHandlersCallRefresh:
-    """Tests that every read handler calls state.refresh()."""
+    """Tests that every read handler calls state.refresh().
+
+    Fix #31/#32: Handlers now use the passed-in state directly instead of
+    importing get_mcp_state() — no more circular import, no double-refresh.
+    """
 
     @pytest.mark.asyncio
     async def test_read_handler_calls_refresh_list_models(self):
-        """list_models calls .refresh() on state."""
-        with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
-            mock_state = MagicMock()
-            mock_get.return_value = mock_state
+        """list_models calls .refresh() on its injected state (#31/#32)."""
+        from llauncher.mcp_server.tools.models import list_models
 
-            from llauncher.mcp_server.tools.models import list_models
+        mock_state = MagicMock()
+        result = await list_models(mock_state, {})
 
-            result = await list_models(mock_state, {})
-
-            # refresh must have been called (sync call inside async def)
-            mock_state.refresh.assert_called_once()
-            assert "models" in result
+        mock_state.refresh.assert_called_once()
+        assert "models" in result
 
     @pytest.mark.asyncio
     async def test_read_handler_calls_refresh_get_model_config(self):
-        """get_model_config calls .refresh() on state."""
-        with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
-            mock_state = MagicMock()
-            mock_get.return_value = mock_state
+        """get_model_config calls .refresh() on its injected state (#31/#32)."""
+        from llauncher.mcp_server.tools.models import get_model_config
 
-            from llauncher.mcp_server.tools.models import get_model_config
+        mock_state = MagicMock()
+        result = await get_model_config(mock_state, {"name": "test"})
 
-            result = await get_model_config(mock_state, {"name": "test"})
-
-            # Note: the handler calls state.refresh() directly (via state param)
-            mock_state.refresh.assert_called_once()
+        mock_state.refresh.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_read_handler_calls_refresh_server_status(self):
-        """server_status calls .refresh() on state."""
-        with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
-            mock_state = MagicMock()
-            mock_get.return_value = mock_state
+        """server_status calls .refresh() on its injected state (#31/#32)."""
+        from llauncher.mcp_server.tools.servers import server_status
 
-            from llauncher.mcp_server.tools.servers import server_status
+        mock_state = MagicMock()
+        result = await server_status(mock_state, {})
 
-            result = await server_status(mock_state, {})
-
-            mock_state.refresh.assert_called_once()
-            assert "running_servers" in result
+        mock_state.refresh.assert_called_once()
+        assert "running_servers" in result
 
     @pytest.mark.asyncio
     async def test_read_handler_calls_refresh_get_server_logs(self):
-        """get_server_logs calls .refresh() on state."""
-        with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
-            mock_state = MagicMock()
-            mock_get.return_value = mock_state
+        """get_server_logs calls .refresh() on its injected state (#31/#32)."""
+        from llauncher.mcp_server.tools.servers import get_server_logs
 
-            from llauncher.mcp_server.tools.servers import get_server_logs
+        mock_state = MagicMock()
+        result = await get_server_logs(mock_state, {"port": 8081})
 
-            result = await get_server_logs(mock_state, {"port": 8081})
+        # refresh is called before port validation
+        mock_state.refresh.assert_called_once()
 
-            # refresh is called before port validation
-            mock_state.refresh.assert_called_once()
+    @pytest.mark.asyncio
+    async def test_read_handler_no_circular_import(self):
+        """Read handlers can be imported without loading server.py (#31)."""
+        import llauncher.mcp_server.server as server_mod
+        # Reset to ensure _mcp_state isn't cached from prior tests
+        original = server_mod._mcp_state  # type: ignore[attr-defined]
+        server_mod._mcp_state = None  # type: ignore[attr-defined]
+
+        try:
+            # These imports must NOT trigger get_mcp_state() or LauncherState
+            from llauncher.mcp_server.tools.models import list_models, get_model_config  # noqa: F401
+            from llauncher.mcp_server.tools.servers import server_status, get_server_logs  # noqa: F401
+
+            # get_mcp_state should still be None (no lazy init triggered)
+            assert server_mod._mcp_state is None
+        finally:
+            server_mod._mcp_state = original  # type: ignore[attr-defined]
 
 
 class TestMutateHandlersNoExternalRefresh:
@@ -227,3 +235,43 @@ class TestGetModelConfigValidation:
 
             assert "error" in result
             assert "nonexistent" in result["error"]
+
+
+class TestValidateConfigBypassLazyInit:
+    """Tests for Bug #33: validate_config bypasses get_mcp_state() entirely."""
+
+    @pytest.mark.asyncio
+    async def test_validate_config_does_not_trigger_lazy_init(self):
+        """validate_config returns early without calling get_mcp_state() (#33)."""
+        import llauncher.mcp_server.server as server_mod
+
+        # Reset to ensure clean state
+        server_mod._mcp_state = None  # type: ignore[attr-defined]
+
+        from llauncher.mcp_server.server import _dispatch_tool
+
+        with patch("llauncher.mcp_server.server.config_tools.validate_config",
+                   return_value={"valid": True, "config": {}}) as mock_validate:
+            result = await _dispatch_tool("validate_config", {
+                "config": {"name": "test", "model_path": "/dev/null"}
+            })
+
+            assert result == {"valid": True, "config": {}}
+            # After calling validate_config, _mcp_state must still be None
+            # (get_mcp_state was never called, so lazy init never happened)
+            assert server_mod._mcp_state is None, \
+                "validate_config should NOT trigger lazy singleton initialization (#33)"
+
+    @pytest.mark.asyncio
+    async def test_validate_config_calls_handler_with_none_state(self):
+        """validate_config passes None as state to handler since it's stateless."""
+        from llauncher.mcp_server.server import _dispatch_tool
+
+        with patch("llauncher.mcp_server.server.config_tools.validate_config",
+                   return_value={"valid": True, "config": {}}) as mock_validate:
+            await _dispatch_tool("validate_config", {
+                "config": {"name": "test", "model_path": "/dev/null"}
+            })
+
+            # Handler receives None for state (it's truly stateless)
+            mock_validate.assert_called_once_with(None, ANY)
