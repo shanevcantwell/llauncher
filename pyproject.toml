@@ -1,6 +1,6 @@
 [project]
 name = "llauncher"
-version = "0.1.0"
+version = "0.2.0a0"
 description = "MCP-first launcher for managing llama.cpp llama-server instances"
 readme = "README.md"
 requires-python = ">=3.11"

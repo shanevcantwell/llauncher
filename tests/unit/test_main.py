@@ -55,7 +55,9 @@ class TestVersionFlag:
 
                     output = mock_stdout.getvalue()
                     assert "llauncher" in output.lower()
-                    assert "0.1.0" in output
+                    import re
+                    assert re.match(r"^\d+\.\d+\.\d+[a-zA-Z0-9]*$", output.strip().split()[-1]), \
+                        f"Version should follow semantic versioning, got: {output.strip()}"
 
 
 

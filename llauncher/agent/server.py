@@ -21,6 +21,7 @@ import sys
 import uvicorn
 from fastapi import FastAPI
 
+from llauncher import __version__
 from llauncher.agent.config import AgentConfig
 from llauncher.agent.routing import router, get_node_name
 
@@ -122,7 +123,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="llauncher Agent",
         description="Remote management agent for llauncher nodes",
-        version="0.1.0",
+        version=__version__,
         docs_url="/docs",
         redoc_url="/redoc",
     )

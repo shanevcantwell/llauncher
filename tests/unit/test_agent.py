@@ -93,8 +93,8 @@ class TestHealthEndpoint:
         data = response.json()
         assert isinstance(data["version"], str)
         # Should match semver-like pattern (e.g. 0.1.0, 0.1.1)
-        assert re.match(r"^\d+\.\d+\.\d+$", data["version"]), \
-            f"Version should follow semantic versioning, got: {data['version']}"
+        assert re.match(r"^\d+\.\d+\.\d+[a-zA-Z0-9]*$", data["version"]), \
+            f"Version should follow semantic versioning (with optional pre-release), got: {data['version']}"
 
 
 class TestNodeInfoEndpoint:

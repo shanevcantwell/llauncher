@@ -4,11 +4,13 @@ import argparse
 import sys
 from pathlib import Path
 
+from llauncher import __version__
+
 
 def main():
     """Main entry point for llauncher CLI."""
     parser = argparse.ArgumentParser(description="llauncher - llama.cpp server launcher")
-    parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument(
         "command",
         choices=["mcp", "ui"],
