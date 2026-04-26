@@ -6,8 +6,6 @@ from typing import Literal
 
 import httpx
 
-from llauncher.models.config import ModelConfig
-
 
 class NodeStatus(Enum):
     """Status of a remote node."""

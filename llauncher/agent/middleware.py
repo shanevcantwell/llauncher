@@ -51,8 +51,10 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
         api_key = request.headers.get("X-Api-Key")
 
-        if not api_key or api_key != self.expected_token:
-            status_code = 401 if not api_key else 403
+        if api_key is None or api_key != self.expected_token:
+            # 401 when header absent (authentication required)
+            # 403 when header present but wrong/empty (credentials provided, access denied)
+            status_code = 401 if api_key is None else 403
             return JSONResponse(
                 status_code=status_code,
                 content={"detail": "Authentication required"},

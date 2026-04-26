@@ -284,7 +284,9 @@ class GPUHealthCollector:
                 if match:
                     idx = int(re.search(r"GPU(\d+)", lines[i]).group(1))
                     used = int(match.group(1))
-                    result["devices"].append(GPUDevice(index=idx, name=f"ROCm GPU {idx}", used_vram_mb=used).to_dict())
+                    result["devices"].append(
+                        GPUDevice(index=idx, name=f"ROCm GPU {idx}", used_vram_mb=used)
+                    )
         except Exception:
             pass
 

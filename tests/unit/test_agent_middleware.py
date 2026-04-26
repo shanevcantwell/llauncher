@@ -73,3 +73,21 @@ def test_openapi_docs_excluded_from_auth():
     assert client.get("/health").status_code == 200
     assert client.get("/openapi.json").status_code in (200,)
     assert client.get("/redoc").status_code in (200,)
+
+
+def test_with_empty_api_key_returns_403():
+    """Empty string X-Api-Key is present but wrong — should return 403 (not 401)."""
+    app, client = _make_app(token="secret")
+    
+    # Empty key means header was sent but value is empty → credentials provided, access denied
+    response = client.get("/protected", headers={"X-Api-Key": ""})
+    assert response.status_code == 403
+
+
+def test_health_exempt_with_empty_key(self=None):
+    """/health remains accessible even when a wrong/empty key is sent (exempt path)."""
+    app, client = _make_app(token="secret")
+    
+    # Exempt paths bypass auth entirely — empty or wrong key doesn't matter
+    response = client.get("/health", headers={"X-Api-Key": ""})
+    assert response.status_code == 200
