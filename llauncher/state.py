@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from llauncher.core.config import ConfigStore
+from llauncher.core.model_health import check_model_health, ModelHealthResult
 from llauncher.core.process import (
     DEFAULT_SERVER_BINARY,
     find_all_llama_servers,
@@ -237,6 +238,14 @@ class LauncherState:
             self.record_action("start", model_name, caller, "validation_error", msg)
             return False, msg, None
 
+        # Pre-flight: check model file health (ADR-005)
+        health = check_model_health(config.model_path)
+        if not health.valid:
+            detail = f"Model file unhealthy: {health.reason}".rstrip(".")
+            self.record_action("start", model_name, caller, "validation_error",
+                               f"Health check failed: {detail}")
+            return False, f"Model path is invalid ({health.reason}): {config.model_path}", None
+
         # Start the process with resolved port
         try:
             process = process_start_server(config, resolved_port, server_bin=server_bin)
@@ -331,14 +340,15 @@ class LauncherState:
 
         config = self.models[model_name]
 
-        # 2. Check model path exists
-        model_path = Path(config.model_path)
-        if not model_path.exists():
-            self.record_action("start", model_name, caller, "error", f"Model path missing: {config.model_path}")
+        # 2. Pre-flight health check (ADR-005) — replaces bare Path.exists()
+        health = check_model_health(config.model_path)
+        if not health.valid:
+            self.record_action("start", model_name, caller, "validation_error",
+                               f"Health check failed: {health.reason}")
             return EvictionResult(
                 success=False,
                 port_state="unchanged",
-                error=f"Model path missing: {config.model_path}",
+                error=f"Model path unhealthy ({health.reason}): {config.model_path}",
             )
 
         # 3. Check new model not already running elsewhere on a different port

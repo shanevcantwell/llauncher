@@ -199,7 +199,7 @@ def main():
         )
 
     # Tab navigation
-    tab1, tab2 = st.tabs(["📊 Dashboard", "🖥️ Nodes"])
+    tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🖥️ Nodes", "🗂️ Model Registry"])
 
     with tab1:
         from llauncher.ui.tabs.dashboard import render_dashboard
@@ -210,6 +210,11 @@ def main():
         from llauncher.ui.tabs.nodes import render_nodes_tab
 
         render_nodes_tab(registry, aggregator)
+
+    with tab3:
+        from llauncher.ui.tabs.model_registry import render_model_registry
+
+        render_model_registry(state, registry, aggregator, st.session_state.get("selected_node"))
 
 
 if __name__ == "__main__":

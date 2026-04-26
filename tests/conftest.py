@@ -1,8 +1,29 @@
 import pytest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from llauncher.state import LauncherState
 from llauncher.models.config import ModelConfig
+
+
+@pytest.fixture(autouse=True)
+def _patch_model_health():
+    """Patch ``check_model_health`` to always return valid in tests.
+
+    Prevents small test temp-files from triggering the >1 MB health gate,
+    which would break existing state/eviction tests that were written before
+    ADR-005 was added.  Tests that specifically want real health checks can
+    override this by un-patching or using their own fixture.
+    """
+    mock_result = MagicMock()
+    mock_result.valid = True
+    mock_result.exists = True
+    mock_result.readable = True
+    mock_result.size_bytes = 1024 * 1024 + 1
+    mock_result.reason = None
+    mock_result.last_modified = None
+
+    with patch("llauncher.state.check_model_health", return_value=mock_result):
+        yield
 
 @pytest.fixture
 def tmp_config_dir(tmp_path):
