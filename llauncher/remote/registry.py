@@ -40,6 +40,7 @@ class NodeRegistry:
                     host=node_data["host"],
                     port=node_data.get("port", 8765),
                     timeout=node_data.get("timeout", 5.0),
+                    api_key=node_data.get("api_key"),
                 )
         except (json.JSONDecodeError, KeyError):
             # Corrupted file, start fresh
@@ -56,6 +57,7 @@ class NodeRegistry:
                 "host": node.host,
                 "port": node.port,
                 "timeout": node.timeout,
+                "api_key": node.api_key,
             }
 
         NODES_FILE.write_text(json.dumps(data, indent=2))
@@ -66,6 +68,7 @@ class NodeRegistry:
         host: str,
         port: int = 8765,
         timeout: float = 5.0,
+        api_key: str | None = None,
         overwrite: bool = False,
     ) -> tuple[bool, str]:
         """Add a node to the registry.
@@ -75,6 +78,7 @@ class NodeRegistry:
             host: Hostname or IP address.
             port: Agent port.
             timeout: Connection timeout in seconds.
+            api_key: Optional API key for authenticated requests to this node.
             overwrite: If True, overwrite existing node with same name.
 
         Returns:
@@ -88,6 +92,7 @@ class NodeRegistry:
             host=host,
             port=port,
             timeout=timeout,
+            api_key=api_key,
         )
         self._save()
         return True, f"Node '{name}' added successfully"

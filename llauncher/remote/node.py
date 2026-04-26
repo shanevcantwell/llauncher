@@ -68,11 +68,13 @@ class RemoteNode:
         host: str,
         port: int = 8765,
         timeout: float = 5.0,
+        api_key: str | None = None,
     ):
         self.name = name
         self.host = host
         self.port = port
         self.timeout = timeout
+        self.api_key: str | None = api_key if api_key else None
         self.status = NodeStatus.OFFLINE
         self.last_seen: datetime | None = None
         self._error_message: str | None = None
@@ -84,6 +86,17 @@ class RemoteNode:
 
     def __str__(self) -> str:
         return f"RemoteNode({self.name}@{self.host}:{self.port}, status={self.status.value})"
+
+    def _get_headers(self) -> dict[str, str]:
+        """Get request headers, including X-Api-Key if configured on the node.
+
+        Returns:
+            Dictionary of HTTP headers to include in requests.
+        """
+        headers: dict[str, str] = {}
+        if self.api_key:
+            headers["X-Api-Key"] = self.api_key
+        return headers
 
     def _get_client(self) -> httpx.Client:
         """Create an HTTP client configured for this node."""
@@ -97,7 +110,10 @@ class RemoteNode:
         """
         try:
             with self._get_client() as client:
-                response = client.get(f"{self.base_url}/health")
+                response = client.get(
+                    f"{self.base_url}/health",
+                    headers=self._get_headers(),
+                )
                 if response.status_code == 200:
                     self.status = NodeStatus.ONLINE
                     self.last_seen = datetime.now()
@@ -120,7 +136,10 @@ class RemoteNode:
         """
         try:
             with self._get_client() as client:
-                response = client.get(f"{self.base_url}/node-info")
+                response = client.get(
+                    f"{self.base_url}/node-info",
+                    headers=self._get_headers(),
+                )
                 if response.status_code == 200:
                     self.status = NodeStatus.ONLINE
                     self.last_seen = datetime.now()
@@ -138,7 +157,10 @@ class RemoteNode:
         """
         try:
             with self._get_client() as client:
-                response = client.get(f"{self.base_url}/status")
+                response = client.get(
+                    f"{self.base_url}/status",
+                    headers=self._get_headers(),
+                )
                 if response.status_code == 200:
                     self.status = NodeStatus.ONLINE
                     self.last_seen = datetime.now()
@@ -156,7 +178,10 @@ class RemoteNode:
         """
         try:
             with self._get_client() as client:
-                response = client.get(f"{self.base_url}/models")
+                response = client.get(
+                    f"{self.base_url}/models",
+                    headers=self._get_headers(),
+                )
                 if response.status_code == 200:
                     self.status = NodeStatus.ONLINE
                     self.last_seen = datetime.now()
@@ -177,7 +202,10 @@ class RemoteNode:
         """
         try:
             with self._get_client() as client:
-                response = client.post(f"{self.base_url}/start/{model_name}")
+                response = client.post(
+                    f"{self.base_url}/start/{model_name}",
+                    headers=self._get_headers(),
+                )
                 if response.status_code == 200:
                     self.status = NodeStatus.ONLINE
                     self.last_seen = datetime.now()
@@ -202,7 +230,10 @@ class RemoteNode:
         """
         try:
             with self._get_client() as client:
-                response = client.post(f"{self.base_url}/stop/{port}")
+                response = client.post(
+                    f"{self.base_url}/stop/{port}",
+                    headers=self._get_headers(),
+                )
                 if response.status_code == 200:
                     self.status = NodeStatus.ONLINE
                     self.last_seen = datetime.now()
@@ -226,7 +257,11 @@ class RemoteNode:
         """
         try:
             with self._get_client() as client:
-                response = client.get(f"{self.base_url}/logs/{port}", params={"lines": lines})
+                response = client.get(
+                    f"{self.base_url}/logs/{port}",
+                    params={"lines": lines},
+                    headers=self._get_headers(),
+                )
                 if response.status_code == 200:
                     self.status = NodeStatus.ONLINE
                     self.last_seen = datetime.now()
@@ -243,6 +278,8 @@ class RemoteNode:
             "name": self.name,
             "host": self.host,
             "port": self.port,
+            "timeout": self.timeout,
+            "api_key": self.api_key,
             "status": self.status.value,
             "last_seen": self.last_seen.isoformat() if self.last_seen else None,
             "error_message": self._error_message,

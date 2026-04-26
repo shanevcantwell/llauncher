@@ -23,7 +23,9 @@ from fastapi import FastAPI
 
 from llauncher import __version__
 from llauncher.agent.config import AgentConfig
+from llauncher.agent.middleware import AuthenticationMiddleware
 from llauncher.agent.routing import router, get_node_name
+from llauncher.core.settings import AGENT_API_KEY
 
 # Configure logging
 logging.basicConfig(
@@ -120,13 +122,23 @@ def stop_agent(port: int) -> bool:
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
+    auth_active = AGENT_API_KEY is not None
+
+    # Disable OpenAPI docs endpoints when authentication is configured
+    docs_url = None if auth_active else "/docs"
+    redoc_url = None if auth_active else "/redoc"
+
     app = FastAPI(
         title="llauncher Agent",
         description="Remote management agent for llauncher nodes",
         version=__version__,
-        docs_url="/docs",
-        redoc_url="/redoc",
+        docs_url=docs_url,
+        redoc_url=redoc_url,
     )
+
+    if auth_active:
+        # Add authentication middleware when API key is configured
+        app.add_middleware(AuthenticationMiddleware, expected_token=AGENT_API_KEY)
 
     # Include the router
     app.include_router(router, tags=["llauncher"])
@@ -146,10 +158,14 @@ def run_agent(config: AgentConfig) -> None:
     node_name = config.node_name or socket.gethostname()
     logger.info(f"Starting llauncher agent on {config.host}:{config.port}")
     logger.info(f"Node name: {node_name}")
-    logger.info(f"API docs: http://{config.host}:{config.port}/docs")
+
+    if AGENT_API_KEY:
+        logger.info("Authentication is active. Binding to %s", config.host)
+    else:
+        logger.info("API docs: http://%s:%s/docs", config.host, config.port)
 
     # Warning if binding to all interfaces without auth
-    if config.host == "0.0.0.0":
+    if AGENT_API_KEY is None and config.host == "0.0.0.0":
         logger.warning(
             "Agent is binding to 0.0.0.0 (all interfaces). "
             "Ensure this is a trusted network. "

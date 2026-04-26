@@ -4,8 +4,11 @@ This module provides centralized access to configuration that can be
 overridden via environment variables or the .env file.
 """
 
+import logging
 import os
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 # Path to llama-server binary
@@ -35,3 +38,8 @@ else:
 
 # Log level
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+
+# API key for agent authentication (env: LAUNCHER_AGENT_TOKEN)
+AGENT_API_KEY: str | None = os.getenv("LAUNCHER_AGENT_TOKEN")
+if AGENT_API_KEY == "":
+    AGENT_API_KEY = None
