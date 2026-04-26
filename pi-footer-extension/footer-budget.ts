@@ -52,7 +52,7 @@ function formatTokens(count: number): string {
 /**
  * Compute effective per-session context window from cached llauncher data.
  */
-function effectiveWindow(entry: CacheEntry): number {
+function _effectiveWindow(entry: CacheEntry): number {
   return entry.parallel > 0 ? Math.floor(entry.ctxSize / entry.parallel) : entry.ctxSize;
 }
 
@@ -186,10 +186,10 @@ export default function (pi: ExtensionAPI): void {
       invalidate() {},
 
       render(width: number): string[] {
-        // ── 1. Effective context window ────────────────────────────────────
+        // ── 1. Effective context window (real from llauncher, or Pi default) ─
         let effectiveWindow: number;
-        if (cachedEntry && effectiveWindow(cachedEntry) > 0) {
-          effectiveWindow = effectiveWindow(cachedEntry);
+        if (cachedEntry && _effectiveWindow(cachedEntry) > 0) {
+          effectiveWindow = _effectiveWindow(cachedEntry);
         } else {
           effectiveWindow = stateModel?.contextWindow ?? 128_000;
         }
