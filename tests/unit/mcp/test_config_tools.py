@@ -65,6 +65,38 @@ class TestUpdateModelConfig:
             mock_config_store.update_model.assert_called_once()
 
 
+class TestUpdateModelConfigValidation:
+    """Tests for update_model_config edge cases and validation errors (#34-G)."""
+
+    @pytest.mark.asyncio
+    async def test_update_model_config_pydantic_validation_error(self):
+        """update_model_config returns error when updated config fails Pydantic validation.
+
+        This closes the uncovered exception path in update_model_config (lines 129-147 of config.py).
+        We mock model_validate to raise so we exercise the try/except block around it.
+        """
+        from llauncher.models.config import ModelConfig
+
+        mock_state = MagicMock()
+        existing = ModelConfig.from_dict_unvalidated({
+            "name": "test-model",
+            "model_path": "/dev/null/test.gguf",
+            "default_port": 8081,
+            "ctx_size": 4096,
+            "n_gpu_layers": 255
+        })
+        mock_state.models = {"test-model": existing}
+
+        with patch.object(ModelConfig, "model_validate", side_effect=ValueError("Field 'threads' must be > 0")):
+            result = await update_model_config(mock_state, {
+                "name": "test-model",
+                "config": {"ctx_size": -1}
+            })
+
+        assert result["success"] is False
+        assert "Validation error" in result.get("error", "")
+
+
 class TestValidateConfig:
     """Tests for validate_config tool."""
 

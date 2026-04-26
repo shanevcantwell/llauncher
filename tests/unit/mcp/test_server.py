@@ -158,12 +158,13 @@ class TestDispatchTool:
 
     @pytest.mark.asyncio
     async def test_dispatch_tool_validate_config(self):
-        """Dispatch to validate_config tool."""
+        """Dispatch to validate_config — should bypass get_mcp_state entirely via early return (#34-G)."""
         with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
-            mock_get.return_value = MagicMock()
             with patch("llauncher.mcp_server.server.config_tools.validate_config", return_value="validate_config_result"):
                 result = await _dispatch_tool("validate_config", {})
                 assert result == "validate_config_result"
+                # KEY ASSERTION: get_mcp_state was NOT called — validate_config bypasses lazy init (#33/#34-G)
+                mock_get.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_dispatch_tool_remove_model(self):

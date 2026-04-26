@@ -25,13 +25,17 @@ def get_mcp_state() -> LauncherState:
 
     The same instance is cached and reused for all subsequent calls.
 
-    If __init__/refresh fails during first-access, _mcp_state stays None.
-    Subsequent calls retry initialization to recover from transient errors
-    (corrupt config, permissions) rather than caching a failure indefinitely.
+    On failure during first-access, _mcp_state is reset to None to allow retry
+    on the next call. Without this protection, a partially constructed LauncherState
+    would be cached forever since __post_init__ runs during construction.
     """
     global _mcp_state
     if _mcp_state is None:
-        _mcp_state = LauncherState()  # __post_init__ already calls refresh()
+        try:
+            _mcp_state = LauncherState()  # __post_init__ already calls refresh()
+        except Exception:
+            _mcp_state = None  # Clear partial state so next call retries (Fix #34-F)
+            raise
     return _mcp_state
 
 

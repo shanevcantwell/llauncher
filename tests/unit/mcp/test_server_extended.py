@@ -77,10 +77,15 @@ class TestDispatchToolAllTools:
 
     @pytest.mark.asyncio
     async def test_dispatch_tool_all_tools(self):
-        """Test dispatching to all available tools."""
+        """Test dispatching to all available tools.
+
+        Note: validate_config bypasses get_mcp_state (early return, Fix #33/#34-G)
+        so it's tested separately in test_dispatch_tool_validate_config_bypasses_get_mcp_state.
+        """
         from llauncher.mcp_server.server import _dispatch_tool
 
-        tool_tests = [
+        # Tools that go through get_mcp_state (all except validate_config)
+        standard_tools = [
             ("list_models", "llauncher.mcp_server.server.models_tools.list_models"),
             ("get_model_config", "llauncher.mcp_server.server.models_tools.get_model_config"),
             ("start_server", "llauncher.mcp_server.server.servers_tools.start_server"),
@@ -89,12 +94,11 @@ class TestDispatchToolAllTools:
             ("server_status", "llauncher.mcp_server.server.servers_tools.server_status"),
             ("get_server_logs", "llauncher.mcp_server.server.servers_tools.get_server_logs"),
             ("update_model_config", "llauncher.mcp_server.server.config_tools.update_model_config"),
-            ("validate_config", "llauncher.mcp_server.server.config_tools.validate_config"),
             ("add_model", "llauncher.mcp_server.server.config_tools.add_model"),
             ("remove_model", "llauncher.mcp_server.server.config_tools.remove_model"),
         ]
 
-        for tool_name, module_path in tool_tests:
+        for tool_name, module_path in standard_tools:
             with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
                 mock_get.return_value = MagicMock()
                 expected_result = f"{tool_name}_result"
@@ -102,6 +106,22 @@ class TestDispatchToolAllTools:
                     result = await _dispatch_tool(tool_name, {"test_arg": "test_value"})
                     assert result == expected_result
                     mock_func.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_dispatch_tool_validate_config_bypasses_get_mcp_state(self):
+        """validate_config returns early without calling get_mcp_state (Fix #33/#34-G)."""
+        from llauncher.mcp_server.server import _dispatch_tool
+
+        with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
+            expected_result = "validate_config_result"
+            with patch(
+                "llauncher.mcp_server.server.config_tools.validate_config",
+                return_value=expected_result,
+            ) as mock_func:
+                result = await _dispatch_tool("validate_config", {"test_arg": "value"})
+                assert result == expected_result
+                # get_mcp_state was NOT called — validate_config bypasses lazy init via early return
+                mock_get.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_dispatch_tool_unknown_tool(self):
