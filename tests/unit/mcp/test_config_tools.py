@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 
-from llauncher.mcp.tools.config import (
+from llauncher.mcp_server.tools.config import (
     update_model_config,
     validate_config,
     add_model,
@@ -83,7 +83,7 @@ class TestValidateConfig:
         mock_state = MagicMock()
         valid_config = {"name": "new-model", "model_path": "/path/to/model.gguf"}
 
-        with patch("llauncher.mcp.tools.config.ModelConfig") as mock_model_config:
+        with patch("llauncher.mcp_server.tools.config.ModelConfig") as mock_model_config:
             mock_model_config.model_validate.return_value = ModelConfig.from_dict_unvalidated(valid_config)
 
             result = await validate_config(mock_state, {"config": valid_config})
@@ -96,7 +96,7 @@ class TestValidateConfig:
         mock_state = MagicMock()
         invalid_config = {"name": "test"}  # Missing model_path
 
-        with patch("llauncher.mcp.tools.config.ModelConfig") as mock_model_config:
+        with patch("llauncher.mcp_server.tools.config.ModelConfig") as mock_model_config:
             mock_model_config.model_validate.side_effect = ValueError("model_path required")
 
             result = await validate_config(mock_state, {"config": invalid_config})
@@ -121,7 +121,7 @@ class TestAddModel:
     async def test_add_model_validation_error(self):
         """Returns error for invalid config."""
         mock_state = MagicMock()
-        with patch("llauncher.mcp.tools.config.ModelConfig") as mock_model_config:
+        with patch("llauncher.mcp_server.tools.config.ModelConfig") as mock_model_config:
             mock_model_config.model_validate.side_effect = ValueError("Invalid config")
 
             result = await add_model(mock_state, {"config": {"name": "test"}})
@@ -132,7 +132,7 @@ class TestAddModel:
     @pytest.mark.asyncio
     async def test_add_model_exists(self, mock_state):
         """Returns error for duplicate model name."""
-        with patch("llauncher.mcp.tools.config.ModelConfig") as mock_model_config:
+        with patch("llauncher.mcp_server.tools.config.ModelConfig") as mock_model_config:
             mock_model_config.model_validate.return_value = mock_state.models["existing-model"]
 
             result = await add_model(mock_state, {"config": {"name": "existing-model"}})
@@ -149,7 +149,7 @@ class TestAddModel:
         })
 
         with patch("llauncher.core.config.ConfigStore") as mock_config_store:
-            with patch("llauncher.mcp.tools.config.ModelConfig") as mock_model_config:
+            with patch("llauncher.mcp_server.tools.config.ModelConfig") as mock_model_config:
                 mock_model_config.model_validate.return_value = new_config
 
                 result = await add_model(mock_state, {"config": {"name": "new-model", "model_path": "/path/to/new.gguf"}})
