@@ -59,16 +59,41 @@ function effectiveWindow(entry: CacheEntry): number {
 // ── Llauncher Discovery & Status Fetch ───────────────────────────────────────
 
 /**
- * Discover llauncher hosts: primary via $LLAUNCHER_HOST env var,
- * fallback to ~/.llauncher/nodes.json for multi-node setups.
+ * Parse an llauncher address that may be either:
+ *   - "inference-host" (bare hostname)       → http://inference-host:8765
+ *   - "inference-host:8765" (host+port)     → http://inference-host:8765
+ *   - "http://inference-host:8765" (full URL)→ extract host/port from URL
+ * Returns { host, port } or null if unparseable.
  */
-function discoverLluncherHosts(): string[] {
-  const results: string[] = [];
+function parseLlancherAddress(raw: string): { host: string; port: number } | null {
+  // Try as a full URL first.
+  try {
+    const url = new URL(raw);
+    return { host: url.hostname, port: Number(url.port) || DEFAULT_LLAUNCHER_PORT };
+  } catch {
+    /* not a URL — try bare host or host:port */
+  }
 
-  // Primary: environment variable (set in docker-compose.yml)
-  const hostFromEnv = process.env.LLAUNCHER_HOST?.trim();
-  if (hostFromEnv) {
-    results.push(hostFromEnv);
+  if (raw.includes(":")) {
+    const idx = raw.lastIndexOf(":");
+    return { host: raw.slice(0, idx), port: Number(raw.slice(idx + 1)) || DEFAULT_LLAUNCHER_PORT };
+  }
+  return { host: raw.trim(), port: DEFAULT_LLAUNCHER_PORT };
+}
+
+/**
+ * Discover llauncher hosts. Returns [{ host, port }] array.
+ * Priority: $LLAUNCHER_HOST env var → ~/.llauncher/nodes.json.
+ */
+function discoverLluncherHosts(): Array<{ host: string; port: number }> {
+  const results: Array<{ host: string; port: number }> = [];
+
+  // Primary: environment variable (set in docker-compose.yml).
+  // Accepts bare hostname, "host:port", or full URL like "http://inference-host:8765".
+  const rawHost = process.env.LLAUNCHER_HOST?.trim();
+  if (rawHost) {
+    const parsed = parseLlancherAddress(rawHost);
+    if (parsed) results.push(parsed);
   }
 
   // Fallback: ~/.llauncher/nodes.json for multi-node setups.
@@ -81,7 +106,7 @@ function discoverLluncherHosts(): string[] {
           typeof v === "object" && v !== null &&
           typeof (v as any).host === "string"
         ) {
-          results.push((v as any).host);
+          results.push({ host: (v as any).host, port: DEFAULT_LLAUNCHER_PORT });
         }
       }
     }
@@ -93,8 +118,8 @@ function discoverLluncherHosts(): string[] {
 /**
  * Fetch status from a single llauncher node. Returns undefined on failure.
  */
-async function fetchNodeStatus(nodeHost: string): Promise<CacheEntry | undefined> {
-  const url = `http://${nodeHost}:${DEFAULT_LLAUNCHER_PORT}/status`;
+async function fetchNodeStatus(nodeHost: string, port: number): Promise<CacheEntry | undefined> {
+  const url = `http://${nodeHost}:${port}/status`;
   const controller = new AbortController();
   setTimeout(() => controller.abort(), 3_000);
 
@@ -128,10 +153,10 @@ async function fetchNodeStatus(nodeHost: string): Promise<CacheEntry | undefined
 let cachedEntry: CacheEntry | null = null;
 
 async function populateCache(): Promise<void> {
-  const hosts = discoverLluncherHosts();
+  const nodes = discoverLluncherHosts();
 
-  for (const host of hosts) {
-    const entry = await fetchNodeStatus(host);
+  for (const node of nodes) {
+    const entry = await fetchNodeStatus(node.host, node.port);
     if (entry && entry.ctxSize > 0) {
       cachedEntry = entry;
       return;
