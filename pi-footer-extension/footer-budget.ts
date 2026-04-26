@@ -24,7 +24,7 @@ const { homedir } = _os;
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const LLAUNCHER_AGENT_PORT = 8765;
+const DEFAULT_LLAUNCHER_PORT = 8765;
 const NODES_FILE = join(homedir(), ".llauncher", "nodes.json");
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -59,27 +59,42 @@ function effectiveWindow(entry: CacheEntry): number {
 // ── Llauncher Discovery & Status Fetch ───────────────────────────────────────
 
 /**
- * Read node config from ~/.llauncher/nodes.json. Returns [] if file doesn't exist or is invalid.
+ * Discover llauncher hosts: primary via $LLAUNCHER_HOST env var,
+ * fallback to ~/.llauncher/nodes.json for multi-node setups.
  */
-function readNodesConfig(): Array<{ host: string; port: number }> {
+function discoverLluncherHosts(): string[] {
+  const results: string[] = [];
+
+  // Primary: environment variable (set in docker-compose.yml)
+  const hostFromEnv = process.env.LLAUNCHER_HOST?.trim();
+  if (hostFromEnv) {
+    results.push(hostFromEnv);
+  }
+
+  // Fallback: ~/.llauncher/nodes.json for multi-node setups.
   try {
-    const raw = readFileSync(NODES_FILE, "utf-8");
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    return Object.values(parsed).filter(
-      (v): v is Record<string, unknown> =>
-        typeof v === "object" && v !== null && typeof v.host === "string",
-    ).map((v) => ({
-      host: v.host as string,
-      port: 8765, // llauncher agent port is well-known
-    }));
-  } catch { return []; }
+    if (results.length === 0 && _fs.existsSync(NODES_FILE)) {
+      const raw = _fs.readFileSync(NODES_FILE, "utf-8");
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      for (const v of Object.values(parsed)) {
+        if (
+          typeof v === "object" && v !== null &&
+          typeof (v as any).host === "string"
+        ) {
+          results.push((v as any).host);
+        }
+      }
+    }
+  } catch { /* ignore read errors */ }
+
+  return results;
 }
 
 /**
  * Fetch status from a single llauncher node. Returns undefined on failure.
  */
 async function fetchNodeStatus(nodeHost: string): Promise<CacheEntry | undefined> {
-  const url = `http://${nodeHost}:${LLAUNCHER_AGENT_PORT}/status`;
+  const url = `http://${nodeHost}:${DEFAULT_LLAUNCHER_PORT}/status`;
   const controller = new AbortController();
   setTimeout(() => controller.abort(), 3_000);
 
@@ -112,19 +127,18 @@ async function fetchNodeStatus(nodeHost: string): Promise<CacheEntry | undefined
 
 let cachedEntry: CacheEntry | null = null;
 
-async function populateCache(nodes?: Array<{ host: string; port: number }>): Promise<void> {
-  // Try ~/.llauncher/nodes.json first (multiple nodes).
-  const nodeList = nodes ?? readNodesConfig();
+async function populateCache(): Promise<void> {
+  const hosts = discoverLluncherHosts();
 
-  for (const node of nodeList) {
-    const entry = await fetchNodeStatus(node.host);
+  for (const host of hosts) {
+    const entry = await fetchNodeStatus(host);
     if (entry && entry.ctxSize > 0) {
       cachedEntry = entry;
       return;
     }
   }
 
-  // Nothing resolved from nodes — cache remains null. Fallback path in render() handles it.
+  // Nothing resolved — cache remains null. Fallback path in render() handles it.
 }
 
 // ── Extension ────────────────────────────────────────────────────────────────
@@ -170,12 +184,68 @@ export default function (pi: ExtensionAPI): void {
           }
         }
 
-        // ── 3. Current tokens from Pi's post-compaction-aware counter ──────
+        // ── 3. Current tokens — primary: Pi's getContextUsage().tokens (post-compact aware)
         let currentTokens: number | null = null;
+
         if (agentSession?.getContextUsage) {
           const gu = agentSession.getContextUsage();
-          if (gu && gu.tokens !== undefined) {
-            currentTokens = gu.tokens; // null means post-compaction, pre-response
+          if (gu && typeof gu.tokens === "number") {
+            currentTokens = gu.tokens;
+          }
+        }
+
+        // Fallback: when Pi's counter is null (post-compaction boundary), estimate from
+        // the session branch. Uses last assistant with real token data + char/4 heuristic.
+        if (!currentTokens && currentTokens !== 0) {
+          const branch = sessionManager?.getBranch();
+          let totalFromLastAssistant: number | null = null;
+          let lastAssistIdx: number = -1;
+
+          // Walk backwards to find the most recent assistant with real usage data.
+          for (let i = branch!.length - 1; i >= 0; i--) {
+            const e = branch![i];
+            if (e.type === "message" && e.message.role === "assistant") {
+              const u = e.message.usage || {};
+              totalFromLastAssistant =
+                u.totalTokens ?? (u.input ?? 0) + (u.output ?? 0);
+              lastAssistIdx = i;
+              break;
+            }
+          }
+
+          if (totalFromLastAssistant !== null && totalFromLastAssistant > 0) {
+            // Real baseline from last API call — add char/4 for trailing user/tool messages.
+            let trailingCharTokens = 0;
+            for (let j = lastAssistIdx + 1; j < branch!.length; j++) {
+              const e = branch![j];
+              if (e.type === "message" &&
+                  (e.message.role === "user" || e.message.role === "toolResult")) {
+                const contentArr = Array.isArray(e.message.content)
+                  ? e.message.content
+                  : [{ type: "text", text: String(e.message.content ?? "") }];
+                let chars = 0;
+                for (const c of contentArr) {
+                  if (c.type === "text" && c.text) chars += c.text.length;
+                }
+                trailingCharTokens += Math.ceil(chars / 4);
+              }
+            }
+            currentTokens = totalFromLastAssistant + trailingCharTokens;
+          } else {
+            // No assistant with usage — rough estimate via char/4 of all text.
+            let totalChars = 0;
+            for (const e of branch!) {
+              if (e.type === "message" &&
+                  (e.message.role === "user" || e.message.role === "assistant")) {
+                const contentArr = Array.isArray(e.message.content)
+                  ? e.message.content
+                  : [{ type: "text", text: String(e.message.content ?? "") }];
+                for (const c of contentArr) {
+                  if (c.type === "text" && c.text) totalChars += c.text.length;
+                }
+              }
+            }
+            currentTokens = Math.ceil(totalChars / 4);
           }
         }
 
