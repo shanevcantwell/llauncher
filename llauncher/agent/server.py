@@ -132,6 +132,7 @@ def create_app() -> FastAPI:
         title="llauncher Agent",
         description="Remote management agent for llauncher nodes",
         version=__version__,
+        openapi_url=None if auth_active else "/openapi.json",
         docs_url=docs_url,
         redoc_url=redoc_url,
     )
@@ -162,15 +163,23 @@ def run_agent(config: AgentConfig) -> None:
     if AGENT_API_KEY:
         logger.info("Authentication is active. Binding to %s", config.host)
     else:
+        logger.warning("API key (LAUNCHER_AGENT_API_KEY) not set — no authentication enabled.")
         logger.info("API docs: http://%s:%s/docs", config.host, config.port)
 
     # Warning if binding to all interfaces without auth
-    if AGENT_API_KEY is None and config.host == "0.0.0.0":
-        logger.warning(
-            "Agent is binding to 0.0.0.0 (all interfaces). "
-            "Ensure this is a trusted network. "
-            "Use LAUNCHER_AGENT_HOST to bind to a specific interface."
-        )
+    if AGENT_API_KEY is None:
+        if config.host == "0.0.0.0":
+            logger.warning(
+                "Agent is binding to 0.0.0.0 (all interfaces). "
+                "Ensure this is a trusted network. "
+                "Use LAUNCHER_AGENT_HOST to bind to a specific interface."
+            )
+        elif config.host.startswith("192.168.") or config.host.startswith("10."):
+            logger.info(
+                "Agent binding to local address %s without authentication — "
+                "ensure this network segment is trusted.",
+                config.host,
+            )
 
     # Run the server
     uvicorn.run(

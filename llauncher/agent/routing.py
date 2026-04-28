@@ -179,8 +179,10 @@ async def get_status() -> dict:
         gpu_health = collector.get_health()
         if gpu_health.get("backends"):
             response["gpu"] = gpu_health
-    except Exception:
-        pass  # Graceful degradation — don't break /status for GPU issues.
+        else:
+            response["gpu"] = {"degraded": False, "error": None}
+    except Exception as e:
+        response["gpu"] = {"degraded": True, "error": type(e).__name__}
 
     return response
 

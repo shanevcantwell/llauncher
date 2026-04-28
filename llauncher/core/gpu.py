@@ -12,6 +12,7 @@ exceptions).
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import subprocess
@@ -130,15 +131,24 @@ class GPUHealthCollector:
         """Attempt to query via nvidia-smi."""
         if shutil_which("nvidia-smi") is None:
             return False
+        sim_val = os.environ.get("LLAUNCHER_GPU_SIMULATE", "")
+        simulated = sim_val in ("1", "true", "yes", "on")
         try:
-            data = self._query_NVIDIA(simulated_output=not os.environ.get("LLAUNCHER_GPU_SIMULATE", "") == "")
+            data = self._query_NVIDIA(simulated_output=simulated)
             result.devices.extend(data["devices"])
             if "driver_version" in data and data["driver_version"]:
                 # Attach driver version to first device for convenience.
                 if result.devices:
                     result.devices[0].driver_version = data["driver_version"]
             return True
-        except Exception:
+        except (PermissionError, FileNotFoundError) as e:
+            logging.debug("NVIDIA backend unavailable: %s", e)
+            return False
+        except subprocess.TimeoutExpired as e:
+            logging.debug("NVIDIA query timed out: %s", e)
+            return False
+        except json.JSONDecodeError as e:
+            logging.debug("NVIDIA response parse error: %s", e)
             return False
 
     def _try_ROCM(self, result: GPUHealthResult) -> bool:
@@ -149,7 +159,14 @@ class GPUHealthCollector:
             data = self._query_ROCM()
             result.devices.extend(data["devices"])
             return True
-        except Exception:
+        except (PermissionError, FileNotFoundError) as e:
+            logging.debug("ROCm backend unavailable: %s", e)
+            return False
+        except subprocess.TimeoutExpired as e:
+            logging.debug("ROCm query timed out: %s", e)
+            return False
+        except json.JSONDecodeError as e:
+            logging.debug("ROCm response parse error: %s", e)
             return False
 
     def _try_MPS(self, result: GPUHealthResult) -> bool:
@@ -160,7 +177,14 @@ class GPUHealthCollector:
             data = self._query_MPS()
             result.devices.extend(data["devices"])
             return True
-        except Exception:
+        except (PermissionError, FileNotFoundError) as e:
+            logging.debug("MPS backend unavailable: %s", e)
+            return False
+        except subprocess.TimeoutExpired as e:
+            logging.debug("MPS query timed out: %s", e)
+            return False
+        except json.JSONDecodeError as e:
+            logging.debug("MPS response parse error: %s", e)
             return False
 
     # ── NVIDIA SMI queries ────────────────────────────────────────
@@ -205,8 +229,10 @@ class GPUHealthCollector:
                 if out2.returncode == 0:
                     lines = [l.strip() for l in out2.stdout.splitlines()]
                     driver_version = lines[0] if lines else None
-            except Exception:
-                pass
+            except (PermissionError, FileNotFoundError) as e:
+                logging.debug("NVIDIA driver_version query failed: %s", e)
+            except subprocess.TimeoutExpired as e:
+                logging.debug("NVIDIA driver_version query timed out: %s", e)
 
         data["driver_version"] = driver_version or (parsed.get("driver_version") if isinstance(parsed, dict) else None)
         devices_data = parsed.get("data", []) if isinstance(parsed, dict) else parsed
@@ -259,6 +285,7 @@ class GPUHealthCollector:
     def _query_ROCM(self) -> dict[str, Any]:
         """Parse ``rocm-smi --showmeminfo=volatile`` output."""
         result: dict[str, Any] = {"devices": []}
+        out = None
         try:
             out = subprocess.run(
                 ["rocm-smi", "--showmeminfo=volatile"],
@@ -272,23 +299,32 @@ class GPUHealthCollector:
             #   -------------------------------------
             #   GPU memory usage (Volatile) - unit (MiB)
             #   value   :    342
-        except Exception:
-            pass
+        except (PermissionError, FileNotFoundError) as e:
+            logging.debug("ROCm backend unavailable: %s", e)
+            return result
+        except subprocess.TimeoutExpired as e:
+            logging.debug("ROCm query timed out: %s", e)
+            return result
 
         # If rocm-smi is available but we cannot parse it gracefully, return empty.
         # ROCm format varies widely; a simple heuristic attempt:
-        try:
-            lines = out.stdout.splitlines() if out.returncode == 0 else []
-            for i, line in enumerate(lines):
-                match = re.match(r"^\s*GPU[0-9]+\s+.*VRAM\s+Used:\s+(\d+)\s+MiB", line, re.IGNORECASE)
-                if match:
-                    idx = int(re.search(r"GPU(\d+)", lines[i]).group(1))
-                    used = int(match.group(1))
-                    result["devices"].append(
-                        GPUDevice(index=idx, name=f"ROCm GPU {idx}", used_vram_mb=used)
-                    )
-        except Exception:
-            pass
+        if out is not None and out.returncode == 0:
+            try:
+                lines = out.stdout.splitlines()
+                for i, line in enumerate(lines):
+                    match = re.match(r"^\s*GPU[0-9]+\s+.*VRAM\s+Used:\s+(\d+)\s+MiB", line, re.IGNORECASE)
+                    if match:
+                        idx_match = re.search(r"GPU(\d+)", lines[i])
+                        if idx_match:
+                            idx = int(idx_match.group(1))
+                            used = int(match.group(1))
+                            result["devices"].append(
+                                GPUDevice(index=idx, name=f"ROCm GPU {idx}", used_vram_mb=used)
+                            )
+            except (PermissionError, FileNotFoundError) as e:
+                logging.debug("ROCm parse failed: %s", e)
+            except subprocess.TimeoutExpired as e:
+                logging.debug("ROCm parse timed out: %s", e)
 
         return result
 
@@ -305,15 +341,26 @@ class GPUHealthCollector:
             if out.returncode != 0:
                 return result
 
+            gpu_index = 0
             for line in out.stdout.splitlines():
                 match = re.search(r"(\w[\w\s.]+)\s*\n.*?Chipset Model", line)
+                if match:
+                    name = match.group(1).strip()
+                    result["devices"].append(
+                        GPUDevice(index=gpu_index, name=name, total_vram_mb=_estimate_apple_unified_mem())
+                    )
+                    gpu_index += 1
+            # Fallback: if no GPUs matched via per-line pattern, try block-level match.
+            if not result["devices"]:
                 name_match = re.match(r".*\n(.+)\s+Chipset Model", out.stdout, re.MULTILINE)
-                # Rough attempt — collect GPU names; MPS VRAM info is limited via CLI.
-            result["devices"].append(
-                GPUDevice(index=0, name="Apple Silicon (MPS)", total_vram_mb=_estimate_apple_unified_mem())
-            )
-        except Exception:
-            pass
+                if name_match:
+                    result["devices"].append(
+                        GPUDevice(index=0, name=name_match.group(1).strip(), total_vram_mb=_estimate_apple_unified_mem())
+                    )
+        except (PermissionError, FileNotFoundError) as e:
+            logging.debug("MPS backend unavailable: %s", e)
+        except subprocess.TimeoutExpired as e:
+            logging.debug("MPS query timed out: %s", e)
 
         return result
 
@@ -356,7 +403,11 @@ def is_apple_mps_available() -> bool:
             capture_output=True, text=True, timeout=5,
         )
         return out.returncode == 0 and ("Apple" in out.stdout and any(c in out.stdout for c in ("M1", "M2", "M3", "M4")))
-    except Exception:
+    except (PermissionError, FileNotFoundError) as e:
+        logging.debug("Apple MPS check failed: %s", e)
+        return False
+    except subprocess.TimeoutExpired as e:
+        logging.debug("Apple MPS check timed out: %s", e)
         return False
 
 
@@ -369,8 +420,10 @@ def _estimate_apple_unified_mem() -> int:
         )
         if out.returncode == 0 and out.stdout.strip().isdigit():
             return int(out.stdout.strip()) // (1024 * 1024)
-    except Exception:
-        pass
+    except (PermissionError, FileNotFoundError) as e:
+        logging.debug("Apple memsize check failed: %s", e)
+    except subprocess.TimeoutExpired as e:
+        logging.debug("Apple memsize check timed out: %s", e)
     # Fallback heuristic.
     return 8192
 

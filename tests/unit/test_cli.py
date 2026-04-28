@@ -245,7 +245,7 @@ def test_node_add_with_api_key_persists(node_config_file):
     data = _json.loads(node_config_file.read_text())
     node_data = data.get("secure-node")
     assert node_data is not None
-    assert node_data["api_key"] == "secret-token-xyz"
+    assert node_data.get("has_api_key") is True
 
 
 def test_node_add_duplicate_fails(tmp_path):

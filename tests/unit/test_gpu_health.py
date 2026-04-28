@@ -10,6 +10,8 @@ Covers:
 
 from __future__ import annotations
 
+import shutil
+
 
 class TestNoBackendReturnsEmpty:
     """When no GPU tools are available, the collector returns clean empties."""
@@ -29,14 +31,16 @@ class TestNoBackendReturnsEmpty:
 
         from unittest.mock import patch
         with patch("subprocess.run", mock_run):
-            from llauncher.core.gpu import GPUHealthCollector
+            # Also mock is_apple_mps_available to return False (no Apple hardware)
+            with patch("llauncher.core.gpu.is_apple_mps_available", return_value=False):
+                from llauncher.core.gpu import GPUHealthCollector
 
-            collector = GPUHealthCollector()
-            result = collector.get_health()
+                collector = GPUHealthCollector()
+                result = collector.get_health()
 
-            assert isinstance(result, dict), f"Expected dict; got {type(result)}"
-            assert "backends" in result
-            assert result["backends"] == []
+                assert isinstance(result, dict), f"Expected dict; got {type(result)}"
+                assert "backends" in result
+                assert result["backends"] == []
 
 
 class TestSimulatedNVIDIAOutput:

@@ -62,7 +62,7 @@ def build_command(
     config: ModelConfig,
     port: int,
     host: str = "0.0.0.0",
-    server_bin: Path = DEFAULT_SERVER_BINARY
+    server_bin: Path | None = None
 ) -> list[str]:
     """Build the command line for starting a llama-server.
 
@@ -75,6 +75,8 @@ def build_command(
     Returns:
         List of command line arguments.
     """
+    if server_bin is None:
+        server_bin = DEFAULT_SERVER_BINARY
     cmd = [str(server_bin)]
 
     # Model path
@@ -158,7 +160,7 @@ def start_server(
     config: ModelConfig,
     port: int,
     host: str = "0.0.0.0",
-    server_bin: Path = DEFAULT_SERVER_BINARY,
+    server_bin: Path | None = None,
 ) -> subprocess.Popen:
     """Start a llama-server process.
 
@@ -175,6 +177,8 @@ def start_server(
         FileNotFoundError: If server binary doesn't exist.
         subprocess.SubprocessError: If process fails to start.
     """
+    if server_bin is None:
+        server_bin = DEFAULT_SERVER_BINARY
     if not server_bin.exists():
         raise FileNotFoundError(f"Server binary not found: {server_bin}")
 

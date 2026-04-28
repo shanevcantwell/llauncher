@@ -13,7 +13,7 @@ import asyncio
 from pathlib import Path
 
 from llauncher.state import LauncherState
-from llauncher.mcp.tools.servers import swap_server, stop_server
+from llauncher.mcp_server.tools.servers import swap_server, stop_server
 
 
 @pytest.mark.integration

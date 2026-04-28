@@ -8,7 +8,8 @@ the shared ``_TTLCache`` utility (60 s default).
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
 
 from pydantic import BaseModel, Field
 
@@ -77,8 +78,6 @@ def check_model_health(model_path: str) -> ModelHealthResult:
     result = ModelHealthResult()
 
     try:
-        from pathlib import Path
-
         path = Path(model_path).resolve()
         result.exists = path.is_file()
         if not result.exists:
@@ -90,7 +89,7 @@ def check_model_health(model_path: str) -> ModelHealthResult:
         try:
             stat = path.stat()
             result.size_bytes = stat.st_size
-            result.last_modified = datetime.fromtimestamp(stat.st_mtime)
+            result.last_modified = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
         except OSError:
             pass  # May fail on edge cases; continue to readability check
 
@@ -131,6 +130,6 @@ def invalidate_health_cache(model_path: str | None = None) -> None:
                     all cached entries are purged (used on config changes).
     """
     if model_path is not None:
-        _health_cache._store.pop(model_path, None)  # type: ignore[attr-defined]
+        _health_cache.invalidate(model_path)
     else:
         _health_cache.invalidate_all()

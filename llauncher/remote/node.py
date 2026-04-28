@@ -277,7 +277,7 @@ class RemoteNode:
             "host": self.host,
             "port": self.port,
             "timeout": self.timeout,
-            "api_key": self.api_key,
+            "has_api_key": self.api_key is not None,
             "status": self.status.value,
             "last_seen": self.last_seen.isoformat() if self.last_seen else None,
             "error_message": self._error_message,

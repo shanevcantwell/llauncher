@@ -4,11 +4,12 @@ Used by ``core/model_health`` and ``core/gpu`` to avoid repeated expensive
 checks within short intervals.
 """
 
+import threading
 import time
 
 
 class _TTLCache:
-    """Simple in-memory TTL-aware dictionary cache.
+    """Simple in-memory TTL-aware dictionary cache (thread-safe).
 
     Parameters support a single default TTL (``ttl_seconds``), which is
     applied to every ``set()`` call unless a *per-key* override is desired
@@ -24,6 +25,7 @@ class _TTLCache:
 
     def __init__(self, ttl_seconds: int = 5):
         self._ttl = ttl_seconds
+        self._lock = threading.Lock()
         self._store: dict[str | object, tuple[object, float]] = {}  # key -> (value, expiry_time)
 
     # ------------------------------------------------------------------
@@ -35,20 +37,28 @@ class _TTLCache:
 
         Expired entries are lazily removed on access.
         """
-        entry = self._store.get(key)
-        if entry is None:
-            return None
-        value, expiry = entry
-        if time.monotonic() > expiry:
-            del self._store[key]
-            return None
-        return value
+        with self._lock:
+            entry = self._store.get(key)
+            if entry is None:
+                return None
+            value, expiry = entry
+            if time.monotonic() > expiry:
+                del self._store[key]
+                return None
+            return value
 
     def set(self, key, value, ttl_seconds: int | None = None) -> None:
         """Store *value* under *key* for the given TTL (or default)."""
         effective_ttl = ttl_seconds if ttl_seconds is not None else self._ttl
-        self._store[key] = (value, time.monotonic() + effective_ttl)
+        with self._lock:
+            self._store[key] = (value, time.monotonic() + effective_ttl)
 
     def invalidate_all(self) -> None:
         """Remove every cached entry."""
-        self._store.clear()
+        with self._lock:
+            self._store.clear()
+
+    def invalidate(self, key) -> None:
+        """Remove a single cached entry by key (thread-safe)."""
+        with self._lock:
+            self._store.pop(key, None)

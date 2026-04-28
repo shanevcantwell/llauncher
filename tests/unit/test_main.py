@@ -68,7 +68,7 @@ class TestMcpCommand:
     def test_mcp_command(self):
         """MCP command invokes MCP server main()."""
         with patch("sys.argv", ["llauncher", "mcp"]):
-            with patch("llauncher.mcp.server.main") as mock_mcp_main:
+            with patch("llauncher.mcp_server.server.main") as mock_mcp_main:
                 from llauncher import __main__
 
                 __main__.main()

@@ -4,13 +4,15 @@ Provides API key-based authentication via the X-Api-Key header,
 with exemptions for health check and OpenAPI documentation endpoints.
 """
 
+import hmac
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 from fastapi import Request
 
 
 # Paths that skip authentication regardless of token configuration
-_AUTH_EXEMPT_PATHS = frozenset({"/health", "/docs", "/openapi.json", "/redoc"})
+_AUTH_EXEMPT_PATHS = frozenset({"/health", "/docs", "/redoc", "/openapi.json"})
 
 
 class AuthenticationMiddleware(BaseHTTPMiddleware):
@@ -20,7 +22,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
     * **401** if the header is missing,
     * **403** if the header value does not match the expected token.
 
-    Skips authentication for exempt paths (/health, /docs, //openapi.json, /redoc).
+    Skips authentication for exempt paths (/health, /docs, /openapi.json, /redoc).
     """
 
     def __init__(self, app, expected_token: str):
@@ -51,7 +53,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
         api_key = request.headers.get("X-Api-Key")
 
-        if api_key is None or api_key != self.expected_token:
+        if api_key is None or not hmac.compare_digest(api_key, self.expected_token):
             # 401 when header absent (authentication required)
             # 403 when header present but wrong/empty (credentials provided, access denied)
             status_code = 401 if api_key is None else 403

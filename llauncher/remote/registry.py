@@ -1,12 +1,15 @@
 """Node registry for managing remote llauncher agents."""
 
 import json
+import logging
+import os
 from pathlib import Path
 from typing import Iterator
 
 from llauncher.remote.node import RemoteNode, NodeStatus
 
 NODES_FILE = Path.home() / ".llauncher" / "nodes.json"
+logger = logging.getLogger(__name__)
 
 
 class NodeRegistry:
@@ -35,12 +38,14 @@ class NodeRegistry:
         try:
             data = json.loads(NODES_FILE.read_text())
             for name, node_data in data.items():
+                # Backward compat: old files use "api_key", new files use "has_api_key"
+                raw_key = node_data.get("api_key")
                 self._nodes[name] = RemoteNode(
                     name=node_data["name"],
                     host=node_data["host"],
                     port=node_data.get("port", 8765),
                     timeout=node_data.get("timeout", 5.0),
-                    api_key=node_data.get("api_key"),
+                    api_key=raw_key,
                 )
         except (json.JSONDecodeError, KeyError):
             # Corrupted file, start fresh
@@ -57,10 +62,15 @@ class NodeRegistry:
                 "host": node.host,
                 "port": node.port,
                 "timeout": node.timeout,
-                "api_key": node.api_key,
+                "has_api_key": node.api_key is not None,
             }
 
         NODES_FILE.write_text(json.dumps(data, indent=2))
+
+        try:
+            os.chmod(NODES_FILE, 0o600)
+        except OSError as e:
+            logger.warning(f"Could not set restrictive permissions on {NODES_FILE}: {e}")
 
     def add_node(
         self,

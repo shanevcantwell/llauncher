@@ -98,12 +98,11 @@ model_app = typer.Typer(name="model", help="Manage model configurations")
 
 @model_app.command("list")
 def list_models(
-    ctx: typer.Context,
-    json: bool = typer.Option(False, "--json", "-j", help="Output in JSON format"),
+    as_json: bool = typer.Option(False, "--json", "-j", help="Output in JSON format"),
 ) -> None:
     """List all configured models."""
     names = ConfigStore.list_models()
-    if json:
+    if as_json:
         _json_output(names)
         return
 
@@ -114,9 +113,8 @@ def list_models(
 
 @model_app.command("info")
 def model_info(
-    ctx: typer.Context,
     name: str = typer.Argument(..., help="Name of the model to inspect"),
-    json: bool = typer.Option(False, "--json", "-j", help="Output in JSON format"),
+    as_json: bool = typer.Option(False, "--json", "-j", help="Output in JSON format"),
 ) -> None:
     """Show detailed information for a single model."""
     config = ConfigStore.get_model(name)
@@ -125,7 +123,7 @@ def model_info(
         console.print(f"[red]Model '{name}' not found.[/red]")
         raise typer.Exit(code=1)
 
-    if json:
+    if as_json:
         _json_output(config.to_dict())
         return
 
@@ -163,7 +161,6 @@ def start_server(
 
 @server_app.command("stop")
 def stop_server(
-    ctx: typer.Context,
     port: int = typer.Argument(..., help="Port of the server to stop"),
     caller: str = typer.Option("cli", hidden=True),
 ) -> None:
@@ -178,13 +175,12 @@ def stop_server(
 
 @server_app.command("status")
 def server_status(
-    ctx: typer.Context,
-    json: bool = typer.Option(False, "--json", "-j", help="Output in JSON format"),
+    as_json: bool = typer.Option(False, "--json", "-j", help="Output in JSON format"),
 ) -> None:
     """Show status of all running servers."""
     state = LauncherState()
 
-    if json:
+    if as_json:
         result = {}
         for port_num, srv in state.running.items():
             result[str(port_num)] = srv.to_dict()
@@ -238,13 +234,12 @@ def add_node(
 
 @node_app.command("list")
 def list_nodes(
-    ctx: typer.Context,
-    json: bool = typer.Option(False, "--json", "-j", help="Output in JSON format"),
+    as_json: bool = typer.Option(False, "--json", "-j", help="Output in JSON format"),
 ) -> None:
     """List all registered nodes."""
     registry = NodeRegistry()
 
-    if json:
+    if as_json:
         _json_output(registry.to_dict())
         return
 
@@ -259,7 +254,6 @@ def list_nodes(
 
 @node_app.command("remove")
 def remove_node(
-    ctx: typer.Context,
     name: str = typer.Argument(..., help="Name of the node to remove"),
 ) -> None:
     """Remove a registered node."""
@@ -273,9 +267,8 @@ def remove_node(
 
 @node_app.command("status")
 def node_status(
-    ctx: typer.Context,
     all_nodes: bool = typer.Option(False, "--all", "-a", help="Include offline/error nodes"),
-    json: bool = typer.Option(False, "--json", "-j", help="Output in JSON format"),
+    as_json: bool = typer.Option(False, "--json", "-j", help="Output in JSON format"),
 ) -> None:
     """Show status of registered nodes (online only by default)."""
     registry = NodeRegistry()
@@ -287,7 +280,7 @@ def node_status(
         except Exception:
             pass  # keep current status if ping fails completely
 
-    if json:
+    if as_json:
         result = {}
         target_nodes = registry._nodes if all_nodes else {n: nd for n, nd in registry._nodes.items() if nd.status.value == "online"}
         for node_name, node in target_nodes.items():
@@ -335,7 +328,6 @@ def config_path() -> None:
 
 @config_app.command("validate")
 def validate_config(
-    ctx: typer.Context,
     name: str = typer.Argument(..., help="Name of the model to validate"),
 ) -> None:
     """Validate a model configuration without starting a server."""

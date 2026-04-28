@@ -140,8 +140,10 @@ class TestGPUHealthWithStatus:
         
         # Patch nvidia-smi to fail — simulate environment without NVIDIA drivers
         with patch("subprocess.run", side_effect=FileNotFoundError("nvidia-smi not found")):
-            collector = GPUHealthCollector()
-            result = collector.get_health()
+            # Also mock is_apple_mps_available to return False (no Apple hardware)
+            with patch("llauncher.core.gpu.is_apple_mps_available", return_value=False):
+                collector = GPUHealthCollector()
+                result = collector.get_health()
         
         assert isinstance(result, dict)
         assert "backends" in result
@@ -160,7 +162,8 @@ class TestVRAMPreFlightLogic:
         from unittest.mock import patch
         
         # Test the estimation function exists or would be called in routing.py
-        with open("/home/node/github/llauncher/llauncher/agent/routing.py", "r") as f:
+        routing_path = Path(__file__).parent.parent.parent / "llauncher" / "agent" / "routing.py"
+        with open(routing_path, "r") as f:
             content = f.read()
         
         assert "start_with_eviction" in content, "VRAM pre-flight should hook into start-with-eviction handler"
