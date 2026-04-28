@@ -116,6 +116,65 @@ function discoverLluncherHosts(): Array<{ host: string; port: number }> {
 }
 
 /**
+ * Build a mapping from provider names to node configurations.
+ * Reads ~/.llauncher/nodes.json and indexes by:
+ *   - name key ("shane-pc", "inference-host")
+ *   - host value for cross-reference
+ *
+ * Returns { [providerName]: { host, port } | undefined }
+ */
+function buildProviderToNodeMap(): Map<string, { host: string; port: number }> {
+  const map = new Map<string, { host: string; port: number }>();
+  try {
+    if (!_fs.existsSync(NODES_FILE)) return map;
+    const raw = _fs.readFileSync(NODES_FILE, "utf-8");
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    for (const [nameKey, v] of Object.entries(parsed)) {
+      if (
+        typeof v === "object" && v !== null &&
+        typeof (v as any).host === "string"
+      ) {
+        const host = (v as any).host as string;
+        const port = ((v as any).port ?? DEFAULT_LLAUNCHER_PORT) as number;
+        // Index by name key and host value
+        map.set(nameKey, { host, port });
+        map.set(host.toLowerCase(), { host, port });
+      }
+    }
+  } catch { /* ignore read errors */ }
+  return map;
+}
+
+/**
+ * Resolve a provider name to the corresponding llauncher node.
+ * Tries exact match on provider name first, then case-insensitive host lookup,
+ * then falls back to any available node.
+ */
+function resolveNodeForProvider(providerName: string): { host: string; port: number } | undefined {
+  const map = buildProviderToNodeMap();
+
+  // Exact match on provider name → node name key
+  if (map.has(providerName)) return map.get(providerName);
+
+  // Case-insensitive match against node names and hosts
+  const lowerProvider = providerName.toLowerCase();
+  for (const [key, val] of map) {
+    if (key.toLowerCase() === lowerProvider) return val;
+  }
+
+  // Fallback: no mapping found — try env var or any available node
+  const rawHost = process.env.LLAUNCHER_HOST?.trim();
+  if (rawHost) {
+    const parsed = parseLlancherAddress(rawHost);
+    if (parsed) return parsed;
+  }
+
+  // Last resort: first known node
+  for (const [, val] of map) return val;
+  return undefined;
+}
+
+/**
  * Fetch status from a single llauncher node. Returns undefined on failure.
  */
 async function fetchNodeStatus(nodeHost: string, port: number): Promise<CacheEntry | undefined> {
@@ -151,14 +210,36 @@ async function fetchNodeStatus(nodeHost: string, port: number): Promise<CacheEnt
 // ── Cache ────────────────────────────────────────────────────────────────────
 
 let cachedEntry: CacheEntry | null = null;
+/** Track which provider/node the current cache entry came from */
+let _cachedProviderName: string | null = null;
 
-async function populateCache(): Promise<void> {
-  const nodes = discoverLluncherHosts();
+/**
+ * Populate the llauncher status cache. If a targetProvider is specified,
+ * only queries that specific node (matched by provider name → llauncher node).
+ * Otherwise queries all discovered nodes and takes the first with valid data.
+ */
+async function populateCache(targetProvider?: string): Promise<void> {
+  let entriesToCheck: Array<{ host: string; port: number }>;
 
-  for (const node of nodes) {
+  if (targetProvider) {
+    // Resolve provider name to specific llauncher node
+    const targetNode = resolveNodeForProvider(targetProvider);
+    if (!targetNode) {
+      console.warn(`[footer-budget] No llauncher node mapped for provider '${targetProvider}' — falling back to all nodes.`);
+      entriesToCheck = discoverLluncherHosts();
+    } else {
+      entriesToCheck = [targetNode];
+    }
+  } else {
+    // Broad discovery — try all available nodes
+    entriesToCheck = discoverLluncherHosts();
+  }
+
+  for (const node of entriesToCheck) {
     const entry = await fetchNodeStatus(node.host, node.port);
     if (entry && entry.ctxSize > 0) {
       cachedEntry = entry;
+      _cachedProviderName = targetProvider || null;
       return;
     }
   }
@@ -172,15 +253,18 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
     if (!ctx.hasUI || !ctx.model) return;
 
-    await populateCache();
+    // Use the initial model's provider to query the correct node
+    const provider = ctx.model.provider;
+    await populateCache(provider);
     ctx.ui.setFooter(makeFooterRender(ctx));
   });
 
-  pi.on("model_select", async (_event, ctx) => {
+  pi.on("model_select", async (event, ctx) => {
     if (!ctx.hasUI) return;
 
-    // Refresh llauncher status for the new model
-    await populateCache();
+    // Query only the node corresponding to the newly selected model's provider
+    const newProvider = event.model.provider;
+    await populateCache(newProvider);
     // Re-apply footer with updated cache
     ctx.ui.setFooter(makeFooterRender(ctx));
   });
