@@ -319,7 +319,11 @@ export default function (pi: ExtensionAPI): void {
         let statsLeft = statsParts.join(" ");
 
         // ── 6. Model name on the right side ────────────────────────────────
-        const modelName = stateModel.id || "no-model";
+        // Use llauncher's running model name if available, fallback to Pi's stateModel.id
+        const hasRunningModel = !!(cachedEntry?.runningModel);
+        const modelName = hasRunningModel
+          ? cachedEntry!.runningModel
+          : stateModel.id || "no-model";
         const providerCount = footerData.getAvailableProviderCount();
 
         let rightSideWithoutProvider = modelName;
@@ -331,7 +335,8 @@ export default function (pi: ExtensionAPI): void {
         }
 
         let rightSide = rightSideWithoutProvider;
-        if (providerCount > 1 && stateModel) {
+        const showProviderPrefix = providerCount > 1 && stateModel && !hasRunningModel;
+        if (showProviderPrefix) {
           rightSide = `(${stateModel.provider}) ${rightSideWithoutProvider}`;
           // Don't use both provider prefix and thinking indicator simultaneously.
           if (visibleWidth(statsLeft) + 2 + visibleWidth(rightSide) > width) {
