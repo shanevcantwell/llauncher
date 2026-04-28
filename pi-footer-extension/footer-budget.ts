@@ -335,8 +335,7 @@ export default function (pi: ExtensionAPI): void {
         }
 
         let rightSide = rightSideWithoutProvider;
-        const showProviderPrefix = providerCount > 1 && stateModel && !hasRunningModel;
-        if (showProviderPrefix) {
+        if (providerCount > 1 && stateModel) {
           rightSide = `(${stateModel.provider}) ${rightSideWithoutProvider}`;
           // Don't use both provider prefix and thinking indicator simultaneously.
           if (visibleWidth(statsLeft) + 2 + visibleWidth(rightSide) > width) {
