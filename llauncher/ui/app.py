@@ -50,14 +50,16 @@ def is_agent_ready(registry: NodeRegistry) -> bool:
     return registry.is_local_agent_ready()
 
 
-def start_agent_background(registry: NodeRegistry) -> None:
+def start_agent_background(registry: NodeRegistry) -> bool:
     """Start the agent as a detached background process.
 
     Args:
         registry: NodeRegistry instance.
+
+    Returns:
+        True if agent was started successfully, False otherwise.
     """
-    # Note: We don't check the return value here as the UI handles errors via session state
-    registry.start_local_agent()
+    return registry.start_local_agent()
 
 
 def show_loading_screen() -> None:
@@ -129,13 +131,17 @@ def main():
         # Start agent if not already started
         if not st.session_state["agent_startup_started"]:
             try:
-                start_agent_background(registry)
-                st.session_state["agent_startup_started"] = True
+                success = start_agent_background(registry)
+                if not success:
+                    st.session_state["agent_startup_error"] = "Agent failed to start (check logs)"
+                else:
+                    st.session_state["agent_startup_started"] = True
             except Exception as e:
                 st.session_state["agent_startup_error"] = str(e)
 
-        # Check if we have an error
+        # Check if we have an error and display it
         if st.session_state.get("agent_startup_error"):
+            st.error(f"Failed to start agent: {st.session_state['agent_startup_error']}")
             st.stop()
 
         # Rerun to check if agent is ready now

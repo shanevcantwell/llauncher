@@ -214,7 +214,7 @@ class NodeRegistry:
         # - Unix: start_new_session creates new session (daemon-like)
         kwargs = {
             "stdout": subprocess.DEVNULL,
-            "stderr": subprocess.DEVNULL,
+            "stderr": subprocess.PIPE,  # Capture stderr for error visibility
         }
         if sys.platform == "win32":
             kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
@@ -222,13 +222,26 @@ class NodeRegistry:
             kwargs["start_new_session"] = True
 
         try:
-            subprocess.Popen(["llauncher-agent"], **kwargs)
+            proc = subprocess.Popen(["llauncher-agent"], **kwargs)
 
             # Add to registry if not present
             if not self.get_node("local"):
                 self.add_node("local", "localhost", AGENT_PORT, overwrite=True)
+
+            # Check for immediate startup failure (exit before we can read stderr)
+            import time
+            time.sleep(0.5)
+            if proc.poll() is not None:
+                stderr_output = proc.stderr.read().decode("utf-8", errors="replace").strip()
+                error_msg = f"llauncher-agent exited immediately (code {proc.returncode}). "
+                if stderr_output:
+                    error_msg += f"Error: {stderr_output[:500]}"
+                logger.error(error_msg)
+                return False
+
             return True
-        except Exception:
+        except Exception as e:
+            logger.error(f"Failed to start llauncher-agent: {e}")
             return False
 
     def to_dict(self) -> dict:
