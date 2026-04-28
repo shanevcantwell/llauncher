@@ -176,6 +176,15 @@ export default function (pi: ExtensionAPI): void {
     ctx.ui.setFooter(makeFooterRender(ctx));
   });
 
+  pi.on("model_select", async (_event, ctx) => {
+    if (!ctx.hasUI) return;
+
+    // Refresh llauncher status for the new model
+    await populateCache();
+    // Re-apply footer with updated cache
+    ctx.ui.setFooter(makeFooterRender(ctx));
+  });
+
   function makeFooterRender(ctx: ExtensionAPI["ctx"]) {
     const sessionManager = (ctx as any).sessionManager;
     const agentSession = (ctx as any).agentSession;
