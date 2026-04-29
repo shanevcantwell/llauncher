@@ -1,6 +1,6 @@
 # ADR-003: Authentication for Agent API (Port 8765)
 
-**Status:** Draft  
+**Status:** Accepted  
 **Date:** 2026-04-26  
 
 ## Context
@@ -37,7 +37,14 @@ A review document (`docs/reviews/2026-04-25-enhancement-no-auth-agent-api.md`) w
 **Implementation approach:**
 1. Add `api_key` field to core settings (`core/settings.py`)
 2. Store key in node config: `{ "host": "...", "port": ..., "api_key": "..." }`
-3. FastAPI middleware checks `X-Api-Key` header on all `/start`, `/stop`, `/swap`, `/nodes/` endpoints (read-only endpoints like `/status`, `/health`, `/models` remain unauthenticated)
+3. FastAPI middleware checks `X-Api-Key` header on all write endpoints (`/start`, `/stop`, `/swap`, `/nodes/add`, `/nodes/remove`, `/nodes/status`)
+
+   Exempt read-only endpoints that don't require authentication:
+   - `/health` — liveness probe
+   - `/status` — running servers status
+   - `/models` — list all configured models
+   - `/models/health` — model health status
+   - `/docs`, `/openapi.json`, `/redoc` — API documentation
 4. When `api_key` is empty/None in settings, skip auth entirely (backward compatible)
 5. Add `llauncher_add_node` tool support for passing api_key when registering new nodes
 
@@ -69,3 +76,27 @@ A review document (`docs/reviews/2026-04-25-enhancement-no-auth-agent-api.md`) w
 **Open Questions:**
 1. Should default binding change from `0.0.0.0` to `127.0.0.1` when api_key is configured? (Conservative: keep current behavior, require explicit bind config)
 2. How to handle key rotation without downtime? (Defer to Phase 2 — supports multiple concurrent keys)
+
+## Consequences
+
+**Positive:**
+- Immediate security improvement for multi-user or network-accessible setups
+- Backward compatible — existing deployments unaffected unless they opt in
+- Foundation for future per-user scoping (Phase 2)
+- pi-footer-extension can use authenticated requests when `LAUNCHER_AGENT_TOKEN` is set
+
+**Negative:**
+- Adds first non-trivial dependency chain: settings → middleware → all write endpoints
+- Client-side changes needed: pi-footer-extension must read api_key from node config and inject header when token is configured
+- Session management (login/logout/rotation) deferred to Phase 2 — simpler initial implementation but may leave gaps for shared environments
+
+**Open Questions:**
+1. Should default binding change from `0.0.0.0` to `127.0.0.1` when api_key is configured? (Conservative: keep current behavior, require explicit bind config)
+2. How to handle key rotation without downtime? (Defer to Phase 2 — supports multiple concurrent keys)
+
+## Implementation Notes
+
+- **Middleware**: `llauncher/agent/middleware.py` implements `X-Api-Key` header validation
+- **Settings**: `llauncher/core/settings.py` defines `AGENT_API_KEY` from `LAUNCHER_AGENT_TOKEN` env var
+- **Exemptions**: `/health`, `/status`, `/models`, `/docs`, `/openapi.json`, `/redoc` are unauthenticated
+- **pi-footer-extension**: Currently unauthenticated (token pass-through deferred to future)
