@@ -426,8 +426,7 @@ async def start_server_with_eviction(model_name: str, port: int | None = None) -
         )
 
     # ── Pre-flight model health (ADR-005) ─────────────────────
-    from llauncher.core.model_health import check_model_health as ch
-    mh = ch(config.model_path)
+    mh = check_model_health(config.model_path)
     if not mh.valid:
         raise HTTPException(
             status_code=409,

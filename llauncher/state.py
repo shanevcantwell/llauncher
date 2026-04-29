@@ -27,9 +27,6 @@ from llauncher.models.config import (
 )
 
 
-_EVICT_DELIM = "|DELIM|"
-
-
 @dataclass
 class EvictionResult:
     """Result of an eviction-and-start operation.
@@ -46,16 +43,6 @@ class EvictionResult:
     previous_model: str = ""
     new_model_attempted: str = ""
     startup_logs: list[str] = field(default_factory=list)
-
-
-def _parse_eviction_result(result):
-    """Split EvictionResult into (success, message) for legacy callers."""
-    if isinstance(result, EvictionResult):
-        msg = result.error if not result.success else f"Started {result.new_model_attempted} on port via eviction"
-        if result.rolled_back:
-            msg += f" | rolled_back to {result.restored_model}"
-        return result.success, msg
-    return result  # already a tuple
 
 
 @dataclass

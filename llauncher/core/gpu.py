@@ -110,7 +110,7 @@ class GPUHealthCollector:
     # Backend query methods (private)
     # ------------------------------------------------------------------
 
-    def _collect_devices(self, simulate: bool = False, num_simulated: int = 1) -> GPUHealthResult:
+    def _collect_devices(self) -> GPUHealthResult:
         """Try each backend in priority order; return the first success."""
         result = GPUHealthResult()
 
@@ -384,13 +384,8 @@ class GPUHealthCollector:
 
 def shutil_which(program: str) -> str | None:
     """Lightweight ``shutil.which`` replacement."""
-    import os
-    path_env = os.environ.get("PATH", "")
-    for dirpath in path_env.split(os.pathsep):
-        candidate = os.path.join(dirpath, program)
-        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            return candidate
-    return None
+    import shutil
+    return shutil.which(program)
 
 
 def is_apple_mps_available() -> bool:
