@@ -36,6 +36,19 @@ pip install -e ".[ui]"
 pip install -e ".[test]"
 ```
 
+### Windows Notes
+
+If you see warnings like `WARNING: Ignoring invalid distribution ~` during install:
+
+```bat
+# Clean up corrupted site-packages and reinstall
+cd github\llauncher
+rmdir /s /q .venv
+python -m venv .venv
+\.venv\Scripts\activate
+pip install -e ".[ui]"
+```
+
 ## Quick Start
 
 Use the runner scripts for easiest setup:
