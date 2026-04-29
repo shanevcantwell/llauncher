@@ -212,6 +212,8 @@ async function fetchNodeStatus(nodeHost: string, port: number): Promise<CacheEnt
 let cachedEntry: CacheEntry | null = null;
 /** Track which provider/node the current cache entry came from */
 let _cachedProviderName: string | null = null;
+// Version counter for cache invalidation detection (race condition fix)
+let _cachedEntryVersion = 0;
 
 /**
  * Populate the llauncher status cache. If a targetProvider is specified,
@@ -240,6 +242,7 @@ async function populateCache(targetProvider?: string): Promise<void> {
     if (entry && entry.ctxSize > 0) {
       cachedEntry = entry;
       _cachedProviderName = targetProvider || null;
+      _cachedEntryVersion++;
       return;
     }
   }
@@ -270,13 +273,20 @@ export default function (pi: ExtensionAPI): void {
   });
 
   function makeFooterRender(ctx: ExtensionAPI["ctx"]) {
+    // Capture current version for invalidation detection
+    const snapshotVersion = _cachedEntryVersion;
     const sessionManager = (ctx as any).sessionManager;
     const agentSession = (ctx as any).agentSession;
     const modelRegistry = (ctx as any).modelRegistry;
     const stateModel = ctx.model;
 
     return (_tui: any, theme: any, footerData: any) => ({
-      invalidate() {},
+      invalidate() {
+        // If cache was updated since this component was created, re-render
+        if (_cachedEntryVersion !== snapshotVersion) {
+          ctx.ui.setFooter(makeFooterRender(ctx));
+        }
+      },
 
       render(width: number): string[] {
         // ── 1. Effective context window (real from llauncher, or Pi default) ─
