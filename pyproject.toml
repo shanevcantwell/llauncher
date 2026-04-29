@@ -12,9 +12,12 @@ dependencies = [
     "fastapi>=0.109.0",
     "uvicorn>=0.27.0",
     "httpx>=0.26.0",
+    "typer>=0.9.0",
+    "rich>=13.0.0",
 ]
 
 [project.optional-dependencies]
+cli = ["typer>=0.9.0", "rich>=13.0.0"]
 ui = ["streamlit>=1.30.0"]
 test = [
     "pytest>=8.0.0",

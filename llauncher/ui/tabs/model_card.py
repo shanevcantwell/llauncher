@@ -76,18 +76,19 @@ def _render_start_button(
         model_name: Name of the model.
         status_icon: The status icon to display.
     """
-    config = state.models.get(model_name)
-    if config is None:
-        st.button(
-            status_icon,
-            key=f"toggle_start_{node_name}_{model_name}",
-            help="Model config not found",
-            use_container_width=True,
-            disabled=True,
-        )
-        return
-
-    target_port = config.default_port
+    # Only look up local config for local nodes — remote models are served
+    # by the target node's own config, so state.models (local) won't have them.
+    if node_name == "local":
+        config = state.models.get(model_name)
+        if config is None:
+            st.button(
+                status_icon,
+                key=f"toggle_start_{node_name}_{model_name}",
+                help="Model config not found",
+                use_container_width=True,
+                disabled=True,
+            )
+            return
 
     # Normal start button - click to start (with eviction check on click)
     if st.button(
@@ -96,7 +97,7 @@ def _render_start_button(
         help=f"Start {model_name}",
         use_container_width=True,
     ):
-        _handle_start(state, aggregator, node_name, model_name, target_port)
+        _handle_start(state, aggregator, node_name, model_name)
 
 
 def _render_eviction_dialog(
@@ -271,7 +272,7 @@ def _handle_start(
     aggregator: RemoteAggregator | None,
     node_name: str,
     model_name: str,
-    target_port: int | None,
+    target_port: int | None = None,
 ) -> None:
     """Handle starting a server with eviction logic.
 
@@ -280,7 +281,7 @@ def _handle_start(
         aggregator: RemoteAggregator.
         node_name: Name of the node.
         model_name: Name of the model.
-        target_port: Port to use (or None for auto-allocate).
+        target_port: Port to use (or None for auto-allocate; only used for local nodes).
     """
     if node_name == "local":
         config = state.models.get(model_name)

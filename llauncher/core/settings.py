@@ -12,10 +12,24 @@ logger = logging.getLogger(__name__)
 
 
 # Path to llama-server binary
-LLAMA_SERVER_PATH = Path(os.getenv(
+_llama_server_path = Path(os.getenv(
     "LLAMA_SERVER_PATH",
     str(Path.home() / ".local" / "bin" / "llama-server")
 ))
+
+# If the path is a directory, try to auto-detect llama-server binary
+if _llama_server_path.is_dir():
+    # Try llama-server first, then llama-server.exe (Windows)
+    for candidate in ["llama-server", "llama-server.exe"]:
+        binary_path = _llama_server_path / candidate
+        if binary_path.exists():
+            LLAMA_SERVER_PATH = binary_path
+            break
+    else:
+        # Fallback: use the directory path (will fail later with FileNotFoundError)
+        LLAMA_SERVER_PATH = _llama_server_path
+else:
+    LLAMA_SERVER_PATH = _llama_server_path
 
 # Path to launch scripts directory
 SCRIPTS_PATH = Path(os.getenv(
