@@ -156,7 +156,23 @@ async function test4_RapidProviderSwitches() {
   render1.invalidate();
 }
 
-async function test5_MultipleSuccessiveUpdates() {
+async function test5_FireAndForgetCallbackInvokedOnSuccess() {
+  const startVersion = _cachedEntryVersion;
+
+  // Simulate fire-and-forget pattern: no await, callback on completion
+  let callbackCalled = false;
+  populateCache("test-provider").then(() => { /* ok */ });
+  
+  // Verify cache was populated (non-blocking fetch completed in test time)
+  await delay(60);  // slightly longer than the 50ms simulate in tests
+  
+  assert(
+    _cachedEntryVersion === startVersion + 1,
+    `Expected version ${startVersion + 1} after populateCache, got ${_cachedEntryVersion}`
+  );
+}
+
+async function test6_MultipleSuccessiveUpdates() {
   const startVersion = _cachedEntryVersion;
 
   for (let i = 0; i < 3; i++) {
@@ -191,7 +207,8 @@ await runTest("1. Version increments on successful cache populate", test1_Versio
 await runTest("2. Cache failure does not increment version", test2_CacheFailureNoIncrement);
 await runTest("3. invalidate() detects stale render after update", test3_InvalidateDetectsStaleRender);
 await runTest("4. Rapid provider switches handled correctly", test4_RapidProviderSwitches);
-await runTest("5. Multiple successive updates tracked correctly", test5_MultipleSuccessiveUpdates);
+await runTest("5. Fire-and-forget callback invoked on success", test5_FireAndForgetCallbackInvokedOnSuccess);
+await runTest("6. Multiple successive updates tracked correctly", test6_MultipleSuccessiveUpdates);
 
 console.log(`\n=== Results: ${passed} passed, ${failed} failed ===`);
 

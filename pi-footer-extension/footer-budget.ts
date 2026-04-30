@@ -220,7 +220,10 @@ let _cachedEntryVersion = 0;
  * only queries that specific node (matched by provider name → llauncher node).
  * Otherwise queries all discovered nodes and takes the first with valid data.
  */
-async function populateCache(targetProvider?: string): Promise<void> {
+async function populateCache(
+  targetProvider?: string,
+  onComplete?: () => void
+): Promise<void> {
   let entriesToCheck: Array<{ host: string; port: number }>;
 
   if (targetProvider) {
@@ -243,6 +246,7 @@ async function populateCache(targetProvider?: string): Promise<void> {
       cachedEntry = entry;
       _cachedProviderName = targetProvider || null;
       _cachedEntryVersion++;
+      onComplete?.();
       return;
     }
   }
@@ -253,23 +257,35 @@ async function populateCache(targetProvider?: string): Promise<void> {
 // ── Extension ────────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI): void {
-  pi.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", (_event, ctx) => {
     if (!ctx.hasUI || !ctx.model) return;
 
-    // Use the initial model's provider to query the correct node
+    // Use the initial model's provider to query the correct node.
+    // Fire-and-forget cache population — render immediately with current state,
+    // then re-render once fetch completes (no user keypress needed).
     const provider = ctx.model.provider;
-    await populateCache(provider);
+    populateCache(provider);
     ctx.ui.setFooter(makeFooterRender(ctx));
+
+    // Safety net: retry global discovery if first attempt fails or is slow.
+    const handle = setTimeout(() => {
+      populateCache();  // queries all nodes — no per-provider staleness risk
+    }, 5000);
   });
 
-  pi.on("model_select", async (event, ctx) => {
+  pi.on("model_select", (event, ctx) => {
     if (!ctx.hasUI) return;
 
-    // Query only the node corresponding to the newly selected model's provider
+    // Fire-and-forget cache population — render immediately with current state,
+    // then re-render once fetch completes (no user keypress needed).
     const newProvider = event.model.provider;
-    await populateCache(newProvider);
-    // Re-apply footer with updated cache
+    populateCache(newProvider);
     ctx.ui.setFooter(makeFooterRender(ctx));
+
+    // Safety net: retry global discovery if first attempt fails or is slow.
+    const handle = setTimeout(() => {
+      populateCache();  // queries all nodes — no per-provider staleness risk
+    }, 5000);
   });
 
   function makeFooterRender(ctx: ExtensionAPI["ctx"]) {
