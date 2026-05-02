@@ -1,6 +1,6 @@
 # ADR-002: Unified Swap-with-Eviction Semantics
 
-**Status:** Draft  
+**Status:** Superseded by ADR-011  
 **Date:** 2026-04-25  
 
 ## Context
