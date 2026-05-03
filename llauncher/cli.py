@@ -147,16 +147,32 @@ server_app = typer.Typer(name="server", help="Manage running server processes")
 @server_app.command("start")
 def start_server(
     name: str = typer.Argument(..., help="Name of the model to start"),
-    port: int | None = typer.Option(None, "--port", "-p", help="Optional port override (default: auto-allocate)"),
+    port: int | None = typer.Option(
+        None,
+        "--port",
+        "-p",
+        help="Port to bind the server to (required; defaults to DEFAULT_PORT env if set).",
+    ),
     caller: str = typer.Option("cli", hidden=True),
 ) -> None:
-    """Start a server for the given model."""
-    state = LauncherState()
-    ok, msg, _ = state.start_server(name, caller=caller, port=port)
-    if not ok:
-        console.print(f"[red]✗ {msg}[/red]")
+    """Start a server for the given model on the specified port.
+
+    Per ADR-010, port is supplied at the call site. If ``--port`` is not
+    given, falls back to ``DEFAULT_PORT`` env var.
+    """
+    from llauncher import operations
+    from llauncher.core.settings import DEFAULT_PORT
+
+    resolved_port = port if port is not None else DEFAULT_PORT
+    if resolved_port is None:
+        console.print("[red]✗ --port is required (or set DEFAULT_PORT env)[/red]")
         raise typer.Exit(code=1)
-    console.print(_color(msg, "running"))
+
+    result = operations.start(name, resolved_port, caller=caller)
+    if not result.success:
+        console.print(f"[red]✗ {result.message}[/red]")
+        raise typer.Exit(code=1)
+    console.print(_color(result.message, "running"))
 
 
 @server_app.command("stop")
@@ -164,13 +180,14 @@ def stop_server(
     port: int = typer.Argument(..., help="Port of the server to stop"),
     caller: str = typer.Option("cli", hidden=True),
 ) -> None:
-    """Stop a running server."""
-    state = LauncherState()
-    ok, msg = state.stop_server(port, caller=caller)
-    if not ok:
-        console.print(f"[red]✗ {msg}[/red]")
+    """Stop a running server on the specified port."""
+    from llauncher import operations
+
+    result = operations.stop(port, caller=caller)
+    if not result.success:
+        console.print(f"[red]✗ {result.message}[/red]")
         raise typer.Exit(code=1)
-    console.print(_color(msg, "stopped"))
+    console.print(_color(result.message, "stopped"))
 
 
 @server_app.command("status")

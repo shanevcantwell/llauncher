@@ -184,35 +184,49 @@ def test_start_missing_model(mock_config_store):
 
 
 def test_start_with_explicit_port(mock_config_store):
-    """Starting a model with --port should pass port to LauncherState."""
+    """Starting a model with --port should call operations.start with that port."""
     _dir, _path = mock_config_store
 
-    with patch("llauncher.cli.LauncherState") as MockState:
-        instance = MagicMock()
-        instance.start_server.return_value = (True, "Started test-model on port 9999", None)
-        MockState.return_value = instance
+    with patch("llauncher.operations.start") as mock_start:
+        from llauncher.operations import StartResult
+
+        mock_start.return_value = StartResult(
+            success=True,
+            action="started",
+            port=9999,
+            model="test-model",
+            pid=42,
+            message="Started test-model on port 9999",
+        )
 
         result = runner.invoke(app, ["server", "start", "test-model", "--port", "9999"])
         assert result.exit_code == 0
-        # Verify start_server was called with the correct port argument
-        call_kwargs = instance.start_server.call_args
-        if call_kwargs:
-            kwargs = call_kwargs[1]
-            assert kwargs.get("port") == 9999
+        # Verify operations.start was called with the correct port argument.
+        mock_start.assert_called_once()
+        args, kwargs = mock_start.call_args
+        # First positional arg is name, second is port.
+        assert args[0] == "test-model"
+        assert args[1] == 9999
 
 
 def test_stop_nonexistent_port(mock_config_store):
-    """Stopping a non-running server should error."""
+    """Stopping a non-running server is now idempotent (per ADR-010)."""
     _dir, _path = mock_config_store
 
-    with patch("llauncher.cli.LauncherState") as MockState:
-        instance = MagicMock()
-        instance.stop_server.return_value = (False, "No server running on port 9000", )
-        MockState.return_value = instance
+    with patch("llauncher.operations.stop") as mock_stop:
+        from llauncher.operations import StopResult
+
+        # Per ADR-010, stop on empty port is success-with-already_empty.
+        mock_stop.return_value = StopResult(
+            success=True,
+            action="already_empty",
+            port=9000,
+            message="No server claimed port 9000",
+        )
 
         result = runner.invoke(app, ["server", "stop", "9000"])
-        assert result.exit_code == 1
-        assert "no server" in result.stdout.lower() or "No server" in result.stdout
+        assert result.exit_code == 0
+        mock_stop.assert_called_once_with(9000, caller="cli")
 
 
 # ---------------------------------------------------------------------------
