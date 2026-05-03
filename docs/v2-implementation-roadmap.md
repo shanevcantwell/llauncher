@@ -7,20 +7,22 @@
 
 Capture the implementation plan for the v2 architecture (ADRs 008–011) so the work can be picked up cold in a future session without reconstructing the planning context.
 
-## Strategy: Parallel Build + Cutover
+## Strategy: Direct on `main`, Repo Frozen
 
-- Build v2 on a **`v2` branch** of the main repo (`~/github/shanevcantwell/llauncher/`).
-- The `main` branch keeps working — daily-driver llauncher does not regress during the build.
-- Cutover via merge into `main` (or fast-forward) when v2 reaches feature parity and has been daily-driven without issue.
+The repo is frozen for v1 work except for this v2 effort. All v2 commits land directly on `main`. No parallel branch, no cutover ceremony.
+
+- Implication: the daily-driver llauncher will regress during the rewrite (especially during M1–M2 when core data structures change). Accepted tradeoff in exchange for the simpler workflow.
 - ADR-011's "rewrite, not migration" framing applies — no compat-shim layer.
+
+**Pre-M1 action:** tag the current `main` HEAD as `v1-final` before any M1 commits, to preserve the last working v1 state for emergency reference.
 
 ## Pre-Implementation Decisions
 
 | Decision | Resolution |
 |----------|-----------|
 | CLI naming | **`llauncher`** (closes #41) |
-| Build location | **`v2` branch on main** |
-| Migration policy | *open* — silent drop only, or also produce a one-time migration log? |
+| Build location | Direct on `main` (repo frozen for v1 work) |
+| Migration policy | **Silent drop** of old config fields; no migration log |
 
 ## Milestones
 
@@ -94,14 +96,13 @@ Drafting and shipping the five deferred items per spike §5:
 
 **Estimate:** ~3–5 sessions.
 
-### M7 — Cutover
+### M7 — Release
 
-- Migration script (re-import models from old `config.json`; v1 `default_port` field silently dropped; v1 audit logs not preserved).
-- Update pi-coding-agent's TypeScript extension if any endpoints renamed.
-- Merge `v2` into `main` (or replace `main`'s tip with the `v2` branch).
-- Tag the cutover commit; archive the v1 surface as a tag (`v1-final`) for emergency reference.
+- Update pi-coding-agent's TypeScript extension for the renamed endpoints (per ADR-010).
+- Tag the v2-complete commit as `v2.0.0`.
+- Migration is silent and handled inline by `ConfigStore.load()` (already in M1); no separate script needed.
 
-**Estimate:** ~1–2 sessions.
+**Estimate:** ~1 session.
 
 ## Total Estimate
 
@@ -123,11 +124,6 @@ Drafting and shipping the five deferred items per spike §5:
 | #40 | Endpoint refactor (port-keyed) | M2 |
 | #41 | CLI naming | **Resolved: `llauncher`** |
 | #42 | Backend adapter (vLLM) | M6 |
-
-## Open Questions
-
-1. **Migration policy.** Silent drop of old fields (per current v2 stance) only, or also produce a one-time migration log written to `~/.llauncher/v1-to-v2-migration.log`?
-2. **`v2` branch lifecycle.** Linear development with rebases against `main`, or branch-and-merge with regular merges of `main` into `v2` to keep it current with v1 hotfixes?
 
 ## References
 
