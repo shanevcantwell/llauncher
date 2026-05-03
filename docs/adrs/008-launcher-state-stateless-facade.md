@@ -2,6 +2,7 @@
 
 **Status:** Accepted  
 **Date:** 2026-05-01  
+**Amended:** 2026-05-02 — Context corrected after orientation spike (`docs/reviews/2026-05-02-v2-orientation-spike.md` §4) found two supporting points stale. Decision unchanged; rationale tightened. See *Amendment Notes* below.  
 
 ## Context
 
@@ -27,6 +28,16 @@ Observed problems:
 2. **Temp instance anti-pattern.** Code paths construct a fresh `LauncherState()` purely to call a single check (e.g., port availability), incurring a full process-table scan per check.
 3. **Audit log loss.** `refresh()` resets the audit list (per §3.1's `# Reset audit on full refresh? (specify behavior)` TODO), and the audit log is never persisted to disk. §2.3 calls it "action logging for governance and debugging" but no governance-grade durability exists.
 4. **Conflation of concerns.** Config CRUD, running-process introspection, audit recording, and access-control rules are bundled into one class with a shared lifecycle. Each has its own natural source of truth.
+
+## Amendment Notes (2026-05-02)
+
+After ratification, an orientation spike (`docs/reviews/2026-05-02-v2-orientation-spike.md` §4) found two of the four "Observed problems" above to be stale or factually incorrect against current code. Recording the corrections here rather than rewriting the original Context preserves the record of what was thought at drafting time.
+
+- **Problem #1 (Stale-state bugs).** "MCP read tools never refresh" was historically true but had already been corrected in code before this ADR was drafted. The MCP read tools (`mcp_server/tools/models.py:53,92`, `mcp_server/tools/servers.py:150,173`) call `state.refresh()` per request. The motivation captured in #1 is therefore historical, not live; the row "MCP server: does not refresh on read operations" in the refresh-discipline table is likewise outdated.
+- **Problem #3 (Audit log loss).** "`refresh()` resets the audit list" misreads a TODO comment. Inspection of `state.py:68-74`: `refresh()` reloads `self.models` and rescans processes but does **not** touch `self.audit`. The real problem is that the audit log is never persisted to disk regardless of refresh behavior — that observation stands.
+- **Construction-site count.** The table lists four `LauncherState` construction sites; the actual count is **five** — CLI per-call instantiation (`cli.py:154,168,181`) is a fifth site beyond the four listed.
+
+**Decision unchanged.** The stateless-facade reframe remains correct. Problems #2 (temp instance anti-pattern) and #4 (conflation of concerns) are live motivations on their own; the audit non-persistence concern in #3 is also live. The corrections tighten the rationale without affecting the conclusion.
 
 ## Decision
 
