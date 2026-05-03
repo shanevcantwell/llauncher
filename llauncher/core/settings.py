@@ -57,3 +57,18 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 AGENT_API_KEY: str | None = os.getenv("LAUNCHER_AGENT_TOKEN")
 if AGENT_API_KEY == "":
     AGENT_API_KEY = None
+
+# Lockfile directory for running servers (per ADR-008).
+# Configurable via env so container deployments can volume-mount it,
+# enabling in-container agents to read host-side llauncher state.
+LAUNCHER_RUN_DIR = Path(os.getenv(
+    "LAUNCHER_RUN_DIR",
+    str(Path.home() / ".llauncher" / "run"),
+))
+
+# Audit log path (per ADR-008). JSON Lines, append-only.
+# Same volume-mount story as LAUNCHER_RUN_DIR.
+LAUNCHER_AUDIT_PATH = Path(os.getenv(
+    "LAUNCHER_AUDIT_PATH",
+    str(Path.home() / ".llauncher" / "audit.jsonl"),
+))
