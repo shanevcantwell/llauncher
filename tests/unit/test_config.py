@@ -12,7 +12,8 @@ def test_config_store_add_and_get(mock_config_store, sample_model_config):
     retrieved = ConfigStore.get_model(sample_model_config.name)
     assert retrieved is not None
     assert retrieved.name == sample_model_config.name
-    assert retrieved.default_port == sample_model_config.default_port
+    assert retrieved.model_path == sample_model_config.model_path
+    assert retrieved.n_gpu_layers == sample_model_config.n_gpu_layers
 
 def test_config_store_remove(mock_config_store, sample_model_config):
     """Test removing a model from ConfigStore."""
@@ -45,11 +46,11 @@ def test_config_store_update_model(mock_config_store, sample_model_config):
     """Test updating an existing model."""
     ConfigStore.add_model(sample_model_config)
 
-    updated_config = sample_model_config.model_copy(update={"default_port": 9090})
+    updated_config = sample_model_config.model_copy(update={"ctx_size": 8192})
     ConfigStore.update_model(sample_model_config.name, updated_config)
 
     retrieved = ConfigStore.get_model(sample_model_config.name)
-    assert retrieved.default_port == 9090
+    assert retrieved.ctx_size == 8192
 
 def test_config_store_update_name_mismatch(mock_config_store, sample_model_config):
     """Test that updating with a name mismatch raises ValueError."""

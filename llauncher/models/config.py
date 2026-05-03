@@ -1,66 +1,75 @@
-"""Pydantic models for llauncher configuration."""
+"""Pydantic models for llauncher configuration.
+
+Per ADR-010: port is a deployment-time concern handled at the call site,
+not an attribute of ``ModelConfig``. Per Issue #42 scaffolding: ``kind``
+field discriminates the backend inference engine; only ``llama_server``
+is implemented in M1, vLLM follows in M6.
+"""
 
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 
+class BackendKind(str, Enum):
+    """Inference backend discriminator (Issue #42 scaffolding).
+
+    Only ``LLAMA_SERVER`` is implemented in M1. Additional kinds (vLLM, TGI,
+    etc.) are introduced under ADR-012 in M6.
+    """
+
+    LLAMA_SERVER = "llama_server"
+
+
 class ModelConfig(BaseModel):
-    """Configuration for a single llama-server model."""
+    """Configuration for a single inference server model.
+
+    Note that this model does **not** carry port information — port is
+    supplied at call time per ADR-010.
+    """
 
     model_config = {"arbitrary_types_allowed": True}
 
     name: str
     model_path: str
+    kind: BackendKind = BackendKind.LLAMA_SERVER
     mmproj_path: str | None = None
-    # Runtime preferences (optional - port is now resolved at startup)
-    default_port: int | None = Field(
-        default=None,
-        ge=1024,
-        le=65535,
-        description="Preferred port for server (auto-allocated if not specified)"
-    )
     n_gpu_layers: int = Field(default=255, ge=0)
     ctx_size: int = Field(default=131072, gt=0)
     np: int | None = Field(default=None, ge=1, description="Number of KV cache pages")
     threads: int | None = None
     threads_batch: int = Field(default=8, gt=0)
     ubatch_size: int = Field(default=512, gt=0)
-    batch_size: int | None = None  # --batch-size / -b
+    batch_size: int | None = None
     flash_attn: Literal["on", "off", "auto"] = "on"
     no_mmap: bool = False
     cache_type_k: Literal["f32", "f16", "bf16", "q8_0"] | None = None
     cache_type_v: Literal["f32", "f16", "bf16", "q8_0"] | None = None
     n_cpu_moe: int | None = Field(default=None, ge=0)
-    # Parallel/server slots
     parallel: int = Field(default=1, gt=0)
-    # Sampling parameters
     temperature: float | None = None
     top_k: int | None = None
     top_p: float | None = None
     min_p: float | None = None
     repeat_penalty: float | None = None
     reverse_prompt: str | None = None
-    # Memory management
     mlock: bool = False
-    extra_args: str = ""  # Free-form string added to command line (e.g., "--mcp-config /path/to/.mcp.json")
-    _skip_path_validation: bool = False  # Internal flag for discovery
+    extra_args: str = ""
+    _skip_path_validation: bool = False
 
     @field_validator("model_path", mode="before")
     @classmethod
     def model_exists(cls, v: str, info) -> str:
-        """Validate that model path exists (supports shard patterns)."""
-        # Skip validation during discovery or when explicitly set
+        """Validate that the model path exists (supports shard patterns)."""
         if getattr(cls, "_skip_path_validation", False):
             return v
 
         path = Path(v)
         if not path.exists():
-            # Check if this might be a shard pattern (first shard)
             if "-of-" in v:
-                # Extract base path for shard files
                 base = path.parent / (path.stem.rsplit("-of-", 1)[0] + ".gguf")
                 if not base.exists():
                     raise ValueError(f"Model path does not exist: {v}")
@@ -72,25 +81,22 @@ class ModelConfig(BaseModel):
     def from_dict_unvalidated(cls, data: dict) -> "ModelConfig":
         """Create from dictionary without path validation.
 
-        Handles backward compatibility migration:
-        - Migrates "port" field to "default_port"
-        - Drops "host" field (defaults to 0.0.0.0 in build_command)
-        - Migrates "extra_args" from list[str] to str
+        Silent migration of legacy fields (per the v2 migration policy:
+        old data is not precious; user re-specifies if needed):
+
+        - Drops ``default_port`` (per ADR-010: port is a call-site concern).
+        - Drops ``port`` (legacy synonym, same reason).
+        - Drops ``host`` (legacy; defaults handled at start time).
+        - Migrates ``extra_args`` from ``list[str]`` to ``str``.
         """
-        # Make a copy to avoid mutating the original
         data = data.copy()
-
-        # Migrate old "port" field to "default_port"
-        if "port" in data and "default_port" not in data:
-            data["default_port"] = data.pop("port")
-
-        # Drop "host" field (will default to 0.0.0.0 in build_command)
+        # Silent drop of port-related legacy fields per ADR-010.
+        data.pop("default_port", None)
+        data.pop("port", None)
         data.pop("host", None)
-
-        # Migrate extra_args from list[str] to str (backward compatibility)
+        # Migrate extra_args from list[str] to str (legacy v1 shape).
         if "extra_args" in data and isinstance(data["extra_args"], list):
             data["extra_args"] = " ".join(data["extra_args"])
-
         cls._skip_path_validation = True
         try:
             return cls.model_validate(data)
@@ -99,7 +105,7 @@ class ModelConfig(BaseModel):
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
-        return self.model_dump()
+        return self.model_dump(mode="json")
 
     @classmethod
     def from_dict(cls, data: dict) -> "ModelConfig":
@@ -133,7 +139,13 @@ class RunningServer(BaseModel):
 
 
 class AuditEntry(BaseModel):
-    """Audit log entry for actions taken."""
+    """Legacy v1 audit entry (kept for backward compat during M1).
+
+    The v2 audit log is :mod:`llauncher.core.audit_log` (JSON Lines on
+    disk, distinguishes commanded vs. observed events). This model exists
+    only so v1 callers continue to import successfully during the M1–M2
+    transition; remove once all references move to the v2 module.
+    """
 
     timestamp: datetime
     action: str
@@ -143,7 +155,6 @@ class AuditEntry(BaseModel):
     message: str | None = None
 
     def to_dict(self) -> dict:
-        """Convert to dictionary for JSON serialization."""
         return {
             "timestamp": self.timestamp.isoformat(),
             "action": self.action,
@@ -155,23 +166,22 @@ class AuditEntry(BaseModel):
 
 
 class ChangeRules(BaseModel):
-    """Rules for validating actions before execution."""
+    """Rules for validating actions before execution.
+
+    Per ADR-010, ``port`` is now a required argument for start/swap
+    validation — there is no fallback to a per-config preferred port.
+    """
 
     whitelisted_models: set[str] = Field(default_factory=set)
     blacklisted_ports: set[int] = Field(default_factory=lambda: {8080})
     blacklisted_callers: set[str] = Field(default_factory=set)
 
-    def validate_start(self, config: ModelConfig, caller: str, port: int | None = None) -> tuple[bool, str]:
-        """Validate if a model can be started.
-
-        Args:
-            config: Model configuration.
-            caller: Name of the caller.
-            port: Optional resolved port to check (uses default_port if not provided).
-        """
-        check_port = port or config.default_port
-        if check_port is not None and check_port in self.blacklisted_ports:
-            return False, f"Port {check_port} is blacklisted"
+    def validate_start(
+        self, config: ModelConfig, caller: str, port: int
+    ) -> tuple[bool, str]:
+        """Validate if a model can be started on the given port."""
+        if port in self.blacklisted_ports:
+            return False, f"Port {port} is blacklisted"
         if caller in self.blacklisted_callers:
             return False, f"Caller '{caller}' is blacklisted"
         if self.whitelisted_models and config.name not in self.whitelisted_models:

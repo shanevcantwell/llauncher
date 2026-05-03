@@ -23,7 +23,6 @@ def get_tools() -> list[Tool]:
                         "type": "object",
                         "description": "Updated configuration fields",
                         "properties": {
-                            "default_port": {"type": "integer", "description": "Preferred port (optional)"},
                             "n_gpu_layers": {"type": "integer"},
                             "ctx_size": {"type": "integer"},
                             "threads": {"type": "integer"},
@@ -48,7 +47,6 @@ def get_tools() -> list[Tool]:
                         "properties": {
                             "name": {"type": "string"},
                             "model_path": {"type": "string"},
-                            "default_port": {"type": "integer", "description": "Preferred port (optional)"},
                             "n_gpu_layers": {"type": "integer"},
                             "ctx_size": {"type": "integer"},
                         },
@@ -70,7 +68,6 @@ def get_tools() -> list[Tool]:
                             "name": {"type": "string"},
                             "model_path": {"type": "string"},
                             "mmproj_path": {"type": "string"},
-                            "default_port": {"type": "integer", "description": "Preferred port (optional, auto-allocates if not specified)"},
                             "n_gpu_layers": {"type": "integer"},
                             "ctx_size": {"type": "integer"},
                             "threads": {"type": "integer"},
@@ -124,9 +121,8 @@ async def update_model_config(state: LauncherState, args: dict) -> dict:
     existing = state.models[name]
     updated_config = existing.model_copy()
 
-    # Apply updates
-    if "default_port" in updates:
-        updated_config.default_port = updates["default_port"]
+    # Apply updates (default_port silently dropped per ADR-010)
+    updates.pop("default_port", None)
     if "n_gpu_layers" in updates:
         updated_config.n_gpu_layers = updates["n_gpu_layers"]
     if "ctx_size" in updates:

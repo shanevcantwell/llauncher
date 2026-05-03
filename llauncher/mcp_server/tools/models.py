@@ -64,7 +64,6 @@ async def list_models(state: LauncherState, args: dict) -> dict:
             "status": {
                 "state": status_info.get("status", "unknown"),
                 "port": status_info.get("port") if status_info.get("status") == "running" else None,
-                "default_port": config.default_port,
                 **({"pid": status_info["pid"]} if status_info.get("status") == "running" else {})
             }
         }
@@ -111,7 +110,6 @@ async def get_model_config(state: LauncherState, args: dict) -> dict:
         "status": {
             "state": status_info.get("status", "unknown"),
             "port": status_info.get("port") if status_info.get("status") == "running" else None,
-            "default_port": config.default_port,
             **({"pid": status_info["pid"]} if status_info.get("status") == "running" else {})
         }
     }

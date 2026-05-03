@@ -13,11 +13,11 @@ def mock_state():
     """Mock LauncherState with test data."""
     state = MagicMock()
 
-    # Create test models
+    # Create test models. Per ADR-010, port is supplied at the call site,
+    # not stored on the config — legacy default_port keys are silently dropped.
     running_config = ModelConfig.from_dict_unvalidated({
         "name": "running-model",
         "model_path": "/path/to/running.gguf",
-        "default_port": 8080,
         "ctx_size": 32768,
         "np": 4,
     })
@@ -25,7 +25,6 @@ def mock_state():
     stopped_config = ModelConfig.from_dict_unvalidated({
         "name": "stopped-model",
         "model_path": "/path/to/stopped.gguf",
-        "default_port": None,  # Auto-allocate
         "ctx_size": 65536,
         "np": None,
     })
@@ -77,7 +76,7 @@ class TestListModels:
 
         stopped = next(m for m in result["models"] if m["identification"]["name"] == "stopped-model")
         assert stopped["status"]["state"] == "stopped"
-        assert stopped["status"]["port"] is None  # default_port is None, so port should be None in status
+        assert stopped["status"]["port"] is None  # Stopped → no port assigned
 
     @pytest.mark.asyncio
     async def test_list_models_multiple(self, mock_state):
@@ -90,12 +89,12 @@ class TestListModels:
         assert "stopped-model" in names
 
     @pytest.mark.asyncio
-    async def test_list_models_returns_default_port(self, mock_state):
-        """list_models includes default_port in status info."""
+    async def test_list_models_omits_default_port(self, mock_state):
+        """Per ADR-010, default_port is no longer in the response."""
         result = await list_models(mock_state, {})
 
-        running = next(m for m in result["models"] if m["identification"]["name"] == "running-model")
-        assert running["status"]["default_port"] == 8080
+        for model in result["models"]:
+            assert "default_port" not in model["status"]
 
     @pytest.mark.asyncio
     async def test_get_model_config_returns_full_config(self, mock_state):

@@ -26,20 +26,13 @@ def render_add_model(state: LauncherState) -> None:
             help="Path to multimodal projector for vision models",
         )
 
-        col1, col2, col3 = st.columns(3)
+        # Per ADR-010, port is no longer a model attribute — supplied at start time.
+        col1, col2 = st.columns(2)
         with col1:
-            default_port = st.number_input(
-                "Default Port (optional)",
-                min_value=1024,
-                max_value=65535,
-                value=8080,
-                help="Leave as 0 for auto-allocation",
-            )
-        with col2:
             n_gpu_layers = st.number_input(
                 "GPU Layers", min_value=0, max_value=1024, value=255
             )
-        with col3:
+        with col2:
             ctx_size = st.number_input(
                 "Context Size", min_value=1024, value=131072
             )
@@ -119,7 +112,7 @@ def render_add_model(state: LauncherState) -> None:
         submitted = st.form_submit_button("Add Model", use_container_width=True)
 
         if submitted:
-            _process_add_model(state, name, model_path, mmproj_path, default_port,
+            _process_add_model(state, name, model_path, mmproj_path,
                              n_gpu_layers, ctx_size, threads, flash_attn,
                              no_mmap, parallel, mlock, n_cpu_moe, batch_size,
                              temperature, top_k, top_p, min_p, repeat_penalty,
@@ -131,7 +124,6 @@ def _process_add_model(
     name: str,
     model_path: str,
     mmproj_path: str | None,
-    default_port: int,
     n_gpu_layers: int,
     ctx_size: int,
     threads: int,
@@ -156,7 +148,6 @@ def _process_add_model(
         name: Model name.
         model_path: Path to GGUF file.
         mmproj_path: Path to multimodal projector (optional).
-        default_port: Default port for the server.
         n_gpu_layers: Number of GPU layers.
         ctx_size: Context size.
         threads: Number of threads.
@@ -190,13 +181,10 @@ def _process_add_model(
     try:
         from llauncher.models.config import ModelConfig
 
-        default_port_val = default_port if default_port >= 1024 else None
-
         config = ModelConfig(
             name=name,
             model_path=model_path,
             mmproj_path=mmproj_path,
-            default_port=default_port_val,
             n_gpu_layers=n_gpu_layers,
             ctx_size=ctx_size,
             threads=threads if threads > 0 else None,
@@ -260,19 +248,13 @@ def render_edit_model(state: LauncherState, model_name: str | None = None) -> No
             help="Path to multimodal projector",
         )
 
-        col1, col2, col3 = st.columns(3)
+        # Per ADR-010, port is no longer a model attribute — supplied at start time.
+        col1, col2 = st.columns(2)
         with col1:
-            default_port = st.number_input(
-                "Default Port (optional)",
-                min_value=1024,
-                max_value=65535,
-                value=config.default_port or 8080,
-            )
-        with col2:
             n_gpu_layers = st.number_input(
                 "GPU Layers", min_value=0, max_value=1024, value=config.n_gpu_layers
             )
-        with col3:
+        with col2:
             ctx_size = st.number_input(
                 "Context Size", min_value=1024, value=config.ctx_size
             )
@@ -365,7 +347,7 @@ def render_edit_model(state: LauncherState, model_name: str | None = None) -> No
             st.rerun()
 
         if submitted:
-            _process_edit_model(state, model_name, model_path, mmproj_path, default_port,
+            _process_edit_model(state, model_name, model_path, mmproj_path,
                               n_gpu_layers, ctx_size, threads, flash_attn, no_mmap,
                               parallel, mlock, n_cpu_moe, batch_size, temperature,
                               top_k, top_p, min_p, repeat_penalty, reverse_prompt,
@@ -377,7 +359,6 @@ def _process_edit_model(
     model_name: str,
     model_path: str,
     mmproj_path: str,
-    default_port: int,
     n_gpu_layers: int,
     ctx_size: int,
     threads: int,
@@ -402,7 +383,6 @@ def _process_edit_model(
         model_name: Name of the model being edited.
         model_path: Path to GGUF file.
         mmproj_path: Path to multimodal projector.
-        default_port: Default port.
         n_gpu_layers: Number of GPU layers.
         ctx_size: Context size.
         threads: Number of threads.
@@ -436,7 +416,6 @@ def _process_edit_model(
             update={
                 "model_path": model_path,
                 "mmproj_path": mmproj_path or None,
-                "default_port": default_port if default_port >= 1024 else None,
                 "n_gpu_layers": n_gpu_layers,
                 "ctx_size": ctx_size,
                 "threads": threads if threads > 0 else None,

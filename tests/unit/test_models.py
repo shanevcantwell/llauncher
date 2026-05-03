@@ -8,25 +8,25 @@ def test_model_config_validation():
     data = {
         "name": "test-model",
         "model_path": "/fake/path/model.gguf",
-        "default_port": 8080,
         "n_gpu_layers": 32,
         "ctx_size": 2048,
     }
     config = ModelConfig.from_dict_unvalidated(data)
     assert config.name == "test-model"
-    assert config.default_port == 8080
+    assert config.n_gpu_layers == 32
 
-def test_model_config_invalid_default_port():
-    """Test that invalid default_port values raise validation errors."""
+
+def test_model_config_drops_legacy_default_port():
+    """Per ADR-010, ``default_port`` is silently dropped on load."""
     data = {
         "name": "test-model",
         "model_path": "/fake/path/model.gguf",
-        "default_port": 10,  # Invalid port (below 1024)
+        "default_port": 8080,
         "n_gpu_layers": 32,
-        "ctx_size": 2048,
     }
-    with pytest.raises(ValueError):
-        ModelConfig.from_dict_unvalidated(data)
+    config = ModelConfig.from_dict_unvalidated(data)
+    assert not hasattr(config, "default_port")
+    assert "default_port" not in config.to_dict()
 
 
 def test_model_config_extra_args_migration():
@@ -88,7 +88,6 @@ class TestModelConfigFieldRoundtrip:
             "name": "test-model",
             "model_path": "/fake/path/model.gguf",
             "mmproj_path": "/fake/path/mmproj.gguf",
-            "default_port": 8080,
             "n_gpu_layers": 100,
             "ctx_size": 32768,
             "np": 4,
@@ -119,7 +118,6 @@ class TestModelConfigFieldRoundtrip:
         assert restored.name == original_data["name"]
         assert restored.model_path == original_data["model_path"]
         assert restored.mmproj_path == original_data["mmproj_path"]
-        assert restored.default_port == original_data["default_port"]
         assert restored.n_gpu_layers == original_data["n_gpu_layers"]
         assert restored.ctx_size == original_data["ctx_size"]
         assert restored.threads == original_data["threads"]
@@ -151,7 +149,6 @@ class TestModelConfigFieldRoundtrip:
 
         # Check defaults
         assert config.mmproj_path is None
-        assert config.default_port is None
         assert config.n_gpu_layers == 255  # Default
         assert config.ctx_size == 131072  # Default
         assert config.threads is None
@@ -174,30 +171,29 @@ class TestModelConfigFieldRoundtrip:
         assert config.np is None
 
 
-class TestModelConfigPortMigration:
-    """Test backward compatibility for port field migration."""
+class TestModelConfigLegacyFieldDrop:
+    """Per ADR-010 + v2 migration policy, legacy port-related fields are
+    silently dropped on load. The data isn't precious; user re-specifies."""
 
-    def test_port_to_default_port_migration(self):
-        """Test old 'port' field is migrated to 'default_port'."""
+    def test_legacy_port_field_dropped(self):
         old_format = {
             "name": "old-model",
             "model_path": "/fake/path/model.gguf",
-            "port": 9090,  # Old field name
+            "port": 9090,
         }
         config = ModelConfig.from_dict_unvalidated(old_format)
-        assert config.default_port == 9090
+        assert not hasattr(config, "port")
         assert "port" not in config.to_dict()
 
-    def test_port_and_default_port(self):
-        """Test that explicit default_port takes precedence over old port field."""
-        mixed_format = {
+    def test_legacy_default_port_field_dropped(self):
+        old_format = {
             "name": "mixed-model",
             "model_path": "/fake/path/model.gguf",
-            "port": 9090,
             "default_port": 8080,
         }
-        config = ModelConfig.from_dict_unvalidated(mixed_format)
-        assert config.default_port == 8080  # default_port takes precedence
+        config = ModelConfig.from_dict_unvalidated(old_format)
+        assert not hasattr(config, "default_port")
+        assert "default_port" not in config.to_dict()
 
     def test_host_field_ignored(self):
         """Test that old 'host' field is dropped without error."""
@@ -213,28 +209,6 @@ class TestModelConfigPortMigration:
 
 class TestModelConfigFieldValidators:
     """Test field validators in ModelConfig."""
-
-    def test_default_port_range_valid(self):
-        """Test valid port range is accepted."""
-        for port in [1024, 8080, 65535]:
-            data = {
-                "name": "test-model",
-                "model_path": "/fake/path/model.gguf",
-                "default_port": port,
-            }
-            config = ModelConfig.from_dict_unvalidated(data)
-            assert config.default_port == port
-
-    def test_default_port_range_invalid(self):
-        """Test invalid port range raises error."""
-        for port in [1023, 0, 65536, -1]:
-            data = {
-                "name": "test-model",
-                "model_path": "/fake/path/model.gguf",
-                "default_port": port,
-            }
-            with pytest.raises(ValueError):
-                ModelConfig.from_dict_unvalidated(data)
 
     def test_n_gpu_layers_valid(self):
         """Test valid n_gpu_layers values."""

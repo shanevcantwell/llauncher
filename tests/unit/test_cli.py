@@ -30,7 +30,6 @@ def sample_model_config():
     return ModelConfig.from_dict_unvalidated({
         "name": "test-model",
         "model_path": "/fake/path/model.gguf",
-        "default_port": 8081,
         "n_gpu_layers": 255,
         "ctx_size": 4096,
     })
@@ -124,7 +123,7 @@ def test_model_info_json(mock_config_store):
     _dir, _path = mock_config_store
     cfg = ModelConfig.from_dict_unvalidated({
         "name": "phi", "model_path": "/fake/phi.gguf",
-        "default_port": 9001, "n_gpu_layers": 30,
+        "n_gpu_layers": 30,
     })
     ConfigStore.add_model(cfg)
 
@@ -132,7 +131,8 @@ def test_model_info_json(mock_config_store):
     assert result.exit_code == 0
     data = json.loads(result.stdout)
     assert data["name"] == "phi"
-    assert data["default_port"] == 9001
+    assert data["n_gpu_layers"] == 30
+    assert "default_port" not in data  # ADR-010: not a model attribute
 
 
 # ---------------------------------------------------------------------------

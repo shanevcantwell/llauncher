@@ -134,13 +134,13 @@ class LauncherState:
         Args:
             config: Model configuration to validate.
             caller: Name of the caller (e.g., "mcp", "ui", "cli").
-            port: Optional specific port to check (uses default_port if not provided).
+            port: Specific port to check.
 
         Returns:
             Tuple of (is_valid, error_message).
         """
-        # Determine which port to check
-        check_port = port or config.default_port
+        # Per ADR-010, port is supplied at the call site; no fallback.
+        check_port = port
 
         # If we have a specific port to check, validate it
         if check_port is not None:
@@ -153,7 +153,9 @@ class LauncherState:
                 return False, f"Port {check_port} is already in use"
 
         # Check change rules (pass the port we're checking)
-        valid, msg = self.rules.validate_start(config, caller, check_port)
+        # Legacy compatibility: rules.validate_start now requires port; pass 0
+        # as a placeholder when no port is supplied (full refactor in M2).
+        valid, msg = self.rules.validate_start(config, caller, check_port if check_port is not None else 0)
         if not valid:
             return False, msg
 
@@ -199,8 +201,8 @@ class LauncherState:
         Args:
             model_name: Name of the model to start.
             caller: Name of the caller.
-            port: Optional port override. If not provided, uses config.default_port
-                  or auto-allocates from available ports.
+            port: Optional port. If not provided, auto-allocates (legacy v1
+                  behavior; v2 callers per ADR-010 always supply a port).
             server_bin: Path to llama-server binary.
 
         Returns:
@@ -212,8 +214,10 @@ class LauncherState:
 
         config = self.models[model_name]
 
-        # Resolve port: explicit override -> default_port -> auto-allocate
-        preferred = port or config.default_port
+        # Resolve port: explicit value or auto-allocate. Per ADR-010 the v2
+        # tool layer always supplies a port; this fallback exists only for
+        # legacy callers during the M1–M2 transition.
+        preferred = port
         success, resolved_port, alloc_msg = find_available_port(preferred)
         if not success:
             self.record_action("start", model_name, caller, "error", alloc_msg)
@@ -634,5 +638,4 @@ class LauncherState:
 
         return {
             "status": "stopped",
-            "default_port": config.default_port,
         }

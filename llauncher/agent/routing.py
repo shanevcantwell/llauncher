@@ -210,8 +210,8 @@ async def list_models() -> list[dict]:
             {
                 "name": config.name,
                 "model_path": config.model_path,
+                "kind": config.kind.value,
                 "mmproj_path": config.mmproj_path,
-                "default_port": config.default_port,
                 "n_gpu_layers": config.n_gpu_layers,
                 "ctx_size": config.ctx_size,
                 "np": config.np,
@@ -380,12 +380,13 @@ async def start_server_with_eviction(model_name: str, port: int | None = None) -
 
     Args:
         model_name: Name of the model configuration to start.
-        port: Optional specific port (uses model's default_port if not provided).
+        port: Required per ADR-010 — port is supplied at the call site.
 
     Returns:
         Start result with port and PID.
 
     Raises:
+        HTTPException 400: No port provided.
         HTTPException 404: Model not found.
         HTTPException 409: Insufficient VRAM or other error.
     """
@@ -397,10 +398,10 @@ async def start_server_with_eviction(model_name: str, port: int | None = None) -
 
     config = state.models[model_name]
 
-    # Resolve port
-    target_port = port if port is not None else config.default_port
-    if target_port is None:
-        raise HTTPException(status_code=400, detail="No port specified and no default_port configured")
+    # Per ADR-010, port is required from the caller; no fallback to config.
+    if port is None:
+        raise HTTPException(status_code=400, detail="port is required")
+    target_port = port
 
     # ── ADR-006: VRAM pre-flight check ────────────────────────
     vram_required = _estimate_vram_mb(config.model_path, config.n_gpu_layers)

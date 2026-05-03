@@ -180,8 +180,8 @@ def _render_model_details(
             st.markdown(f"`{running_server.port}` (running)")
             st.markdown(f"*Uptime: {format_uptime(running_server.uptime_seconds)}*")
         else:
-            default_port = model.get("default_port") or "Auto-allocate"
-            st.markdown(f"`{default_port}`")
+            # Per ADR-010, port is supplied at start time, not stored on the model.
+            st.markdown("`—` (set at start)")
 
     with col1:
         st.markdown(f"**Model**")

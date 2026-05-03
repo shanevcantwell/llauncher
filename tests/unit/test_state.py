@@ -33,11 +33,13 @@ class TestStartWithEviction:
     def make_model(self, name: str, port: int) -> ModelConfig:
         """Create a model config with temp file path."""
         model_path = str(self.tmp_path / f"{name}.gguf")
-        # Use from_dict_unvalidated to bypass path validation during tests
+        # Use from_dict_unvalidated to bypass path validation during tests.
+        # Per ADR-010, port is no longer a model attribute — caller still
+        # passes it for clarity at the call site.
+        del port  # Documented but no longer stored on the config.
         return ModelConfig.from_dict_unvalidated({
             "name": name,
             "model_path": model_path,
-            "default_port": port,
             "n_gpu_layers": 255,
             "ctx_size": 4096,
         })
@@ -259,19 +261,22 @@ class TestEvictionRollback:
         """Create a valid ModelConfig for testing."""
         gguf_path = str(self._tmp_path / f"{name}.gguf")
         Path(gguf_path).touch()
+        # Per ADR-010, port is supplied at the call site, not stored on config.
+        del port  # Documented but no longer stored on the config.
         return ModelConfig.from_dict_unvalidated({
             "name": name,
             "model_path": gguf_path,
-            "default_port": port,
             "n_gpu_layers": 255,
             "ctx_size": 4096,
         })
 
-    def _make_running_server(self, config: ModelConfig, pid: int = 12345) -> RunningServer:
+    def _make_running_server(
+        self, config: ModelConfig, port: int, pid: int = 12345
+    ) -> RunningServer:
         """Create a RunningServer for testing."""
         return RunningServer(
             pid=pid,
-            port=config.default_port,
+            port=port,
             config_name=config.name,
             start_time=datetime.now(),
         )
@@ -300,7 +305,7 @@ class TestEvictionRollback:
         old_config = self._make_model("old_model", 8080)
         new_config = self._make_model("new_model", 9999)
         state.models = {"old_model": old_config, "new_model": new_config}
-        state.running[8080] = self._make_running_server(old_config, pid=12345)
+        state.running[8080] = self._make_running_server(old_config, port=8080, pid=12345)
 
         # Mock: stop succeeds, new start fails, rollback succeeds + ready
         with patch("llauncher.state.process_stop_server", return_value=True), \
@@ -326,7 +331,7 @@ class TestEvictionRollback:
         old_config = self._make_model("old_model", 8080)
         new_config = self._make_model("new_model", 9999)
         state.models = {"old_model": old_config, "new_model": new_config}
-        state.running[8080] = self._make_running_server(old_config, pid=12345)
+        state.running[8080] = self._make_running_server(old_config, port=8080, pid=12345)
 
         with patch("llauncher.state.process_stop_server", return_value=True), \
              patch("llauncher.state.process_start_server") as mock_start, \
@@ -357,7 +362,6 @@ class TestEvictionRollback:
         old_deleted_config = ModelConfig.from_dict_unvalidated({
             "name": "old_deleted",
             "model_path": "/nonexistent/old.gguf",
-            "default_port": 8080,
             "n_gpu_layers": 255,
             "ctx_size": 4096,
         })
@@ -389,7 +393,7 @@ class TestEvictionRollback:
         old_config = self._make_model("old_model", 8080)
         new_config = self._make_model("new_model", 9999)
         state.models = {"old_model": old_config, "new_model": new_config}
-        state.running[8080] = self._make_running_server(old_config, pid=12345)
+        state.running[8080] = self._make_running_server(old_config, port=8080, pid=12345)
 
         with patch("llauncher.state.process_stop_server", return_value=True), \
              patch("llauncher.state.process_start_server",
@@ -441,7 +445,6 @@ class TestLauncherStateBase:
             "test_model": ModelConfig(
                 name="test_model",
                 model_path=model_path,
-                default_port=8080,
             )
         }
         state.running = {}
@@ -649,11 +652,10 @@ class TestModelConfig:
         config = ModelConfig(
             name="test_model",
             model_path=model_path,
-            default_port=8080,
         )
 
         assert config.name == "test_model"
-        assert config.default_port == 8080
+        assert config.model_path == model_path
 
     def test_model_config_to_dict(self, tmp_path):
         """Test ModelConfig serialization."""
@@ -663,12 +665,11 @@ class TestModelConfig:
         config = ModelConfig(
             name="test_model",
             model_path=model_path,
-            default_port=8080,
             n_gpu_layers=255,
         )
 
         result = config.to_dict()
 
         assert result["name"] == "test_model"
-        assert result["default_port"] == 8080
+        assert "default_port" not in result  # ADR-010: not a model attribute
         assert result["n_gpu_layers"] == 255

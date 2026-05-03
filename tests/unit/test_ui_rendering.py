@@ -49,20 +49,6 @@ class TestAddModelValidation:
 
         assert result == "Model 'existing-model' already exists"
 
-    def test_add_model_port_zero_handling(self):
-        """Port 0 converted to None for auto-allocation."""
-        default_port = 0
-        default_port_val = default_port if default_port >= 1024 else None
-
-        assert default_port_val is None
-
-    def test_add_model_port_valid(self):
-        """Port >= 1024 preserved."""
-        default_port = 8080
-        default_port_val = default_port if default_port >= 1024 else None
-
-        assert default_port_val == 8080
-
     def test_add_model_optional_fields_none(self):
         """Optional fields default correctly when 0."""
         threads = 0
@@ -129,35 +115,26 @@ class TestModelEntryLogic:
         assert is_running is True
         assert status_info.get("port") == 8080
 
-    def test_model_entry_stopped_status(self):
-        """Stopped model shows default_port or 'Auto-allocate'."""
+    def test_model_entry_stopped_no_port_attribute(self):
+        """Per ADR-010, stopped model has no port attribute on its config."""
         status_info = {"status": "stopped"}
         config = ModelConfig.from_dict_unvalidated({
             "name": "test",
             "model_path": "/path/to/model.gguf",
-            "default_port": None,
         })
 
         is_running = status_info.get("status") == "running"
         assert is_running is False
+        assert not hasattr(config, "default_port")
 
-        default_port = config.default_port or "Auto-allocate"
-        assert default_port == "Auto-allocate"
-
-    def test_model_entry_stopped_with_port(self):
-        """Stopped model with configured default_port."""
-        status_info = {"status": "stopped"}
+    def test_model_entry_legacy_default_port_silently_dropped(self):
+        """Legacy ``default_port`` in serialized data is dropped on load."""
         config = ModelConfig.from_dict_unvalidated({
             "name": "test",
             "model_path": "/path/to/model.gguf",
             "default_port": 9000,
         })
-
-        is_running = status_info.get("status") == "running"
-        assert is_running is False
-
-        default_port = config.default_port or "Auto-allocate"
-        assert default_port == 9000
+        assert "default_port" not in config.to_dict()
 
     def test_model_entry_delete_running(self):
         """Delete running model shows error."""

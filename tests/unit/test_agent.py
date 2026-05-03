@@ -150,7 +150,6 @@ class TestStatusEndpoint:
             'test-model': _MockModelConfig(
                 name='test-model',
                 model_path='/fake/model.gguf',
-                default_port=8080,
                 ctx_size=2048,
                 np=4,
                 n_gpu_layers=32,
@@ -236,11 +235,12 @@ class TestModelsEndpoint:
             model = data[0]
             assert "name" in model
             assert "model_path" in model
-            assert "default_port" in model
+            assert "kind" in model  # Per ADR-010 + #42 scaffolding
             assert "n_gpu_layers" in model
             assert "ctx_size" in model
             assert "np" in model
             assert "running" in model
+            assert "default_port" not in model  # Removed per ADR-010
 
 
 class TestStartServerEndpoint:

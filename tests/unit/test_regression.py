@@ -154,47 +154,46 @@ class TestIssue7UnusedMultiGpuFields:
 
 
 class TestIssue5PortRename:
-    """Regression test for issue #5: Start button fails - port rename."""
+    """Regression test for issue #5: Start button fails - port rename.
 
-    def test_model_config_has_default_port_field(self):
-        """Test that ModelConfig includes default_port field for server startup."""
+    Original issue was about the ``default_port`` field not flowing through
+    to start. Per ADR-010 the field is removed entirely — port now lives in
+    the call. This test now verifies that legacy ``default_port`` data is
+    silently dropped without breaking config load.
+    """
+
+    def test_legacy_default_port_silently_dropped(self):
         config = ModelConfig.from_dict_unvalidated({
             "name": "test-model",
             "model_path": "/path/to/model.gguf",
-            "default_port": 8080
+            "default_port": 8080,
         })
-
-        assert hasattr(config, 'default_port')
-        assert config.default_port == 8080
-
-        # Should be able to change it
-        config.default_port = 8081
-        assert config.default_port == 8081
+        assert not hasattr(config, "default_port")
+        assert "default_port" not in config.to_dict()
 
 
 class TestIssue3PortCoupledToModelProfile:
-    """Regression test for issue #3: Port coupled to model profile."""
+    """Regression test for issue #3: Port coupled to model profile.
 
-    def test_model_config_port_can_be_configured_independently(self):
-        """Test that port configuration is not rigidly coupled to model name."""
-        # Test that we can have different ports for same model name (different instances)
+    Per ADR-010 the coupling is removed structurally — ``ModelConfig`` no
+    longer carries port at all. The same weights file can be referenced by
+    two configs without any port-collision concern in the data model.
+    """
+
+    def test_same_path_different_configs_independent(self):
         config1 = ModelConfig.from_dict_unvalidated({
-            "name": "shared-model",
-            "model_path": "/path/to/model1.gguf",
-            "default_port": 8080
+            "name": "shared-a",
+            "model_path": "/path/to/model.gguf",
         })
-
         config2 = ModelConfig.from_dict_unvalidated({
-            "name": "shared-model",
-            "model_path": "/path/to/model2.gguf",
-            "default_port": 8081
+            "name": "shared-b",
+            "model_path": "/path/to/model.gguf",
         })
-
-        # Same model name, different ports should be allowed
-        assert config1.name == config2.name == "shared-model"
-        assert config1.default_port == 8080
-        assert config2.default_port == 8081
-        assert config1.model_path != config2.model_path
+        assert config1.name != config2.name
+        assert config1.model_path == config2.model_path
+        # Port is not part of identity per ADR-010.
+        assert not hasattr(config1, "default_port")
+        assert not hasattr(config2, "default_port")
 
 
 class TestIssue18LegacyExtraArgsConfig:
