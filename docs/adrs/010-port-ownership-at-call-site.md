@@ -110,9 +110,9 @@ Response shape carries machine-readable outcome flavor for the harness or the ne
 ### CLI
 
 ```
-llaunch server start <model> --port <port>
-llaunch server stop <port>
-llaunch server swap <port> <model>
+llauncher server start <model> --port <port>
+llauncher server stop <port>
+llauncher server swap <port> <model>
 ```
 
 `--port` may default from a `DEFAULT_PORT` env var. The CLI synthesizes an explicit port before issuing the API call; the API always sees an explicit value.

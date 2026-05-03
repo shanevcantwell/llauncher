@@ -23,7 +23,7 @@ There is one swap operation, exposed identically through:
 
 - **MCP tool:** `swap_server(port, model)`
 - **HTTP Agent:** `POST /swap/{port}` body `{model}`
-- **CLI:** `llaunch server swap <port> <model>`
+- **CLI:** `llauncher server swap <port> <model>`
 - **Streamlit UI:** the model-card "swap" action
 
 All four reach the same tool-layer `swap` function, which calls into the stateless facade (per ADR-008). No per-caller logic; no `strict_rollback` parameter (the MCP-vs-UI strictness distinction from ADR-002 is gone — single shared mechanic).

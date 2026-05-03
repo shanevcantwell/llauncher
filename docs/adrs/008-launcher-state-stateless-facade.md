@@ -115,7 +115,10 @@ so that container deployments can mount them as volumes, enabling in-container a
 
 1. **Orphan policy.** Default is "leave alone, audit-log `observed_orphan`." Is there a use case for adopting orphans (claiming an unmanaged `llama-server` matching our argv pattern)? Probably not — adopting silently is creepy. Defer to a deliberate `claim` operation if ever needed.
 2. **Audit log rotation / retention** — out of scope here; track separately.
-3. **CLI rename** (`llauncher` → `llaunch`) affects the argv sentinel choice; pinned in a separate rename Issue, not here.
+
+**Closed:**
+
+- *CLI rename* `llauncher` → `llaunch`? **No, kept `llauncher`** (resolves #41). The argv sentinel choice is unaffected by this — the sentinel is a llama-server flag (`--alias <model>`), independent of the CLI command name. A backend-agnostic sentinel mechanism is tracked separately under #42 (multi-backend adapter layer).
 
 ## Supersession
 

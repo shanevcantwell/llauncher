@@ -52,7 +52,7 @@ When the tool layer's `target` resolves to "this node" (matches `LAUNCHER_AGENT_
 Reasons:
 
 - **Latency.** No reason to serialize → HTTP → deserialize for an in-process call.
-- **Availability.** The local UI and CLI continue to work even when the HTTP Agent isn't running — useful for `llaunch` shell sessions where the agent daemon hasn't been started.
+- **Availability.** The local UI and CLI continue to work even when the HTTP Agent isn't running — useful for `llauncher` shell sessions where the agent daemon hasn't been started.
 
 The trade-off — one extra dispatch path — is worth it. The short-circuit and the remote dispatch share the same tool-layer signature; only the transport differs.
 
