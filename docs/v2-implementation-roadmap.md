@@ -16,6 +16,21 @@ The repo is frozen for v1 work except for this v2 effort. All v2 commits land di
 
 **Pre-M1 action:** tag the current `main` HEAD as `v1-final` before any M1 commits, to preserve the last working v1 state for emergency reference.
 
+## Progress
+
+| Milestone | Status | Notes |
+|-----------|--------|-------|
+| Pre-M1 | ✅ done | `v1-final` tag pushed |
+| M1 — Foundation | ✅ done (2026-05-02) | 4 commits, 522 tests passing; see `docs/v2-handoff.md` |
+| M2 — Swap + Endpoints | ⏳ next | ADR-011 mechanic + endpoint refactor |
+| M3 — Multi-node | — | |
+| M4 — UI | — | |
+| M5 — Tier 2 ADRs + impl | — | |
+| M6 — Multi-backend (vLLM) | — | |
+| M7 — Release | — | |
+
+For a self-contained guide a fresh context can use to pick up the work, see [`docs/v2-handoff.md`](v2-handoff.md).
+
 ## Pre-Implementation Decisions
 
 | Decision | Resolution |
