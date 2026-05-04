@@ -20,7 +20,10 @@ class RemoteAggregator:
         Args:
             registry: NodeRegistry instance. Creates one if not provided.
         """
-        self.registry = registry or NodeRegistry()
+        # Note: ``registry or NodeRegistry()`` would be wrong here — an empty
+        # registry has ``len == 0`` and is therefore falsy, which would replace
+        # an explicitly-passed empty registry with a fresh one.
+        self.registry = registry if registry is not None else NodeRegistry()
         self._model_cache: dict[str, list[dict]] = {}
         self._server_cache: dict[str, list[RemoteServerInfo]] = {}
 
