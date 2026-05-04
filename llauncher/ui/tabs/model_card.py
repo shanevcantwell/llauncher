@@ -303,9 +303,14 @@ def _handle_start(
                 if success:
                     st.toast(message, icon="✅")
                 else:
+                    # Errors must be sticky — toasts disappear too quickly
+                    # to read on a near-instant validation failure.
+                    st.error(message)
                     st.toast(message, icon="❌")
             else:
+                st.error(f"Cannot start: {msg}")
                 st.toast(f"Cannot start: {msg}", icon="❌")
+            st.rerun()
     elif aggregator:
         result = aggregator.start_on_node(node_name, model_name)
         if result:
