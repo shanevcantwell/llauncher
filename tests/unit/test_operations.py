@@ -1032,3 +1032,160 @@ def test_startup_logs_capped_at_max(
     assert len(result.startup_logs) == ops.STARTUP_LOG_TAIL_MAX
     # Tail preserved.
     assert result.startup_logs[-1] == "line 499"
+
+
+# ---------------------------------------------------------------------------
+# delete_model (M2 slice 3, closes #37)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def config_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Redirect ConfigStore reads/writes to a tmp file."""
+    target = tmp_path / "config.json"
+    monkeypatch.setattr("llauncher.core.config.CONFIG_PATH", target)
+    monkeypatch.setattr(
+        "llauncher.core.config.CONFIG_DIR", target.parent
+    )
+    return target
+
+
+def test_delete_model_not_found_is_idempotent(
+    config_path: Path, run_dir: Path, audit_path: Path
+) -> None:
+    result = ops.delete_model("nonexistent", caller="test")
+
+    assert result.success is True
+    assert result.action == "not_found"
+    assert result.name == "nonexistent"
+    # No audit entry on a true no-op delete.
+    assert al.read_entries(path=audit_path) == []
+
+
+def test_delete_model_happy_path(
+    config_path: Path,
+    run_dir: Path,
+    audit_path: Path,
+    sample_config: ModelConfig,
+) -> None:
+    from llauncher.core.config import ConfigStore
+
+    ConfigStore.add_model(sample_config)
+    assert ConfigStore.get_model("mistral-7b") is not None
+
+    result = ops.delete_model("mistral-7b", caller="test")
+
+    assert result.success is True
+    assert result.action == "deleted"
+    assert result.name == "mistral-7b"
+    # Config entry gone.
+    assert ConfigStore.get_model("mistral-7b") is None
+    # Audit: MODEL_REMOVED + SUCCESS.
+    entries = al.read_entries(path=audit_path)
+    assert len(entries) == 1
+    assert entries[0].action == AuditAction.MODEL_REMOVED
+    assert entries[0].result == AuditResult.SUCCESS
+    assert entries[0].model == "mistral-7b"
+
+
+def test_delete_model_rejected_when_in_use(
+    config_path: Path,
+    run_dir: Path,
+    audit_path: Path,
+    sample_config: ModelConfig,
+) -> None:
+    """Live lockfile claiming the model blocks the delete."""
+    import os
+
+    from llauncher.core.config import ConfigStore
+
+    ConfigStore.add_model(sample_config)
+    # Use this process's pid as a known-live pid.
+    lf.write_lockfile(8081, "mistral-7b", os.getpid(), run_dir=run_dir)
+
+    result = ops.delete_model("mistral-7b", caller="test")
+
+    assert result.success is False
+    assert result.action == "rejected_in_use"
+    assert result.in_use_port == 8081
+    # Config preserved.
+    assert ConfigStore.get_model("mistral-7b") is not None
+    # Lockfile preserved (we did not stop anything).
+    assert lf.read_lockfile(8081, run_dir=run_dir) is not None
+    # Audit: MODEL_REMOVED + REJECTED_OCCUPIED.
+    entries = al.read_entries(path=audit_path)
+    assert len(entries) == 1
+    assert entries[0].action == AuditAction.MODEL_REMOVED
+    assert entries[0].result == AuditResult.REJECTED_OCCUPIED
+    assert entries[0].port == 8081
+
+
+def test_delete_model_with_stale_lockfile_proceeds(
+    config_path: Path,
+    run_dir: Path,
+    audit_path: Path,
+    sample_config: ModelConfig,
+) -> None:
+    """A stale lockfile (dead pid) for the target model is reconciled, then
+    the delete proceeds."""
+    from llauncher.core.config import ConfigStore
+
+    ConfigStore.add_model(sample_config)
+    # Dead pid (max int unlikely to be a live process).
+    lf.write_lockfile(8081, "mistral-7b", 2**31 - 1, run_dir=run_dir)
+
+    result = ops.delete_model("mistral-7b", caller="test")
+
+    assert result.success is True
+    assert result.action == "deleted"
+    # Config gone.
+    assert ConfigStore.get_model("mistral-7b") is None
+    # Stale lockfile cleaned up.
+    assert lf.read_lockfile(8081, run_dir=run_dir) is None
+    # Audit: OBSERVED_STOPPED then MODEL_REMOVED.
+    entries = al.read_entries(path=audit_path)
+    assert len(entries) == 2
+    assert entries[0].action == AuditAction.OBSERVED_STOPPED
+    assert entries[1].action == AuditAction.MODEL_REMOVED
+    assert entries[1].result == AuditResult.SUCCESS
+
+
+def test_delete_model_ignores_lockfiles_for_other_models(
+    config_path: Path,
+    run_dir: Path,
+    audit_path: Path,
+    sample_config: ModelConfig,
+) -> None:
+    """A live lockfile for an unrelated model does not block the delete."""
+    import os
+
+    from llauncher.core.config import ConfigStore
+
+    ConfigStore.add_model(sample_config)
+    # Some other model is running on port 8081 — irrelevant to our delete.
+    lf.write_lockfile(8081, "other-model", os.getpid(), run_dir=run_dir)
+
+    result = ops.delete_model("mistral-7b", caller="test")
+
+    assert result.success is True
+    assert result.action == "deleted"
+    # Other model's lockfile untouched.
+    other = lf.read_lockfile(8081, run_dir=run_dir)
+    assert other is not None
+    assert other.model == "other-model"
+
+
+def test_delete_model_result_to_dict_envelope() -> None:
+    result = ops.DeleteModelResult(
+        success=False,
+        action="rejected_in_use",
+        name="mistral-7b",
+        in_use_port=8081,
+        message="busy",
+    )
+    d = result.to_dict()
+    assert d["success"] is False
+    assert d["action"] == "rejected_in_use"
+    assert d["name"] == "mistral-7b"
+    assert d["in_use_port"] == 8081
+    assert d["message"] == "busy"

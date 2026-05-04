@@ -37,6 +37,7 @@ from llauncher.core import marker as mk  # noqa: F401
 from llauncher.core import process as proc  # noqa: F401
 from llauncher.core.config import ConfigStore  # noqa: F401
 
+from .delete import DeleteModelResult, delete_model
 from .preflight import (
     default_model_health_check,
     default_vram_check,
@@ -57,10 +58,12 @@ __all__ = [
     "start",
     "stop",
     "swap",
+    "delete_model",
     # Result envelopes
     "StartResult",
     "StopResult",
     "SwapResult",
+    "DeleteModelResult",
     # Swap-related constants and types
     "PreflightCheck",
     "STARTUP_LOG_TAIL_MAX",
