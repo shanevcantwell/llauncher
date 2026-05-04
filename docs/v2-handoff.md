@@ -1,13 +1,13 @@
 # v2 Handoff — Pick Up Cold
 
-**Last updated:** 2026-05-02  
-**Current state:** M1 complete. M2 is the next milestone.
+**Last updated:** 2026-05-04  
+**Current state:** M1 complete. M2 in progress — slices 1 and 2 landed; slices 3–6 remain.
 
 A self-contained guide for picking up the v2 architecture work in a fresh context. Read this end-to-end before touching anything.
 
 ## Quick Orient
 
-The repo is in the middle of a v2 architecture rewrite per ADRs 008–011. Current `main` carries M1 of the v2 work. The repo is **frozen for v1 work** — no backporting; all changes land directly on `main`. The v1-final state is preserved at the `v1-final` tag.
+The repo is in the middle of a v2 architecture rewrite per ADRs 008–011. Current `main` carries M1 plus the first two slices of M2. The repo is **frozen for v1 work** — no backporting; all changes land directly on `main`. The v1-final state is preserved at the `v1-final` tag.
 
 ## Where Things Live
 
@@ -20,7 +20,9 @@ The repo is in the middle of a v2 architecture rewrite per ADRs 008–011. Curre
 | Open Issues | `gh issue list` (see "Open Issues" below) |
 | Backend-adapter analysis (vLLM future) | Issue #42 |
 
-## What's Done (M1)
+## What's Done (M1 + M2 slices 1–2)
+
+### M1 — Foundation
 
 | Module | Path | Notes |
 |--------|------|-------|
@@ -28,13 +30,28 @@ The repo is in the middle of a v2 architecture rewrite per ADRs 008–011. Curre
 | Lockfile (atomic `O_EXCL`, reconciliation rules) | `llauncher/core/lockfile.py` | Internal format; not a public contract |
 | Audit log (JSON Lines, commanded vs observed) | `llauncher/core/audit_log.py` | Append-only, never truncated |
 | `ModelConfig` v2 — no `default_port`, has `BackendKind` | `llauncher/models/config.py` | Discriminator scaffolding for #42 |
-| Tool-layer operations (start, stop) | `llauncher/operations.py` | Stateless service per ADR-008 |
+| Tool-layer operations (start, stop) | `llauncher/operations/start.py`, `stop.py` | Stateless service per ADR-008 |
 | CLI wired to v2 ops | `llauncher/cli.py` | `server start` / `server stop` only |
 
-**Tests:** 522 unit tests pass; 4 pre-existing v1 failures (see "Known Failures").
+### M2 — Swap (slices 1–2)
+
+| Module | Path | Notes |
+|--------|------|-------|
+| In-flight swap marker | `llauncher/core/marker.py` | Per-port `{port}.swap` file, atomic `O_EXCL`, lazy stale reconciliation |
+| 5-phase swap mechanic | `llauncher/operations/swap.py` | ADR-011: pre-flight → marker → stop → start → ready, with rollback |
+| Pre-flight adapters | `llauncher/operations/preflight.py` | Wraps `core.model_health` (ADR-005) and `core.gpu` (ADR-006) into the swap pre-flight |
+| Operations package split | `llauncher/operations/` | Was a single `operations.py`; split per-verb during M2 to keep each file focused |
+
+**Tests:** 572 unit tests pass; 4 pre-existing v1 failures (see "Known Failures"). M2 added 50 new tests (14 marker + 18 swap + 15 preflight + 3 wiring integration).
+
+**Public API of `operations` package:** `start`, `stop`, `swap`, `StartResult`, `StopResult`, `SwapResult`, `default_model_health_check`, `default_vram_check`, `estimate_vram_mb`, plus the `STARTUP_LOG_TAIL_MAX` and `DEFAULT_READINESS_TIMEOUT_S` constants. The `proc`, `lf`, `al`, `mk`, and `ConfigStore` symbols are deliberately re-exported on the package so that `patch("llauncher.operations.proc.start_server", ...)` keeps working from tests.
 
 **Commit chain (most recent first):**
 
+- `d416f16` — M2 slice 2 — wire model-health + VRAM into swap pre-flight (+18 tests)
+- `3e081a8` — refactor: split operations into per-verb package
+- `dd5f7dd` — M2 slice 1 — swap mechanic + in-flight marker (+32 tests)
+- `0b76a32` — M1 handoff close-out doc + roadmap progress
 - `ecd94bf` — CLI wired to v2 operations
 - `e94718d` — `operations.py` (start, stop) + 12 tests
 - `30bd907` — drop `default_port`, add `BackendKind`, source/test cascade
@@ -44,34 +61,34 @@ The repo is in the middle of a v2 architecture rewrite per ADRs 008–011. Curre
 - `ac7c873` — orientation spike + ADR-008 amendment
 - `86712c9` — accept ADRs 008–011, supersede 002
 
-## What's Next (M2 — Swap + Endpoints)
+## What's Next (M2 — remaining slices)
 
 **Goal:** all three surfaces (CLI, HTTP, MCP) work for single-node ops with the v2 architecture.
 
 **Open Issues that close in M2:** #37 (model Delete), #40 (endpoint refactor).
 
-**Work items, in suggested order:**
+**Remaining work items, in suggested order:**
 
-1. **`operations.swap(port, model)`** — implement ADR-011's 5-phase mechanic (pre-flight → in-flight marker → stop old → start new → readiness poll, with rollback). The mechanic spec is in `docs/adrs/011-swap-semantics-v2.md`. Action enum from §"Response Shape": `swapped | already_running | rolled_back | failed | rejected_preflight | rejected_stop_failed | rejected_in_progress | rejected_empty`.
-2. **In-flight marker file** at `{LAUNCHER_RUN_DIR}/{port}.swap` with atomic `O_EXCL` create — same pattern as the lockfile in M1, just a different filename.
-3. **Model file health check** — wire `core/model_health.py` into the swap pre-flight (ADR-005 reference).
-4. **VRAM pre-flight** — wire `core/gpu.py`'s collector into the swap pre-flight (ADR-006 reference).
-5. **Model Delete operation** — `operations.delete_model(name)` refusing if the model has a live lockfile on any port. Audit-logged. Closes #37.
-6. **HTTP Agent endpoint refactor** — `POST /start/{port}` body `{model}`, `POST /swap/{port}` body `{model}`, `POST /stop/{port}`, `DELETE /models/{name}`. Drop the model-keyed `/start/{model}` and `/start-with-eviction/{model}`. Closes #40 (alongside MCP).
-7. **MCP server tools** — mirror the HTTP shape: `start_server(model, port)`, `swap_server(port, model)`, `stop_server(port)`, `delete_model(name)`. Tool descriptions per ADR-010 §"Tool Prompt Guidance" — be explicit so the LLM picks the right verb without guessing.
-8. **Update existing v1 tests** that go through `state.py.start_with_eviction` to either (a) test the new `operations.swap` directly, or (b) be skipped pending the v1 path's removal in M3.
+1. **Slice 3 — `operations.delete_model(name)`** — refuse if the model has a live lockfile on any port. Audit-logged. Closes #37. Likely a small slice (~1–2 hours of work; mostly mirrors `start`/`stop` shape and adds a CRUD verb to the tool layer).
+2. **Slice 4 — HTTP Agent endpoint refactor** — `POST /start/{port}` body `{model}`, `POST /swap/{port}` body `{model}`, `POST /stop/{port}`, `DELETE /models/{name}`. Drop the model-keyed `/start/{model}` and `/start-with-eviction/{model}`. Closes #40 (alongside MCP). Touches `llauncher/agent/routing.py`. Natural moment to also resolve #43 (consolidate the duplicate VRAM helpers).
+3. **Slice 5 — MCP server tools** — mirror the HTTP shape: `start_server(model, port)`, `swap_server(port, model)`, `stop_server(port)`, `delete_model(name)`. Tool descriptions per ADR-010 §"Tool Prompt Guidance" — be explicit so the LLM picks the right verb without guessing.
+4. **Slice 6 — Update v1 tests** that go through `state.py.start_with_eviction` to either (a) be re-pointed at `operations.swap` directly, or (b) be skipped pending the v1 path's removal in M3.
 
-**Estimate (from roadmap):** ~3–4 sessions.
+**Done in slices 1 and 2 (no longer pending):** ADR-011 swap mechanic, in-flight marker, model-file health pre-flight, VRAM pre-flight.
+
+**Estimate (remaining):** ~2–3 sessions.
 
 ## Open Issues
 
 | Issue | Title | Milestone |
 |-------|-------|-----------|
-| [#37](https://github.com/shanevcantwell/llauncher/issues/37) | Add model Delete (CRUD symmetry with nodes) | M2 |
+| [#37](https://github.com/shanevcantwell/llauncher/issues/37) | Add model Delete (CRUD symmetry with nodes) | M2 (slice 3) |
 | [#38](https://github.com/shanevcantwell/llauncher/issues/38) | Volume-mountable lockfile + audit paths | M1 (partially done; full closure when consumed) |
 | [#39](https://github.com/shanevcantwell/llauncher/issues/39) | Audit log: commanded vs observed | M1 (partially done; closure when v1 paths drop) |
-| [#40](https://github.com/shanevcantwell/llauncher/issues/40) | Endpoint refactor (port-keyed) | M2 |
+| [#40](https://github.com/shanevcantwell/llauncher/issues/40) | Endpoint refactor (port-keyed) | M2 (slices 4–5) |
 | [#42](https://github.com/shanevcantwell/llauncher/issues/42) | Backend adapter layer (vLLM) | M6 |
+| [#43](https://github.com/shanevcantwell/llauncher/issues/43) | Consolidate VRAM pre-flight helpers (agent vs operations) | M2 (slice 4 cleanup) |
+| [#44](https://github.com/shanevcantwell/llauncher/issues/44) | VRAM estimator: refine `TYPICAL_MAX_LAYERS` heuristic | M6 (with #42) |
 
 ## What NOT To Do
 
@@ -109,17 +126,18 @@ Verify the count is still 4 with: `python -m pytest tests/unit/ -q | tail -3`
 Run these to confirm the state matches this handoff before touching anything:
 
 ```bash
-# Repo state
+# Repo state — top should be d416f16, then 3e081a8, dd5f7dd, 0b76a32 …
 git log --oneline -10
 git tag -l 'v1-final'   # should print v1-final
 
-# Tests (522 expected, 4 pre-existing failures)
+# Tests (572 expected, 4 pre-existing failures)
 python -m pytest tests/unit/ -q | tail -3
 
-# v2 modules present
-ls llauncher/core/lockfile.py llauncher/core/audit_log.py llauncher/operations.py
+# v2 modules present (note: operations is now a package, not a single file)
+ls llauncher/core/lockfile.py llauncher/core/audit_log.py llauncher/core/marker.py
+ls llauncher/operations/__init__.py llauncher/operations/swap.py llauncher/operations/preflight.py
 
-# Open Issues (#37, #38, #39, #40, #42 expected; #41 closed)
+# Open Issues (#37, #38, #39, #40, #42, #43, #44 expected; #41 closed)
 gh issue list --state open
 ```
 
