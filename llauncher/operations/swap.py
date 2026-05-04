@@ -14,6 +14,10 @@ from llauncher.core import process as proc
 from llauncher.core.audit_log import AuditAction, AuditResult
 from llauncher.core.config import ConfigStore
 from llauncher.models.config import ModelConfig
+from llauncher.operations.preflight import (
+    default_model_health_check,
+    default_vram_check,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -172,16 +176,16 @@ def swap(
     caller: str = "unknown",
     server_bin: Path | None = None,
     readiness_timeout: int = DEFAULT_READINESS_TIMEOUT_S,
-    model_health_check: PreflightCheck | None = None,
-    vram_check: PreflightCheck | None = None,
+    model_health_check: PreflightCheck | None = default_model_health_check,
+    vram_check: PreflightCheck | None = default_vram_check,
 ) -> SwapResult:
     """Swap the model on ``port`` to ``model_name`` per ADR-011's 5-phase mechanic.
 
     The five phases:
 
     1. **Pre-flight validation** (no state mutation): model exists in config,
-       port is occupied, lockfile reconciles, no in-flight marker, optional
-       model-health and VRAM checks pass.
+       port is occupied, lockfile reconciles, no in-flight marker, model-file
+       health (ADR-005) and VRAM headroom (ADR-006) checks pass.
     2. **Take the in-flight marker** atomically (``O_EXCL``).
     3. **Stop the old model** (SIGTERM with grace, escalate to SIGKILL).
     4. **Start the new model** (process + lockfile).
@@ -192,8 +196,10 @@ def swap(
 
     The pre-flight ``model_health_check`` and ``vram_check`` are callables
     accepting a ``ModelConfig`` and returning ``(ok, reason)``. They default
-    to ``None`` (skip) in M2 slice 1; M2 slice 2 wires them to the
-    ``core.model_health`` and ``core.gpu`` modules.
+    to :func:`llauncher.operations.preflight.default_model_health_check` and
+    :func:`llauncher.operations.preflight.default_vram_check`. Pass ``None``
+    for either to disable that check (used by unit tests with synthetic
+    configs that don't point at real model files or GPUs).
     """
 
     # ---- Phase 1: Pre-flight ------------------------------------------------

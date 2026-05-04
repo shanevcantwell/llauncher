@@ -37,6 +37,11 @@ from llauncher.core import marker as mk  # noqa: F401
 from llauncher.core import process as proc  # noqa: F401
 from llauncher.core.config import ConfigStore  # noqa: F401
 
+from .preflight import (
+    default_model_health_check,
+    default_vram_check,
+    estimate_vram_mb,
+)
 from .start import StartResult, start
 from .stop import StopResult, stop
 from .swap import (
@@ -60,4 +65,8 @@ __all__ = [
     "PreflightCheck",
     "STARTUP_LOG_TAIL_MAX",
     "DEFAULT_READINESS_TIMEOUT_S",
+    # Pre-flight adapters (callable seams; pass to swap() to override)
+    "default_model_health_check",
+    "default_vram_check",
+    "estimate_vram_mb",
 ]
