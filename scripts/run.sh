@@ -55,6 +55,22 @@ case "${1:-}" in
         ;;
     ui)
         print_info "Starting Streamlit UI..."
+        # The UI auto-spawns llauncher-agent via start_new_session=True, which
+        # detaches it from Streamlit's process group. Without a trap here, the
+        # agent leaks past UI shutdown. Snapshot pre-existing agents so we
+        # don't kill an unrelated `./run.sh agent` or `agent-bg`.
+        pre_agents="$(pgrep -f '^.*llauncher-agent$' 2>/dev/null || true)"
+        cleanup_ui_agents() {
+            post_agents="$(pgrep -f '^.*llauncher-agent$' 2>/dev/null || true)"
+            for pid in $post_agents; do
+                # Skip agents that were already running before we started.
+                if ! printf '%s\n' "$pre_agents" | grep -qx "$pid"; then
+                    kill "$pid" 2>/dev/null && \
+                        print_info "Stopped UI-spawned agent (pid $pid)"
+                fi
+            done
+        }
+        trap cleanup_ui_agents EXIT INT TERM
         streamlit run "$PROJECT_DIR/llauncher/ui/app.py"
         ;;
     agent)
