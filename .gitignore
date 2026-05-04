@@ -92,6 +92,9 @@ __pypackages__/
 celerybeat-schedule
 celerybeat.pid
 
+# Local runtime artifacts
+agent.pid
+
 # SageMath parsed files
 *.sage.py
 
