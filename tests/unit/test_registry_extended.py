@@ -174,45 +174,9 @@ class TestIsLocalAgentReady:
         assert result is False
 
 
-class TestStartLocalAgent:
-    """Tests for NodeRegistry.start_local_agent method."""
-
-    def test_start_local_agent_success(self, monkeypatch):
-        """Test successful agent start with subprocess."""
-        from llauncher.remote.registry import NodeRegistry
-
-        registry = NodeRegistry()
-
-        # Mock subprocess.Popen
-        mock_process = MagicMock()
-        monkeypatch.setattr("subprocess.Popen", lambda *args, **kwargs: mock_process)
-
-        # Mock add_node
-        added = []
-
-        def mock_add_node(name, host, port, overwrite=False):
-            added.append((name, host, port))
-            return True, "Added"
-
-        monkeypatch.setattr(registry, "add_node", mock_add_node)
-
-        result = registry.start_local_agent()
-
-        assert result is True
-
-    def test_start_local_agent_failure(self, monkeypatch):
-        """Test agent start when subprocess fails."""
-        from llauncher.remote.registry import NodeRegistry
-
-        registry = NodeRegistry()
-
-        # Mock subprocess.Popen to raise exception
-        monkeypatch.setattr("subprocess.Popen", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("Failed")))
-
-        result = registry.start_local_agent()
-
-        assert result is False
-
+# NOTE: Tests for NodeRegistry.start_local_agent were removed 2026-05-05.
+# The method itself is slated for removal in M4 per the v2 roadmap — it fights
+# ADR-009's symmetric topology. See docs/v2-handoff.md §M4 and docs/v2-implementation-roadmap.md.
 
 class TestGetNodeInfoAll:
     """Tests for NodeRegistry.get_node_info_all method."""

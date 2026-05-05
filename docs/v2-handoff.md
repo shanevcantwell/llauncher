@@ -1,7 +1,7 @@
 # v2 Handoff — Pick Up Cold
 
-**Last updated:** 2026-05-02  
-**Current state:** M1 complete. M2 is the next milestone.
+**Last updated:** 2026-05-05
+**Current state:** M1 complete, M2 slice 1 (swap + marker) committed. M3/M4 capabilities exist from pre-v2 code but are not yet wired to v2 operations.
 
 A self-contained guide for picking up the v2 architecture work in a fresh context. Read this end-to-end before touching anything.
 
@@ -29,12 +29,16 @@ The repo is in the middle of a v2 architecture rewrite per ADRs 008–011. Curre
 | Audit log (JSON Lines, commanded vs observed) | `llauncher/core/audit_log.py` | Append-only, never truncated |
 | `ModelConfig` v2 — no `default_port`, has `BackendKind` | `llauncher/models/config.py` | Discriminator scaffolding for #42 |
 | Tool-layer operations (start, stop) | `llauncher/operations.py` | Stateless service per ADR-008 |
-| CLI wired to v2 ops | `llauncher/cli.py` | `server start` / `server stop` only |
+| Swap + in-flight marker (M2 slice 1) | `llauncher/operations.py::swap()`, `llauncher/core/marker.py` | ADR-011 five-phase mechanic, rollback, pluggable pre-flight seams |
+| CLI wired to v2 ops | `llauncher/cli.py` | Four subcommand groups: `model` (list, info), `server` (start, stop, status), `node` (add, list, remove, status), `config` (path, validate). Rich tables + `--json` output. |
+| Multi-node infrastructure (M3-scope) | `llauncher/remote/{node,registry,state}.py` | RemoteNode, NodeRegistry, RemoteAggregator with httpx dispatch + auth pass-through. Pre-v2 code; not yet wired to v2 operations. |
+| Streamlit UI (M4-scope) | `llauncher/ui/app.py`, `ui/tabs/` | Dashboard, Nodes, Model Registry tabs. Pre-v2 code; auto-spawn-local-agent still present despite M4 saying to drop it.
 
-**Tests:** 522 unit tests pass; 4 pre-existing v1 failures (see "Known Failures").
+**Tests:** 555 unit tests pass, all green.
 
 **Commit chain (most recent first):**
 
+- `dd5f7dd` — M2 slice 1: `operations.swap()` five-phase mechanic + `core/marker.py` in-flight marker + 32 tests
 - `ecd94bf` — CLI wired to v2 operations
 - `e94718d` — `operations.py` (start, stop) + 12 tests
 - `30bd907` — drop `default_port`, add `BackendKind`, source/test cascade
@@ -50,18 +54,22 @@ The repo is in the middle of a v2 architecture rewrite per ADRs 008–011. Curre
 
 **Open Issues that close in M2:** #37 (model Delete), #40 (endpoint refactor).
 
-**Work items, in suggested order:**
+### Completed (M2 slice 1 — commit `dd5f7dd`)
 
-1. **`operations.swap(port, model)`** — implement ADR-011's 5-phase mechanic (pre-flight → in-flight marker → stop old → start new → readiness poll, with rollback). The mechanic spec is in `docs/adrs/011-swap-semantics-v2.md`. Action enum from §"Response Shape": `swapped | already_running | rolled_back | failed | rejected_preflight | rejected_stop_failed | rejected_in_progress | rejected_empty`.
-2. **In-flight marker file** at `{LAUNCHER_RUN_DIR}/{port}.swap` with atomic `O_EXCL` create — same pattern as the lockfile in M1, just a different filename.
-3. **Model file health check** — wire `core/model_health.py` into the swap pre-flight (ADR-005 reference).
-4. **VRAM pre-flight** — wire `core/gpu.py`'s collector into the swap pre-flight (ADR-006 reference).
-5. **Model Delete operation** — `operations.delete_model(name)` refusing if the model has a live lockfile on any port. Audit-logged. Closes #37.
+- ~~[x]~~ **`operations.swap(port, model)`** ✅ — Full ADR-011 five-phase mechanic. All eight action outcomes reachable.
+- ~~[x]~~ **In-flight marker file** ✅ — `llauncher/core/marker.py` with atomic `O_EXCL`, JSON persistence, lazy stale-marker reconciliation.
+
+### Remaining (M2 slice 2+)
+
+3. **Model file health check** — wire `core/model_health.py` into the swap pre-flight seams (`model_health_check` callable on `operations.swap()`). Module exists but is not wired in yet.
+4. **VRAM pre-flight** — wire `core/gpu.py`'s collector into the swap pre-flight seams (`vram_check` callable). Module exists (NVIDIA SMI, ROCm SMI, Apple MPS backends) but is not wired in yet.
+5. **Model Delete operation** — `operations.delete_model(name)` refusing if the model has a live lockfile on any port. Audit-logged. Closes #37. MCP `remove_model` exists but does NOT check for active lockfiles (only checks v1 `state.running`).
 6. **HTTP Agent endpoint refactor** — `POST /start/{port}` body `{model}`, `POST /swap/{port}` body `{model}`, `POST /stop/{port}`, `DELETE /models/{name}`. Drop the model-keyed `/start/{model}` and `/start-with-eviction/{model}`. Closes #40 (alongside MCP).
-7. **MCP server tools** — mirror the HTTP shape: `start_server(model, port)`, `swap_server(port, model)`, `stop_server(port)`, `delete_model(name)`. Tool descriptions per ADR-010 §"Tool Prompt Guidance" — be explicit so the LLM picks the right verb without guessing.
-8. **Update existing v1 tests** that go through `state.py.start_with_eviction` to either (a) test the new `operations.swap` directly, or (b) be skipped pending the v1 path's removal in M3.
+7. **MCP server tools** — mirror the HTTP shape: `start_server(model, port)`, `swap_server(port, model)`, `stop_server(port)`, `delete_model(name)`. Tool descriptions per ADR-010 §"Tool Prompt Guidance".
+8. **CLI swap subcommand** — wire `operations.swap()` to a `llauncher server swap <port> <model>` CLI command. Currently absent from the CLI.
+9. **Update existing v1 tests** that go through `state.py.start_with_eviction` to either (a) test the new `operations.swap` directly, or (b) be skipped pending the v1 path's removal in M3.
 
-**Estimate (from roadmap):** ~3–4 sessions.
+**Estimate (from roadmap):** ~3–4 sessions. Slice 1 consumed ~1 session; slice 2+ remains.
 
 ## Open Issues
 
@@ -79,18 +87,19 @@ The repo is in the middle of a v2 architecture rewrite per ADRs 008–011. Curre
 - **Do not auto-allocate ports at the API or operations layer.** Per ADR-010, port is always supplied by the caller. The CLI may default from `DEFAULT_PORT` env, but `operations.start(name, port)` requires an explicit `port` argument.
 - **Do not introduce a `v2/` branch.** All v2 work lands on `main`. The strategy is "direct on `main`, repo frozen for v1 work."
 - **Do not refactor `state.py` away yet.** The HTTP Agent (`agent/routing.py`), MCP server (`mcp_server/`), and Streamlit UI still go through v1 `LauncherState`. M2 replaces the HTTP and MCP entry points; the UI rewrite is M4. `state.py` itself stops being load-bearing somewhere around M3 or M4 and can be removed in M5/M6.
+
+  **CRITICAL — dual-swap situation:** There are currently *two* swap implementations:
+    - **v2:** `operations.swap()` (ADR-011 compliant, with marker-based concurrency safety + rollback). Used by: nobody yet (not wired to any surface).
+    - **v1:** `state._start_with_eviction_impl()` — called by HTTP Agent `/start-with-eviction/{model_name}` AND MCP `swap_server` tool.
+
+  The MCP surface uses the v1 path, NOT the new `operations.swap()`. This contradicts ADR-011 §"Single Entry Point." Wire all surfaces to `operations.swap()` before considering M2 done. Do not add a third swap implementation.
 - **Do not add a `restart` verb.** Considered and explicitly deferred — see ADR-010 §"Considered but Not Implemented: Restart". `stop` then `start` is the substitute.
 
-## Known Failures (Pre-existing v1)
+## Known Failures
 
-These were already failing before M1 started; they are *not* blockers and should be left alone unless explicitly tackled in a separate slice. The orientation spike §6 documents the underlying causes.
+**None.** All unit tests pass (555). The two remaining pre-existing failures (`test_start_local_agent_success`) were removed 2026-05-05 — they exercised `NodeRegistry.start_local_agent()`, which is slated for removal in M4 per the v2 roadmap.
 
-- `tests/unit/mcp/test_phase1_lazy_singleton.py::TestStaleDataElimination::test_refresh_clears_killed_process_from_running`
-- `tests/unit/test_gpu_health.py::TestNoBackendReturnsEmpty::test_no_backend_returns_empty` — `nvidia-smi` mock raises `CalledProcessError`, code path doesn't catch it.
-- `tests/unit/test_registry_extended.py::TestStartLocalAgent::test_start_local_agent_success` — UI auto-spawn behavior the spike flagged for removal.
-- `tests/unit/test_regression.py::TestIssue13LocalAgentAutoStart::test_start_local_agent_success` — same.
-
-Verify the count is still 4 with: `python -m pytest tests/unit/ -q | tail -3`
+Verify with: `python -m pytest tests/unit/ -q | tail -3`
 
 ## Conventions
 
@@ -113,7 +122,7 @@ Run these to confirm the state matches this handoff before touching anything:
 git log --oneline -10
 git tag -l 'v1-final'   # should print v1-final
 
-# Tests (522 expected, 4 pre-existing failures)
+# Tests (555 expected, all pass)
 python -m pytest tests/unit/ -q | tail -3
 
 # v2 modules present

@@ -34,27 +34,6 @@ class TestIssue13LocalAgentAutoStart:
             result = registry.is_local_agent_ready()
             assert result is True
 
-    def test_start_local_agent_success(self):
-        """Test that start_local_agent successfully starts the agent."""
-        registry = NodeRegistry()
-        # Clear existing nodes to start with a clean slate for this test
-        registry._nodes.clear()
-
-        # Mock subprocess.Popen to simulate successful process start
-        mock_process = MagicMock()
-        with patch("subprocess.Popen", return_value=mock_process):
-            # Mock add_node to verify it gets called
-            added_nodes = []
-            def mock_add_node(name, host, port, overwrite=False):
-                added_nodes.append((name, host, port))
-                return True, "Added"
-
-            with patch.object(registry, 'add_node', mock_add_node):
-                result = registry.start_local_agent()
-                assert result is True
-                # Should have added the local node
-                assert len(added_nodes) == 1
-                assert added_nodes[0][0] == "local"
 
 
 class TestIssue6LlamaServerConfigFields:

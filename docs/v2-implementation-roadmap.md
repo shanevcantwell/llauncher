@@ -1,6 +1,6 @@
 # v2 Implementation Roadmap
 
-**Date:** 2026-05-02  
+**Date:** 2026-05-02 (updated 2026-05-05)  
 **Status:** Active  
 
 ## Purpose
@@ -21,10 +21,10 @@ The repo is frozen for v1 work except for this v2 effort. All v2 commits land di
 | Milestone | Status | Notes |
 |-----------|--------|-------|
 | Pre-M1 | ✅ done | `v1-final` tag pushed |
-| M1 — Foundation | ✅ done (2026-05-02) | 4 commits, 522 tests passing; see `docs/v2-handoff.md` |
-| M2 — Swap + Endpoints | ⏳ next | ADR-011 mechanic + endpoint refactor |
-| M3 — Multi-node | — | |
-| M4 — UI | — | |
+| M1 — Foundation | ✅ done (2026-05-02) | 4 commits, 555 tests passing (all green); see `docs/v2-handoff.md` |
+| M2 — Swap + Endpoints | 🔄 in progress (slice 1 done 2026-05-04) | `operations.swap()` + marker committed. Slice 2: pre-flight wiring, endpoint refactor, CLI swap pending. |
+| M3 — Multi-node | ✅ implemented (pre-v2) | `llauncher/remote/` with RemoteNode, NodeRegistry, RemoteAggregator. Not yet wired to v2 operations layer. |
+| M4 — UI | ✅ implemented (pre-v2) | Streamlit app in `llauncher/ui/`. Auto-spawn-local-agent NOT dropped despite doc saying so.
 | M5 — Tier 2 ADRs + impl | — | |
 | M6 — Multi-backend (vLLM) | — | |
 | M7 — Release | — | |
@@ -60,32 +60,49 @@ For a self-contained guide a fresh context can use to pick up the work, see [`do
 
 **Issues:** #37 (model Delete), #40 (endpoint refactor)
 
-- Tool-layer `swap_server` with full ADR-011 mechanic (5 phases, rollback, in-flight marker).
-- HTTP Agent (FastAPI) with port-keyed routes per ADR-010: `POST /start/{port}`, `POST /swap/{port}`, `POST /stop/{port}`.
-- MCP server with tools mirroring HTTP shape; tool-prompt text from ADR-010 §Tool Prompt Guidance.
-- Model Delete operation (closes #37).
+**Slice 1 (✅ done, commit `dd5f7dd`):**
+- [x] Tool-layer `swap_server` with full ADR-011 mechanic (5 phases, rollback, in-flight marker) — `operations.py::swap()` + `core/marker.py`
+- [x] Config snapshot at pre-flight for rollback
+- [x] Pluggable `model_health_check` and `vram_check` callable seams (not yet wired)
+- [x] 32 new tests in `test_operations.py` and `test_marker.py`
+
+**Slice 2+ (remaining):**
+- [ ] Wire `core/model_health.py` into swap pre-flight (ADR-005)
+- [ ] Wire `core/gpu.py` into swap pre-flight (ADR-006)
+- [ ] HTTP Agent endpoint refactor per ADR-010: port-keyed routes `POST /start/{port}`, `POST /swap/{port}`
+- [ ] MCP server tools mirror HTTP shape; tool-prompt text from ADR-010 §Tool Prompt Guidance
+- [ ] Model Delete operation (closes #37) — `operations.delete_model(name)` with lockfile check
+- [ ] CLI swap subcommand — `llauncher server swap <port> <model>`
+- [ ] Wire all surfaces to `operations.swap()` (currently MCP uses v1 `state._start_with_eviction_impl()`)
+
+**⚠ Dual-swap warning:** Two swap implementations coexist. `operations.swap()` (v2, ADR-011) is not wired to any surface. The HTTP Agent `/start-with-eviction/` and MCP `swap_server` both use v1 `state._start_with_eviction_impl()`. All surfaces must migrate to `operations.swap()` before M2 is complete.
 
 **Deliverable:** all three surfaces (CLI, HTTP, MCP) work for single-node ops.  
 **Estimate:** ~3–4 sessions.
 
 ### M3 — Multi-node
 
-- `nodes.json` per-node peer list (per ADR-009).
-- Remote dispatch via httpx in tool layer.
-- Self-loop short-circuit when target resolves to this node.
-- Auth pass-through (`X-Api-Key`).
+**Status: Implemented in pre-v2 code.** The infrastructure exists but is NOT wired to the v2 `operations` layer.
+
+- [x] `nodes.json` per-node peer list (per ADR-009) — `llauncher/remote/registry.py`
+- [x] Remote dispatch via httpx — `llauncher/remote/node.py::RemoteNode` with `ping()`, `get_status()`, `start_server()`, `stop_server()`, `get_logs()`
+- [ ] Self-loop short-circuit when target resolves to this node
+- [x] Auth pass-through (`X-Api-Key`) — `RemoteNode` sends header on all calls
+- [ ] Wire multi-node dispatch through v2 `operations.py`
 
 **Deliverable:** target a peer from this node.  
-**Estimate:** ~2–3 sessions.
+**Estimate:** ~1–2 sessions (infra done, wiring pending).
 
 ### M4 — UI
 
-- Streamlit dashboard: model card, node selector, server list.
-- ModelConfig CRUD forms.
-- **Drop the auto-spawn-local-agent behavior** — the orientation spike flagged it as fighting ADR-009's symmetric topology. The UI now requires the agent to be running already.
+**Status: Implemented in pre-v2 code.** Uses v1 `LauncherState`, not v2 operations.
+
+- [x] Streamlit dashboard: model card, node selector, server list — `llauncher/ui/app.py` with tabs in `ui/tabs/`
+- [x] ModelConfig CRUD forms — `ui/tabs/model_registry.py`
+- [ ] **Drop the auto-spawn-local-agent behavior** — NOT DONE. `ui/app.py::main()` still calls `start_agent_background(registry)` and blocks on a loading screen. The orientation spike flagged this as fighting ADR-009's symmetric topology.
 
 **Deliverable:** browser-driven daily use works.  
-**Estimate:** ~2–3 sessions.
+**Estimate:** ~1–2 sessions (UI done, auto-spawn removal + v2 wiring pending).
 
 ### M5 — Tier 2 ADRs + Implementation
 
