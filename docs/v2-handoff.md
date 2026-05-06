@@ -1,7 +1,7 @@
 # v2 Handoff — Pick Up Cold
 
-**Last updated:** 2026-05-05
-**Current state:** M1 complete, M2 slice 1 (swap + marker) committed. M3/M4 capabilities exist from pre-v2 code but are not yet wired to v2 operations.
+**Last updated:** 2026-05-05 (M3 Slice 7 close-out)
+**Current state:** M1 + M2 + Slice 7 complete. Test suite green. Ready to start Slice 8 (Self-loop short-circuit).
 
 A self-contained guide for picking up the v2 architecture work in a fresh context. Read this end-to-end before touching anything.
 
