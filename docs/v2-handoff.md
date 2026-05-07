@@ -1,7 +1,7 @@
 # v2 Handoff — Pick Up Cold
 
-**Last updated:** 2026-05-05 (M3 Slice 7 close-out)
-**Current state:** M1 + M2 + Slice 7 complete. Test suite green. Ready to start Slice 8 (Self-loop short-circuit).
+**Last updated:** 2026-05-07 (post-audit update)
+**Current state:** M1 + M2 slice 1 done. Full code audit completed 2026-05-07 — see "Code Audit Findings" below for gaps discovered.
 
 A self-contained guide for picking up the v2 architecture work in a fresh context. Read this end-to-end before touching anything.
 
@@ -19,6 +19,7 @@ The repo is in the middle of a v2 architecture rewrite per ADRs 008–011. Curre
 | Reverse-engineered v1 PRD (partial truth) | `docs/PRODUCT_REQUIREMENTS.md` |
 | Open Issues | `gh issue list` (see "Open Issues" below) |
 | Backend-adapter analysis (vLLM future) | Issue #42 |
+| **Code audit reports** | `docs/_audit_synthesis.md` + 5 domain-specific reports in `docs/_audit_*.md` |
 
 ## What's Done (M1)
 
@@ -26,7 +27,7 @@ The repo is in the middle of a v2 architecture rewrite per ADRs 008–011. Curre
 |--------|------|-------|
 | Settings env vars (`LAUNCHER_RUN_DIR`, `LAUNCHER_AUDIT_PATH`) | `llauncher/core/settings.py` | Volume-mountable per ADR-008 |
 | Lockfile (atomic `O_EXCL`, reconciliation rules) | `llauncher/core/lockfile.py` | Internal format; not a public contract |
-| Audit log (JSON Lines, commanded vs observed) | `llauncher/core/audit_log.py` | Append-only, never truncated |
+| Audit log (JSON Lines, commanded vs observed) | `llauncher/core/audit_log.py` | ⚠️ Stub only — no write operations implemented; config CRUD not audited. See audit §H3.
 | `ModelConfig` v2 — no `default_port`, has `BackendKind` | `llauncher/models/config.py` | Discriminator scaffolding for #42 |
 | Tool-layer operations (start, stop) | `llauncher/operations.py` | Stateless service per ADR-008 |
 | Swap + in-flight marker (M2 slice 1) | `llauncher/operations.py::swap()`, `llauncher/core/marker.py` | ADR-011 five-phase mechanic, rollback, pluggable pre-flight seams |
@@ -34,7 +35,7 @@ The repo is in the middle of a v2 architecture rewrite per ADRs 008–011. Curre
 | Multi-node infrastructure (M3-scope) | `llauncher/remote/{node,registry,state}.py` | RemoteNode, NodeRegistry, RemoteAggregator with httpx dispatch + auth pass-through. Pre-v2 code; not yet wired to v2 operations. |
 | Streamlit UI (M4-scope) | `llauncher/ui/app.py`, `ui/tabs/` | Dashboard, Nodes, Model Registry tabs. Pre-v2 code; auto-spawn-local-agent still present despite M4 saying to drop it.
 
-**Tests:** 555 unit tests pass, all green.
+**Tests:** 555 unit tests pass, all green. Test coverage ~85% overall; gaps in model_health cache edge cases, concurrent lockfile/marker access, and config-change audit paths.
 
 **Commit chain (most recent first):**
 
@@ -81,6 +82,14 @@ The repo is in the middle of a v2 architecture rewrite per ADRs 008–011. Curre
 | [#40](https://github.com/shanevcantwell/llauncher/issues/40) | Endpoint refactor (port-keyed) | M2 |
 | [#42](https://github.com/shanevcantwell/llauncher/issues/42) | Backend adapter layer (vLLM) | M6 |
 
+**Audit-discovered gaps** (not yet filed as Issues — file them if you act on these):
+- `state.py` imports from `core/model_health`, violating architecture layer boundaries (§C2)
+- MCP read tools never call `refresh()` — return perpetually stale data (§H1)
+- BLE001 bare `except Exception:` in `operations.py` cleanup paths silently swallow errors (§H4)
+- Logs truncated on restart (`"w"` mode instead of `"a"`) — M5 Item 2 pending
+- No `/models/health` endpoint despite ADR-005 specifying it
+- No GPU data in `/status?full=true` despite ADR-006 collector being implemented
+
 ## What NOT To Do
 
 - **Do not add compatibility shims.** "Rewrite, not migration." Old config data is silently dropped (per `ModelConfig.from_dict_unvalidated`); callers re-specify if they care. Don't try to support both v1 and v2 shapes simultaneously.
@@ -100,6 +109,60 @@ The repo is in the middle of a v2 architecture rewrite per ADRs 008–011. Curre
 **None.** All unit tests pass (555). The two remaining pre-existing failures (`test_start_local_agent_success`) were removed 2026-05-05 — they exercised `NodeRegistry.start_local_agent()`, which is slated for removal in M4 per the v2 roadmap.
 
 Verify with: `python -m pytest tests/unit/ -q | tail -3`
+
+## Code Audit Findings (2026-05-07)
+
+A full code-vs-documentation audit was performed using 5 parallel subagent reviews. Full reports in `docs/_audit_*.md`; synthesis in `docs/_audit_synthesis.md`.
+
+### 🔴 Critical — Must Fix Before Next Release
+
+| # | Issue | ADR | Affected Code |
+|---|-------|-----|---------------|
+| C1 | **Dual-swap problem:** `operations.swap()` is fully implemented per ADR-011 but **no surface calls it**. HTTP Agent and MCP tools still use legacy v1 path (`state._start_with_eviction_impl()`). Concurrency control from ADR-011 is dead code for production callers. | 011 | `mcp_server/tools/servers.py`, `agent/routing.py` |
+| C2 | **Layer violation:** `state.py` imports from `core/model_health`, violating documented layer order (State → Core). Tight coupling, harder testing. | — | `state.py:9–14` |
+| C3 | **ADR-010 violated:** Port ownership has legacy fallbacks in CLI (`DEFAULT_PORT` env var) and state layer (`start_server()` auto-allocation when port=None). ADR requires port as required parameter everywhere. | 010 | `cli.py`, `state.py:345–407` |
+
+### 🟠 High Priority — Next Sprint
+
+| # | Issue | ADR | Affected Code |
+|---|-------|-----|---------------|
+| H1 | **MCP stale reads:** MCP read tools never call `refresh()` before returning data. With 4 independent `LauncherState` instances, MCP returns perpetually stale information. | 008 | `mcp_server/tools/models.py`, `servers.py` |
+| H2 | **Auto-spawn still present:** M4 says to drop auto-spawn but `NodeRegistry.start_local_agent()` is still called from UI. | — | `remote/registry.py` |
+| H3 | **Audit log not persisted:** ADR-008 requires JSON Lines persistence; current implementation is a stub with no write operations. Config CRUD (add/update/remove) has no audit entries. | 008 | `core/audit_log.py`, `core/config.py` |
+| H4 | **BLE001 silent failures:** Bare `except Exception:` in `operations.py` cleanup paths (lines 143, 256–258, 397–399) silently swallows all errors including `KeyboardInterrupt`. | — | `operations.py` |
+
+### 🟡 Medium Priority — Following Sprints
+
+| # | Issue | ADR | Affected Code |
+|---|-------|-----|---------------|
+| M1 | Redundant refresh calls in agent endpoints (`refresh()` then `refresh_running_servers()`) | 008 | `agent/routing.py` |
+| M2 | Logs truncated on restart — `"w"` mode instead of `"a"`; no rotation (M5 Item 2) | — | `core/process.py` |
+| M3 | Missing `/models/health` endpoint despite ADR-005 specifying it | 005 | `agent/routing.py` |
+| M4 | GPU data not wired into `/status?full=true` (ADR-006 collector exists but unused) | 006 | `agent/routing.py`, `core/gpu.py` |
+| M5 | No self-loop short-circuit in RemoteNode — always uses HTTP even for local node | 009 | `remote/node.py` |
+
+### ADR Compliance Summary
+
+| ADR | Title | Status |
+|-----|-------|--------|
+| 003 | Agent API Authentication | ✅ Compliant |
+| 004 | CLI Subcommand Interface | ⚠️ Partial — missing swap command, port fallback |
+| 005 | Model Cache Health | ⚠️ Partial — core exists, no endpoint |
+| 006 | GPU Resource Monitoring | ⚠️ Partial — collector exists, not wired |
+| 008 | Stateless Facade | ⚠️ Partial — lockfile ✅, audit log ❌, `refresh()` still present |
+| 009 | Hub-Spoke Topology | ✅ Compliant |
+| 010 | Port Ownership at Call Site | ❌ **Violated** — legacy fallbacks persist |
+| 011 | Swap Semantics v2 | ⚠️ Partial — ops layer ✅, surfaces not wired ❌ |
+
+### Recommended Action Order
+
+1. Wire HTTP Agent and MCP tools to `operations.swap()` (eliminates C1)
+2. Remove `state.py` import of `core/model_health` (fixes C2)
+3. Make port required at all boundaries per ADR-010 (fixes C3)
+4. Add refresh calls to MCP read tools (H1)
+5. Remove auto-spawn from NodeRegistry (H2)
+6. Implement audit log persistence + config change entries (H3)
+7. Replace BLE001 patterns with scoped exceptions (H4)
 
 ## Conventions
 
