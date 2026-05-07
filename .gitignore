@@ -142,3 +142,7 @@ llauncher-config.json
 .claude/
 .mcp.json
 docs/scratchpad/
+agent.pid
+agentdb.rvf
+agentdb.rvf.lock
+ruvector.db
