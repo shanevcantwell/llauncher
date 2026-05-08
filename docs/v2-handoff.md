@@ -1,7 +1,7 @@
 # v2 Handoff — Pick Up Cold
 
-**Last updated:** 2026-05-07 (post-M3 merge)
-**Current state:** M1 + M2 + M3 complete. Full code audit completed and critical gaps remediated by merge. Ready to start M4 (UI redesign).
+**Last updated:** 2026-05-08 (M4/M5 punch-list filed)
+**Current state:** M1 + M2 + M3 complete. Audit re-verified against current tree (some findings already shifted — see §"Audit re-verification"). M4/M5 work decomposed into 15 epic Issues (#48–#62). Ready to start M4 (UI redesign) — recommended sequence: pre-M4 audit cleanup → M5 logs → M4 UI → remaining M5 ADRs → late audit cleanup.
 
 A self-contained guide for picking up the v2 architecture work in a fresh context. Read this end-to-end before touching anything.
 
@@ -82,19 +82,60 @@ All single-node and multi-node v2 operations are wired through `operations/` pac
 
 ## Open Issues
 
-| Issue | Title | Milestone |
-|-------|-------|-----------|
-| [#37](https://github.com/shanevcantwell/llauncher/issues/37) | Add model Delete (CRUD symmetry with nodes) | M2 |
-| [#38](https://github.com/shanevcantwell/llauncher/issues/38) | Volume-mountable lockfile + audit paths | M1 (partially done; full closure when consumed) |
-| [#39](https://github.com/shanevcantwell/llauncher/issues/39) | Audit log: commanded vs observed | M1 (partially done; closure when v1 paths drop) |
+### M4 — UI rewrite
+| Issue | Title |
+|-------|-------|
+| [#48](https://github.com/shanevcantwell/llauncher/issues/48) | M4 Slice 11: Reusable node_selector UI component |
+| [#49](https://github.com/shanevcantwell/llauncher/issues/49) | M4 Slice 12: Drop UI auto-spawn-local-agent (closes audit H2) |
+| [#50](https://github.com/shanevcantwell/llauncher/issues/50) | M4 Slice 13: Restructure UI tabs around verbs + new audit tab |
+| [#51](https://github.com/shanevcantwell/llauncher/issues/51) | M4 Slice 14: Centralize op-result rendering in ui/utils.py |
+| [#47](https://github.com/shanevcantwell/llauncher/issues/47) | UI migration umbrella (subsumed by #48–#51) |
 
-**Audit-discovered gaps** (not yet filed as Issues — file them if you act on these):
-- ~~`state.py` imports from `core/model_health`~~ — **RESOLVED** by operations split; core modules no longer imported through state
-- MCP read tools never call `refresh()` — return perpetually stale data (§H1)
-- BLE001 bare `except Exception:` in `operations.py` cleanup paths silently swallow errors (§H4)
-- Logs truncated on restart (`"w"` mode instead of `"a"`) — M5 Item 2 pending
-- No `/models/health` endpoint despite ADR-005 specifying it
-- No GPU data in `/status?full=true` despite ADR-006 collector being implemented
+### M5 — Tier 2 ADRs
+| Issue | Title |
+|-------|-------|
+| [#52](https://github.com/shanevcantwell/llauncher/issues/52) | M5 / ADR-013: Logs lifecycle — append, rotation, bounded tail |
+| [#53](https://github.com/shanevcantwell/llauncher/issues/53) | M5 / ADR-012: Footer contract — /footer-context/{port} endpoint |
+| [#54](https://github.com/shanevcantwell/llauncher/issues/54) | M5 / ADR-014: Cancellation of in-flight start/swap |
+| [#55](https://github.com/shanevcantwell/llauncher/issues/55) | M5 / ADR-015: Orphan policy — managed flag, list/adopt verbs |
+| [#56](https://github.com/shanevcantwell/llauncher/issues/56) | M5 / ADR-016: Canonical self-swap integration test |
+
+### Audit cleanup (file before/around M4–M5)
+| Issue | Title |
+|-------|-------|
+| [#57](https://github.com/shanevcantwell/llauncher/issues/57) | C2: Remove state.py import of core/model_health (layer violation) |
+| [#58](https://github.com/shanevcantwell/llauncher/issues/58) | C3: Make port required at all boundaries — drop DEFAULT_PORT fallback |
+| [#59](https://github.com/shanevcantwell/llauncher/issues/59) | H1: MCP read tools must call refresh() before returning |
+| [#60](https://github.com/shanevcantwell/llauncher/issues/60) | H3: Persist audit entries on ConfigStore CRUD |
+| [#61](https://github.com/shanevcantwell/llauncher/issues/61) | H4: Replace BLE001 bare except in operations/* |
+| [#62](https://github.com/shanevcantwell/llauncher/issues/62) | M5-audit: Self-loop short-circuit in RemoteNode |
+
+### Carried from earlier milestones
+| Issue | Title | Notes |
+|-------|-------|-------|
+| [#38](https://github.com/shanevcantwell/llauncher/issues/38) | Volume-mountable lockfile + audit paths | M1 partially done; full closure when consumed everywhere |
+| [#39](https://github.com/shanevcantwell/llauncher/issues/39) | Audit log: commanded vs observed | Partially done; #60 closes the config-CRUD gap |
+| [#42](https://github.com/shanevcantwell/llauncher/issues/42) | Backend adapter (vLLM) | M6 |
+| [#10](https://github.com/shanevcantwell/llauncher/issues/10), [#36](https://github.com/shanevcantwell/llauncher/issues/36), [#44](https://github.com/shanevcantwell/llauncher/issues/44), [#45](https://github.com/shanevcantwell/llauncher/issues/45) | Misc | Adjacent to M5 work but not blocking |
+
+## Audit re-verification (2026-05-08)
+
+Spot-checked the 2026-05-07 audit findings against the current tree:
+
+| Finding | Status |
+|---------|--------|
+| C1 (dual-swap) | ✅ Resolved by M3 merge |
+| C2 (state→core/model_health) | ❌ Still real; #57 |
+| C3 (port auto-allocation) | ❌ Still real (cli.py:164–166, state.py:345–407); #58 |
+| H1 (MCP refresh) | ⚠️ Partially fixed — some paths refresh, some don't; #59 |
+| H2 (UI auto-spawn) | ❌ Still real (registry.py:200, app.py:62); #49 |
+| H3 (audit log stub) | ⚠️ audit_log writes work; ConfigStore CRUD doesn't call them; #60 |
+| H4 (BLE001) | ❌ Still real (start.py:144, swap.py:90/122/131); #61 |
+| M1 redundant refresh | Open |
+| M2 logs `"w"` mode | ❌ Still real (process.py:197); #52 |
+| M3 `/models/health` endpoint | ✅ **Audit was stale** — endpoint exists at routing.py:221, 241 |
+| M4 GPU in `/status` | ✅ **Audit was partially stale** — data is included (routing.py:175–182); just lacks `?full=true` filter |
+| M5 self-loop short-circuit | ❌ Still real; #62 |
 
 ## What NOT To Do
 
@@ -154,15 +195,15 @@ A full code-vs-documentation audit was performed using 5 parallel subagent revie
 | 010 | Port Ownership at Call Site | ❌ **Violated** — legacy fallbacks persist |
 | 011 | Swap Semantics v2 | ⚠️ Partial — ops layer ✅, surfaces not wired ❌ |
 
-### Recommended Action Order
+### Recommended Action Order (updated 2026-05-08)
 
-1. Wire HTTP Agent and MCP tools to `operations.swap()` (eliminates C1)
-2. Remove `state.py` import of `core/model_health` (fixes C2)
-3. Make port required at all boundaries per ADR-010 (fixes C3)
-4. Add refresh calls to MCP read tools (H1)
-5. Remove auto-spawn from NodeRegistry (H2)
-6. Implement audit log persistence + config change entries (H3)
-7. Replace BLE001 patterns with scoped exceptions (H4)
+C1 was resolved by the M3 merge. Remaining sequence:
+
+1. **Pre-M4 cleanup** (~2 sessions): #57 (C2 layer), #58 (C3 port), #59 (H1 MCP refresh) — get the boundaries clean before UI work touches them.
+2. **M5 logs first** (~1 session): #52 (ADR-013) — land before M4 testing so logs aren't lost during UI smoke runs.
+3. **M4 UI rewrite** (~2–3 sessions): #48 → #51 → #49 → #50, in that order. Component + result-renderer first, then drop auto-spawn, then tab restructure.
+4. **Remaining M5 ADRs** (~4–5 sessions, parallelizable): #53 footer, #54 cancel, #55 orphan, #56 self-swap.
+5. **Late audit cleanup** (~1 session): #60 (H3 audit-on-CRUD), #61 (H4 BLE001), #62 (self-loop).
 
 ## Conventions
 
