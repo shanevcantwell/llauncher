@@ -191,6 +191,93 @@ class TestAddModel:
                 mock_config_store.add_model.assert_called_once()
 
 
+class TestStaleStateRefresh:
+    """Issue #59 / audit H1 — write tools must refresh before reading state.
+
+    With four independent ``LauncherState`` instances (UI, CLI, HTTP, MCP),
+    MCP's snapshot of ``state.models`` can be stale relative to the on-disk
+    config. Both write tools (``update_model_config``, ``add_model``) must
+    call ``state.refresh()`` before consulting ``state.models`` so a foreign
+    edit between MCP's last refresh and the current call is observed.
+    """
+
+    @pytest.mark.asyncio
+    async def test_update_model_config_calls_refresh_before_lookup(self):
+        """``update_model_config`` must refresh before the not-found check.
+
+        Sequence: stale state has only ``old-model``. ``refresh()`` populates
+        ``new-model`` into ``state.models``. The tool should then succeed
+        when asked to update ``new-model`` — proving the lookup ran AFTER
+        the refresh.
+        """
+        config = ModelConfig.from_dict_unvalidated({
+            "name": "new-model",
+            "model_path": "/path/to/new.gguf",
+        })
+        mock_state = MagicMock()
+        # Pre-refresh snapshot doesn't contain new-model.
+        mock_state.models = {}
+
+        def _refresh_side_effect():
+            # Simulate another process adding the model since MCP's last refresh.
+            mock_state.models["new-model"] = config
+
+        mock_state.refresh.side_effect = _refresh_side_effect
+
+        with patch("llauncher.core.config.ConfigStore") as mock_config_store:
+            result = await update_model_config(
+                mock_state,
+                {"name": "new-model", "config": {"n_gpu_layers": 64}},
+            )
+
+        mock_state.refresh.assert_called_once()
+        assert result["success"] is True
+        mock_config_store.update_model.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_add_model_calls_refresh_before_existence_check(self):
+        """``add_model`` must refresh before the duplicate-name check.
+
+        If a foreign process created ``rival-model`` between MCP's last
+        refresh and this call, the duplicate guard should fire. Without
+        the refresh, MCP would silently overwrite the foreign add.
+
+        We patch :func:`ModelConfig.model_validate` to bypass real-path
+        validation (matching the surrounding ``test_add_model_success``
+        pattern); the refresh seam is what's under test, not the
+        validation logic.
+        """
+        rival = ModelConfig.from_dict_unvalidated({
+            "name": "rival-model",
+            "model_path": "/path/to/rival.gguf",
+        })
+        mock_state = MagicMock()
+        mock_state.models = {}  # Stale: doesn't see rival-model yet.
+
+        def _refresh_side_effect():
+            mock_state.models["rival-model"] = rival
+
+        mock_state.refresh.side_effect = _refresh_side_effect
+
+        with patch("llauncher.core.config.ConfigStore") as mock_config_store, \
+             patch("llauncher.mcp_server.tools.config.ModelConfig") as mock_model_config:
+            mock_model_config.model_validate.return_value = rival
+
+            result = await add_model(
+                mock_state,
+                {"config": {
+                    "name": "rival-model",
+                    "model_path": "/path/to/rival.gguf",
+                }},
+            )
+
+        mock_state.refresh.assert_called_once()
+        # Refresh revealed the rival; duplicate guard fires.
+        assert result["success"] is False
+        assert "already exists" in result["error"].lower()
+        mock_config_store.add_model.assert_not_called()
+
+
 class TestDeleteModel:
     """Tests for delete_model tool — thin wrapper over ops.delete_model."""
 

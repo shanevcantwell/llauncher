@@ -120,6 +120,14 @@ async def update_model_config(state: LauncherState, args: dict) -> dict:
     if not name:
         return {"success": False, "error": "Missing required argument: name"}
 
+    # Refresh before reading state.models (issue #59 / audit H1). With four
+    # independent LauncherState instances (UI, CLI, HTTP, MCP), the MCP
+    # snapshot of self.models can be stale relative to config.json on
+    # disk. Refreshing here narrows the TOCTOU window between "did this
+    # model exist?" and "write the update" — without it, MCP could
+    # overwrite a foreign edit it never observed.
+    state.refresh()
+
     if name not in state.models:
         return {"success": False, "error": f"Model not found: {name}"}
 
@@ -205,6 +213,13 @@ async def add_model(state: LauncherState, args: dict) -> dict:
         config = ModelConfig.model_validate(config_data)
     except Exception as e:
         return {"success": False, "error": f"Validation error: {e}"}
+
+    # Refresh before the existence check (issue #59 / audit H1). See the
+    # twin comment in ``update_model_config``: MCP's stale view of
+    # ``state.models`` can let a duplicate-name add slip through if
+    # another process created the same name between MCP's last refresh
+    # and this call.
+    state.refresh()
 
     # Check if model already exists
     if config.name in state.models:

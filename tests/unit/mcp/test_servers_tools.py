@@ -315,6 +315,24 @@ class TestGetServerLogs:
         mock_stream.assert_called_once()
         assert mock_stream.call_args[0][1] == 500
 
+    @pytest.mark.asyncio
+    async def test_calls_refresh_each_invocation(self, mock_state):
+        """``get_server_logs`` must call ``state.refresh()`` per invocation
+        (issue #59 / audit H1 regression guard).
+
+        ``server_status`` already has an equivalent assertion in
+        :class:`TestServerStatus`. This test guards the second read tool
+        against accidental removal of the refresh call during the M4 tab
+        restructure (#50) or any future cleanup.
+        """
+        with patch(
+            "llauncher.mcp_server.tools.servers.stream_logs",
+            return_value=[],
+        ):
+            await get_server_logs(mock_state, {"port": 8080})
+
+        mock_state.refresh.assert_called_once()
+
 
 # ─────────────────────────── get_tools ────────────────────────────
 

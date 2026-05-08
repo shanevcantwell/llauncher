@@ -1,11 +1,10 @@
 """Tests for MCP models tools."""
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 
 from llauncher.mcp_server.tools.models import list_models, get_model_config, get_tools
-from llauncher.models.config import ModelConfig, RunningServer
-from datetime import datetime
+from llauncher.models.config import ModelConfig
 
 
 @pytest.fixture
@@ -147,6 +146,28 @@ class TestGetModelConfig:
 
         assert "error" in result
         assert "not found" in result["error"].lower()
+
+
+class TestReadToolsRefreshRegression:
+    """Issue #59 / audit H1 — read tools must keep calling refresh().
+
+    The audit's original H1 framing was that MCP read tools never refreshed
+    and returned perpetually stale data. That was remediated previously
+    (models.py:53 + 91); these regression tests guard against accidental
+    removal during the M4 tab restructure (#50) or any future cleanup.
+    """
+
+    @pytest.mark.asyncio
+    async def test_list_models_calls_refresh_each_invocation(self, mock_state):
+        """``list_models`` must call ``state.refresh()`` per invocation."""
+        await list_models(mock_state, {})
+        mock_state.refresh.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_model_config_calls_refresh_each_invocation(self, mock_state):
+        """``get_model_config`` must call ``state.refresh()`` per invocation."""
+        await get_model_config(mock_state, {"name": "running-model"})
+        mock_state.refresh.assert_called_once()
 
 
 class TestGetTools:
