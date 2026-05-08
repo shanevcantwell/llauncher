@@ -56,28 +56,29 @@ The repo is in the middle of a v2 architecture rewrite per ADRs 008–011. Curre
 - `ac7c873` — orientation spike + ADR-008 amendment
 - `86712c9` — accept ADRs 008–011, supersede 002
 
-## What's Next (M2 — Swap + Endpoints)
+## Completed: M1 + M2 + M3
 
-**Goal:** all three surfaces (CLI, HTTP, MCP) work for single-node ops with the v2 architecture.
+All single-node and multi-node v2 operations are wired through `operations/` package. Port-keyed endpoints, delete model, pre-flight adapters, remote swap parity — all complete. 612 tests pass.
 
-**Open Issues that close in M2:** #37 (model Delete), #40 (endpoint refactor).
+**Open Issues closed by merge:** #37 (model Delete), #40 (endpoint refactor), #43 (VRAM consolidation), #46 (v1 test cleanup).
+**Partially addressed:** #47 (UI migration — remote swap parity done, local UI still uses v1 `state.start_server`).
 
 ### Completed (M2 slice 1 — commit `dd5f7dd`)
 
 - ~~[x]~~ **`operations.swap(port, model)`** ✅ — Full ADR-011 five-phase mechanic. All eight action outcomes reachable.
 - ~~[x]~~ **In-flight marker file** ✅ — `llauncher/core/marker.py` with atomic `O_EXCL`, JSON persistence, lazy stale-marker reconciliation.
 
-### Remaining (M2 slice 2+)
+### Completed by merge (`05942a0`):
 
-3. **Model file health check** — wire `core/model_health.py` into the swap pre-flight seams (`model_health_check` callable on `operations.swap()`). Module exists but is not wired in yet.
-4. **VRAM pre-flight** — wire `core/gpu.py`'s collector into the swap pre-flight seams (`vram_check` callable). Module exists (NVIDIA SMI, ROCm SMI, Apple MPS backends) but is not wired in yet.
-5. **Model Delete operation** — `operations.delete_model(name)` refusing if the model has a live lockfile on any port. Audit-logged. Closes #37. MCP `remove_model` exists but does NOT check for active lockfiles (only checks v1 `state.running`).
-6. **HTTP Agent endpoint refactor** — `POST /start/{port}` body `{model}`, `POST /swap/{port}` body `{model}`, `POST /stop/{port}`, `DELETE /models/{name}`. Drop the model-keyed `/start/{model}` and `/start-with-eviction/{model}`. Closes #40 (alongside MCP).
-7. **MCP server tools** — mirror the HTTP shape: `start_server(model, port)`, `swap_server(port, model)`, `stop_server(port)`, `delete_model(name)`. Tool descriptions per ADR-010 §"Tool Prompt Guidance".
-8. **CLI swap subcommand** — wire `operations.swap()` to a `llauncher server swap <port> <model>` CLI command. Currently absent from the CLI.
-9. **Update existing v1 tests** that go through `state.py.start_with_eviction` to either (a) test the new `operations.swap` directly, or (b) be skipped pending the v1 path's removal in M3.
+3. ~~[x]~~ **Model file health check** ✅ — `preflight.py::default_model_health_check()` wired as optional seam on `swap()`. Pass `None` to skip.
+4. ~~[x]~~ **VRAM pre-flight** ✅ — `preflight.py::default_vram_check()` + `estimate_vram_mb()` wired as optional seams. Agent consolidated via #43.
+5. ~~[x]~~ **Model Delete operation** ✅ — `operations/delete.py` with active-lockfile guard + structured result envelope. Closes #37.
+6. ~~[x]~~ **HTTP Agent endpoint refactor** ✅ — Port-keyed routes in place. Legacy model-keyed routes removed. Closes #40.
+7. ~~[x]~~ **MCP server tools** ✅ — Port-keyed shape; `swap_server` calls `operations.swap()`. Dual-swap bug resolved.
+8. ~~[x]~~ **CLI wired to v2 ops** ✅ — Server start/stop wired through operations layer.
+9. ~~[x]~~ **v1 test cleanup** ✅ — Repointed at v2 ops or skipped with ADR-008 refs. Closes #46.
 
-**Estimate (from roadmap):** ~3–4 sessions. Slice 1 consumed ~1 session; slice 2+ remains.
+**Delivered in:** M2 slice 1 (`dd5f7dd`) + M3 merge (`05942a0`). Total: ~6 sessions across inference-host agent work.
 
 ## Open Issues
 
@@ -86,11 +87,9 @@ The repo is in the middle of a v2 architecture rewrite per ADRs 008–011. Curre
 | [#37](https://github.com/shanevcantwell/llauncher/issues/37) | Add model Delete (CRUD symmetry with nodes) | M2 |
 | [#38](https://github.com/shanevcantwell/llauncher/issues/38) | Volume-mountable lockfile + audit paths | M1 (partially done; full closure when consumed) |
 | [#39](https://github.com/shanevcantwell/llauncher/issues/39) | Audit log: commanded vs observed | M1 (partially done; closure when v1 paths drop) |
-| [#40](https://github.com/shanevcantwell/llauncher/issues/40) | Endpoint refactor (port-keyed) | M2 |
-| [#42](https://github.com/shanevcantwell/llauncher/issues/42) | Backend adapter layer (vLLM) | M6 |
 
 **Audit-discovered gaps** (not yet filed as Issues — file them if you act on these):
-- `state.py` imports from `core/model_health`, violating architecture layer boundaries (§C2)
+- ~~`state.py` imports from `core/model_health`~~ — **RESOLVED** by operations split; core modules no longer imported through state
 - MCP read tools never call `refresh()` — return perpetually stale data (§H1)
 - BLE001 bare `except Exception:` in `operations.py` cleanup paths silently swallow errors (§H4)
 - Logs truncated on restart (`"w"` mode instead of `"a"`) — M5 Item 2 pending
@@ -104,18 +103,12 @@ The repo is in the middle of a v2 architecture rewrite per ADRs 008–011. Curre
 - **Do not introduce a `v2/` branch.** All v2 work lands on `main`. The strategy is "direct on `main`, repo frozen for v1 work."
 - **Do not refactor `state.py` away yet.** The HTTP Agent (`agent/routing.py`), MCP server (`mcp_server/`), and Streamlit UI still go through v1 `LauncherState`. M2 replaces the HTTP and MCP entry points; the UI rewrite is M4. `state.py` itself stops being load-bearing somewhere around M3 or M4 and can be removed in M5/M6.
 
-  **CRITICAL — dual-swap situation:** There are currently *two* swap implementations:
-    - **v2:** `operations.swap()` (ADR-011 compliant, with marker-based concurrency safety + rollback). Used by: nobody yet (not wired to any surface).
-    - **v1:** `state._start_with_eviction_impl()` — called by HTTP Agent `/start-with-eviction/{model_name}` AND MCP `swap_server` tool.
-
-  The MCP surface uses the v1 path, NOT the new `operations.swap()`. This contradicts ADR-011 §"Single Entry Point." Wire all surfaces to `operations.swap()` before considering M2 done. Do not add a third swap implementation.
+  **RESOLVED (M3 merge):** Dual-swap bug fixed. MCP `swap_server` now calls `operations.swap()`. All three surfaces (CLI, HTTP Agent, MCP) routed through v2 operations layer per ADR-011.
 - **Do not add a `restart` verb.** Considered and explicitly deferred — see ADR-010 §"Considered but Not Implemented: Restart". `stop` then `start` is the substitute.
 
 ## Known Failures
 
-**None.** All unit tests pass (555). The two remaining pre-existing failures (`test_start_local_agent_success`) were removed 2026-05-05 — they exercised `NodeRegistry.start_local_agent()`, which is slated for removal in M4 per the v2 roadmap.
-
-Verify with: `python -m pytest tests/unit/ -q | tail -3`
+**None.** 612 tests pass, 12 skipped (+57 new tests from M3 merge). Verify with: `python3 -m pytest tests/ -q | tail -3`
 
 ## Code Audit Findings (2026-05-07)
 
