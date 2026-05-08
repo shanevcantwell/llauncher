@@ -1,7 +1,7 @@
 # v2 Handoff — Pick Up Cold
 
-**Last updated:** 2026-05-07 (post-audit update)
-**Current state:** M1 + M2 slice 1 done. Full code audit completed 2026-05-07 — see "Code Audit Findings" below for gaps discovered.
+**Last updated:** 2026-05-07 (post-M3 merge)
+**Current state:** M1 + M2 + M3 complete. Full code audit completed and critical gaps remediated by merge. Ready to start M4 (UI redesign).
 
 A self-contained guide for picking up the v2 architecture work in a fresh context. Read this end-to-end before touching anything.
 
@@ -21,7 +21,7 @@ The repo is in the middle of a v2 architecture rewrite per ADRs 008–011. Curre
 | Backend-adapter analysis (vLLM future) | Issue #42 |
 | **Code audit reports** | `docs/_audit_synthesis.md` + 5 domain-specific reports in `docs/_audit_*.md` |
 
-## What's Done (M1)
+## What's Done (M1 + M2 + M3)
 
 | Module | Path | Notes |
 |--------|------|-------|
@@ -29,16 +29,23 @@ The repo is in the middle of a v2 architecture rewrite per ADRs 008–011. Curre
 | Lockfile (atomic `O_EXCL`, reconciliation rules) | `llauncher/core/lockfile.py` | Internal format; not a public contract |
 | Audit log (JSON Lines, commanded vs observed) | `llauncher/core/audit_log.py` | ⚠️ Stub only — no write operations implemented; config CRUD not audited. See audit §H3.
 | `ModelConfig` v2 — no `default_port`, has `BackendKind` | `llauncher/models/config.py` | Discriminator scaffolding for #42 |
-| Tool-layer operations (start, stop) | `llauncher/operations.py` | Stateless service per ADR-008 |
-| Swap + in-flight marker (M2 slice 1) | `llauncher/operations.py::swap()`, `llauncher/core/marker.py` | ADR-011 five-phase mechanic, rollback, pluggable pre-flight seams |
+| Tool-layer operations (split package) | `llauncher/operations/{start,stop,swap,delete,preflight}.py` | Stateless service per ADR-008; re-exported via __init__.py for backward compat |
+| Swap + in-flight marker (M2 slice 1) | `llauncher/operations/swap.py`, `llauncher/core/marker.py` | ADR-011 five-phase mechanic, rollback, pluggable pre-flight seams |
+| Delete model operation (Issue #37) | `llauncher/operations/delete.py` | Checks active lockfiles before deletion; structured result envelope |
+| Pre-flight adapters (M2 slice 2) | `llauncher/operations/preflight.py` | Model health check + VRAM estimation; callable seams for swap() |
+| Port-keyed HTTP endpoints (ADR-010) | `llauncher/agent/routing.py` | POST /start/{port}, /swap/{port}, /stop/{port}; legacy model-keyed routes removed |
+| MCP tools wired to v2 ops | `llauncher/mcp_server/tools/servers.py` | swap_server() calls operations.swap() — dual-swap problem (C1) resolved |
+| Remote node port-keyed ops | `llauncher/remote/node.py` | start_server(model, port), swap_server(model, port); aggregator.swap_on_node() in state.py |
 | CLI wired to v2 ops | `llauncher/cli.py` | Four subcommand groups: `model` (list, info), `server` (start, stop, status), `node` (add, list, remove, status), `config` (path, validate). Rich tables + `--json` output. |
-| Multi-node infrastructure (M3-scope) | `llauncher/remote/{node,registry,state}.py` | RemoteNode, NodeRegistry, RemoteAggregator with httpx dispatch + auth pass-through. Pre-v2 code; not yet wired to v2 operations. |
+| Multi-node infrastructure (M3-scope) | `llauncher/remote/{node,registry,state}.py` | RemoteNode, NodeRegistry, RemoteAggregator. Port-keyed per ADR-010; swap_on_node() for remote eviction parity. |
 | Streamlit UI (M4-scope) | `llauncher/ui/app.py`, `ui/tabs/` | Dashboard, Nodes, Model Registry tabs. Pre-v2 code; auto-spawn-local-agent still present despite M4 saying to drop it.
 
-**Tests:** 555 unit tests pass, all green. Test coverage ~85% overall; gaps in model_health cache edge cases, concurrent lockfile/marker access, and config-change audit paths.
+**Tests:** 612 tests pass, 12 skipped (+57 new tests vs pre-merge). Test coverage ~85% overall; gaps in model_health cache edge cases, concurrent lockfile/marker access, and config-change audit paths.
 
 **Commit chain (most recent first):**
 
+- `05942a0` — M3 merge: split operations package, port-keyed endpoints, remote swap parity
+- `b256c2d` — docs: M3 Slice 7 completion + bug report for remote swap parity
 - `dd5f7dd` — M2 slice 1: `operations.swap()` five-phase mechanic + `core/marker.py` in-flight marker + 32 tests
 - `ecd94bf` — CLI wired to v2 operations
 - `e94718d` — `operations.py` (start, stop) + 12 tests
