@@ -8,6 +8,7 @@ from pathlib import Path
 
 import psutil
 
+from llauncher.core import log_rotation, settings
 from llauncher.core.settings import (
     LLAMA_SERVER_PATH,
     DEFAULT_PORT,
@@ -17,7 +18,24 @@ from llauncher.models.config import ModelConfig
 
 
 DEFAULT_SERVER_BINARY = LLAMA_SERVER_PATH
-LOG_DIR = Path.home() / ".llauncher" / "logs"
+
+# Re-export for backward compatibility — historical code imports
+# ``LOG_DIR`` from this module, and tests use
+# ``patch("llauncher.core.process.LOG_DIR", ...)``. ADR-013 made the
+# directory env-configurable; new code should read
+# ``settings.LAUNCHER_LOG_DIR`` directly.
+#
+# IMPORTANT: this alias is captured at *import* time. Patching
+# ``os.environ["LAUNCHER_LOG_DIR"]`` after import does NOT update this
+# symbol — the supported test seam is ``patch(..."LOG_DIR", ...)`` on
+# this module. Don't expect env mutations to propagate here.
+LOG_DIR = settings.LAUNCHER_LOG_DIR
+
+# Heuristic for the bounded tail in :func:`_tail_file`: assume each line
+# averages ~160 bytes (timestamp + message; llama-server logs trend
+# longer but errors-on-the-low-side are cheap and we double the window
+# below). Tunable only via direct override; not exposed as an env var.
+_AVG_LOG_LINE_BYTES = 160
 
 
 def find_available_port(
@@ -193,14 +211,34 @@ def start_server(
     # Resolve to ensure we stay within LOG_DIR
     log_file = log_file.resolve()
 
+    # Rotate before opening, per ADR-013. Prevents an unbounded log from
+    # absorbing yet another run on top of however much it already has.
+    log_rotation.rotate_if_needed(
+        log_file,
+        max_bytes=settings.LAUNCHER_LOG_MAX_BYTES,
+        keep=settings.LAUNCHER_LOG_KEEP,
+    )
+
+    # Append-mode (ADR-013) preserves the previous run's logs across
+    # restart — historically these were the most useful debugging
+    # artifact, and the old ``"w"`` mode destroyed them on every start.
+    # The banner line below makes the boundary between runs grep-friendly.
+    banner = f"=== started at {datetime.now().isoformat()} port={port} ===\n"
     try:
-        with open(log_file, "w") as log:
+        with open(log_file, "a", encoding="utf-8") as log:
+            log.write(banner)
+            log.flush()  # ensure the banner lands before subprocess inherits the FD
             process = subprocess.Popen(
                 cmd,
                 stdout=log,
                 stderr=subprocess.STDOUT,
                 start_new_session=True,  # Create new process group for clean termination
             )
+        # NOTE: the parent's Python ``with`` block closes the wrapper
+        # here, but the child has its own duplicated raw file
+        # descriptor pointing at the same kernel inode — closing the
+        # parent's wrapper does not affect the child's writes. This
+        # holds on Linux and macOS regardless of ``start_new_session``.
         return process
     except OSError as e:
         raise OSError(f"Failed to create log file {log_file}: {e}")
@@ -350,15 +388,43 @@ def stream_logs(pid: int | None = None, model_name: str | None = None, lines: in
 
 
 def _tail_file(path: Path, lines: int) -> list[str]:
-    """Read the last N lines from a file."""
-    if not path.exists():
+    """Read the last ``lines`` lines from ``path``.
+
+    Bounded-tail implementation per ADR-013: reads at most a window of
+    ``lines * _AVG_LOG_LINE_BYTES * 2`` bytes from the end of the file
+    rather than slurping the whole file. With the default 100 lines and
+    160 bytes/line that's a 32 KiB window, regardless of file size.
+
+    The window is doubled past the heuristic so we still satisfy
+    ``lines`` even when individual lines are unusually long — and if
+    they're so long that even the doubled window underflows, we silently
+    return what we found rather than escalating to a full read.
+
+    **Caller contract (ADR-013 §Consequences):** ``len(result)`` may be
+    *less* than ``lines``. Stack traces from ``llama-server`` routinely
+    exceed 500 bytes per line, in which case a 100-line request only
+    yields ~64 entries. The return is always a complete-from-the-tail
+    slice (no partial first line), but may be short.
+    """
+    if not path.exists() or lines <= 0:
         return []
 
     try:
-        with open(path, "r") as f:
-            all_lines = f.readlines()
-            return [line.rstrip("\n") for line in all_lines[-lines:]]
-    except (OSError, UnicodeError):
+        size = path.stat().st_size
+        if size == 0:
+            return []
+        window = min(size, lines * _AVG_LOG_LINE_BYTES * 2)
+        with open(path, "rb") as f:
+            f.seek(size - window)
+            data = f.read(window)
+        text = data.decode("utf-8", errors="replace")
+        all_lines = text.splitlines()
+        # If the window started mid-file, the first line we read is
+        # almost certainly cut at an arbitrary byte. Drop it.
+        if window < size and all_lines:
+            all_lines = all_lines[1:]
+        return all_lines[-lines:]
+    except OSError:
         return []
 
 

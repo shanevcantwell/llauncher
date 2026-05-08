@@ -78,3 +78,24 @@ LAUNCHER_AUDIT_PATH = Path(os.getenv(
     "LAUNCHER_AUDIT_PATH",
     str(Path.home() / ".llauncher" / "audit.jsonl"),
 ))
+
+# Per-server log directory (ADR-013). Files inside are
+# ``{name}-{port}.log`` plus rotated siblings ``{name}-{port}.log.{N}``.
+# Configurable via env so container deployments can volume-mount it the
+# same way as ``LAUNCHER_RUN_DIR`` and ``LAUNCHER_AUDIT_PATH``.
+LAUNCHER_LOG_DIR = Path(os.getenv(
+    "LAUNCHER_LOG_DIR",
+    str(Path.home() / ".llauncher" / "logs"),
+))
+
+# Size cap for a single live log file before rotation kicks in (ADR-013).
+# Default 50 MiB; ``<= 0`` disables rotation entirely.
+LAUNCHER_LOG_MAX_BYTES = int(os.getenv(
+    "LAUNCHER_LOG_MAX_BYTES",
+    str(50 * 1024 * 1024),
+))
+
+# How many rotated log files to retain alongside the live file
+# (ADR-013). With the default 3, the on-disk set is
+# ``foo-8081.log`` plus ``foo-8081.log.{1,2,3}``.
+LAUNCHER_LOG_KEEP = int(os.getenv("LAUNCHER_LOG_KEEP", "3"))

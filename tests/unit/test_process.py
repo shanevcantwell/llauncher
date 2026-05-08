@@ -226,22 +226,31 @@ class TestStartServer:
     """Tests for start_server function."""
 
     def test_normal_start(self, minimal_config):
-        """Normal successful server start."""
+        """Normal successful server start.
+
+        Patches ``log_rotation.rotate_if_needed`` to a no-op so the
+        MagicMock ``LOG_DIR`` doesn't break the new ADR-013 rotation
+        path (which calls ``path.stat().st_size``).
+        """
         mock_process = MagicMock()
         mock_bin = MagicMock()
         mock_bin.exists.return_value = True
 
-        with patch("llauncher.core.process.DEFAULT_SERVER_BINARY", mock_bin):
-            with patch("subprocess.Popen", return_value=mock_process) as mock_popen:
-                with patch("llauncher.core.process.LOG_DIR") as mock_log_dir:
-                    mock_log_dir.mkdir = MagicMock()
+        with patch("llauncher.core.process.DEFAULT_SERVER_BINARY", mock_bin), \
+             patch("subprocess.Popen", return_value=mock_process) as mock_popen, \
+             patch("llauncher.core.process.LOG_DIR") as mock_log_dir, \
+             patch(
+                 "llauncher.core.process.log_rotation.rotate_if_needed",
+                 return_value=False,
+             ):
+            mock_log_dir.mkdir = MagicMock()
 
-                    result = start_server(minimal_config, port=8080)
+            result = start_server(minimal_config, port=8080)
 
-                    assert result == mock_process
-                    mock_popen.assert_called_once()
-                    call_kwargs = mock_popen.call_args[1]
-                    assert call_kwargs.get("start_new_session") is True
+            assert result == mock_process
+            mock_popen.assert_called_once()
+            call_kwargs = mock_popen.call_args[1]
+            assert call_kwargs.get("start_new_session") is True
 
     def test_binary_not_found(self, minimal_config):
         """Server binary not found raises FileNotFoundError."""
@@ -704,11 +713,174 @@ class TestTailFileExceptions:
             result = _tail_file(log_file, 10)
             assert result == []
 
-    def test_tail_file_unicode_error(self, tmp_path):
-        """UnicodeError during file read is handled."""
-        log_file = tmp_path / "test.log"
-        log_file.write_bytes(b"\xff\xfe invalid utf8")
+    def test_tail_file_invalid_utf8_is_replaced(self, tmp_path):
+        """Invalid UTF-8 bytes are silently replaced, not raised.
 
-        with patch("builtins.open", side_effect=UnicodeError("Invalid encoding")):
+        Per ADR-013, ``_tail_file`` reads bytes and decodes with
+        ``errors="replace"`` so the historical UnicodeError path no
+        longer exists. This test verifies the new behavior: a file with
+        invalid UTF-8 returns *something* (replacement chars) rather
+        than the empty list the old implementation would have produced.
+        """
+        log_file = tmp_path / "test.log"
+        log_file.write_bytes(b"\xff\xfe invalid utf8\nfollowing line\n")
+
+        result = _tail_file(log_file, 10)
+
+        # Invalid bytes get the U+FFFD replacement; the rest of the
+        # content is preserved and split on newline boundaries.
+        assert result, "expected at least one line, not the empty list"
+        assert "following line" in result[-1]
+
+
+class TestTailFileBoundedRead:
+    """ADR-013 bounded-tail tests — _tail_file must not slurp the whole file."""
+
+    def test_returns_last_n_lines_for_small_file(self, tmp_path):
+        """Sanity: a small file is returned in full when N >= line count."""
+        log_file = tmp_path / "small.log"
+        log_file.write_text("a\nb\nc\n")
+
+        assert _tail_file(log_file, 10) == ["a", "b", "c"]
+
+    def test_caps_at_lines_requested(self, tmp_path):
+        """Returns exactly the last N lines, not more."""
+        log_file = tmp_path / "many.log"
+        log_file.write_text("\n".join(f"line-{i}" for i in range(50)) + "\n")
+
+        result = _tail_file(log_file, 5)
+
+        assert result == ["line-45", "line-46", "line-47", "line-48", "line-49"]
+
+    def test_zero_or_negative_lines_returns_empty(self, tmp_path):
+        """Edge case: lines<=0 short-circuits before any read."""
+        log_file = tmp_path / "x.log"
+        log_file.write_text("a\nb\nc\n")
+
+        assert _tail_file(log_file, 0) == []
+        assert _tail_file(log_file, -1) == []
+
+    def test_drops_partial_first_line_when_window_seeks_mid_file(self, tmp_path):
+        """The seek-from-end window almost always cuts mid-line; that
+        partial first line must be dropped so callers don't see a
+        truncated record.
+
+        Sizing math: AVG=160, ``lines=2`` → window=640B. With ~80-byte
+        padded lines, that window holds ~8 whole lines; the file is
+        100 lines × ~80B = ~8 KiB, well above the window. So we get
+        bounded read AND enough room for the trailing two lines to
+        survive the partial-first-line drop.
+        """
+        log_file = tmp_path / "long.log"
+        body = "\n".join(f"line-{i:03d}:{'X' * 70}" for i in range(100)) + "\n"
+        log_file.write_text(body)
+        assert log_file.stat().st_size > 4000, "fixture too small to exercise the window"
+
+        result = _tail_file(log_file, 2)
+
+        # The last two whole lines are preserved verbatim.
+        assert len(result) == 2
+        assert result[-1].startswith("line-099:")
+        assert result[-2].startswith("line-098:")
+        # No partial fragment leaked in: every returned line starts with
+        # the canonical ``line-NNN:`` prefix.
+        for line in result:
+            assert line.startswith("line-"), (
+                f"partial line slipped through: {line[:80]!r}"
+            )
+
+    def test_does_not_load_entire_huge_file(self, tmp_path):
+        """A 5 MiB log requesting 10 lines must read kilobytes, not megabytes."""
+        log_file = tmp_path / "huge.log"
+        # 5 MiB of 100-byte lines = ~52 480 lines
+        line = ("a" * 99) + "\n"
+        log_file.write_text(line * 52_480)
+
+        # Track how many bytes were read by spying on the open() return.
+        real_open = open
+        bytes_read = []
+
+        def tracking_open(path, mode="r", *args, **kwargs):
+            f = real_open(path, mode, *args, **kwargs)
+            real_read = f.read
+
+            def spy_read(*a, **kw):
+                data = real_read(*a, **kw)
+                if isinstance(data, (bytes, str)):
+                    bytes_read.append(len(data))
+                return data
+
+            f.read = spy_read
+            return f
+
+        with patch("builtins.open", side_effect=tracking_open):
             result = _tail_file(log_file, 10)
-            assert result == []
+
+        assert len(result) == 10
+        # 10 lines × 160 avg × 2 = 3200 bytes window. Read budget should
+        # comfortably stay under 10 KiB even with rounding/encoding overhead.
+        assert sum(bytes_read) < 10_240, (
+            f"_tail_file read {sum(bytes_read)} bytes for 10 lines from a "
+            f"{log_file.stat().st_size}-byte file; bounded-tail regression."
+        )
+
+
+class TestStartServerLogsLifecycle:
+    """ADR-013 — start_server uses append mode, writes a banner, rotates first."""
+
+    def test_appends_banner_and_preserves_prior_content(
+        self, tmp_path, minimal_config
+    ):
+        """A pre-existing log file is preserved; the banner appends to it."""
+        mock_bin = MagicMock()
+        mock_bin.exists.return_value = True
+
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        # Sanitized name for "test-model" is "test-model" (kept as-is).
+        existing_log = log_dir / "test-model-8081.log"
+        existing_log.write_text("previous run line 1\nprevious run line 2\n")
+
+        with patch("llauncher.core.process.DEFAULT_SERVER_BINARY", mock_bin), \
+             patch("llauncher.core.process.LOG_DIR", log_dir), \
+             patch("subprocess.Popen") as mock_popen:
+            mock_popen.return_value = MagicMock()
+            start_server(minimal_config, port=8081)
+
+        contents = existing_log.read_text(encoding="utf-8")
+        assert "previous run line 1" in contents
+        assert "previous run line 2" in contents
+        assert "=== started at" in contents
+        assert "port=8081" in contents
+        # Banner must come AFTER the previous-run lines.
+        banner_idx = contents.index("=== started at")
+        assert contents.index("previous run line 2") < banner_idx
+
+    def test_rotates_when_existing_log_exceeds_max_bytes(
+        self, tmp_path, minimal_config
+    ):
+        """An oversized log triggers rotation before the new run appends."""
+        mock_bin = MagicMock()
+        mock_bin.exists.return_value = True
+
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        log_file = log_dir / "test-model-8081.log"
+        # Write 200 bytes of content; we'll cap rotation at 100 below so
+        # this file gets rotated.
+        log_file.write_text("X" * 200)
+
+        with patch("llauncher.core.process.DEFAULT_SERVER_BINARY", mock_bin), \
+             patch("llauncher.core.process.LOG_DIR", log_dir), \
+             patch("llauncher.core.process.settings.LAUNCHER_LOG_MAX_BYTES", 100), \
+             patch("llauncher.core.process.settings.LAUNCHER_LOG_KEEP", 3), \
+             patch("subprocess.Popen") as mock_popen:
+            mock_popen.return_value = MagicMock()
+            start_server(minimal_config, port=8081)
+
+        rotated = log_dir / "test-model-8081.log.1"
+        assert rotated.exists(), "rotation did not happen; .log.1 missing"
+        assert rotated.read_text() == "X" * 200
+        # New live log contains only the banner (no previous content).
+        assert "X" not in log_file.read_text(encoding="utf-8")
+        assert "=== started at" in log_file.read_text(encoding="utf-8")
