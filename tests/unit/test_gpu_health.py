@@ -19,28 +19,27 @@ class TestNoBackendReturnsEmpty:
     def test_no_backend_returns_empty(self):
         """GPUHealthCollector without any backend returns empty backends list.
 
-        We mock subprocess.run so that all SMI CLI calls fail gracefully,
-        simulating an environment without GPU drivers (pure CPU).
+        Simulates a pure-CPU host where none of the GPU CLIs
+        (``nvidia-smi``, ``rocm-smi``, etc.) are on ``PATH`` and Apple
+        MPS is unavailable. The collector's backend probes already
+        guard on :func:`shutil.which`, so this is the cheapest faithful
+        "no-backend" simulation — and avoids the prior approach of
+        raising ``CalledProcessError`` from a mocked ``subprocess.run``,
+        which the production code never sees (no ``check=True`` is
+        passed; ``shutil.which`` filters first).
         """
-        import subprocess
-
-        def mock_run(*args, **kwargs):
-            # Simulate command not found or permission denied for every call.
-            err = subprocess.CalledProcessError(1, args[0][0] if isinstance(args[0], list) else args[0])
-            raise err
-
         from unittest.mock import patch
-        with patch("subprocess.run", mock_run):
-            # Also mock is_apple_mps_available to return False (no Apple hardware)
-            with patch("llauncher.core.gpu.is_apple_mps_available", return_value=False):
-                from llauncher.core.gpu import GPUHealthCollector
 
-                collector = GPUHealthCollector()
-                result = collector.get_health()
+        with patch("llauncher.core.gpu.shutil_which", return_value=None), \
+             patch("llauncher.core.gpu.is_apple_mps_available", return_value=False):
+            from llauncher.core.gpu import GPUHealthCollector
 
-                assert isinstance(result, dict), f"Expected dict; got {type(result)}"
-                assert "backends" in result
-                assert result["backends"] == []
+            collector = GPUHealthCollector()
+            result = collector.get_health()
+
+            assert isinstance(result, dict), f"Expected dict; got {type(result)}"
+            assert "backends" in result
+            assert result["backends"] == []
 
 
 class TestSimulatedNVIDIAOutput:

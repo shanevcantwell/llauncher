@@ -1,24 +1,33 @@
-"""Tests for MCP servers tools."""
+"""Tests for MCP servers tools.
+
+Per ADR-010, the verb tools (start/stop/swap) are thin wrappers around
+:mod:`llauncher.operations` and return its result envelope verbatim.
+The read tools (server_status, get_server_logs) still go through
+LauncherState for per-call refresh.
+"""
+
+from datetime import datetime
+from unittest.mock import MagicMock, patch
 
 import pytest
-from unittest.mock import patch, MagicMock
 
 from llauncher.mcp_server.tools.servers import (
+    get_server_logs,
+    get_tools,
+    server_status,
     start_server,
     stop_server,
     swap_server,
-    server_status,
-    get_server_logs,
-    get_tools,
 )
 from llauncher.models.config import RunningServer
-from llauncher.state import EvictionResult
-from datetime import datetime
+from llauncher.operations.start import StartResult
+from llauncher.operations.stop import StopResult
+from llauncher.operations.swap import SwapResult
 
 
 @pytest.fixture
 def mock_state():
-    """Mock LauncherState with test data."""
+    """Mock LauncherState with one running server, for read-side tools."""
     state = MagicMock()
     state.running = {
         8080: RunningServer(
@@ -31,91 +40,225 @@ def mock_state():
     return state
 
 
+# ───────────────────────── start_server ──────────────────────────
+
+
 class TestStartServer:
-    """Tests for start_server tool."""
+    """Verifies start_server is a thin wrapper over ops.start."""
 
     @pytest.mark.asyncio
-    async def test_start_server_missing_model_name(self):
-        """Returns error for missing model_name argument."""
-        mock_state = MagicMock()
-        result = await start_server(mock_state, {})
+    async def test_missing_model_name(self):
+        """Returns error envelope when model_name is absent (no ops call)."""
+        result = await start_server({"port": 8080})
 
         assert result["success"] is False
+        assert result["action"] == "error"
         assert "model_name" in result["error"].lower()
 
     @pytest.mark.asyncio
-    async def test_start_server_success(self, mock_state):
-        """Wraps state.start_server() success."""
-        mock_process = MagicMock()
-        mock_process.pid = 12345
-        mock_state.start_server.return_value = (True, "Server started", mock_process)
-
-        result = await start_server(mock_state, {"model_name": "test-model"})
-
-        assert result["success"] is True
-        assert result["pid"] == 12345
-
-    @pytest.mark.asyncio
-    async def test_start_server_failure(self, mock_state):
-        """Wraps state.start_server() failure."""
-        mock_state.start_server.return_value = (False, "Port already in use", None)
-
-        result = await start_server(mock_state, {"model_name": "test-model"})
+    async def test_missing_port(self):
+        """Returns error envelope when port is absent (no ops call)."""
+        result = await start_server({"model_name": "test-model"})
 
         assert result["success"] is False
-        assert "Port already in use" in result["message"]
-
-
-class TestStopServer:
-    """Tests for stop_server tool."""
-
-    @pytest.mark.asyncio
-    async def test_stop_server_missing_port(self):
-        """Returns error for missing port argument."""
-        mock_state = MagicMock()
-        result = await stop_server(mock_state, {})
-
-        assert result["success"] is False
+        assert result["action"] == "error"
         assert "port" in result["error"].lower()
 
     @pytest.mark.asyncio
-    async def test_stop_server_success(self, mock_state):
-        """Wraps state.stop_server() success."""
-        mock_state.stop_server.return_value = (True, "Server stopped")
+    async def test_started(self):
+        """Returns ops.start() envelope on a successful start."""
+        envelope = StartResult(
+            success=True,
+            action="started",
+            port=8080,
+            model="test-model",
+            pid=12345,
+        )
+        with patch(
+            "llauncher.mcp_server.tools.servers.ops.start",
+            return_value=envelope,
+        ) as mock_op:
+            result = await start_server({"model_name": "test-model", "port": 8080})
 
-        result = await stop_server(mock_state, {"port": 8080})
-
+        mock_op.assert_called_once_with("test-model", 8080, caller="mcp")
         assert result["success"] is True
-        assert "stopped" in result["message"].lower()
+        assert result["action"] == "started"
+        assert result["port"] == 8080
+        assert result["pid"] == 12345
 
     @pytest.mark.asyncio
-    async def test_stop_server_failure(self, mock_state):
-        """Wraps state.stop_server() failure."""
-        mock_state.stop_server.return_value = (False, "No server on port")
-
-        result = await stop_server(mock_state, {"port": 8080})
+    async def test_rejected_occupied(self):
+        """Surfaces rejected_occupied unchanged."""
+        envelope = StartResult(
+            success=False,
+            action="rejected_occupied",
+            port=8080,
+            model="test-model",
+            message="port 8080 occupied by other-model",
+        )
+        with patch(
+            "llauncher.mcp_server.tools.servers.ops.start",
+            return_value=envelope,
+        ):
+            result = await start_server({"model_name": "test-model", "port": 8080})
 
         assert result["success"] is False
-        assert "No server on port" in result["message"]
+        assert result["action"] == "rejected_occupied"
+
+
+# ───────────────────────── stop_server ───────────────────────────
+
+
+class TestStopServer:
+    """Verifies stop_server is a thin wrapper over ops.stop."""
+
+    @pytest.mark.asyncio
+    async def test_missing_port(self):
+        """Returns error envelope when port is absent (no ops call)."""
+        result = await stop_server({})
+
+        assert result["success"] is False
+        assert result["action"] == "error"
+        assert "port" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_stopped(self):
+        """Returns ops.stop() envelope on a successful stop."""
+        envelope = StopResult(success=True, action="stopped", port=8080)
+        with patch(
+            "llauncher.mcp_server.tools.servers.ops.stop",
+            return_value=envelope,
+        ) as mock_op:
+            result = await stop_server({"port": 8080})
+
+        mock_op.assert_called_once_with(8080, caller="mcp")
+        assert result["success"] is True
+        assert result["action"] == "stopped"
+
+    @pytest.mark.asyncio
+    async def test_already_empty_is_idempotent(self):
+        """Idempotent stop: action='already_empty', success=True."""
+        envelope = StopResult(success=True, action="already_empty", port=9999)
+        with patch(
+            "llauncher.mcp_server.tools.servers.ops.stop",
+            return_value=envelope,
+        ):
+            result = await stop_server({"port": 9999})
+
+        assert result["success"] is True
+        assert result["action"] == "already_empty"
+
+
+# ───────────────────────── swap_server ───────────────────────────
+
+
+class TestSwapServer:
+    """Verifies swap_server is a thin wrapper over ops.swap."""
+
+    @pytest.mark.asyncio
+    async def test_missing_port(self):
+        """Returns error envelope when port is absent (no ops call)."""
+        result = await swap_server({"model_name": "test-model"})
+
+        assert result["success"] is False
+        assert result["action"] == "error"
+        assert "port" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_missing_model_name(self):
+        """Returns error envelope when model_name is absent (no ops call)."""
+        result = await swap_server({"port": 8080})
+
+        assert result["success"] is False
+        assert result["action"] == "error"
+        assert "model_name" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_swapped(self):
+        """Returns ops.swap() envelope on a successful swap."""
+        envelope = SwapResult(
+            success=True,
+            action="swapped",
+            port_state="serving",
+            port=8080,
+            model="new-model",
+            previous_model="old-model",
+        )
+        with patch(
+            "llauncher.mcp_server.tools.servers.ops.swap",
+            return_value=envelope,
+        ) as mock_op:
+            result = await swap_server({"port": 8080, "model_name": "new-model"})
+
+        mock_op.assert_called_once_with("new-model", 8080, caller="mcp")
+        assert result["success"] is True
+        assert result["action"] == "swapped"
+        assert result["previous_model"] == "old-model"
+
+    @pytest.mark.asyncio
+    async def test_rolled_back(self):
+        """Surfaces rolled_back action unchanged."""
+        envelope = SwapResult(
+            success=False,
+            action="rolled_back",
+            port_state="restored",
+            port=8080,
+            model="old-model",
+            previous_model="old-model",
+            message="new-model failed readiness; rolled back",
+        )
+        with patch(
+            "llauncher.mcp_server.tools.servers.ops.swap",
+            return_value=envelope,
+        ):
+            result = await swap_server({"port": 8080, "model_name": "new-model"})
+
+        assert result["success"] is False
+        assert result["action"] == "rolled_back"
+        assert result["port_state"] == "restored"
+        assert result["model"] == "old-model"
+
+    @pytest.mark.asyncio
+    async def test_rejected_empty(self):
+        """Empty port surfaces rejected_empty (caller should use start)."""
+        envelope = SwapResult(
+            success=False,
+            action="rejected_empty",
+            port_state="unchanged",
+            port=8080,
+            model=None,
+        )
+        with patch(
+            "llauncher.mcp_server.tools.servers.ops.swap",
+            return_value=envelope,
+        ):
+            result = await swap_server({"port": 8080, "model_name": "new-model"})
+
+        assert result["success"] is False
+        assert result["action"] == "rejected_empty"
+
+
+# ─────────────────────── server_status ────────────────────────────
 
 
 class TestServerStatus:
-    """Tests for server_status tool."""
+    """Read tool — still LauncherState-backed."""
 
     @pytest.mark.asyncio
-    async def test_server_status_empty(self):
-        """No running servers returns empty list."""
+    async def test_empty(self):
+        """No running servers returns empty list and refreshes state."""
         mock_state = MagicMock()
         mock_state.running = {}
 
         result = await server_status(mock_state, {})
 
+        mock_state.refresh.assert_called_once()
         assert result["running_servers"] == []
         assert result["count"] == 0
 
     @pytest.mark.asyncio
-    async def test_server_status_multiple(self, mock_state):
-        """Multiple running servers returned."""
+    async def test_one_running(self, mock_state):
+        """A running server is serialized via to_dict()."""
         result = await server_status(mock_state, {})
 
         assert result["count"] == 1
@@ -124,228 +267,82 @@ class TestServerStatus:
         assert server["port"] == 8080
 
 
+# ─────────────────────── get_server_logs ──────────────────────────
+
+
 class TestGetServerLogs:
-    """Tests for get_server_logs tool."""
+    """Read tool — still LauncherState-backed."""
 
     @pytest.mark.asyncio
-    async def test_get_server_logs_missing_port(self):
+    async def test_missing_port(self):
         """Returns error for missing port argument."""
         mock_state = MagicMock()
+        mock_state.running = {}
+
         result = await get_server_logs(mock_state, {})
 
         assert "error" in result
         assert "port" in result["error"].lower()
 
     @pytest.mark.asyncio
-    async def test_get_server_logs_not_found(self, mock_state):
-        """Returns error for unknown port."""
+    async def test_unknown_port(self, mock_state):
+        """Returns error for a port with no live server."""
         result = await get_server_logs(mock_state, {"port": 9999})
 
         assert "error" in result
         assert "no server" in result["error"].lower()
 
     @pytest.mark.asyncio
-    async def test_get_server_logs_success(self, mock_state):
+    async def test_success(self, mock_state):
         """Returns logs from stream_logs()."""
-        with patch("llauncher.mcp_server.tools.servers.stream_logs", return_value=["log line 1", "log line 2"]):
+        with patch(
+            "llauncher.mcp_server.tools.servers.stream_logs",
+            return_value=["log line 1", "log line 2"],
+        ):
             result = await get_server_logs(mock_state, {"port": 8080})
 
-            assert result["logs"] == ["log line 1", "log line 2"]
+        assert result["logs"] == ["log line 1", "log line 2"]
 
     @pytest.mark.asyncio
-    async def test_get_server_logs_custom_lines(self, mock_state):
-        """Custom lines parameter passed through."""
-        with patch("llauncher.mcp_server.tools.servers.stream_logs") as mock_stream:
+    async def test_custom_lines_passed_through(self, mock_state):
+        """The 'lines' argument is forwarded to stream_logs."""
+        with patch(
+            "llauncher.mcp_server.tools.servers.stream_logs",
+            return_value=[],
+        ) as mock_stream:
             await get_server_logs(mock_state, {"port": 8080, "lines": 500})
 
-            mock_stream.assert_called_once()
-            call_args = mock_stream.call_args[0]
-            assert call_args[1] == 500
+        mock_stream.assert_called_once()
+        assert mock_stream.call_args[0][1] == 500
 
 
-class TestSwapServer:
-    """Tests for swap_server tool."""
-
-    @pytest.mark.asyncio
-    async def test_swap_server_missing_port(self):
-        """Returns error for missing port argument."""
-        mock_state = MagicMock()
-        result = await swap_server(mock_state, {"model_name": "test-model"})
-
-        assert result["success"] is False
-        assert "port" in result["error"].lower()
-        assert result["port_state"] == "unchanged"
-
-    @pytest.mark.asyncio
-    async def test_swap_server_missing_model_name(self):
-        """Returns error for missing model_name argument."""
-        mock_state = MagicMock()
-        result = await swap_server(mock_state, {"port": 8080})
-
-        assert result["success"] is False
-        assert "model_name" in result["error"].lower()
-        assert result["port_state"] == "unchanged"
-
-    @pytest.mark.asyncio
-    async def test_swap_server_model_not_found(self):
-        """Returns error if new model doesn't exist (delegated to _start_with_eviction_impl)."""
-        mock_state = MagicMock()
-        mock_state._start_with_eviction_impl.return_value = EvictionResult(
-            success=False,
-            port_state="unchanged",
-            error="Model 'nonexistent' not found in config",
-        )
-
-        result = await swap_server(mock_state, {"port": 8080, "model_name": "nonexistent"})
-
-        assert result["success"] is False
-        assert "not found" in result["error"].lower()
-        assert result["port_state"] == "unchanged"
-
-    @pytest.mark.asyncio
-    async def test_swap_server_new_model_already_running(self):
-        """Returns error if new model is already running elsewhere (delegated)."""
-        mock_state = MagicMock()
-        mock_state._start_with_eviction_impl.return_value = EvictionResult(
-            success=False,
-            port_state="unchanged",
-            error="Model 'new-model' is already running on port 8081",
-        )
-
-        result = await swap_server(mock_state, {"port": 8080, "model_name": "new-model"})
-
-        assert result["success"] is False
-        assert "already running" in result["error"].lower()
-        assert result["port_state"] == "unchanged"
-
-    @pytest.mark.asyncio
-    async def test_swap_server_old_model_no_persisted_config(self):
-        """Returns error if old model has no persisted config for rollback (delegated)."""
-        mock_state = MagicMock()
-        mock_state._start_with_eviction_impl.return_value = EvictionResult(
-            success=False,
-            port_state="unchanged",
-            error="Cannot evict: no config for running model 'script-only-model'",
-            previous_model="script-only-model",
-        )
-
-        result = await swap_server(mock_state, {"port": 8080, "model_name": "new-model"})
-
-        assert result["success"] is False
-        assert "persisted config" in result["error"].lower() or "no config" in result["error"].lower()
-        assert result["port_state"] == "unchanged"
-
-    @pytest.mark.asyncio
-    async def test_swap_server_success_no_previous_model(self):
-        """Successful swap when port is empty."""
-        mock_state = MagicMock()
-        mock_state._start_with_eviction_impl.return_value = EvictionResult(
-            success=True,
-            port_state="serving",
-            error="",
-            new_model_attempted="new-model",
-            previous_model="",
-        )
-
-        result = await swap_server(mock_state, {"port": 8080, "model_name": "new-model"})
-
-        assert result["success"] is True
-        assert result["previous_model"] is None
-        assert result["new_model"] == "new-model"
-        assert result["port_state"] == "serving"
-        assert result["rolled_back"] is False
-
-    @pytest.mark.asyncio
-    async def test_swap_server_success_with_previous_model(self):
-        """Successful swap when replacing existing model."""
-        mock_state = MagicMock()
-        mock_state._start_with_eviction_impl.return_value = EvictionResult(
-            success=True,
-            port_state="serving",
-            error="",
-            new_model_attempted="new-model",
-            previous_model="old-model",
-        )
-
-        result = await swap_server(mock_state, {"port": 8080, "model_name": "new-model"})
-
-        assert result["success"] is True
-        assert result["previous_model"] == "old-model"
-        assert result["new_model"] == "new-model"
-        assert result["port_state"] == "serving"
-
-    @pytest.mark.asyncio
-    async def test_swap_server_rollback_on_start_failure(self):
-        """Rolls back to old model if new model fails to start."""
-        mock_state = MagicMock()
-        mock_state._start_with_eviction_impl.return_value = EvictionResult(
-            success=False,
-            port_state="restored",
-            error="Failed to start",
-            rolled_back=True,
-            restored_model="old-model",
-            previous_model="old-model",
-        )
-
-        result = await swap_server(mock_state, {"port": 8080, "model_name": "new-model"})
-
-        assert result["success"] is False
-        assert result["rolled_back"] is True
-        assert result["port_state"] == "restored"
-        assert result["restored_model"] == "old-model"
-
-    @pytest.mark.asyncio
-    async def test_swap_server_rollback_on_timeout(self):
-        """Rolls back to old model if new model times out."""
-        mock_state = MagicMock()
-        mock_state._start_with_eviction_impl.return_value = EvictionResult(
-            success=False,
-            port_state="restored",
-            error="Readiness timeout after 30s.",
-            rolled_back=True,
-            restored_model="old-model",
-            previous_model="old-model",
-        )
-
-        result = await swap_server(mock_state, {"port": 8080, "model_name": "new-model", "timeout": 30})
-
-        assert result["success"] is False
-        assert result["rolled_back"] is True
-        assert result["port_state"] == "restored"
-        assert "timeout" in result["error"].lower() or "ready" in result["error"].lower()
-
-    @pytest.mark.asyncio
-    async def test_swap_server_catastrophic_failure(self):
-        """Port becomes unavailable when both start and rollback fail."""
-        mock_state = MagicMock()
-        mock_state._start_with_eviction_impl.return_value = EvictionResult(
-            success=False,
-            port_state="unavailable",
-            error="Swap failed: ConnectionError. Rollback failed — manual intervention required.",
-            rolled_back=False,
-            new_model_attempted="new-model",
-            previous_model="old-model",
-        )
-
-        result = await swap_server(mock_state, {"port": 8080, "model_name": "new-model"})
-
-        assert result["success"] is False
-        assert result["rolled_back"] is False
-        assert result["port_state"] == "unavailable"
-        assert result["error"] is not None
+# ─────────────────────────── get_tools ────────────────────────────
 
 
 class TestGetTools:
-    """Tests for get_tools function."""
+    """Tool descriptors must reflect the port-keyed shape."""
 
-    def test_get_tools_returns_five_tools(self):
-        """get_tools returns five server tools."""
+    def test_returns_five_tools(self):
+        """start, stop, swap, server_status, get_server_logs."""
         tools = get_tools()
-
+        names = [t.name for t in tools]
         assert len(tools) == 5
-        tool_names = [t.name for t in tools]
-        assert "start_server" in tool_names
-        assert "stop_server" in tool_names
-        assert "swap_server" in tool_names
-        assert "server_status" in tool_names
-        assert "get_server_logs" in tool_names
+        for expected in ("start_server", "stop_server", "swap_server",
+                         "server_status", "get_server_logs"):
+            assert expected in names
+
+    def test_start_server_requires_model_and_port(self):
+        """start_server tool schema requires both model_name and port (ADR-010)."""
+        tool = next(t for t in get_tools() if t.name == "start_server")
+        required = set(tool.inputSchema["required"])
+        assert required == {"model_name", "port"}
+
+    def test_swap_server_requires_port_and_model(self):
+        tool = next(t for t in get_tools() if t.name == "swap_server")
+        required = set(tool.inputSchema["required"])
+        assert required == {"port", "model_name"}
+
+    def test_stop_server_requires_only_port(self):
+        tool = next(t for t in get_tools() if t.name == "stop_server")
+        required = set(tool.inputSchema["required"])
+        assert required == {"port"}

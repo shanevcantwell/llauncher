@@ -2,6 +2,7 @@
 
 from mcp import Tool
 
+from llauncher import operations as ops
 from llauncher.models.config import ModelConfig
 from llauncher.state import LauncherState
 
@@ -82,14 +83,19 @@ def get_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="remove_model",
-            description="Remove a model configuration",
+            name="delete_model",
+            description=(
+                "Delete a model configuration. Refuses with "
+                "action='rejected_in_use' (and the holding port) if the "
+                "model is currently running anywhere; stop or swap first. "
+                "Idempotent on a missing name (action='not_found')."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "name": {
                         "type": "string",
-                        "description": "Name of the model to remove",
+                        "description": "Name of the model to delete",
                     },
                 },
                 "required": ["name"],
@@ -219,42 +225,21 @@ async def add_model(state: LauncherState, args: dict) -> dict:
     }
 
 
-async def remove_model(state: LauncherState, args: dict) -> dict:
-    """Remove a model configuration.
+async def delete_model(args: dict) -> dict:
+    """Delete a model configuration per ADR-008 §4.1.
 
-    Args:
-        state: The launcher state.
-        args: Tool arguments including 'name'.
-
-    Returns:
-        Dictionary with result of the operation.
+    Thin wrapper over :func:`llauncher.operations.delete_model`. Returns
+    the ADR-010 envelope (``success``, ``action``, ``model``, optional
+    ``in_use_port``).
     """
     name = args.get("name")
 
     if not name:
-        return {"success": False, "error": "Missing required argument: name"}
+        return {
+            "success": False,
+            "action": "error",
+            "error": "Missing required argument: name",
+        }
 
-    if name not in state.models:
-        return {"success": False, "error": f"Model not found: {name}"}
-
-    # Check if server is running for this model
-    config = state.models[name]
-    for port, running_server in state.running.items():
-        if running_server.config_name == name:
-            return {
-                "success": False,
-                "error": f"Cannot remove model: server is running on port {port}",
-            }
-
-    # Remove the config
-    from llauncher.core.config import ConfigStore
-
-    ConfigStore.remove_model(name)
-    del state.models[name]
-
-    state.record_action("remove", name, "mcp", "success", "Model removed")
-
-    return {
-        "success": True,
-        "message": f"Removed model {name}",
-    }
+    result = ops.delete_model(name, caller="mcp")
+    return result.to_dict()

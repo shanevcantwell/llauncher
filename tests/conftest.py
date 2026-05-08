@@ -25,6 +25,23 @@ def _patch_model_health():
     with patch("llauncher.state.check_model_health", return_value=mock_result):
         yield
 
+
+@pytest.fixture(autouse=True)
+def _isolate_nodes_file(tmp_path, monkeypatch):
+    """Redirect the node-registry persistence file to a per-test tmp path.
+
+    ``llauncher.remote.registry.NODES_FILE`` is a module-level Path pointing at
+    ``~/.llauncher/nodes.json``. Several tests instantiate ``NodeRegistry()``
+    without a per-fixture override and call ``add_node`` / ``remove_node``,
+    which historically leaked test fixtures (``node1``, ``node2``, ``custom``,
+    etc.) into the developer's real registry. This autouse fixture isolates
+    every test by default; opt-out tests can monkeypatch back if needed.
+    """
+    monkeypatch.setattr(
+        "llauncher.remote.registry.NODES_FILE",
+        tmp_path / "nodes.json",
+    )
+
 @pytest.fixture
 def tmp_config_dir(tmp_path):
     """Temporary directory for config files."""

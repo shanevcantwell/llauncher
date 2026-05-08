@@ -7,10 +7,11 @@ from llauncher.mcp_server.tools.config import (
     update_model_config,
     validate_config,
     add_model,
-    remove_model,
+    delete_model,
     get_tools,
 )
 from llauncher.models.config import ModelConfig
+from llauncher.operations.delete import DeleteModelResult
 
 
 @pytest.fixture
@@ -190,47 +191,69 @@ class TestAddModel:
                 mock_config_store.add_model.assert_called_once()
 
 
-class TestRemoveModel:
-    """Tests for remove_model tool."""
+class TestDeleteModel:
+    """Tests for delete_model tool — thin wrapper over ops.delete_model."""
 
     @pytest.mark.asyncio
-    async def test_remove_model_missing_name(self):
-        """Returns error for missing name argument."""
-        mock_state = MagicMock()
-        result = await remove_model(mock_state, {})
+    async def test_delete_model_missing_name(self):
+        """Returns error envelope for missing name argument (no ops call)."""
+        result = await delete_model({})
 
         assert result["success"] is False
+        assert result["action"] == "error"
         assert "name" in result["error"].lower()
 
     @pytest.mark.asyncio
-    async def test_remove_model_not_found(self):
-        """Returns error for unknown model."""
-        mock_state = MagicMock()
-        mock_state.models = {}
+    async def test_delete_model_success(self):
+        """Returns ops.delete_model() envelope on a clean delete."""
+        envelope = DeleteModelResult(
+            success=True, action="deleted", name="existing-model"
+        )
+        with patch(
+            "llauncher.mcp_server.tools.config.ops.delete_model",
+            return_value=envelope,
+        ) as mock_op:
+            result = await delete_model({"name": "existing-model"})
 
-        result = await remove_model(mock_state, {"name": "unknown"})
-
-        assert result["success"] is False
-        assert "not found" in result["error"].lower()
-
-    @pytest.mark.asyncio
-    async def test_remove_model_server_running(self, mock_state):
-        """Returns error if server is running."""
-        mock_state.running = {8080: MagicMock(config_name="existing-model")}
-
-        result = await remove_model(mock_state, {"name": "existing-model"})
-
-        assert result["success"] is False
-        assert "running" in result["error"].lower()
+        mock_op.assert_called_once_with("existing-model", caller="mcp")
+        assert result["success"] is True
+        assert result["action"] == "deleted"
+        assert result["name"] == "existing-model"
 
     @pytest.mark.asyncio
-    async def test_remove_model_success(self, mock_state):
-        """Removes from ConfigStore and state."""
-        with patch("llauncher.core.config.ConfigStore") as mock_config_store:
-            result = await remove_model(mock_state, {"name": "existing-model"})
+    async def test_delete_model_not_found(self):
+        """Idempotent on a missing name: action='not_found'."""
+        envelope = DeleteModelResult(
+            success=True, action="not_found", name="unknown"
+        )
+        with patch(
+            "llauncher.mcp_server.tools.config.ops.delete_model",
+            return_value=envelope,
+        ):
+            result = await delete_model({"name": "unknown"})
 
-            assert result["success"] is True
-            mock_config_store.remove_model.assert_called_once_with("existing-model")
+        assert result["action"] == "not_found"
+        # Idempotent: ops returns success=True for not_found
+        assert result["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_delete_model_in_use(self):
+        """Refuses a delete while the model is running."""
+        envelope = DeleteModelResult(
+            success=False,
+            action="rejected_in_use",
+            name="existing-model",
+            in_use_port=8080,
+        )
+        with patch(
+            "llauncher.mcp_server.tools.config.ops.delete_model",
+            return_value=envelope,
+        ):
+            result = await delete_model({"name": "existing-model"})
+
+        assert result["success"] is False
+        assert result["action"] == "rejected_in_use"
+        assert result["in_use_port"] == 8080
 
 
 class TestGetTools:
@@ -245,4 +268,4 @@ class TestGetTools:
         assert "update_model_config" in tool_names
         assert "validate_config" in tool_names
         assert "add_model" in tool_names
-        assert "remove_model" in tool_names
+        assert "delete_model" in tool_names

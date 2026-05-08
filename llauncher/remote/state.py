@@ -20,7 +20,10 @@ class RemoteAggregator:
         Args:
             registry: NodeRegistry instance. Creates one if not provided.
         """
-        self.registry = registry or NodeRegistry()
+        # Note: ``registry or NodeRegistry()`` would be wrong here — an empty
+        # registry has ``len == 0`` and is therefore falsy, which would replace
+        # an explicitly-passed empty registry with a fresh one.
+        self.registry = registry if registry is not None else NodeRegistry()
         self._model_cache: dict[str, list[dict]] = {}
         self._server_cache: dict[str, list[RemoteServerInfo]] = {}
 
@@ -120,12 +123,14 @@ class RemoteAggregator:
         self,
         node_name: str,
         model_name: str,
+        port: int,
     ) -> dict | None:
-        """Start a server on a specific node.
+        """Start ``model_name`` on ``port`` on a specific node (ADR-010).
 
         Args:
             node_name: Name of the node.
             model_name: Name of the model to start.
+            port: Port at the call site.
 
         Returns:
             Result dictionary or None if node not found.
@@ -134,7 +139,32 @@ class RemoteAggregator:
         if node is None:
             return {"success": False, "error": f"Node '{node_name}' not found"}
 
-        return node.start_server(model_name)
+        return node.start_server(model_name, port)
+
+    def swap_on_node(
+        self,
+        node_name: str,
+        model_name: str,
+        port: int,
+    ) -> dict | None:
+        """Swap the model on ``port`` to ``model_name`` on a specific node."""
+        node = self.registry.get_node(node_name)
+        if node is None:
+            return {"success": False, "error": f"Node '{node_name}' not found"}
+
+        return node.swap_server(model_name, port)
+
+    def delete_model_on_node(
+        self,
+        node_name: str,
+        model_name: str,
+    ) -> dict | None:
+        """Delete ``model_name`` from a specific node's config."""
+        node = self.registry.get_node(node_name)
+        if node is None:
+            return {"success": False, "error": f"Node '{node_name}' not found"}
+
+        return node.delete_model(model_name)
 
     def stop_on_node(
         self,

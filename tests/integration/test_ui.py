@@ -103,6 +103,12 @@ class TestAddModelIntegration:
             mock_config_store.add_model(config)
             mock_config_store.add_model.assert_called_once_with(config)
 
+    @pytest.mark.skip(
+        reason="v1 path: default_port removed from ModelConfig "
+        "(ADR-010 — port lives at the call site, not on the model). "
+        "Validation surface no longer mentions default_port. "
+        "Removed in M3 alongside other v1 surface (#46)."
+    )
     def test_add_model_with_validation_error(self):
         """Add model with invalid config shows error."""
         try:

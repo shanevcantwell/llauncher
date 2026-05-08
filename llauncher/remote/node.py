@@ -189,30 +189,97 @@ class RemoteNode:
             self.status = NodeStatus.OFFLINE
             return None
 
-    def start_server(self, model_name: str) -> dict | None:
-        """Start a server on this node.
+    def start_server(self, model_name: str, port: int) -> dict | None:
+        """Start ``model_name`` on ``port`` on this node (ADR-010).
 
-        Args:
-            model_name: Name of the model to start.
+        Per ADR-010, port is supplied at the call site. The HTTP body
+        carries the model name; the path carries the port.
 
         Returns:
-            Result dictionary or None if failed.
+            The agent's structured ``StartResult`` dict on 2xx, or
+            ``{"success": False, "error": ...}`` on transport or HTTP
+            error. The error dict surfaces the agent's ``action`` field
+            when available so callers can distinguish a 409 from a 500.
         """
         try:
             with self._get_client() as client:
                 response = client.post(
-                    f"{self.base_url}/start/{model_name}",
+                    f"{self.base_url}/start/{port}",
+                    json={"model": model_name},
                     headers=self._get_headers(),
                 )
                 if response.status_code == 200:
                     self.status = NodeStatus.ONLINE
                     self.last_seen = datetime.now()
                     return response.json()
-                elif response.status_code == 404:
-                    return {"success": False, "error": f"Model not found: {model_name}"}
-                elif response.status_code == 409:
-                    return {"success": False, "error": response.json().get("detail", "Conflict")}
-                return {"success": False, "error": f"HTTP {response.status_code}"}
+                # FastAPI HTTPException wraps the structured op result
+                # under "detail"; surface it verbatim when present.
+                detail = None
+                try:
+                    detail = response.json().get("detail")
+                except Exception:
+                    pass
+                if isinstance(detail, dict):
+                    return {"success": False, "error": detail.get("message", "error"), **detail}
+                return {
+                    "success": False,
+                    "error": detail or f"HTTP {response.status_code}",
+                }
+        except httpx.RequestError as e:
+            self.status = NodeStatus.OFFLINE
+            return {"success": False, "error": str(e)}
+
+    def swap_server(self, model_name: str, port: int) -> dict | None:
+        """Swap the model on ``port`` to ``model_name`` per ADR-011."""
+        try:
+            with self._get_client() as client:
+                response = client.post(
+                    f"{self.base_url}/swap/{port}",
+                    json={"model": model_name},
+                    headers=self._get_headers(),
+                )
+                if response.status_code == 200:
+                    self.status = NodeStatus.ONLINE
+                    self.last_seen = datetime.now()
+                    return response.json()
+                detail = None
+                try:
+                    detail = response.json().get("detail")
+                except Exception:
+                    pass
+                if isinstance(detail, dict):
+                    return {"success": False, "error": detail.get("message", "error"), **detail}
+                return {
+                    "success": False,
+                    "error": detail or f"HTTP {response.status_code}",
+                }
+        except httpx.RequestError as e:
+            self.status = NodeStatus.OFFLINE
+            return {"success": False, "error": str(e)}
+
+    def delete_model(self, model_name: str) -> dict | None:
+        """Delete ``model_name`` from this node's config (ADR-008 §4.1)."""
+        try:
+            with self._get_client() as client:
+                response = client.delete(
+                    f"{self.base_url}/models/{model_name}",
+                    headers=self._get_headers(),
+                )
+                if response.status_code == 200:
+                    self.status = NodeStatus.ONLINE
+                    self.last_seen = datetime.now()
+                    return response.json()
+                detail = None
+                try:
+                    detail = response.json().get("detail")
+                except Exception:
+                    pass
+                if isinstance(detail, dict):
+                    return {"success": False, "error": detail.get("message", "error"), **detail}
+                return {
+                    "success": False,
+                    "error": detail or f"HTTP {response.status_code}",
+                }
         except httpx.RequestError as e:
             self.status = NodeStatus.OFFLINE
             return {"success": False, "error": str(e)}

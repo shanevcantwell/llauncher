@@ -157,7 +157,7 @@ class TestStartOnNode:
         registry = NodeRegistry()
         aggregator = RemoteAggregator(registry)
 
-        result = aggregator.start_on_node("nonexistent", "test-model")
+        result = aggregator.start_on_node("nonexistent", "test-model", 8081)
 
         assert result is not None
         assert result["success"] is False
@@ -170,15 +170,19 @@ class TestStartOnNode:
 
         aggregator = RemoteAggregator(registry)
 
-        # Mock start_server on node
-        def mock_start_server(self, model_name):
-            return {"success": True, "port": 8080}
+        # Mock start_server on node — port is now required (ADR-010).
+        captured: dict = {}
+
+        def mock_start_server(self, model_name, port):
+            captured["args"] = (model_name, port)
+            return {"success": True, "port": port}
 
         with patch.object(RemoteNode, "start_server", mock_start_server):
-            result = aggregator.start_on_node("test-node", "test-model")
+            result = aggregator.start_on_node("test-node", "test-model", 8081)
 
             assert result["success"] is True
-            assert result["port"] == 8080
+            assert result["port"] == 8081
+            assert captured["args"] == ("test-model", 8081)
 
 
 class TestStopOnNode:

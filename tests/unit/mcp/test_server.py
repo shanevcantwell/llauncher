@@ -167,13 +167,17 @@ class TestDispatchTool:
                 mock_get.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_dispatch_tool_remove_model(self):
-        """Dispatch to remove_model tool."""
+    async def test_dispatch_tool_delete_model(self):
+        """Dispatch to delete_model tool — stateless per ADR-008."""
         with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
-            mock_get.return_value = MagicMock()
-            with patch("llauncher.mcp_server.server.config_tools.remove_model", return_value="remove_model_result"):
-                result = await _dispatch_tool("remove_model", {})
-                assert result == "remove_model_result"
+            with patch(
+                "llauncher.mcp_server.server.config_tools.delete_model",
+                return_value="delete_model_result",
+            ):
+                result = await _dispatch_tool("delete_model", {})
+                assert result == "delete_model_result"
+                # ADR-008: stateless verb must not touch the singleton
+                mock_get.assert_not_called()
 
 
 class TestMainFunctions:

@@ -29,6 +29,12 @@ def test_state_refresh(mock_config_store, sample_model_config):
         # Since the model is in state.models, it should find it
         assert state.running[8081].config_name == sample_model_config.name
 
+@pytest.mark.skip(
+    reason="v1 path: LauncherState.can_start + ModelConfig.default_port "
+    "are removed in v2 (ADR-008, ADR-010). Validation now lives in "
+    "ChangeRules.validate_start; port comes from the caller. Will be "
+    "deleted alongside the v1 path in M3 (#46)."
+)
 def test_can_start_validation(launcher_state, sample_model_config):
     """Test the validation logic in can_start."""
     # Test: Port in use by state
@@ -61,6 +67,12 @@ def test_can_start_validation(launcher_state, sample_model_config):
             assert valid
             assert msg == "OK"
 
+@pytest.mark.skip(
+    reason="v1 path: LauncherState.start_server is replaced by "
+    "llauncher.operations.start; default_port removed (ADR-010). "
+    "v2 equivalents covered in tests/unit/test_operations_*.py. "
+    "Removed in M3 (#46)."
+)
 def test_start_server_success(launcher_state, sample_model_config):
     """Test starting a server successfully."""
     launcher_state.models[sample_model_config.name] = sample_model_config
@@ -83,6 +95,12 @@ def test_start_server_success(launcher_state, sample_model_config):
                     assert 8081 in launcher_state.running
                     assert launcher_state.running[8081].pid == 5678
 
+@pytest.mark.skip(
+    reason="v1 path: LauncherState.stop_server is replaced by "
+    "llauncher.operations.stop; default_port removed (ADR-010). "
+    "v2 equivalents covered in tests/unit/test_operations_*.py. "
+    "Removed in M3 (#46)."
+)
 def test_stop_server_success(launcher_state, sample_model_config):
     """Test stopping a server successfully."""
     # Setup: model is running
@@ -214,6 +232,11 @@ class TestLauncherStateEdgeCases:
         assert status["status"] == "unknown"
         assert "not found" in status["message"].lower()
 
+    @pytest.mark.skip(
+        reason="v1 path: get_model_status returned a default_port field "
+        "that no longer exists (ADR-010 removed default_port from "
+        "ModelConfig — port lives at the call site). Removed in M3 (#46)."
+    )
     def test_get_model_status_stopped(self, state_with_models):
         """get_model_status returns stopped for non-running model."""
         status = state_with_models.get_model_status("test-model")

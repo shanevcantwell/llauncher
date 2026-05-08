@@ -344,6 +344,13 @@ def marker_run_dir(run_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return run_dir
 
 
+# Opt-out kwargs for tests that synthesize fake-path ModelConfigs and
+# don't want swap()'s default model-health / VRAM pre-flight to reject.
+# Tests that exercise pre-flight rejection paths pass their own callables
+# explicitly instead of using this.
+_NO_PREFLIGHT = {"model_health_check": None, "vram_check": None}
+
+
 def _make_config(name: str, **overrides) -> ModelConfig:
     base = {
         "name": name,
@@ -373,7 +380,7 @@ def _config_lookup(*configs: ModelConfig):
 def test_swap_on_empty_port(
     run_dir: Path, marker_run_dir: Path, audit_path: Path
 ) -> None:
-    result = ops.swap("new-model", 8081, caller="test")
+    result = ops.swap("new-model", 8081, caller="test", **_NO_PREFLIGHT)
 
     assert result.success is False
     assert result.action == "rejected_empty"
@@ -392,7 +399,7 @@ def test_swap_with_stale_lockfile_treated_as_empty(
     # Dead pid in lockfile.
     lf.write_lockfile(8081, "ghost", 2**31 - 1, run_dir=run_dir)
 
-    result = ops.swap("new-model", 8081, caller="test")
+    result = ops.swap("new-model", 8081, caller="test", **_NO_PREFLIGHT)
 
     assert result.success is False
     assert result.action == "rejected_empty"
@@ -467,7 +474,7 @@ def test_swap_rejects_when_old_model_config_missing(
         "llauncher.operations.ConfigStore.get_model",
         side_effect=_config_lookup(_make_config("new-model")),
     ):
-        result = ops.swap("new-model", 8081, caller="test")
+        result = ops.swap("new-model", 8081, caller="test", **_NO_PREFLIGHT)
 
     assert result.success is False
     assert result.action == "rejected_preflight"
@@ -512,6 +519,7 @@ def test_swap_rejects_when_vram_check_fails(
             "new-model",
             8081,
             caller="test",
+            model_health_check=None,  # opt out so the vram check is reached
             vram_check=lambda cfg: (False, "insufficient headroom"),
         )
 
@@ -563,7 +571,7 @@ def test_swap_rejects_when_marker_already_present(
         "llauncher.operations.ConfigStore.get_model",
         side_effect=_config_lookup(_make_config("old"), _make_config("new-model")),
     ), patch("llauncher.operations.proc.stop_server_by_port") as stop_proc:
-        result = ops.swap("new-model", 8081, caller="test")
+        result = ops.swap("new-model", 8081, caller="test", **_NO_PREFLIGHT)
 
     assert result.success is False
     assert result.action == "rejected_in_progress"
@@ -603,7 +611,7 @@ def test_swap_clears_stale_marker_then_rejects(
         "llauncher.operations.ConfigStore.get_model",
         side_effect=_config_lookup(_make_config("old"), _make_config("new-model")),
     ):
-        result = ops.swap("new-model", 8081, caller="test")
+        result = ops.swap("new-model", 8081, caller="test", **_NO_PREFLIGHT)
 
     assert result.success is False
     assert result.action == "rejected_in_progress"
@@ -632,7 +640,7 @@ def test_swap_rejected_when_stop_fails(
         side_effect=_config_lookup(_make_config("old"), _make_config("new-model")),
     ), patch("llauncher.operations.proc.stop_server_by_port", return_value=False), \
          patch("llauncher.operations.proc.start_server") as start_proc:
-        result = ops.swap("new-model", 8081, caller="test")
+        result = ops.swap("new-model", 8081, caller="test", **_NO_PREFLIGHT)
 
     assert result.success is False
     assert result.action == "rejected_stop_failed"
@@ -673,7 +681,7 @@ def test_swap_full_success(
              "llauncher.operations.proc.wait_for_server_ready",
              return_value=(True, ["loading", "listening"]),
          ):
-        result = ops.swap("new-model", 8081, caller="test")
+        result = ops.swap("new-model", 8081, caller="test", **_NO_PREFLIGHT)
 
     assert result.success is True
     assert result.action == "swapped"
@@ -728,7 +736,7 @@ def test_swap_rollback_on_phase4_launch_failure(
     ), patch("llauncher.operations.proc.stop_server_by_port", return_value=True), \
          patch("llauncher.operations.proc.start_server", side_effect=start_side_effect), \
          patch("llauncher.operations.proc.wait_for_server_ready", return_value=(True, [])):
-        result = ops.swap("new-model", 8081, caller="test")
+        result = ops.swap("new-model", 8081, caller="test", **_NO_PREFLIGHT)
 
     assert result.success is False
     assert result.action == "rolled_back"
@@ -771,7 +779,7 @@ def test_swap_rollback_on_readiness_timeout(
          ), \
          patch("llauncher.operations.proc.wait_for_server_ready", side_effect=ready_returns), \
          patch("llauncher.operations.proc.stop_server_by_pid"):
-        result = ops.swap("new-model", 8081, caller="test")
+        result = ops.swap("new-model", 8081, caller="test", **_NO_PREFLIGHT)
 
     assert result.success is False
     assert result.action == "rolled_back"
@@ -798,7 +806,7 @@ def test_swap_failed_when_rollback_also_fails(
              "llauncher.operations.proc.start_server",
              side_effect=FileNotFoundError("binary gone"),
          ):
-        result = ops.swap("new-model", 8081, caller="test")
+        result = ops.swap("new-model", 8081, caller="test", **_NO_PREFLIGHT)
 
     assert result.success is False
     assert result.action == "failed"
@@ -861,7 +869,7 @@ def test_swap_uses_snapshot_config_for_rollback(
          patch("llauncher.operations.proc.stop_server_by_port", return_value=True), \
          patch("llauncher.operations.proc.start_server", side_effect=start_server), \
          patch("llauncher.operations.proc.wait_for_server_ready", return_value=(True, [])):
-        result = ops.swap("new-model", 8081, caller="test")
+        result = ops.swap("new-model", 8081, caller="test", **_NO_PREFLIGHT)
 
     assert result.action == "rolled_back"
     # The rollback should have used snapshot_old (ctx_size=4096), not the edit.
@@ -893,6 +901,114 @@ def test_swap_result_to_dict_envelope() -> None:
     assert d["startup_logs"] == ["a", "b"]
 
 
+# ---------------------------------------------------------------------------
+# swap — default pre-flight adapters wired (slice 2)
+# ---------------------------------------------------------------------------
+
+
+def test_swap_default_model_health_check_rejects_when_file_invalid(
+    run_dir: Path, marker_run_dir: Path, audit_path: Path
+) -> None:
+    """The default model-health adapter is invoked when no override is given."""
+    import os
+    from llauncher.core.model_health import ModelHealthResult
+
+    lf.write_lockfile(8081, "old", os.getpid(), run_dir=run_dir)
+
+    invalid = ModelHealthResult(valid=False, exists=False, reason="not found")
+
+    with patch(
+        "llauncher.operations.ConfigStore.get_model",
+        side_effect=_config_lookup(_make_config("old"), _make_config("new-model")),
+    ), patch(
+        "llauncher.operations.preflight.mh.check_model_health",
+        return_value=invalid,
+    ), patch(
+        # VRAM check would also fire on the real path; force it to pass so
+        # the rejection comes specifically from model-health.
+        "llauncher.operations.preflight.gpu_mod.GPUHealthCollector.get_health",
+        return_value={"backends": [], "devices": []},
+    ):
+        result = ops.swap("new-model", 8081, caller="test")
+
+    assert result.success is False
+    assert result.action == "rejected_preflight"
+    assert "not found" in result.message.lower()
+
+
+def test_swap_default_vram_check_rejects_when_insufficient(
+    run_dir: Path, marker_run_dir: Path, audit_path: Path
+) -> None:
+    """The default VRAM adapter is invoked when no override is given."""
+    import os
+    from llauncher.core.model_health import ModelHealthResult
+
+    lf.write_lockfile(8081, "old", os.getpid(), run_dir=run_dir)
+
+    healthy = ModelHealthResult(valid=True, exists=True, readable=True)
+
+    with patch(
+        "llauncher.operations.ConfigStore.get_model",
+        side_effect=_config_lookup(
+            _make_config("old"),
+            _make_config("llama-70b", model_path="/m/llama-70b.gguf"),
+        ),
+    ), patch(
+        "llauncher.operations.preflight.mh.check_model_health",
+        return_value=healthy,
+    ), patch(
+        "llauncher.operations.preflight.gpu_mod.GPUHealthCollector.get_health",
+        return_value={
+            "backends": ["nvidia"],
+            "devices": [{"index": 0, "name": "RTX 4090", "free_vram_mb": 24000}],
+        },
+    ):
+        result = ops.swap("llama-70b", 8081, caller="test")
+
+    assert result.success is False
+    assert result.action == "rejected_preflight"
+    assert "vram" in result.message.lower()
+
+
+def test_swap_default_preflight_proceeds_when_both_pass(
+    run_dir: Path,
+    marker_run_dir: Path,
+    audit_path: Path,
+    mock_popen: MagicMock,
+) -> None:
+    """End-to-end swap with default adapters wired: both pass, swap succeeds."""
+    import os
+    from llauncher.core.model_health import ModelHealthResult
+
+    lf.write_lockfile(8081, "old", os.getpid(), run_dir=run_dir)
+
+    healthy = ModelHealthResult(valid=True, exists=True, readable=True)
+
+    with patch(
+        "llauncher.operations.ConfigStore.get_model",
+        side_effect=_config_lookup(_make_config("old"), _make_config("new-model")),
+    ), patch(
+        "llauncher.operations.preflight.mh.check_model_health",
+        return_value=healthy,
+    ), patch(
+        "llauncher.operations.preflight.gpu_mod.GPUHealthCollector.get_health",
+        return_value={
+            "backends": ["nvidia"],
+            "devices": [{"index": 0, "name": "big", "free_vram_mb": 24000}],
+        },
+    ), patch("llauncher.operations.proc.stop_server_by_port", return_value=True), \
+         patch("llauncher.operations.proc.start_server", return_value=mock_popen), \
+         patch(
+             "llauncher.operations.proc.wait_for_server_ready",
+             return_value=(True, ["ready"]),
+         ):
+        # Note: no _NO_PREFLIGHT — exercising the real default adapter chain.
+        result = ops.swap("new-model", 8081, caller="test")
+
+    assert result.success is True
+    assert result.action == "swapped"
+
+
 def test_startup_logs_capped_at_max(
     run_dir: Path, marker_run_dir: Path, audit_path: Path, mock_popen: MagicMock
 ) -> None:
@@ -911,8 +1027,165 @@ def test_startup_logs_capped_at_max(
              "llauncher.operations.proc.wait_for_server_ready",
              return_value=(True, long_logs),
          ):
-        result = ops.swap("new-model", 8081, caller="test")
+        result = ops.swap("new-model", 8081, caller="test", **_NO_PREFLIGHT)
 
     assert len(result.startup_logs) == ops.STARTUP_LOG_TAIL_MAX
     # Tail preserved.
     assert result.startup_logs[-1] == "line 499"
+
+
+# ---------------------------------------------------------------------------
+# delete_model (M2 slice 3, closes #37)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def config_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Redirect ConfigStore reads/writes to a tmp file."""
+    target = tmp_path / "config.json"
+    monkeypatch.setattr("llauncher.core.config.CONFIG_PATH", target)
+    monkeypatch.setattr(
+        "llauncher.core.config.CONFIG_DIR", target.parent
+    )
+    return target
+
+
+def test_delete_model_not_found_is_idempotent(
+    config_path: Path, run_dir: Path, audit_path: Path
+) -> None:
+    result = ops.delete_model("nonexistent", caller="test")
+
+    assert result.success is True
+    assert result.action == "not_found"
+    assert result.name == "nonexistent"
+    # No audit entry on a true no-op delete.
+    assert al.read_entries(path=audit_path) == []
+
+
+def test_delete_model_happy_path(
+    config_path: Path,
+    run_dir: Path,
+    audit_path: Path,
+    sample_config: ModelConfig,
+) -> None:
+    from llauncher.core.config import ConfigStore
+
+    ConfigStore.add_model(sample_config)
+    assert ConfigStore.get_model("mistral-7b") is not None
+
+    result = ops.delete_model("mistral-7b", caller="test")
+
+    assert result.success is True
+    assert result.action == "deleted"
+    assert result.name == "mistral-7b"
+    # Config entry gone.
+    assert ConfigStore.get_model("mistral-7b") is None
+    # Audit: MODEL_REMOVED + SUCCESS.
+    entries = al.read_entries(path=audit_path)
+    assert len(entries) == 1
+    assert entries[0].action == AuditAction.MODEL_REMOVED
+    assert entries[0].result == AuditResult.SUCCESS
+    assert entries[0].model == "mistral-7b"
+
+
+def test_delete_model_rejected_when_in_use(
+    config_path: Path,
+    run_dir: Path,
+    audit_path: Path,
+    sample_config: ModelConfig,
+) -> None:
+    """Live lockfile claiming the model blocks the delete."""
+    import os
+
+    from llauncher.core.config import ConfigStore
+
+    ConfigStore.add_model(sample_config)
+    # Use this process's pid as a known-live pid.
+    lf.write_lockfile(8081, "mistral-7b", os.getpid(), run_dir=run_dir)
+
+    result = ops.delete_model("mistral-7b", caller="test")
+
+    assert result.success is False
+    assert result.action == "rejected_in_use"
+    assert result.in_use_port == 8081
+    # Config preserved.
+    assert ConfigStore.get_model("mistral-7b") is not None
+    # Lockfile preserved (we did not stop anything).
+    assert lf.read_lockfile(8081, run_dir=run_dir) is not None
+    # Audit: MODEL_REMOVED + REJECTED_OCCUPIED.
+    entries = al.read_entries(path=audit_path)
+    assert len(entries) == 1
+    assert entries[0].action == AuditAction.MODEL_REMOVED
+    assert entries[0].result == AuditResult.REJECTED_OCCUPIED
+    assert entries[0].port == 8081
+
+
+def test_delete_model_with_stale_lockfile_proceeds(
+    config_path: Path,
+    run_dir: Path,
+    audit_path: Path,
+    sample_config: ModelConfig,
+) -> None:
+    """A stale lockfile (dead pid) for the target model is reconciled, then
+    the delete proceeds."""
+    from llauncher.core.config import ConfigStore
+
+    ConfigStore.add_model(sample_config)
+    # Dead pid (max int unlikely to be a live process).
+    lf.write_lockfile(8081, "mistral-7b", 2**31 - 1, run_dir=run_dir)
+
+    result = ops.delete_model("mistral-7b", caller="test")
+
+    assert result.success is True
+    assert result.action == "deleted"
+    # Config gone.
+    assert ConfigStore.get_model("mistral-7b") is None
+    # Stale lockfile cleaned up.
+    assert lf.read_lockfile(8081, run_dir=run_dir) is None
+    # Audit: OBSERVED_STOPPED then MODEL_REMOVED.
+    entries = al.read_entries(path=audit_path)
+    assert len(entries) == 2
+    assert entries[0].action == AuditAction.OBSERVED_STOPPED
+    assert entries[1].action == AuditAction.MODEL_REMOVED
+    assert entries[1].result == AuditResult.SUCCESS
+
+
+def test_delete_model_ignores_lockfiles_for_other_models(
+    config_path: Path,
+    run_dir: Path,
+    audit_path: Path,
+    sample_config: ModelConfig,
+) -> None:
+    """A live lockfile for an unrelated model does not block the delete."""
+    import os
+
+    from llauncher.core.config import ConfigStore
+
+    ConfigStore.add_model(sample_config)
+    # Some other model is running on port 8081 — irrelevant to our delete.
+    lf.write_lockfile(8081, "other-model", os.getpid(), run_dir=run_dir)
+
+    result = ops.delete_model("mistral-7b", caller="test")
+
+    assert result.success is True
+    assert result.action == "deleted"
+    # Other model's lockfile untouched.
+    other = lf.read_lockfile(8081, run_dir=run_dir)
+    assert other is not None
+    assert other.model == "other-model"
+
+
+def test_delete_model_result_to_dict_envelope() -> None:
+    result = ops.DeleteModelResult(
+        success=False,
+        action="rejected_in_use",
+        name="mistral-7b",
+        in_use_port=8081,
+        message="busy",
+    )
+    d = result.to_dict()
+    assert d["success"] is False
+    assert d["action"] == "rejected_in_use"
+    assert d["name"] == "mistral-7b"
+    assert d["in_use_port"] == 8081
+    assert d["message"] == "busy"

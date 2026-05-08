@@ -244,39 +244,51 @@ class TestModelsEndpoint:
 
 
 class TestStartServerEndpoint:
-    """Tests for the /start/{model_name} endpoint."""
+    """Tests for the port-keyed /start/{port} endpoint (ADR-010)."""
 
-    def test_start_nonexistent_model_returns_404(self, client):
-        """Test that starting a nonexistent model returns 404."""
-        response = client.post("/start/nonexistent-model")
-        assert response.status_code == 404
+    def test_start_missing_body_returns_422(self, client):
+        """Posting without a body fails FastAPI validation."""
+        response = client.post("/start/8081")
+        assert response.status_code == 422
 
-    def test_start_model_returns_correct_structure(self, client):
-        """Test that start returns correct structure when successful."""
-        # This test may fail if no models are configured
-        # It's mainly to verify the response structure
-        models_response = client.get("/models")
-        models = models_response.json()
+    def test_start_nonexistent_model_returns_500(self, client, monkeypatch):
+        """Unknown model surfaces ops.start's ``error`` action as 500."""
+        from llauncher import operations as ops
 
-        if models:
-            model_name = models[0]["name"]
-            try:
-                response = client.post(f"/start/{model_name}")
-                # May return 200 (success) or 409 (already running)
-                assert response.status_code in (200, 409)
-            except Exception:
-                # Starting a real server may fail in test environment
-                # Just verify we get some response
-                pytest.skip("Server start may fail in test environment")
+        monkeypatch.setattr(
+            "llauncher.agent.routing.ops.start",
+            lambda model, port, caller="agent": ops.StartResult(
+                success=False,
+                action="error",
+                port=port,
+                model=model,
+                message=f"Model not found: {model}",
+            ),
+        )
+        response = client.post("/start/8081", json={"model": "nope"})
+        assert response.status_code == 500
+        assert response.json()["detail"]["action"] == "error"
 
 
 class TestStopServerEndpoint:
-    """Tests for the /stop/{port} endpoint."""
+    """Tests for the port-keyed /stop/{port} endpoint."""
 
-    def test_stop_nonexistent_port_returns_404(self, client):
-        """Test that stopping a nonexistent port returns 404."""
+    def test_stop_empty_port_is_idempotent_200(self, client, monkeypatch):
+        """Idempotent stop: 200 with ``already_empty`` action."""
+        from llauncher import operations as ops
+
+        monkeypatch.setattr(
+            "llauncher.agent.routing.ops.stop",
+            lambda port, caller="agent": ops.StopResult(
+                success=True,
+                action="already_empty",
+                port=port,
+                message=f"No server claimed port {port}",
+            ),
+        )
         response = client.post("/stop/99999")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json()["action"] == "already_empty"
 
 
 class TestLogsEndpoint:
@@ -840,271 +852,298 @@ class TestAgentRouting:
         # Should be empty list due to exception
         assert data["ip_addresses"] == []
 
+    # ---- Verb endpoints (ADR-010, M2 slice 4) ---------------------------
+    #
+    # The verb endpoints are thin wrappers around llauncher.operations.
+    # Each test mocks the corresponding op and asserts the HTTP layer maps
+    # the result envelope to the right status code.
+
     def test_start_server_success(self, client, monkeypatch):
-        """Test start_server endpoint when server starts successfully."""
-        from llauncher.state import LauncherState
+        """``started`` action → 200 with the StartResult envelope."""
+        from llauncher import operations as ops
 
-        # Mock LauncherState
-        mock_state = LauncherState()
-        mock_state.refresh = lambda: None
-        mock_state.start_server = lambda model_name, caller: (
-            True,
-            "Server started",
-            type('obj', (object,), {'pid': 1234, 'port': 8080})(),
-        )
-        mock_state.refresh_running_servers = lambda: None
-        # After refreshing, populate the running state with the started server
-        def mock_refresh_running_servers():
-            mock_state.running = {
-                8080: type('obj', (object,), {
-                    'pid': 1234,
-                    'port': 8080,
-                    'config_name': 'test-model',
-                    'start_time': type('obj', (object,), {
-                        'isoformat': lambda: '2023-01-01T00:00:00',
-                        'uptime_seconds': lambda: 0
-                    })()
-                })
-            }
-        mock_state.refresh_running_servers = mock_refresh_running_servers
+        captured: dict = {}
 
-        # Patch the global _state in routing module
-        import llauncher.agent.routing
-        monkeypatch.setattr(llauncher.agent.routing, "_state", mock_state)
+        def fake_start(model_name, port, *, caller="agent", **_):
+            captured["args"] = (model_name, port, caller)
+            return ops.StartResult(
+                success=True,
+                action="started",
+                port=port,
+                model=model_name,
+                pid=1234,
+                message=f"{model_name} started on port {port}",
+            )
 
-        # First, add a model to the state so it exists
-        mock_state.models = {
-            "test-model": type('obj', (object,), {
-                'name': 'test-model',
-                'model_path': '/path/to/model',
-                'mmproj_path': '/path/to/mmproj',
-                'default_port': 8080,
-                'n_gpu_layers': 0,
-                'ctx_size': 2048
-            })()
-        }
+        monkeypatch.setattr("llauncher.agent.routing.ops.start", fake_start)
 
-        # Call the endpoint
-        response = client.post("/start/test-model")
+        response = client.post("/start/8081", json={"model": "test-model"})
         assert response.status_code == 200
-
-        # Check response structure
         data = response.json()
         assert data["success"] is True
-        assert data["message"] == "Server started"
-        assert data["port"] == 8080
+        assert data["action"] == "started"
+        assert data["port"] == 8081
+        assert data["model"] == "test-model"
         assert data["pid"] == 1234
-        assert data["config_name"] == "test-model"
+        # The agent identifies itself in the audit trail.
+        assert captured["args"] == ("test-model", 8081, "agent")
 
-    def test_start_server_model_not_found(self, client):
-        """Test start_server endpoint when model doesn't exist."""
-        # Ensure state is reset
-        from llauncher.agent import routing
-        routing._state = None
+    def test_start_server_already_running_is_200(self, client, monkeypatch):
+        """``already_running`` is idempotent success → 200, not 409."""
+        from llauncher import operations as ops
 
-        # Call endpoint with non-existent model
-        response = client.post("/start/nonexistent-model")
-        assert response.status_code == 404
-        assert "Model not found: nonexistent-model" in response.json()["detail"]
-
-    def test_start_server_already_running(self, client, monkeypatch):
-        """Test start_server endpoint when model is already running."""
-        from llauncher.state import LauncherState
-
-        # Mock LauncherState
-        mock_state = LauncherState()
-        mock_state.refresh = lambda: None
-        mock_state.models = {
-            "test-model": type('obj', (object,), {
-                'name': 'test-model',
-                'model_path': '/path/to/model',
-                'mmproj_path': '/path/to/mmproj',
-                'default_port': 8080,
-                'n_gpu_layers': 0,
-                'ctx_size': 2048
-            })()
-        }
-        # Simulate an already running server
-        mock_state.running = {
-            8080: type('obj', (object,), {
-                'pid': 1234,
-                'port': 8080,
-                'config_name': 'test-model',
-                'start_time': type('obj', (object,), {
-                    'isoformat': lambda: '2023-01-01T00:00:00',
-                    'uptime_seconds': lambda: 3600
-                })()
-            })()
-        }
-
-        # Patch the global _state
-        import llauncher.agent.routing
-        monkeypatch.setattr(llauncher.agent.routing, "_state", mock_state)
-
-        # Call the endpoint
-        response = client.post("/start/test-model")
-        assert response.status_code == 409
-        assert "already running on port 8080" in response.json()["detail"]
-
-    def test_start_server_failure_to_start(self, client, monkeypatch):
-        """Test start_server endpoint when server fails to start."""
-        from llauncher.state import LauncherState
-
-        # Mock LauncherState to return a failed start
-        mock_state = LauncherState()
-        mock_state.refresh = lambda: None
-        mock_state.start_server = lambda model_name, caller: (
-            False,
-            "Failed to start server",
-            None
+        monkeypatch.setattr(
+            "llauncher.agent.routing.ops.start",
+            lambda model, port, caller="agent": ops.StartResult(
+                success=True,
+                action="already_running",
+                port=port,
+                model=model,
+                pid=4242,
+                message=f"{model} already running on port {port}",
+            ),
         )
 
-        # Patch the global _state
-        import llauncher.agent.routing
-        monkeypatch.setattr(llauncher.agent.routing, "_state", mock_state)
+        response = client.post("/start/8081", json={"model": "test-model"})
+        assert response.status_code == 200
+        assert response.json()["action"] == "already_running"
 
-        # Add a model to the state
-        mock_state.models = {
-            "test-model": type('obj', (object,), {
-                'name': 'test-model',
-                'model_path': '/path/to/model',
-                'mmproj_path': '/path/to/mmproj',
-                'default_port': 8080,
-                'n_gpu_layers': 0,
-                'ctx_size': 2048
-            })()
-        }
+    def test_start_server_rejected_occupied_returns_409(self, client, monkeypatch):
+        """Different model already on the port → 409."""
+        from llauncher import operations as ops
 
-        # Call the endpoint
-        response = client.post("/start/test-model")
+        monkeypatch.setattr(
+            "llauncher.agent.routing.ops.start",
+            lambda model, port, caller="agent": ops.StartResult(
+                success=False,
+                action="rejected_occupied",
+                port=port,
+                model="other-model",
+                pid=4242,
+                message=f"Port {port} is occupied by other-model",
+            ),
+        )
+
+        response = client.post("/start/8081", json={"model": "test-model"})
         assert response.status_code == 409
-        assert response.json()["detail"] == "Failed to start server"
+        detail = response.json()["detail"]
+        assert detail["action"] == "rejected_occupied"
+
+    def test_start_server_error_returns_500(self, client, monkeypatch):
+        """``error`` action (model not found, launch failure, …) → 500."""
+        from llauncher import operations as ops
+
+        monkeypatch.setattr(
+            "llauncher.agent.routing.ops.start",
+            lambda model, port, caller="agent": ops.StartResult(
+                success=False,
+                action="error",
+                port=port,
+                model=model,
+                message="Model not found: ghost",
+            ),
+        )
+
+        response = client.post("/start/8081", json={"model": "ghost"})
+        assert response.status_code == 500
+        assert response.json()["detail"]["action"] == "error"
 
     def test_stop_server_success(self, client, monkeypatch):
-        """Test stop_server endpoint when server stops successfully."""
-        from llauncher.state import LauncherState
+        """``stopped`` action → 200."""
+        from llauncher import operations as ops
 
-        # Mock LauncherState
-        mock_state = LauncherState()
-        mock_state.refresh = lambda: None
-        mock_state.stop_server = lambda port, caller: (True, "Server stopped")
+        captured: dict = {}
 
-        # Patch the global _state
-        import llauncher.agent.routing
-        monkeypatch.setattr(llauncher.agent.routing, "_state", mock_state)
+        def fake_stop(port, *, caller="agent"):
+            captured["args"] = (port, caller)
+            return ops.StopResult(
+                success=True,
+                action="stopped",
+                port=port,
+                model="test-model",
+                pid=1234,
+                message=f"Stopped test-model on port {port}",
+            )
 
-        # Simulate a running server
-        mock_state.running = {
-            8080: type('obj', (object,), {
-                'pid': 1234,
-                'port': 8080,
-                'config_name': 'test-model',
-                'start_time': type('obj', (object,), {
-                    'isoformat': lambda: '2023-01-01T00:00:00',
-                    'uptime_seconds': lambda: 3600
-                })()
-            })()
-        }
+        monkeypatch.setattr("llauncher.agent.routing.ops.stop", fake_stop)
 
-        # Call the endpoint
-        response = client.post("/stop/8080")
+        response = client.post("/stop/8081")
         assert response.status_code == 200
-
-        # Check response structure
         data = response.json()
-        assert data["success"] is True
-        assert data["message"] == "Server stopped"
-        assert data["port"] == 8080
-        assert data["config_name"] == "test-model"
+        assert data["action"] == "stopped"
+        assert data["port"] == 8081
+        assert data["model"] == "test-model"
+        assert captured["args"] == (8081, "agent")
 
-    def test_stop_server_not_found(self, client):
-        """Test stop_server endpoint when no server is running on the port."""
-        # Ensure state is reset
-        from llauncher.agent import routing
-        routing._state = None
+    def test_stop_server_already_empty_is_200(self, client, monkeypatch):
+        """Idempotent stop — empty port returns 200, not 404."""
+        from llauncher import operations as ops
 
-        # Call endpoint with port where no server is running
-        response = client.post("/stop/9999")
-        assert response.status_code == 404
-        assert "No server running on port 9999" in response.json()["detail"]
-
-    def test_stop_server_failure_to_stop(self, client, monkeypatch):
-        """Test stop_server endpoint when server fails to stop."""
-        from llauncher.state import LauncherState
-
-        # Mock LauncherState to return a failed stop
-        mock_state = LauncherState()
-        mock_state.refresh = lambda: None
-        mock_state.stop_server = lambda port, caller: (False, "Failed to stop server")
-
-        # Patch the global _state
-        import llauncher.agent.routing
-        monkeypatch.setattr(llauncher.agent.routing, "_state", mock_state)
-
-        # Simulate a running server
-        mock_state.running = {
-            8080: type('obj', (object,), {
-                'pid': 1234,
-                'port': 8080,
-                'config_name': 'test-model',
-                'start_time': type('obj', (object,), {
-                    'isoformat': lambda: '2023-01-01T00:00:00',
-                    'uptime_seconds': lambda: 3600
-                })()
-            })()
-        }
-
-        # Call the endpoint
-        response = client.post("/stop/8080")
-        assert response.status_code == 500
-        assert response.json()["detail"] == "Failed to stop server"
-
-    def test_start_server_fallback_case(self, client, monkeypatch):
-        """Test start_server endpoint fallback case when server not found in running list after start."""
-        from llauncher.state import LauncherState
-
-        # Mock LauncherState
-        mock_state = LauncherState()
-        mock_state.refresh = lambda: None
-        mock_state.start_server = lambda model_name, caller: (
-            True,
-            "Server started",
-            type('obj', (object,), {'pid': 1234, 'port': 8080})(),
+        monkeypatch.setattr(
+            "llauncher.agent.routing.ops.stop",
+            lambda port, caller="agent": ops.StopResult(
+                success=True,
+                action="already_empty",
+                port=port,
+                message=f"No server claimed port {port}",
+            ),
         )
-        # After refreshing, DO NOT populate the running state with the started server
-        # This simulates the case where the server starts but doesn't appear in the running list
-        mock_state.refresh_running_servers = lambda: None
-        # Explicitly ensure the running dict is empty or doesn't contain our server
-        mock_state.running = {}
 
-        # Patch the global _state in routing module
-        import llauncher.agent.routing
-        monkeypatch.setattr(llauncher.agent.routing, "_state", mock_state)
-
-        # First, add a model to the state so it exists
-        mock_state.models = {
-            "test-model": type('obj', (object,), {
-                'name': 'test-model',
-                'model_path': '/path/to/model',
-                'mmproj_path': '/path/to/mmproj',
-                'default_port': 8080,
-                'n_gpu_layers': 0,
-                'ctx_size': 2048
-            })()
-        }
-
-        # Call the endpoint
-        response = client.post("/start/test-model")
+        response = client.post("/stop/9999")
         assert response.status_code == 200
+        assert response.json()["action"] == "already_empty"
 
-        # Check response structure - should fall back to just success and message
+    def test_stop_server_termination_failure_returns_500(self, client, monkeypatch):
+        """A live process that won't terminate → 500."""
+        from llauncher import operations as ops
+
+        monkeypatch.setattr(
+            "llauncher.agent.routing.ops.stop",
+            lambda port, caller="agent": ops.StopResult(
+                success=False,
+                action="error",
+                port=port,
+                model="test-model",
+                pid=1234,
+                message=f"Failed to stop server on port {port}",
+            ),
+        )
+
+        response = client.post("/stop/8081")
+        assert response.status_code == 500
+        assert response.json()["detail"]["action"] == "error"
+
+    def test_swap_server_success(self, client, monkeypatch):
+        """``swapped`` action → 200."""
+        from llauncher import operations as ops
+
+        captured: dict = {}
+
+        def fake_swap(model_name, port, *, caller="agent", **_):
+            captured["args"] = (model_name, port, caller)
+            return ops.SwapResult(
+                success=True,
+                action="swapped",
+                port_state="occupied",
+                port=port,
+                model=model_name,
+                previous_model="old",
+                pid=4242,
+                message=f"swapped to {model_name} on port {port}",
+            )
+
+        monkeypatch.setattr("llauncher.agent.routing.ops.swap", fake_swap)
+
+        response = client.post("/swap/8081", json={"model": "new-model"})
+        assert response.status_code == 200
         data = response.json()
-        assert data["success"] is True
-        assert data["message"] == "Server started"
-        # Should NOT have port, pid, or config_name in the fallback case
-        assert "port" not in data
-        assert "pid" not in data
-        assert "config_name" not in data
+        assert data["action"] == "swapped"
+        assert data["model"] == "new-model"
+        assert data["previous_model"] == "old"
+        assert captured["args"] == ("new-model", 8081, "agent")
+
+    def test_swap_rejected_preflight_returns_409(self, client, monkeypatch):
+        """Pre-flight rejection (model unhealthy, insufficient VRAM) → 409."""
+        from llauncher import operations as ops
+
+        monkeypatch.setattr(
+            "llauncher.agent.routing.ops.swap",
+            lambda model, port, caller="agent": ops.SwapResult(
+                success=False,
+                action="rejected_preflight",
+                port_state="unchanged",
+                port=port,
+                model=model,
+                message="VRAM insufficient",
+            ),
+        )
+
+        response = client.post("/swap/8081", json={"model": "fat-model"})
+        assert response.status_code == 409
+        assert response.json()["detail"]["action"] == "rejected_preflight"
+
+    def test_swap_rolled_back_returns_503(self, client, monkeypatch):
+        """Successful rollback after a failed start → 503 (degraded)."""
+        from llauncher import operations as ops
+
+        monkeypatch.setattr(
+            "llauncher.agent.routing.ops.swap",
+            lambda model, port, caller="agent": ops.SwapResult(
+                success=False,
+                action="rolled_back",
+                port_state="occupied",
+                port=port,
+                
+                model=model,
+                message="new model failed readiness; rolled back to old",
+            ),
+        )
+
+        response = client.post("/swap/8081", json={"model": "broken"})
+        assert response.status_code == 503
+
+    def test_delete_model_success(self, client, monkeypatch):
+        """``deleted`` action → 200."""
+        from llauncher import operations as ops
+
+        captured: dict = {}
+
+        def fake_delete(name, *, caller="agent"):
+            captured["args"] = (name, caller)
+            return ops.DeleteModelResult(
+                success=True,
+                action="deleted",
+                name=name,
+                message=f"Removed {name!r} from config.",
+            )
+
+        monkeypatch.setattr(
+            "llauncher.agent.routing.ops.delete_model", fake_delete
+        )
+
+        response = client.delete("/models/test-model")
+        assert response.status_code == 200
+        assert response.json()["action"] == "deleted"
+        assert captured["args"] == ("test-model", "agent")
+
+    def test_delete_model_not_found_returns_404(self, client, monkeypatch):
+        """``not_found`` action → 404."""
+        from llauncher import operations as ops
+
+        monkeypatch.setattr(
+            "llauncher.agent.routing.ops.delete_model",
+            lambda name, caller="agent": ops.DeleteModelResult(
+                success=True,
+                action="not_found",
+                name=name,
+                message=f"No model named {name!r} in config",
+            ),
+        )
+
+        response = client.delete("/models/ghost")
+        assert response.status_code == 404
+        assert response.json()["detail"]["action"] == "not_found"
+
+    def test_delete_model_in_use_returns_409(self, client, monkeypatch):
+        """``rejected_in_use`` action → 409."""
+        from llauncher import operations as ops
+
+        monkeypatch.setattr(
+            "llauncher.agent.routing.ops.delete_model",
+            lambda name, caller="agent": ops.DeleteModelResult(
+                success=False,
+                action="rejected_in_use",
+                name=name,
+                in_use_port=8081,
+                message=f"Model {name!r} is running on port 8081",
+            ),
+        )
+
+        response = client.delete("/models/test-model")
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["action"] == "rejected_in_use"
+        assert detail["in_use_port"] == 8081
 
 
 class TestAgentServerFunctions:

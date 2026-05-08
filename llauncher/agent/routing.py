@@ -1,15 +1,27 @@
-"""FastAPI routing for the llauncher agent service."""
+"""FastAPI routing for the llauncher agent service.
+
+Per ADR-010, the start/swap/stop/delete-model verbs are port-keyed (or
+name-keyed for delete) and delegate to :mod:`llauncher.operations`.
+The agent is a thin HTTP wrapper: it translates requests into op calls
+and op results into HTTP status codes.
+"""
+
+from __future__ import annotations
 
 import socket
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
-from llauncher.state import EvictionResult, LauncherState
+from llauncher import operations as ops
+from llauncher.state import LauncherState
 
 router = APIRouter()
 
-# Global state instance - shared across all requests
+# Global state instance — used only for the read-side ``/status``,
+# ``/models``, and log endpoints. The verbs no longer route through
+# LauncherState; they call the v2 ops directly (ADR-008).
 _state: LauncherState | None = None
 
 
@@ -29,79 +41,70 @@ def get_node_name() -> str:
     return os.getenv("LAUNCHER_AGENT_NODE_NAME", socket.gethostname())
 
 
-# ─────────── Pre-flight helpers (ADR-005 / ADR-006) ──────────────
-
-def _estimate_vram_mb(model_path: str, n_gpu_layers: int = 255) -> int:
-    """Heuristic VRAM requirement estimate based on model parameters.
-
-    Rough rule: ~1 GB per billion params for Q4_K_M quantization.
-    Defaults to 7 B (≈7168 MB) when the path cannot be parsed, scaled down by
-    layer-ratio if partial GPU offload is configured.
-    """
-    import re
-    # Try to extract parameter count from common naming patterns:
-    #   "llama-3-7b", "mistral-7b-v0.1", "qwen2.5-14b.Q4_K_M.gguf"
-    match = re.search(r"(?<!\d)(\d+\.?\d*)\s*[bb]", model_path, re.IGNORECASE)
-    if match:
-        params_billion = float(match.group(1))
-    else:
-        params_billion = 7.0  # default fallback
-
-    base_vram_mb = int(params_billion * 1024)
-
-    # If only partial GPU offload (n_gpu_layers < 999), scale proportionally.
-    if n_gpu_layers is not None and n_gpu_layers < 999:
-        max_layers = 32  # typical Llama max layers
-        layer_ratio = min(n_gpu_layers / max(1, max_layers), 1.0)
-        base_vram_mb = int(base_vram_mb * layer_ratio)
-
-    return base_vram_mb
+# ─────────── Request body schemas ────────────────────────────────
 
 
-def _check_vram_sufficient(required_mb: int) -> tuple[bool, dict | None]:
-    """Check whether any GPU has sufficient free VRAM.
+class StartRequest(BaseModel):
+    """Body for POST /start/{port}."""
 
-    Returns (True, None) when enough VRAM is available; otherwise
-    ``(False, error_dict)`` with detail for the caller.  On systems without
-    GPUs this check is a no-op → always returns True.
-    """
-    from llauncher.core.gpu import GPUHealthCollector
-
-    collector = GPUHealthCollector()
-    health = collector.get_health()
-
-    backends = health.get("backends", [])
-    if not backends:
-        # No GPUs — skip pre-flight, let the process fail naturally.
-        return True, None
-
-    for device in health.get("devices", []):
-        free = device.get("free_vram_mb", 0) or 0
-        if free >= required_mb:
-            return True, None
-
-    max_free = max(
-        (d.get("free_vram_mb") or 0 for d in health.get("devices", [])),
-        default=0,
-    )
-    error_info = {
-        "error": "insufficient_vram",
-        "required_mb": required_mb,
-        "available_mb": max_free,
-    }
-    return False, error_info
+    model: str
 
 
+class SwapRequest(BaseModel):
+    """Body for POST /swap/{port}."""
 
-# ───────────────────── Endpoints (ADR-005 + ADR-006) ────────────
+    model: str
+
+
+# ─────────── Status-code mapping per ADR-010 action discriminator ─
+
+
+def _start_status_code(action: str) -> int:
+    """Map a ``StartResult.action`` value to an HTTP status code."""
+    return {
+        "started": 200,
+        "already_running": 200,
+        "rejected_occupied": 409,
+        "error": 500,
+    }.get(action, 500)
+
+
+def _stop_status_code(action: str) -> int:
+    return {
+        "stopped": 200,
+        "already_empty": 200,
+        "error": 500,
+    }.get(action, 500)
+
+
+def _swap_status_code(action: str) -> int:
+    return {
+        "swapped": 200,
+        "already_running": 200,
+        "rejected_empty": 400,
+        "rejected_preflight": 409,
+        "rejected_in_progress": 409,
+        "rejected_stop_failed": 500,
+        "rolled_back": 503,
+        "failed": 500,
+    }.get(action, 500)
+
+
+def _delete_status_code(action: str) -> int:
+    return {
+        "deleted": 200,
+        "not_found": 404,
+        "rejected_in_use": 409,
+        "error": 500,
+    }.get(action, 500)
+
+
+# ───────────────────── Read endpoints ────────────────────────────
+
 
 @router.get("/health")
 async def health_check() -> dict:
-    """Liveness probe endpoint.
-
-    Returns:
-        Health status with node name and installed version.
-    """
+    """Liveness probe endpoint."""
     from llauncher import __version__ as llauncher_version
 
     return {
@@ -113,16 +116,10 @@ async def health_check() -> dict:
 
 @router.get("/node-info")
 async def node_info() -> dict:
-    """Get information about this node.
-
-    Returns:
-        Node metadata including name, hostname, OS, and IP addresses.
-    """
-    import os
+    """Get information about this node."""
     import platform
 
-    # Get all IP addresses
-    ips = []
+    ips: list[str] = []
     try:
         hostname = socket.gethostname()
         addr_info = socket.getaddrinfo(hostname, None)
@@ -145,9 +142,6 @@ async def get_status() -> dict:
     """Get current status of running servers on this node.
 
     Returns GPU health data (ADR-006) when a GPU backend is available.
-
-    Returns:
-        Status object with running servers, node info, and gpu data.
     """
     from llauncher.core.gpu import GPUHealthCollector
 
@@ -162,7 +156,11 @@ async def get_status() -> dict:
             "start_time": server.start_time.isoformat(),
             "uptime_seconds": server.uptime_seconds(),
             "logs_path": server.logs_path,
-            "model_config": state.models.get(server.config_name).to_dict() if server.config_name in state.models else None,
+            "model_config": (
+                state.models.get(server.config_name).to_dict()
+                if server.config_name in state.models
+                else None
+            ),
         }
         for server in state.running.values()
     ]
@@ -173,7 +171,6 @@ async def get_status() -> dict:
         "total_running": len(running_servers),
     }
 
-    # Append GPU health (ADR-006) — never errors even when no GPUs exist.
     try:
         collector = GPUHealthCollector()
         gpu_health = collector.get_health()
@@ -189,17 +186,12 @@ async def get_status() -> dict:
 
 @router.get("/models")
 async def list_models() -> list[dict]:
-    """List all configured models on this node.
-
-    Returns:
-        List of model configurations with current status.
-    """
+    """List all configured models on this node."""
     state = get_state()
     state.refresh()
 
     models = []
     for name, config in state.models.items():
-        # Check if this model is currently running
         running_port = None
         for server in state.running.values():
             if server.config_name == name:
@@ -225,14 +217,10 @@ async def list_models() -> list[dict]:
 
 # ── ADR-005: Model health endpoints ─────────────────────────────
 
+
 @router.get("/models/health")
 async def models_health() -> list[dict]:
-    """Health status for *all* configured models (ADR-005).
-
-    Iterates every model in the current config, calls ``check_model_health()``,
-    and returns a structured JSON list.  Missing files appear with
-    ``"exists": false`` rather than throwing errors.
-    """
+    """Health status for *all* configured models (ADR-005)."""
     from llauncher.core.model_health import check_model_health
 
     state = get_state()
@@ -252,18 +240,16 @@ async def models_health() -> list[dict]:
 
 @router.get("/models/health/{model_name}")
 async def model_health_detail(model_name: str) -> dict:
-    """Health status for a single model (ADR-005).
-
-    Returns the ``ModelHealthResult`` as JSON for the named model, or a 404
-    when that model is not configured.
-    """
+    """Health status for a single model (ADR-005)."""
     from llauncher.core.model_health import check_model_health
 
     state = get_state()
     state.refresh()
 
     if model_name not in state.models:
-        raise HTTPException(status_code=404, detail=f"Model '{model_name}' not found")
+        raise HTTPException(
+            status_code=404, detail=f"Model '{model_name}' not found"
+        )
 
     config = state.models[model_name]
     health = check_model_health(config.model_path)
@@ -275,221 +261,95 @@ async def model_health_detail(model_name: str) -> dict:
     }
 
 
-@router.post("/start/{model_name}")
-async def start_server(model_name: str) -> dict:
-    """Start a llama-server for the specified model.
+# ───────────────────── Verb endpoints (ADR-010) ──────────────────
 
-    Args:
-        model_name: Name of the model configuration to start.
 
-    Returns:
-        Start result with port and PID.
+@router.post("/start/{port}")
+async def start_server(port: int, body: StartRequest) -> dict:
+    """Start ``body.model`` on ``port``.
 
-    Raises:
-        HTTPException 404: Model not found.
-        HTTPException 409: Model already running or port conflict.
+    Per ADR-010, port is at the call site; the model name is the body.
+    Delegates to :func:`llauncher.operations.start`. Status code reflects
+    the ``action`` discriminator (200 for ``started``/``already_running``,
+    409 for ``rejected_occupied``, 500 for ``error``).
     """
-    state = get_state()
-    state.refresh()
+    result = ops.start(body.model, port, caller="agent")
+    payload = result.to_dict()
+    code = _start_status_code(result.action)
 
-    # Check if model exists
-    if model_name not in state.models:
-        raise HTTPException(status_code=404, detail=f"Model not found: {model_name}")
+    if code >= 400:
+        raise HTTPException(status_code=code, detail=payload)
+    return payload
 
-    config = state.models[model_name]
 
-    # Check if already running
-    for server in state.running.values():
-        if server.config_name == model_name:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Model '{model_name}' is already running on port {server.port}",
-            )
+@router.post("/swap/{port}")
+async def swap_server(port: int, body: SwapRequest) -> dict:
+    """Swap the model on ``port`` to ``body.model`` per ADR-011.
 
-    # Attempt to start - pass model_name string, not config object
-    success, message, process = state.start_server(model_name, caller="agent")
+    Performs the 5-phase swap (pre-flight → marker → stop → start →
+    readiness) with rollback. Pre-flight uses the operations-package
+    defaults (model-file health + VRAM headroom). 4xx for caller-side
+    rejections, 503 when rollback succeeded after a failed start, 500
+    for unrecoverable failures.
+    """
+    result = ops.swap(body.model, port, caller="agent")
+    payload = result.to_dict()
+    code = _swap_status_code(result.action)
 
-    if not success:
-        raise HTTPException(status_code=409, detail=message)
-
-    # Refresh to get the new server info
-    state.refresh_running_servers()
-
-    # Find the newly started server to get port and pid
-    for server in state.running.values():
-        if server.config_name == model_name:
-            return {
-                "success": True,
-                "message": message,
-                "port": server.port,
-                "pid": server.pid,
-                "config_name": model_name,
-            }
-
-    # Fallback if server not found in running list
-    return {"success": True, "message": message}
+    if code >= 400:
+        raise HTTPException(status_code=code, detail=payload)
+    return payload
 
 
 @router.post("/stop/{port}")
 async def stop_server(port: int) -> dict:
-    """Stop a llama-server running on the specified port.
+    """Stop whatever is running on ``port`` per ADR-010.
 
-    Args:
-        port: Port number of the server to stop.
-
-    Returns:
-        Stop result.
-
-    Raises:
-        HTTPException 404: No server found on that port.
+    Idempotent: returns 200 with ``action="already_empty"`` if the port
+    has no live claim. 500 only when termination is attempted and fails.
     """
-    state = get_state()
-    state.refresh()
+    result = ops.stop(port, caller="agent")
+    payload = result.to_dict()
+    code = _stop_status_code(result.action)
 
-    # Check if server is running on that port
-    if port not in state.running:
-        raise HTTPException(status_code=404, detail=f"No server running on port {port}")
-
-    server = state.running[port]
-
-    # Attempt to stop
-    success, message = state.stop_server(port, caller="agent")
-
-    if not success:
-        raise HTTPException(status_code=500, detail=message)
-
-    # Refresh state
-    state.refresh_running_servers()
-
-    return {
-        "success": True,
-        "message": message,
-        "port": port,
-        "config_name": server.config_name,
-    }
+    if code >= 400:
+        raise HTTPException(status_code=code, detail=payload)
+    return payload
 
 
-# ── ADR-006: Pre-flight VRAM check on /start-with-eviction ──────
+@router.delete("/models/{model_name}")
+async def delete_model(model_name: str) -> dict:
+    """Remove ``model_name`` from the config per ADR-008 §4.1.
 
-@router.post("/start-with-eviction/{model_name}")
-async def start_server_with_eviction(model_name: str, port: int | None = None) -> dict:
-    """Start a server, evicting any existing server on the target port.
-
-    Includes VRAM pre-flight (ADR-006): when sufficient free VRAM is not
-    available, returns **409 Conflict** with diagnostic detail.
-
-    Args:
-        model_name: Name of the model configuration to start.
-        port: Required per ADR-010 — port is supplied at the call site.
-
-    Returns:
-        Start result with port and PID.
-
-    Raises:
-        HTTPException 400: No port provided.
-        HTTPException 404: Model not found.
-        HTTPException 409: Insufficient VRAM or other error.
+    Refuses with 409 when the model is currently running on any port.
+    Idempotent on a missing name (200 + ``action="not_found"``).
     """
-    state = get_state()
-    state.refresh()
+    result = ops.delete_model(model_name, caller="agent")
+    payload = result.to_dict()
+    code = _delete_status_code(result.action)
 
-    if model_name not in state.models:
-        raise HTTPException(status_code=404, detail=f"Model not found: {model_name}")
+    if code >= 400:
+        raise HTTPException(status_code=code, detail=payload)
+    return payload
 
-    config = state.models[model_name]
 
-    # Per ADR-010, port is required from the caller; no fallback to config.
-    if port is None:
-        raise HTTPException(status_code=400, detail="port is required")
-    target_port = port
-
-    # ── ADR-006: VRAM pre-flight check ────────────────────────
-    vram_required = _estimate_vram_mb(config.model_path, config.n_gpu_layers)
-    vram_ok, vram_info = _check_vram_sufficient(vram_required)
-
-    if not vram_ok:
-        # Augment with model health hint (ADR-005 cross-cutting diagnostic).
-        from llauncher.core.model_health import check_model_health
-        health_hint = None
-        try:
-            mh = check_model_health(config.model_path)
-            health_hint = mh.model_dump()
-        except Exception:
-            pass
-
-        error_detail: dict = {**vram_info}  # type: ignore[assignment]
-        if health_hint:
-            error_detail["model_health_hint"] = health_hint
-
-        raise HTTPException(
-            status_code=409,
-            detail=error_detail,
-        )
-
-    # ── Pre-flight model health (ADR-005) ─────────────────────
-    mh = check_model_health(config.model_path)
-    if not mh.valid:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "error": "model_unhealthy",
-                "reason": mh.reason or "unknown",
-                "path": config.model_path,
-            },
-        )
-
-    # ── Proceed with eviction start ───────────────────────────
-    result = state._start_with_eviction_impl(
-        model_name, target_port, caller="agent", readiness_timeout=120, strict_rollback=False
-    )
-
-    if result.port_state == "unavailable":
-        raise HTTPException(status_code=503, detail=result.error)
-
-    if not result.success:
-        raise HTTPException(status_code=409, detail=result.error)
-
-    # Refresh to get the new server info
-    state.refresh_running_servers()
-
-    running_server = state.running.get(target_port)
-    return {
-        "success": True,
-        "port": target_port,
-        "pid": running_server.pid if running_server else None,
-        "config_name": model_name,
-        "previous_model": result.previous_model or None,
-        "new_model": result.new_model_attempted,
-        "port_state": result.port_state,
-    }
+# ─────────────────────── Logs ────────────────────────────────────
 
 
 @router.get("/logs/{port}")
 async def get_logs(port: int, lines: Annotated[int, None] = None) -> dict:
-    """Get recent log lines for a server.
-
-    Args:
-        port: Port number of the server.
-        lines: Number of lines to return (default: 100).
-
-    Returns:
-        Log lines for the server.
-
-    Raises:
-        HTTPException 404: No server found on that port.
-    """
+    """Get recent log lines for a server."""
     from llauncher.core.process import stream_logs
 
     state = get_state()
     state.refresh()
 
-    # Check if server is running
     if port not in state.running:
-        raise HTTPException(status_code=404, detail=f"No server running on port {port}")
+        raise HTTPException(
+            status_code=404, detail=f"No server running on port {port}"
+        )
 
     server = state.running[port]
-
-    # Get logs
     num_lines = lines or 100
     log_lines = stream_logs(pid=server.pid, lines=num_lines)
 

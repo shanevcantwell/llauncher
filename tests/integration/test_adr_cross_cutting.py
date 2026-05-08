@@ -154,19 +154,26 @@ class TestVRAMPreFlightLogic:
     """ADRs 005 + 006 combined VRAM estimation logic."""
 
     def test_vram_heuristic_estimates_for_7b_model(self):
-        """VRAM estimate for ~7B params model is reasonable (> 5GB)."""
-        # The heuristic should estimate roughly 1GB per billion parameters for Q4 quantized models
-        expected_min_mb = 6 * 1024  # Conservative: at least 6GB for a "7b" model
-        
-        import sys
-        from unittest.mock import patch
-        
-        # Test the estimation function exists or would be called in routing.py
-        routing_path = Path(__file__).parent.parent.parent / "llauncher" / "agent" / "routing.py"
-        with open(routing_path, "r") as f:
-            content = f.read()
-        
-        assert "start_with_eviction" in content, "VRAM pre-flight should hook into start-with-eviction handler"
+        """VRAM heuristic estimates ~7 GB for a 7-B parameter Q4 model.
+
+        Per slice 4 (M2): the duplicate VRAM helpers in ``agent/routing.py``
+        were consolidated into ``operations.preflight.estimate_vram_mb`` (#43).
+        The agent now reaches the heuristic via ``ops.swap``'s default
+        pre-flight; this test asserts the heuristic itself.
+        """
+        from llauncher.models.config import ModelConfig
+        from llauncher.operations.preflight import estimate_vram_mb
+
+        config = ModelConfig.from_dict_unvalidated({
+            "name": "llama-3-7b",
+            "model_path": "/models/llama-3-7b.Q4_K_M.gguf",
+            "n_gpu_layers": 999,  # full offload
+            "ctx_size": 4096,
+        })
+
+        # ~1 GB per billion params for Q4_K_M; allow generous bracket.
+        mb = estimate_vram_mb(config)
+        assert 6 * 1024 <= mb <= 9 * 1024, f"7B estimate out of range: {mb} MB"
 
 
 class TestModelHealthCacheInvalidation:

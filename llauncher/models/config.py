@@ -13,6 +13,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from llauncher.core.settings import BLACKLISTED_PORTS as _ENV_BLACKLISTED_PORTS
+
 
 class BackendKind(str, Enum):
     """Inference backend discriminator (Issue #42 scaffolding).
@@ -173,7 +175,12 @@ class ChangeRules(BaseModel):
     """
 
     whitelisted_models: set[str] = Field(default_factory=set)
-    blacklisted_ports: set[int] = Field(default_factory=lambda: {8080})
+    # Sourced from core.settings.BLACKLISTED_PORTS (env-driven) so the
+    # validator and the port allocator share a single source of truth.
+    # Empty by default; opt in via the BLACKLISTED_PORTS env var or .env.
+    blacklisted_ports: set[int] = Field(
+        default_factory=lambda: set(_ENV_BLACKLISTED_PORTS)
+    )
     blacklisted_callers: set[str] = Field(default_factory=set)
 
     def validate_start(

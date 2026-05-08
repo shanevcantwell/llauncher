@@ -230,52 +230,76 @@ class TestRemoteNode:
         mock_client_class.return_value = mock_client
 
         node = RemoteNode("test-node", "localhost", port=8765)
-        result = node.start_server("test-model")
+        result = node.start_server("test-model", 8081)
 
         assert result is not None
         assert result["success"] is True
         assert result["port"] == 8080
+        # Path is port-keyed; body carries the model.
+        post_kwargs = mock_client.post.call_args
+        assert post_kwargs.args[0].endswith("/start/8081")
+        assert post_kwargs.kwargs["json"] == {"model": "test-model"}
 
     @patch("httpx.Client")
-    def test_start_server_not_found(self, mock_client_class):
-        """Test start_server returns 404 error for missing model."""
+    def test_start_server_error_response(self, mock_client_class):
+        """A non-200 response surfaces as ``success=False`` with the agent's
+        structured detail propagated."""
         mock_response = MagicMock()
-        mock_response.status_code = 404
+        mock_response.status_code = 500
+        mock_response.json = MagicMock(
+            return_value={
+                "detail": {
+                    "success": False,
+                    "action": "error",
+                    "port": 8081,
+                    "model": "ghost",
+                    "message": "Model not found: ghost",
+                }
+            }
+        )
 
         mock_client = MagicMock()
         mock_client.__enter__ = MagicMock(return_value=mock_client)
         mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.post = MagicMock(return_value=mock_response)
-
         mock_client_class.return_value = mock_client
 
         node = RemoteNode("test-node", "localhost", port=8765)
-        result = node.start_server("nonexistent-model")
+        result = node.start_server("ghost", 8081)
 
         assert result is not None
         assert result["success"] is False
-        assert "not found" in result["error"]
+        assert result["action"] == "error"
 
     @patch("httpx.Client")
     def test_start_server_conflict(self, mock_client_class):
-        """Test start_server returns 409 error for already running."""
+        """409 → ``success=False`` with the conflict detail propagated."""
         mock_response = MagicMock()
         mock_response.status_code = 409
-        mock_response.json = MagicMock(return_value={"detail": "Already running"})
+        mock_response.json = MagicMock(
+            return_value={
+                "detail": {
+                    "success": False,
+                    "action": "rejected_occupied",
+                    "port": 8081,
+                    "model": "other-model",
+                    "message": "Port 8081 is occupied by other-model",
+                }
+            }
+        )
 
         mock_client = MagicMock()
         mock_client.__enter__ = MagicMock(return_value=mock_client)
         mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.post = MagicMock(return_value=mock_response)
-
         mock_client_class.return_value = mock_client
 
         node = RemoteNode("test-node", "localhost", port=8765)
-        result = node.start_server("test-model")
+        result = node.start_server("test-model", 8081)
 
         assert result is not None
         assert result["success"] is False
-        assert "Already running" in result["error"]
+        assert result["action"] == "rejected_occupied"
 
     @patch("httpx.Client")
     def test_stop_server_success(self, mock_client_class):
@@ -643,7 +667,7 @@ class TestRemoteAggregator:
         registry.add_node("test-node-start", "192.168.1.97", 8765)
         aggregator = RemoteAggregator(registry)
 
-        result = aggregator.start_on_node("test-node-start", "test-model")
+        result = aggregator.start_on_node("test-node-start", "test-model", 8081)
 
         assert result is not None
         assert result["success"] is True
@@ -656,7 +680,7 @@ class TestRemoteAggregator:
         registry = NodeRegistry()
         aggregator = RemoteAggregator(registry)
 
-        result = aggregator.start_on_node("nonexistent", "test-model")
+        result = aggregator.start_on_node("nonexistent", "test-model", 8081)
 
         assert result is not None
         assert result["success"] is False

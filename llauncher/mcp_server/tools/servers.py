@@ -1,9 +1,24 @@
-"""MCP tools for server management (start/stop/status)."""
+"""MCP tools for server management (start/stop/swap/status/logs).
+
+Per ADR-010, the verb-style tools (``start_server``, ``stop_server``,
+``swap_server``) are port-keyed and delegate to
+:mod:`llauncher.operations`. The MCP server is a thin wrapper that
+translates tool arguments into op calls and returns the ADR-010 result
+envelope (``success``, ``action``, ``port``, etc.) verbatim.
+
+The read-side tools (``server_status``, ``get_server_logs``) still
+consult :class:`LauncherState` for the per-call refresh of the live
+process table — they don't go through ops because they're observational,
+not mutating.
+"""
+
+from __future__ import annotations
 
 from mcp import Tool
 
-from llauncher.state import LauncherState
+from llauncher import operations as ops
 from llauncher.core.process import stream_logs
+from llauncher.state import LauncherState
 
 
 def get_tools() -> list[Tool]:
@@ -11,7 +26,14 @@ def get_tools() -> list[Tool]:
     return [
         Tool(
             name="start_server",
-            description="Start a llama-server for a specific model by name. The model_name must exactly match a model from list_models identification.name.",
+            description=(
+                "Start a model on an empty port. Fails with "
+                "action='rejected_occupied' if a different model is already "
+                "running on that port — use swap_server for that case. "
+                "Both 'model_name' and 'port' are required; the port is "
+                "always specified by the caller (ADR-010). The model_name "
+                "must exactly match a model from list_models."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -19,13 +41,22 @@ def get_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Name of the model to start",
                     },
+                    "port": {
+                        "type": "integer",
+                        "description": "Port to start the model on",
+                    },
                 },
-                "required": ["model_name"],
+                "required": ["model_name", "port"],
             },
         ),
         Tool(
             name="stop_server",
-            description="Stop a running llama-server by port number",
+            description=(
+                "Stop whatever is running on this port. Idempotent: "
+                "returns success with action='already_empty' if nothing "
+                "was there. Returns action='stopped' on a successful "
+                "termination."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -39,7 +70,17 @@ def get_tools() -> list[Tool]:
         ),
         Tool(
             name="swap_server",
-            description="Atomically swap models on a port with rollback guarantee. Stops any server on the port and starts the new model. If the new model fails to start, the old model is automatically restored. Guarantees that when this call returns, a model is serving on the port (either the new one on success, or the old one on failure). The model_name must exactly match a model from list_models identification.name.",
+            description=(
+                "Replace the model on this port with a different one. "
+                "Primary use: an agent replacing its own brain on the "
+                "harness's expected port. Performs the 5-phase swap "
+                "(pre-flight, marker, stop, start, readiness) with "
+                "rollback to the previous model on failure. Calling with "
+                "the model already running on the port is a successful "
+                "no-op (action='already_running'). Fails with "
+                "action='rejected_empty' if the port is empty — use "
+                "start_server for that case."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -50,10 +91,6 @@ def get_tools() -> list[Tool]:
                     "model_name": {
                         "type": "string",
                         "description": "Name of the new model to start",
-                    },
-                    "timeout": {
-                        "type": "integer",
-                        "description": "Maximum seconds to wait for new model to become ready (default: 120)",
                     },
                 },
                 "required": ["port", "model_name"],
@@ -89,69 +126,90 @@ def get_tools() -> list[Tool]:
     ]
 
 
-async def start_server(state: LauncherState, args: dict) -> dict:
-    """Start a llama-server for the specified model.
+# ─────────── Verb tools (ADR-010, port-keyed, ops-backed) ──────────
 
-    Args:
-        state: The launcher state.
-        args: Tool arguments including 'model_name'.
 
-    Returns:
-        Dictionary with result of the operation.
+async def start_server(args: dict) -> dict:
+    """Start ``args['model_name']`` on ``args['port']``.
+
+    Thin wrapper over :func:`llauncher.operations.start`. Returns the
+    ADR-010 result envelope.
     """
     model_name = args.get("model_name")
+    port = args.get("port")
 
     if not model_name:
-        return {"success": False, "error": "Missing required argument: model_name"}
+        return {
+            "success": False,
+            "action": "error",
+            "error": "Missing required argument: model_name",
+        }
+    if port is None:
+        return {
+            "success": False,
+            "action": "error",
+            "error": "Missing required argument: port",
+        }
 
-    success, message, process = state.start_server(model_name, caller="mcp")
-
-    return {
-        "success": success,
-        "message": message,
-        "pid": process.pid if process else None,
-    }
+    result = ops.start(model_name, port, caller="mcp")
+    return result.to_dict()
 
 
-async def stop_server(state: LauncherState, args: dict) -> dict:
-    """Stop a running llama-server.
+async def stop_server(args: dict) -> dict:
+    """Stop whatever is on ``args['port']``.
 
-    Args:
-        state: The launcher state.
-        args: Tool arguments including 'port'.
-
-    Returns:
-        Dictionary with result of the operation.
+    Thin wrapper over :func:`llauncher.operations.stop`.
     """
     port = args.get("port")
 
     if port is None:
-        return {"success": False, "error": "Missing required argument: port"}
+        return {
+            "success": False,
+            "action": "error",
+            "error": "Missing required argument: port",
+        }
 
-    success, message = state.stop_server(port, caller="mcp")
+    result = ops.stop(port, caller="mcp")
+    return result.to_dict()
 
-    return {
-        "success": success,
-        "message": message,
-    }
+
+async def swap_server(args: dict) -> dict:
+    """Swap to ``args['model_name']`` on ``args['port']`` per ADR-011.
+
+    Thin wrapper over :func:`llauncher.operations.swap`. Returns the
+    ADR-010 result envelope, including ``rolled_back`` and
+    ``previous_model`` when a rollback occurred.
+    """
+    port = args.get("port")
+    model_name = args.get("model_name")
+
+    if port is None:
+        return {
+            "success": False,
+            "action": "error",
+            "error": "Missing required argument: port",
+        }
+    if not model_name:
+        return {
+            "success": False,
+            "action": "error",
+            "error": "Missing required argument: model_name",
+        }
+
+    result = ops.swap(model_name, port, caller="mcp")
+    return result.to_dict()
+
+
+# ───────────────── Read tools (state-backed) ───────────────────────
 
 
 async def server_status(state: LauncherState, args: dict) -> dict:
     """Get status of all running servers.
 
-    Args:
-        state: The launcher state.
-        args: Tool arguments (empty for this tool).
-
-    Returns:
-        Dictionary with list of running servers.
+    Read-side tool; refreshes the live-process table once per call.
     """
-    # Per-call refresh via dispatch-provided state (Fix #31/#32 — no circular import, single refresh)
     state.refresh()
-    servers = []
-
-    for port, server in state.running.items():
-        servers.append(server.to_dict())
+    servers = [server.to_dict() for server in state.running.values()]
 
     return {
         "running_servers": servers,
@@ -162,14 +220,9 @@ async def server_status(state: LauncherState, args: dict) -> dict:
 async def get_server_logs(state: LauncherState, args: dict) -> dict:
     """Fetch recent logs for a running server.
 
-    Args:
-        state: The launcher state.
-        args: Tool arguments including 'port' and optional 'lines'.
-
-    Returns:
-        Dictionary with log lines.
+    Read-side tool; refreshes once per call to validate the port is
+    still live before tailing logs.
     """
-    # Per-call refresh via dispatch-provided state (Fix #31/#32 — no circular import, single refresh)
     state.refresh()
 
     port = args.get("port")
@@ -189,53 +242,4 @@ async def get_server_logs(state: LauncherState, args: dict) -> dict:
         "pid": pid,
         "logs": log_lines,
         "line_count": len(log_lines),
-    }
-
-
-async def swap_server(state: LauncherState, args: dict) -> dict:
-    """Atomically swap models on a port with rollback guarantee.
-
-    Delegates to LauncherState._start_with_eviction_impl() which implements
-    the full 5-phase swap flow (pre-flight, stop-old, start-new, readiness,
-    rollback). This thin wrapper maps the EvictionResult into the MCP response dict.
-
-    Contract:
-    - On success (success=true): new model is serving on the port
-    - On failure with rollback (success=false, rolled_back=true): old model restored and serving
-    - Catastrophic failure (success=false, rolled_back=false, port_state="unavailable"):
-      port is dead - manual intervention required
-
-    Args:
-        state: The launcher state.
-        args: Tool arguments including 'port', 'model_name', and optional 'timeout'.
-
-    Returns:
-        Dictionary with swap result including port_state indicator.
-    """
-    port = args.get("port")
-    new_model_name = args.get("model_name")
-    timeout = args.get("timeout", 120)
-
-    if port is None:
-        return {"success": False, "error": "Missing required argument: port", "port_state": "unchanged"}
-
-    if not new_model_name:
-        return {"success": False, "error": "Missing required argument: model_name", "port_state": "unchanged"}
-
-    result = state._start_with_eviction_impl(
-        model_name=new_model_name,
-        port=port,
-        caller="mcp",
-        readiness_timeout=timeout,
-        strict_rollback=True,
-    )
-
-    return {
-        "success": result.success,
-        "port_state": result.port_state,
-        "error": result.error if not result.success else None,
-        "rolled_back": result.rolled_back,
-        "restored_model": result.restored_model or None,
-        "previous_model": result.previous_model or None,
-        "new_model": result.new_model_attempted or None,
     }

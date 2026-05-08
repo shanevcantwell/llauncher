@@ -303,15 +303,31 @@ def _handle_start(
                 if success:
                     st.toast(message, icon="✅")
                 else:
+                    # Errors must be sticky — toasts disappear too quickly
+                    # to read on a near-instant validation failure.
+                    st.error(message)
                     st.toast(message, icon="❌")
             else:
+                st.error(f"Cannot start: {msg}")
                 st.toast(f"Cannot start: {msg}", icon="❌")
+            st.rerun()
     elif aggregator:
-        result = aggregator.start_on_node(node_name, model_name)
+        # Per ADR-010, port is at the call site. The UI does not yet pick a
+        # remote port (issue #47 — M3); fall back to ``target_port`` when
+        # supplied (eviction dialog) or surface a clear error.
+        if target_port is None:
+            st.error(
+                f"Cannot start {model_name} on {node_name}: a target port is "
+                "required (UI port selection is M3 work — see issue #47)."
+            )
+            st.rerun()
+            return
+        result = aggregator.start_on_node(node_name, model_name, target_port)
         if result:
             if result.get("success"):
                 st.toast(f"Starting {model_name} on {node_name}...", icon="▶️")
             else:
+                st.error(result.get("error", "Failed to start"))
                 st.toast(result.get("error", "Failed to start"), icon="❌")
         st.rerun()
     else:

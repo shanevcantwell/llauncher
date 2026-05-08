@@ -6,6 +6,10 @@ if the required models are not available.
 
 To run: pytest tests/integration/test_swap.py -v
 To skip: pytest tests/integration/test_swap.py -v -m "not live"
+
+Updated for ADR-008/010: the verb tools are now stateless and take a
+single ``args`` dict. State is consulted only for the read-side
+``state.refresh_running_servers()`` checks below.
 """
 
 import pytest
@@ -58,14 +62,13 @@ class TestSwapServerLive:
         # (Test assumes this is the initial state)
 
         # Swap to lfm2
-        result = await swap_server(state, {
+        result = await swap_server({
             "port": port,
             "model_name": "lfm2",
-            "timeout": 120,
         })
 
-        assert result["success"] is True, f"Swap failed: {result.get('error')}"
-        assert result["new_model"] == "lfm2"
+        assert result["success"] is True, f"Swap failed: {result.get('message')}"
+        assert result["model"] == "lfm2"
         assert result["port_state"] == "serving"
         assert result["pid"] is not None
 
@@ -75,14 +78,13 @@ class TestSwapServerLive:
         assert state.running[port].config_name == "lfm2"
 
         # Swap back to coder
-        result = await swap_server(state, {
+        result = await swap_server({
             "port": port,
             "model_name": "coder",
-            "timeout": 120,
         })
 
-        assert result["success"] is True, f"Swap back failed: {result.get('error')}"
-        assert result["new_model"] == "coder"
+        assert result["success"] is True, f"Swap back failed: {result.get('message')}"
+        assert result["model"] == "coder"
         assert result["previous_model"] == "lfm2"
         assert result["port_state"] == "serving"
 
@@ -100,23 +102,27 @@ class TestSwapServerLive:
         """
         port = 8081
 
-        # Ensure there's something running on the port first
-        if port not in state.running:
-            pytest.skip(f"No server running on port {port}")
+        # Ensure there's actually a process holding the port (v2 source
+        # of truth: lockfile + live pid). state.running may carry stale
+        # data; ops.swap consults the lockfile dir directly.
+        from llauncher.core import lockfile as lf
+        claim = lf.read_lockfile(port)
+        if not claim or not lf.is_pid_alive(claim.pid):
+            pytest.skip(f"No live server on port {port}")
 
-        original_model = state.running[port].config_name
+        original_model = claim.model
 
         # Try to swap to a non-existent model
-        result = await swap_server(state, {
+        result = await swap_server({
             "port": port,
             "model_name": "nonexistent-model-xyz",
-            "timeout": 120,
         })
 
-        # Should fail with port_state unchanged
+        # Should fail at pre-flight, port unchanged.
         assert result["success"] is False
         assert result["port_state"] == "unchanged"
-        assert "not found" in result["error"].lower()
+        assert result["action"] == "rejected_preflight"
+        assert "not found" in result["message"].lower()
 
         # Original model should still be running
         state.refresh_running_servers()
@@ -140,24 +146,22 @@ class TestSwapServerLive:
 
         model_name = list(state.models.keys())[0]
 
-        # Swap (start) on empty port
-        result = await swap_server(state, {
+        # Swap on an empty port — per ADR-010 swap requires occupied,
+        # so this should be rejected with action="rejected_empty".
+        # Use start_server for the empty-port case in v2.
+        result = await swap_server({
             "port": test_port,
             "model_name": model_name,
-            "timeout": 120,
         })
 
-        if result["success"]:
-            assert result["previous_model"] is None
-            assert result["new_model"] == model_name
-            assert result["port_state"] == "serving"
+        # ADR-010: empty-port swap is a caller-side error.
+        assert result["success"] is False
+        assert result["action"] == "rejected_empty"
+        assert result["port_state"] == "unchanged"
 
-            # Clean up - stop the server we just started
-            await stop_server(state, {"port": test_port})
-            state.refresh_running_servers()
-            assert test_port not in state.running
-        else:
-            pytest.skip(f"Could not start model: {result.get('error')}")
+        # Cleanup not needed — nothing started.
+        state.refresh_running_servers()
+        assert test_port not in state.running
 
 
 @pytest.mark.live

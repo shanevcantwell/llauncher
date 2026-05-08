@@ -84,21 +84,20 @@ class TestDispatchToolAllTools:
         """
         from llauncher.mcp_server.server import _dispatch_tool
 
-        # Tools that go through get_mcp_state (all except validate_config)
-        standard_tools = [
+        # Tools that go through get_mcp_state (read-side + remaining v1
+        # config-mutation tools). Stateless verbs (start/stop/swap/
+        # delete_model) are tested separately below since they bypass
+        # get_mcp_state per ADR-008.
+        state_backed_tools = [
             ("list_models", "llauncher.mcp_server.server.models_tools.list_models"),
             ("get_model_config", "llauncher.mcp_server.server.models_tools.get_model_config"),
-            ("start_server", "llauncher.mcp_server.server.servers_tools.start_server"),
-            ("stop_server", "llauncher.mcp_server.server.servers_tools.stop_server"),
-            ("swap_server", "llauncher.mcp_server.server.servers_tools.swap_server"),
             ("server_status", "llauncher.mcp_server.server.servers_tools.server_status"),
             ("get_server_logs", "llauncher.mcp_server.server.servers_tools.get_server_logs"),
             ("update_model_config", "llauncher.mcp_server.server.config_tools.update_model_config"),
             ("add_model", "llauncher.mcp_server.server.config_tools.add_model"),
-            ("remove_model", "llauncher.mcp_server.server.config_tools.remove_model"),
         ]
 
-        for tool_name, module_path in standard_tools:
+        for tool_name, module_path in state_backed_tools:
             with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
                 mock_get.return_value = MagicMock()
                 expected_result = f"{tool_name}_result"
@@ -106,6 +105,23 @@ class TestDispatchToolAllTools:
                     result = await _dispatch_tool(tool_name, {"test_arg": "test_value"})
                     assert result == expected_result
                     mock_func.assert_called_once()
+
+        # Stateless verbs — must NOT touch get_mcp_state (ADR-008).
+        stateless_verbs = [
+            ("start_server", "llauncher.mcp_server.server.servers_tools.start_server"),
+            ("stop_server", "llauncher.mcp_server.server.servers_tools.stop_server"),
+            ("swap_server", "llauncher.mcp_server.server.servers_tools.swap_server"),
+            ("delete_model", "llauncher.mcp_server.server.config_tools.delete_model"),
+        ]
+
+        for tool_name, module_path in stateless_verbs:
+            with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
+                expected_result = f"{tool_name}_result"
+                with patch(module_path, return_value=expected_result) as mock_func:
+                    result = await _dispatch_tool(tool_name, {"test_arg": "test_value"})
+                    assert result == expected_result
+                    mock_func.assert_called_once()
+                    mock_get.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_dispatch_tool_validate_config_bypasses_get_mcp_state(self):
