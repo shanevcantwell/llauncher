@@ -11,6 +11,11 @@ from llauncher.core import lockfile as lf
 from llauncher.core import process as proc
 from llauncher.core.audit_log import AuditAction, AuditResult
 from llauncher.core.config import ConfigStore
+from llauncher.operations.preflight import (
+    PreflightCheck,
+    default_model_health_check,
+    run_preflight_check,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +25,7 @@ class StartResult:
     """Outcome of a start operation, mirroring ADR-010's response envelope."""
 
     success: bool
-    action: str  # started | already_running | rejected_occupied | error
+    action: str  # started | already_running | rejected_occupied | rejected_preflight | error
     port: int
     model: str | None = None
     pid: int | None = None
@@ -36,6 +41,7 @@ def start(
     *,
     caller: str = "unknown",
     server_bin: Path | None = None,
+    model_health_check: PreflightCheck | None = default_model_health_check,
 ) -> StartResult:
     """Start ``model_name`` on ``port`` per ADR-010 verb semantics.
 
@@ -43,7 +49,16 @@ def start(
     - Same model already running → idempotent success. Returns ``action="already_running"``.
     - Different model running → fail loudly. Returns ``action="rejected_occupied"``.
     - Stale lockfile (claimed pid is dead) → cleaned up, then start.
+    - Pre-flight model-file check fails → ``action="rejected_preflight"`` with no state mutation.
     - Model not found in config / launch failure → ``action="error"``.
+
+    The ``model_health_check`` seam mirrors :func:`llauncher.operations.swap.swap`'s
+    pattern. Defaults to :func:`llauncher.operations.preflight.default_model_health_check`,
+    which wraps :mod:`llauncher.core.model_health`. Pass ``None`` to skip
+    (used by unit tests with synthetic configs that don't point at real model
+    files). VRAM headroom is intentionally *not* checked on the bare ``start``
+    path — VRAM contention is a swap concern, since an empty port has no
+    competing tenant to displace.
     """
     # Reconcile any existing lockfile against the live process table.
     existing = lf.read_lockfile(port)
@@ -112,8 +127,29 @@ def start(
             message=f"Model not found: {model_name}",
         )
 
-    # Launch the process. Model-file health and VRAM pre-flight live in M2's
-    # swap mechanic (ADR-011); the bare start path keeps M1 minimal.
+    # Pre-flight model-file health check (ADR-005). This used to live in
+    # ``state.start_server``; lifting it here removes the State→Core import
+    # the audit flagged as C2 (issue #57) and gives ``start`` the same
+    # pluggable seam ``swap`` already exposes.
+    ok, reason = run_preflight_check(model_health_check, config, "model_health")
+    if not ok:
+        al.record(
+            AuditAction.STARTED,
+            AuditResult.REJECTED_PREFLIGHT,
+            caller=caller,
+            port=port,
+            model=model_name,
+            message=f"model_health pre-flight failed: {reason}",
+        )
+        return StartResult(
+            success=False,
+            action="rejected_preflight",
+            port=port,
+            model=model_name,
+            message=f"Model health check failed: {reason}",
+        )
+
+    # Launch the process.
     try:
         popen = proc.start_server(config, port, server_bin=server_bin)
     except (FileNotFoundError, OSError) as e:

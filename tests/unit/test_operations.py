@@ -214,6 +214,68 @@ def test_start_errors_when_process_launch_fails(
     assert entries[0].result == AuditResult.ERROR
 
 
+def test_start_rejects_when_preflight_health_check_fails(
+    run_dir: Path, audit_path: Path, sample_config: ModelConfig
+) -> None:
+    """The new model-health seam (issue #57) blocks launch on unhealthy file.
+
+    Mirrors the swap-side reject test: when the supplied health check
+    returns ``(False, reason)``, ``ops.start`` must abort *before* invoking
+    ``proc.start_server`` and emit an ``AuditResult.REJECTED_PREFLIGHT``
+    record. No lockfile may be written.
+    """
+    with patch(
+        "llauncher.operations.ConfigStore.get_model",
+        return_value=sample_config,
+    ), patch("llauncher.operations.proc.start_server") as start_proc:
+        result = ops.start(
+            "mistral-7b",
+            8081,
+            caller="test",
+            model_health_check=lambda cfg: (False, "size below threshold"),
+        )
+
+    assert result.success is False
+    assert result.action == "rejected_preflight"
+    assert "size below threshold" in result.message
+    start_proc.assert_not_called()
+    assert lf.read_lockfile(8081, run_dir=run_dir) is None
+
+    entries = al.read_entries(path=audit_path)
+    assert len(entries) == 1
+    assert entries[0].action == AuditAction.STARTED
+    assert entries[0].result == AuditResult.REJECTED_PREFLIGHT
+
+
+def test_start_skips_preflight_when_check_is_none(
+    run_dir: Path, audit_path: Path, sample_config: ModelConfig
+) -> None:
+    """``model_health_check=None`` must disable the seam entirely.
+
+    Same opt-out semantics as ``operations.swap``. Verifies that passing
+    ``None`` lets a synthetic config through to a (mocked) launch even when
+    the real default would have rejected the path.
+    """
+    fake_popen = MagicMock(pid=4242)
+    with patch(
+        "llauncher.operations.ConfigStore.get_model",
+        return_value=sample_config,
+    ), patch(
+        "llauncher.operations.proc.start_server",
+        return_value=fake_popen,
+    ):
+        result = ops.start(
+            "mistral-7b",
+            8081,
+            caller="test",
+            model_health_check=None,
+        )
+
+    assert result.success is True
+    assert result.action == "started"
+    assert result.pid == 4242
+
+
 # ---------------------------------------------------------------------------
 # stop
 # ---------------------------------------------------------------------------

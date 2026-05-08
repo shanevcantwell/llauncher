@@ -11,6 +11,7 @@ from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 
 
+@pytest.mark.real_model_health
 class TestAuthAndHealthCombined:
     """ADRs 003 + 005 combined: Auth-gated start blocked by missing model file."""
 

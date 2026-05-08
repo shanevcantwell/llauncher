@@ -5,15 +5,51 @@ from llauncher.state import LauncherState
 from llauncher.models.config import ModelConfig
 
 
+def pytest_configure(config):
+    """Register custom markers used by the suite."""
+    config.addinivalue_line(
+        "markers",
+        "real_model_health: opt out of the autouse "
+        "``_patch_model_health`` mock and exercise the real "
+        "``llauncher.core.model_health.check_model_health``.",
+    )
+
+
 @pytest.fixture(autouse=True)
-def _patch_model_health():
+def _patch_model_health(request):
     """Patch ``check_model_health`` to always return valid in tests.
 
     Prevents small test temp-files from triggering the >1 MB health gate,
     which would break existing state/eviction tests that were written before
-    ADR-005 was added.  Tests that specifically want real health checks can
-    override this by un-patching or using their own fixture.
+    ADR-005 was added.
+
+    Patch target moved (issue #57): ``state.py`` no longer imports
+    ``check_model_health``; the operations layer's preflight module is the
+    single consumer (wrapped via :func:`default_model_health_check`). The
+    target ``llauncher.operations.preflight.mh.check_model_health`` resolves
+    via attribute traversal to the same *module object* as
+    ``llauncher.core.model_health``, so the patch is applied to that module
+    attribute. Reach is therefore:
+
+    - **Reached:** any caller that does attribute access against the
+      module each call, e.g. ``mh.check_model_health(...)`` after
+      ``from llauncher.core import model_health as mh``, or a fresh
+      ``from llauncher.core.model_health import check_model_health``
+      executed inside a function body (the lookup hits the module dict
+      every time).
+    - **Not reached:** call sites that bound the function name at module
+      import time (``from llauncher.core.model_health import check_model_health``
+      at module top level) — those hold a direct reference to the
+      original function object and bypass the patched attribute.
+
+    Tests that need the real implementation
+    (``test_adr_cross_cutting``, ``test_agent_models_health_api``) can opt
+    out by adding ``@pytest.mark.real_model_health``.
     """
+    if request.node.get_closest_marker("real_model_health"):
+        yield
+        return
+
     mock_result = MagicMock()
     mock_result.valid = True
     mock_result.exists = True
@@ -22,7 +58,10 @@ def _patch_model_health():
     mock_result.reason = None
     mock_result.last_modified = None
 
-    with patch("llauncher.state.check_model_health", return_value=mock_result):
+    with patch(
+        "llauncher.operations.preflight.mh.check_model_health",
+        return_value=mock_result,
+    ):
         yield
 
 

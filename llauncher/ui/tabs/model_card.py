@@ -2,8 +2,9 @@
 
 import streamlit as st
 
+from llauncher import operations as ops
 from llauncher.state import LauncherState
-from llauncher.core.process import stream_logs
+from llauncher.core.process import find_available_port, stream_logs
 from llauncher.remote.state import RemoteAggregator
 from llauncher.remote.node import RemoteServerInfo
 from llauncher.ui.utils import format_uptime
@@ -141,17 +142,29 @@ def _render_eviction_dialog(
             use_container_width=True,
             type="primary",
         ):
-            result = state.start_with_eviction_compat(model_name, port, caller="ui")
-            success, message = result
-
-            if success:
-                st.toast("Server started successfully", icon="✅")
-            elif message and ("rolled back" in message.lower() or "restored" in message.lower()):
-                st.toast(f"Swap failed — rolled back to server ({message})", icon="⚠️")
-            elif message and ("unavailable" in message.lower() or "manual intervention" in message.lower()):
-                st.toast(f"Port unavailable — manual intervention required ({message})", icon="❌")
+            # v2 ops migration (issue #57): route eviction through
+            # ``operations.swap`` instead of the legacy
+            # ``state.start_with_eviction_compat`` path. The M4 tab
+            # restructure (#50) must preserve this call.
+            result = ops.swap(model_name, port, caller="ui")
+            if result.success and result.action == "swapped":
+                st.toast(f"{model_name} now running on port {port}", icon="✅")
+            elif result.success and result.action == "already_running":
+                st.toast(f"{model_name} already running on port {port}", icon="ℹ️")
+            elif result.action == "rolled_back":
+                st.toast(
+                    f"Swap failed — rolled back to {result.previous_model} "
+                    f"({result.message})",
+                    icon="⚠️",
+                )
+            elif result.action in ("failed", "rejected_stop_failed"):
+                st.toast(
+                    f"Port {port} unavailable — manual intervention required "
+                    f"({result.message})",
+                    icon="❌",
+                )
             else:
-                st.toast(f"Eviction failed: {message}", icon="❌")
+                st.toast(f"Eviction failed: {result.message}", icon="❌")
             st.rerun()
 
 
@@ -293,20 +306,37 @@ def _handle_start(
         temp_state = LauncherState()
         temp_state.refresh()
 
-        if target_port in temp_state.running:
+        if target_port is not None and target_port in temp_state.running:
             # Port is occupied by another llauncher server - show eviction dialog
             _render_eviction_dialog(state, node_name, target_port, model_name, "")
         else:
             valid, msg = state.can_start(config, caller="ui")
             if valid:
-                success, message, _ = state.start_server(model_name, caller="ui")
-                if success:
-                    st.toast(message, icon="✅")
+                # ADR-010 requires the caller to supply a port. The UI does
+                # not yet expose a port picker (M4 work — issue #50), so we
+                # auto-allocate here when the caller didn't pass one. This
+                # keeps the "(C3) drop DEFAULT_PORT auto-allocation" smell
+                # visible at the UI layer until #58 gives us a real picker.
+                resolved_port = target_port
+                if resolved_port is None:
+                    success_alloc, resolved_port, alloc_msg = find_available_port(None)
+                    if not success_alloc:
+                        st.error(f"Cannot allocate port: {alloc_msg}")
+                        st.toast(f"Cannot allocate port: {alloc_msg}", icon="❌")
+                        st.rerun()
+                        return
+                # v2 ops migration (issue #57): route plain start through
+                # ``operations.start`` (which now runs ADR-005 model-health
+                # pre-flight via the same seam as ``operations.swap``). The
+                # M4 tab restructure (#50) must preserve this call.
+                result = ops.start(model_name, resolved_port, caller="ui")
+                if result.success:
+                    st.toast(result.message, icon="✅")
                 else:
                     # Errors must be sticky — toasts disappear too quickly
                     # to read on a near-instant validation failure.
-                    st.error(message)
-                    st.toast(message, icon="❌")
+                    st.error(result.message)
+                    st.toast(result.message, icon="❌")
             else:
                 st.error(f"Cannot start: {msg}")
                 st.toast(f"Cannot start: {msg}", icon="❌")

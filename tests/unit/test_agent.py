@@ -929,6 +929,33 @@ class TestAgentRouting:
         detail = response.json()["detail"]
         assert detail["action"] == "rejected_occupied"
 
+    def test_start_server_rejected_preflight_returns_409(self, client, monkeypatch):
+        """Pre-flight model-health rejection (issue #57) → 409, not 500.
+
+        Without an explicit mapping in ``_start_status_code``, the new
+        ``rejected_preflight`` action would have fallen through the dict
+        default and returned 500 — masking a validation failure as a
+        server crash.
+        """
+        from llauncher import operations as ops
+
+        monkeypatch.setattr(
+            "llauncher.agent.routing.ops.start",
+            lambda model, port, caller="agent", **kwargs: ops.StartResult(
+                success=False,
+                action="rejected_preflight",
+                port=port,
+                model=model,
+                message="Model health check failed: file size below 1 MiB",
+            ),
+        )
+
+        response = client.post("/start/8081", json={"model": "test-model"})
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["action"] == "rejected_preflight"
+        assert "health check" in detail["message"].lower()
+
     def test_start_server_error_returns_500(self, client, monkeypatch):
         """``error`` action (model not found, launch failure, …) → 500."""
         from llauncher import operations as ops

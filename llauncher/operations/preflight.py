@@ -22,12 +22,42 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 
 from llauncher.core import gpu as gpu_mod
 from llauncher.core import model_health as mh
 from llauncher.models.config import ModelConfig
 
 logger = logging.getLogger(__name__)
+
+
+# Type alias for pre-flight check seams. Returns ``(ok, reason)``;
+# ``reason`` is empty when ``ok`` is True. ``None`` (when accepted by a
+# verb) means the check is skipped entirely. Lives here rather than in
+# ``swap.py`` so both ``start`` and ``swap`` can reuse it.
+PreflightCheck = Callable[[ModelConfig], "tuple[bool, str]"]
+
+
+def run_preflight_check(
+    check: PreflightCheck | None,
+    config: ModelConfig,
+    label: str,
+) -> tuple[bool, str]:
+    """Invoke an optional pre-flight check, defaulting to pass when ``None``.
+
+    Catches exceptions from the check itself and converts them into a
+    structured failure (``ok=False``) so a buggy adapter can never crash the
+    surrounding verb. The exception is logged at ERROR via
+    :func:`logging.Logger.exception` for diagnostics.
+    """
+    if check is None:
+        return True, ""
+    try:
+        ok, reason = check(config)
+    except Exception as exc:  # noqa: BLE001 — failure here must not crash the verb
+        logger.exception("%s pre-flight check raised; treating as failure", label)
+        return False, f"{label} check raised: {exc}"
+    return ok, reason
 
 
 # Heuristic constant: VRAM (MiB) per billion parameters at ~Q4_K_M quantization.

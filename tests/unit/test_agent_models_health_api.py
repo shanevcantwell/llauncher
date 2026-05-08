@@ -10,6 +10,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
+import pytest
+
 
 def _make_mock_state(models_dict):
     """Build a mock state object matching the expected interface."""
@@ -56,6 +58,7 @@ def _patched_health_client(models=None):
     return app, client
 
 
+@pytest.mark.real_model_health
 class TestModelsHealthListEndpoint:
     """Tests for GET /models/health (list all)."""
 
@@ -107,6 +110,7 @@ class TestModelsHealthListEndpoint:
         assert entry["exists"] is True
 
 
+@pytest.mark.real_model_health
 class TestModelHealthDetailEndpoint:
     """Tests for GET /models/health/{model_name}."""
 
@@ -146,6 +150,7 @@ class TestModelHealthDetailEndpoint:
         assert response.status_code == 404
 
 
+@pytest.mark.real_model_health
 class TestModelHealthWithMissingFile:
     """Tests where models exist in config but files are missing on disk."""
 

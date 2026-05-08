@@ -65,6 +65,7 @@ def _start_status_code(action: str) -> int:
         "started": 200,
         "already_running": 200,
         "rejected_occupied": 409,
+        "rejected_preflight": 409,  # added with issue #57 / ADR-005 seam
         "error": 500,
     }.get(action, 500)
 

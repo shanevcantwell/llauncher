@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -15,8 +14,10 @@ from llauncher.core.audit_log import AuditAction, AuditResult
 from llauncher.core.config import ConfigStore
 from llauncher.models.config import ModelConfig
 from llauncher.operations.preflight import (
+    PreflightCheck,
     default_model_health_check,
     default_vram_check,
+    run_preflight_check,
 )
 
 logger = logging.getLogger(__name__)
@@ -28,13 +29,6 @@ STARTUP_LOG_TAIL_MAX = 100
 
 # Default readiness-poll timeout in seconds (ADR-011 open question 1).
 DEFAULT_READINESS_TIMEOUT_S = 120
-
-
-# Type alias for pre-flight check seams. Returns ``(ok, reason)``;
-# ``reason`` is empty when ``ok`` is True. ``None`` means the check is
-# skipped entirely. Slice 1 default; slice 2 swaps these to real adapters
-# wrapping ``core.model_health`` and ``core.gpu``.
-PreflightCheck = Callable[[ModelConfig], "tuple[bool, str]"]
 
 
 @dataclass(frozen=True)
@@ -75,22 +69,6 @@ def _tail_logs(logs: list[str]) -> list[str]:
     if len(logs) <= STARTUP_LOG_TAIL_MAX:
         return list(logs)
     return list(logs[-STARTUP_LOG_TAIL_MAX:])
-
-
-def _run_preflight_check(
-    check: PreflightCheck | None,
-    config: ModelConfig,
-    label: str,
-) -> tuple[bool, str]:
-    """Invoke an optional pre-flight check, defaulting to pass when ``None``."""
-    if check is None:
-        return True, ""
-    try:
-        ok, reason = check(config)
-    except Exception as exc:  # noqa: BLE001 — failure here must not crash swap
-        logger.exception("%s pre-flight check raised; treating as failure", label)
-        return False, f"{label} check raised: {exc}"
-    return ok, reason
 
 
 def _launch_and_await_ready(
@@ -331,7 +309,7 @@ def swap(
         )
 
     # 1e. Optional health checks (model file + VRAM) on the new config.
-    ok, reason = _run_preflight_check(model_health_check, new_config, "model_health")
+    ok, reason = run_preflight_check(model_health_check, new_config, "model_health")
     if not ok:
         return _reject_preflight(
             port=port,
@@ -343,7 +321,7 @@ def swap(
             user_message=f"Model health check failed: {reason}",
         )
 
-    ok, reason = _run_preflight_check(vram_check, new_config, "vram")
+    ok, reason = run_preflight_check(vram_check, new_config, "vram")
     if not ok:
         return _reject_preflight(
             port=port,

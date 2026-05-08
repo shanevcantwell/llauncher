@@ -10,7 +10,16 @@ from llauncher.models.config import ModelConfig, RunningServer
 
 
 class TestStartWithEviction:
-    """Tests for start_with_eviction method (backward-compat wrapper)."""
+    """Tests for start_with_eviction method (backward-compat wrapper).
+
+    Note (issue #57): As of the C2 layer-violation fix, this v1 path no
+    longer runs the ADR-005 model-health check. The check moved to the
+    operations layer (``operations.swap``); UI callers were migrated to
+    that path. These tests still exercise the wrapper for the few legacy
+    callers (currently the eviction-API smoke contract); the absence of
+    health validation here is intentional and tracked for full removal
+    in M5/M6 alongside the broader v1-state-removal work.
+    """
 
     @pytest.fixture
     def mock_state(self, tmp_path):

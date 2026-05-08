@@ -7,7 +7,6 @@ from datetime import datetime
 from pathlib import Path
 
 from llauncher.core.config import ConfigStore
-from llauncher.core.model_health import check_model_health, ModelHealthResult
 from llauncher.core.process import (
     DEFAULT_SERVER_BINARY,
     find_all_llama_servers,
@@ -229,13 +228,12 @@ class LauncherState:
             self.record_action("start", model_name, caller, "validation_error", msg)
             return False, msg, None
 
-        # Pre-flight: check model file health (ADR-005)
-        health = check_model_health(config.model_path)
-        if not health.valid:
-            detail = f"Model file unhealthy: {health.reason}".rstrip(".")
-            self.record_action("start", model_name, caller, "validation_error",
-                               f"Health check failed: {detail}")
-            return False, f"Model path is invalid ({health.reason}): {config.model_path}", None
+        # Pre-flight model-file health validation moved to the operations
+        # layer per audit C2 / issue #57. Callers that go through
+        # ``operations.start()`` get the ADR-005 check via the
+        # ``model_health_check`` seam. This legacy state.start_server path
+        # is kept only for the in-flight M1→M2 transition; it now skips the
+        # health check, matching its M1 minimal contract.
 
         # Start the process with resolved port
         try:
@@ -331,16 +329,12 @@ class LauncherState:
 
         config = self.models[model_name]
 
-        # 2. Pre-flight health check (ADR-005) — replaces bare Path.exists()
-        health = check_model_health(config.model_path)
-        if not health.valid:
-            self.record_action("start", model_name, caller, "validation_error",
-                               f"Health check failed: {health.reason}")
-            return EvictionResult(
-                success=False,
-                port_state="unchanged",
-                error=f"Model path unhealthy ({health.reason}): {config.model_path}",
-            )
+        # 2. Pre-flight model-file health check moved to the operations
+        # layer (audit C2 / issue #57). UI callers now route eviction
+        # through ``operations.swap()`` which runs the health check via its
+        # ``model_health_check`` seam. This legacy method is retained only
+        # to satisfy ``start_with_eviction_compat`` for tests pending
+        # full removal in M5/M6.
 
         # 3. Check new model not already running elsewhere on a different port
         for existing_port, srv in self.running.items():
