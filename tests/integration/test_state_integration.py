@@ -84,16 +84,19 @@ def test_start_server_success(launcher_state, sample_model_config):
     mock_proc = MagicMock()
     mock_proc.pid = 5678
 
-    with patch('llauncher.state.find_available_port', return_value=(True, 8081, "Using preferred port 8081")):
-        with patch('llauncher.state.is_port_in_use', return_value=False):
-            with patch('llauncher.state.Path.exists', return_value=True):
-                with patch('llauncher.state.process_start_server', return_value=mock_proc) as mock_start:
-                    success, msg, proc = launcher_state.start_server(sample_model_config.name)
+    # ADR-010 / issue #58: port is now required at the call site;
+    # ``state.start_server`` no longer auto-allocates via find_available_port.
+    with patch('llauncher.state.is_port_in_use', return_value=False):
+        with patch('llauncher.state.Path.exists', return_value=True):
+            with patch('llauncher.state.process_start_server', return_value=mock_proc) as mock_start:
+                success, msg, proc = launcher_state.start_server(
+                    sample_model_config.name, port=8081
+                )
 
-                    assert success is True
-                    assert proc == mock_proc
-                    assert 8081 in launcher_state.running
-                    assert launcher_state.running[8081].pid == 5678
+                assert success is True
+                assert proc == mock_proc
+                assert 8081 in launcher_state.running
+                assert launcher_state.running[8081].pid == 5678
 
 @pytest.mark.skip(
     reason="v1 path: LauncherState.stop_server is replaced by "
@@ -190,30 +193,39 @@ class TestLauncherStateEdgeCases:
         assert "No server running" in msg
 
     def test_start_server_model_not_found(self, state_with_models):
-        """start_server returns error for unknown model."""
-        success, msg, process = state_with_models.start_server("unknown-model", caller="test")
+        """start_server returns error for unknown model.
+
+        Port is now required (ADR-010 / issue #58); the value is irrelevant
+        here because the model-not-found check fires before port handling.
+        """
+        success, msg, process = state_with_models.start_server(
+            "unknown-model", port=9001, caller="test"
+        )
         assert success is False
         assert "Model not found" in msg
         assert process is None
 
+    @pytest.mark.skip(
+        reason="v1 path: state.start_server no longer auto-allocates ports "
+        "per ADR-010 / issue #58. Port-allocation failure is now the "
+        "operations-layer / CLI's concern, not state's. Removed in M3 (#46)."
+    )
     def test_start_server_port_allocation_failure(self, state_with_models):
-        """start_server handles port allocation failure."""
-        with patch("llauncher.state.find_available_port", return_value=(False, 0, "No ports available")):
-            success, msg, process = state_with_models.start_server("test-model", caller="test")
-            assert success is False
-            assert "Cannot allocate port" in msg
-            assert process is None
+        """start_server handles port allocation failure (no longer applies)."""
 
     def test_start_server_exception_during_start(self, state_with_models):
         """start_server handles exception during process start."""
-        # Use a port that's not blacklisted (8080 is in default blacklist)
-        with patch("llauncher.state.find_available_port", return_value=(True, 9000, "OK")):
-            with patch("llauncher.state.Path.exists", return_value=True):
-                with patch("llauncher.state.process_start_server", side_effect=Exception("Failed to start")):
-                    success, msg, process = state_with_models.start_server("test-model", caller="test")
-                    assert success is False
-                    assert "Failed to start" in msg
-                    assert process is None
+        # Port supplied directly per ADR-010 / issue #58 — state no longer
+        # allocates. 9001 is non-blacklisted and avoids the searxng:8080
+        # collision on this developer's host.
+        with patch("llauncher.state.Path.exists", return_value=True):
+            with patch("llauncher.state.process_start_server", side_effect=Exception("Failed to start")):
+                success, msg, process = state_with_models.start_server(
+                    "test-model", port=9001, caller="test"
+                )
+                assert success is False
+                assert "Failed to start" in msg
+                assert process is None
 
     def test_stop_server_process_not_found(self, state_with_models):
         """stop_server handles case where process is not found."""

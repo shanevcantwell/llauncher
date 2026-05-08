@@ -170,17 +170,47 @@ def test_server_status_json_empty(mock_config_store):
 
 
 def test_start_missing_model(mock_config_store):
-    """Starting a non-existent model should error."""
+    """Starting a non-existent model should error.
+
+    --port is required (ADR-010 / issue #58); supplying an arbitrary port
+    here lets the test reach the model-not-found error path.
+    """
     _dir, _path = mock_config_store
 
-    with patch("llauncher.cli.LauncherState") as MockState:
-        instance = MagicMock()
-        instance.start_server.return_value = (False, "Model not found: unknown-model", None)
-        MockState.return_value = instance
+    with patch("llauncher.operations.start") as mock_start:
+        from llauncher.operations import StartResult
 
-        result = runner.invoke(app, ["server", "start", "unknown-model"])
+        mock_start.return_value = StartResult(
+            success=False,
+            action="error",
+            port=9999,
+            model="unknown-model",
+            message="Model not found: unknown-model",
+        )
+
+        result = runner.invoke(
+            app, ["server", "start", "unknown-model", "--port", "9999"]
+        )
         assert result.exit_code == 1
         assert "not found" in result.stdout.lower()
+
+
+def test_start_without_port_errors(mock_config_store):
+    """Omitting --port must fail at arg-parse time (ADR-010 / issue #58).
+
+    Previously the CLI fell back to the ``DEFAULT_PORT`` env var; that
+    fallback is removed. ``operations.start`` must never be called when
+    --port is missing.
+    """
+    _dir, _path = mock_config_store
+
+    with patch("llauncher.operations.start") as mock_start:
+        result = runner.invoke(app, ["server", "start", "test-model"])
+
+    assert result.exit_code != 0
+    # Typer surfaces the missing-option error in stderr; just verify the
+    # operation was never invoked.
+    mock_start.assert_not_called()
 
 
 def test_start_with_explicit_port(mock_config_store):

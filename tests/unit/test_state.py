@@ -548,14 +548,18 @@ class TestLauncherStateBase:
             mock_start.return_value = mock_process
 
             with patch("llauncher.state.is_port_in_use", return_value=False):
+                # ADR-010 / issue #58: port is now required at the call site.
+                # Use 9001 (non-blacklisted, avoids the searxng:8080 collision
+                # common in dev setups).
                 success, message, process = mock_state.start_server(
                     model_name="test_model",
+                    port=9001,
                     caller="test",
                 )
 
         assert success is True
-        assert 8080 in mock_state.running
-        assert mock_state.running[8080].config_name == "test_model"
+        assert 9001 in mock_state.running
+        assert mock_state.running[9001].config_name == "test_model"
 
     def test_stop_server_success(self, mock_state):
         """Test successful server stop."""

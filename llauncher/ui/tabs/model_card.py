@@ -310,21 +310,23 @@ def _handle_start(
             # Port is occupied by another llauncher server - show eviction dialog
             _render_eviction_dialog(state, node_name, target_port, model_name, "")
         else:
-            valid, msg = state.can_start(config, caller="ui")
+            # Resolve port FIRST, then validate. ADR-010 requires the caller
+            # to supply a port; the UI does not yet expose a port picker
+            # (M4 work — issue #50), so we auto-allocate here when the
+            # caller didn't pass one. This keeps the "(C3) drop
+            # DEFAULT_PORT auto-allocation" smell visible at the UI layer
+            # until #50 gives us a real picker.
+            resolved_port = target_port
+            if resolved_port is None:
+                success_alloc, resolved_port, alloc_msg = find_available_port(None)
+                if not success_alloc:
+                    st.error(f"Cannot allocate port: {alloc_msg}")
+                    st.toast(f"Cannot allocate port: {alloc_msg}", icon="❌")
+                    st.rerun()
+                    return
+
+            valid, msg = state.can_start(config, caller="ui", port=resolved_port)
             if valid:
-                # ADR-010 requires the caller to supply a port. The UI does
-                # not yet expose a port picker (M4 work — issue #50), so we
-                # auto-allocate here when the caller didn't pass one. This
-                # keeps the "(C3) drop DEFAULT_PORT auto-allocation" smell
-                # visible at the UI layer until #58 gives us a real picker.
-                resolved_port = target_port
-                if resolved_port is None:
-                    success_alloc, resolved_port, alloc_msg = find_available_port(None)
-                    if not success_alloc:
-                        st.error(f"Cannot allocate port: {alloc_msg}")
-                        st.toast(f"Cannot allocate port: {alloc_msg}", icon="❌")
-                        st.rerun()
-                        return
                 # v2 ops migration (issue #57): route plain start through
                 # ``operations.start`` (which now runs ADR-005 model-health
                 # pre-flight via the same seam as ``operations.swap``). The

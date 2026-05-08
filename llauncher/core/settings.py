@@ -37,8 +37,14 @@ SCRIPTS_PATH = Path(os.getenv(
     str(Path.home() / ".local" / "bin")
 ))
 
-# Default port for new models
-DEFAULT_PORT = int(os.getenv("DEFAULT_PORT", "8080"))
+# Default port for new models. Used as the *seed* of the port-scan range
+# in :func:`llauncher.core.process.find_available_port` — not as an
+# auto-allocation fallback (ADR-010 / issue #58 require explicit ports at
+# every API boundary). Default 8081 because 8080 collides with common
+# local services (searxng, Apache fronts, …) and is the default of
+# ``BLACKLISTED_PORTS`` per ``.env.example``. Override via the
+# ``DEFAULT_PORT`` env var or ``.env``.
+DEFAULT_PORT = int(os.getenv("DEFAULT_PORT", "8081"))
 
 # Blacklisted ports (comma-separated)
 _BLACKLISTED_PORTS_RAW = os.getenv("BLACKLISTED_PORTS", "")

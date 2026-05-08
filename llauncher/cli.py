@@ -147,28 +147,23 @@ server_app = typer.Typer(name="server", help="Manage running server processes")
 @server_app.command("start")
 def start_server(
     name: str = typer.Argument(..., help="Name of the model to start"),
-    port: int | None = typer.Option(
-        None,
+    port: int = typer.Option(
+        ...,
         "--port",
         "-p",
-        help="Port to bind the server to (required; defaults to DEFAULT_PORT env if set).",
+        help="Port to bind the server to (required; ADR-010).",
     ),
     caller: str = typer.Option("cli", hidden=True),
 ) -> None:
     """Start a server for the given model on the specified port.
 
-    Per ADR-010, port is supplied at the call site. If ``--port`` is not
-    given, falls back to ``DEFAULT_PORT`` env var.
+    Per ADR-010 the caller supplies the port; there is no auto-allocation
+    or env-var fallback (issue #58 / audit C3). The CLI is the call site
+    for human invocations — pick a port deliberately.
     """
     from llauncher import operations
-    from llauncher.core.settings import DEFAULT_PORT
 
-    resolved_port = port if port is not None else DEFAULT_PORT
-    if resolved_port is None:
-        console.print("[red]✗ --port is required (or set DEFAULT_PORT env)[/red]")
-        raise typer.Exit(code=1)
-
-    result = operations.start(name, resolved_port, caller=caller)
+    result = operations.start(name, port, caller=caller)
     if not result.success:
         console.print(f"[red]✗ {result.message}[/red]")
         raise typer.Exit(code=1)

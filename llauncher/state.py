@@ -10,8 +10,6 @@ from llauncher.core.config import ConfigStore
 from llauncher.core.process import (
     DEFAULT_SERVER_BINARY,
     find_all_llama_servers,
-    find_server_by_port,
-    find_available_port,
     is_port_in_use,
     start_server as process_start_server,
     stop_server_by_pid,
@@ -120,45 +118,43 @@ class LauncherState:
         return None
 
     def can_start(
-        self, config: ModelConfig, caller: str = "unknown", port: int | None = None
+        self, config: ModelConfig, caller: str = "unknown", *, port: int
     ) -> tuple[bool, str]:
-        """Validate if a model can be started.
+        """Validate if a model can be started on ``port``.
+
+        Per ADR-010 / issue #58, ``port`` is required; there is no
+        ``port=None`` skip-port-checks branch and no placeholder sentinel
+        passed down to :meth:`ChangeRules.validate_start`. ``port`` is
+        keyword-only to make pre-existing positional callers fail loudly
+        rather than silently change semantics.
 
         Checks:
-        - Port is not in use
-        - Port is not blacklisted
-        - Caller is not blacklisted
-        - Model path exists
 
-        Args:
-            config: Model configuration to validate.
-            caller: Name of the caller (e.g., "mcp", "ui", "cli").
-            port: Specific port to check.
+        - Port is not already used by another model in :attr:`running`.
+        - Port is not in use by any process.
+        - Caller / port pass :attr:`rules.validate_start`.
+        - Model path exists.
 
         Returns:
-            Tuple of (is_valid, error_message).
+            Tuple of ``(is_valid, error_message)``.
         """
-        # Per ADR-010, port is supplied at the call site; no fallback.
-        check_port = port
+        # Port collision against our own running registry.
+        if port in self.running:
+            return False, (
+                f"Port {port} is already in use by "
+                f"{self.running[port].config_name}"
+            )
 
-        # If we have a specific port to check, validate it
-        if check_port is not None:
-            # Check if port is already in use by another model
-            if check_port in self.running:
-                return False, f"Port {check_port} is already in use by {self.running[check_port].config_name}"
+        # Port collision against any process on the host.
+        if is_port_in_use(port):
+            return False, f"Port {port} is already in use"
 
-            # Check if port is in use by any process
-            if is_port_in_use(check_port):
-                return False, f"Port {check_port} is already in use"
-
-        # Check change rules (pass the port we're checking)
-        # Legacy compatibility: rules.validate_start now requires port; pass 0
-        # as a placeholder when no port is supplied (full refactor in M2).
-        valid, msg = self.rules.validate_start(config, caller, check_port if check_port is not None else 0)
+        # Change-rules validation (whitelists/blacklists for ports + callers).
+        valid, msg = self.rules.validate_start(config, caller, port)
         if not valid:
             return False, msg
 
-        # Verify model path exists
+        # Model file must exist on disk.
         if not Path(config.model_path).exists():
             return False, f"Model path does not exist: {config.model_path}"
 
@@ -191,17 +187,21 @@ class LauncherState:
     def start_server(
         self,
         model_name: str,
+        port: int,
         caller: str = "unknown",
-        port: int | None = None,
         server_bin: Path = DEFAULT_SERVER_BINARY,
     ) -> tuple[bool, str, subprocess.Popen | None]:
-        """Start a server for the given model.
+        """Start a server for the given model on the specified port.
+
+        Per ADR-010 the caller supplies ``port``; this method no longer
+        auto-allocates (issue #58 / audit C3). v2 callers are routed
+        through :mod:`llauncher.operations.start` instead; this legacy
+        path is retained only for the few v1 tests pending M3 cleanup.
 
         Args:
             model_name: Name of the model to start.
-            caller: Name of the caller.
-            port: Optional port. If not provided, auto-allocates (legacy v1
-                  behavior; v2 callers per ADR-010 always supply a port).
+            port: Port to bind to. Required (ADR-010); no env fallback.
+            caller: Name of the caller (for audit log).
             server_bin: Path to llama-server binary.
 
         Returns:
@@ -213,17 +213,8 @@ class LauncherState:
 
         config = self.models[model_name]
 
-        # Resolve port: explicit value or auto-allocate. Per ADR-010 the v2
-        # tool layer always supplies a port; this fallback exists only for
-        # legacy callers during the M1–M2 transition.
-        preferred = port
-        success, resolved_port, alloc_msg = find_available_port(preferred)
-        if not success:
-            self.record_action("start", model_name, caller, "error", alloc_msg)
-            return False, f"Cannot allocate port: {alloc_msg}", None
-
-        # Validate with the resolved port
-        valid, msg = self.can_start(config, caller, resolved_port)
+        # Validate with the supplied port
+        valid, msg = self.can_start(config, caller, port=port)
         if not valid:
             self.record_action("start", model_name, caller, "validation_error", msg)
             return False, msg, None
@@ -235,20 +226,20 @@ class LauncherState:
         # is kept only for the in-flight M1→M2 transition; it now skips the
         # health check, matching its M1 minimal contract.
 
-        # Start the process with resolved port
+        # Start the process with the supplied port
         try:
-            process = process_start_server(config, resolved_port, server_bin=server_bin)
+            process = process_start_server(config, port, server_bin=server_bin)
 
-            # Update running state with resolved port
-            self.running[resolved_port] = RunningServer(
+            # Update running state
+            self.running[port] = RunningServer(
                 pid=process.pid,
-                port=resolved_port,
+                port=port,
                 config_name=model_name,
                 start_time=datetime.now(),
             )
 
-            self.record_action("start", model_name, caller, "success", f"Started on port {resolved_port}")
-            return True, f"Started {model_name} on port {resolved_port}", process
+            self.record_action("start", model_name, caller, "success", f"Started on port {port}")
+            return True, f"Started {model_name} on port {port}", process
 
         except Exception as e:
             self.record_action("start", model_name, caller, "error", str(e))
