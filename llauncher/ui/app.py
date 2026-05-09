@@ -1,7 +1,10 @@
 """Streamlit UI for llauncher with multi-node support."""
 
+import os
+
 import streamlit as st
 
+from llauncher.core import settings
 from llauncher.state import LauncherState
 from llauncher.remote.registry import NodeRegistry
 from llauncher.remote.state import RemoteAggregator
@@ -50,64 +53,43 @@ def is_agent_ready(registry: NodeRegistry) -> bool:
     return registry.is_local_agent_ready()
 
 
-def start_agent_background(registry: NodeRegistry) -> bool:
-    """Start the agent as a detached background process.
+def show_agent_down_banner() -> None:
+    """Render an "agent down" banner with start instructions.
 
-    Args:
-        registry: NodeRegistry instance.
+    M4 Slice 12 (issue #49 / audit H2) replaces the old auto-spawn-plus-
+    loading-screen flow with this passive banner. ADR-009 prescribes a
+    symmetric hub-spoke topology — the local agent is a peer like any
+    other, started by the user (typically via ``llauncher agent
+    start``), not auto-spawned by whichever tool happened to start
+    first. Auto-spawning made "local" a special case in a way the
+    architecture explicitly disclaims.
 
-    Returns:
-        True if agent was started successfully, False otherwise.
+    Caller is expected to render the page-level title (``st.title``)
+    *before* this and to ``st.stop()`` *after* it, so the rest of the
+    dashboard does not render against a missing agent.
     """
-    return registry.start_local_agent()
-
-
-def show_loading_screen() -> None:
-    """Show a full-screen loading overlay.
-
-    This function only renders the loading screen and returns immediately.
-    The caller should use st.stop() or st.rerun() to control flow.
-    """
-    st.markdown("""
-    <style>
-    .loading-screen {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.85);
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        z-index: 9999;
-        color: white;
-        font-family: sans-serif;
-    }
-    .loading-spinner {
-        border: 4px solid rgba(255, 255, 255, 0.1);
-        border-top: 4px solid #4CAF50;
-        border-radius: 50%;
-        width: 60px;
-        height: 60px;
-        animation: spin 1s linear infinite;
-        margin-bottom: 20px;
-    }
-    @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    st.markdown("""
-    <div class="loading-screen">
-        <div class="loading-spinner"></div>
-        <h2>🚀 Starting llauncher...</h2>
-        <p>Initializing agent and loading models</p>
-    </div>
-    """, unsafe_allow_html=True)
+    agent_port = int(os.getenv("LAUNCHER_AGENT_PORT", "8765"))
+    st.error(
+        "**Local agent is not running.**\n\n"
+        "Start it with:\n\n"
+        "```bash\n"
+        "llauncher-agent\n"
+        "```\n\n"
+        f"Then refresh this page. The agent listens on port "
+        f"``{agent_port}`` (override via ``LAUNCHER_AGENT_PORT``) and "
+        f"reads/writes state under ``{settings.LAUNCHER_RUN_DIR.parent}``.",
+        icon="🛑",
+    )
+    with st.expander("Why doesn't the UI start the agent for me?"):
+        st.markdown(
+            "Earlier versions of llauncher auto-spawned the local agent on UI "
+            "load. ADR-009 ratified a symmetric hub-spoke topology where "
+            "every node — including ``local`` — is a peer started "
+            "deliberately by the user. Having the UI fork a daemon implicitly "
+            "made ``local`` a special case and obscured failures (e.g. a port "
+            "collision) behind a generic spinner. The CLI command above is "
+            "the single, observable way to bring the agent up."
+        )
 
 
 def main():
@@ -117,42 +99,17 @@ def main():
     registry = get_registry()
     aggregator = get_aggregator()
 
-    # Track startup state in session
-    if "agent_startup_started" not in st.session_state:
-        st.session_state["agent_startup_started"] = False
-
-    # Check if agent is ready
-    agent_ready = is_agent_ready(registry)
-
-    if not agent_ready:
-        # Show loading screen
-        show_loading_screen()
-
-        # Start agent if not already started
-        if not st.session_state["agent_startup_started"]:
-            try:
-                success = start_agent_background(registry)
-                if not success:
-                    st.session_state["agent_startup_error"] = "Agent failed to start (check logs)"
-                else:
-                    st.session_state["agent_startup_started"] = True
-            except Exception as e:
-                st.session_state["agent_startup_error"] = str(e)
-
-        # Check if we have an error and display it
-        if st.session_state.get("agent_startup_error"):
-            st.error(f"Failed to start agent: {st.session_state['agent_startup_error']}")
-            st.stop()
-
-        # Rerun to check if agent is ready now
-        st.rerun()
-        st.stop()  # Always stop after loading screen
-
-    # Agent is ready - clear startup state and show main UI
-    st.session_state["agent_startup_started"] = False
-    st.session_state.pop("agent_startup_error", None)
-
+    # Page chrome lives here, in the caller, regardless of whether the
+    # agent is up — so an accidental refactor that drops ``st.stop()``
+    # cannot produce a double-title rendering.
     st.title("🚀 llauncher")
+
+    # Check if agent is ready. M4 Slice 12 (issue #49) removed the
+    # subprocess auto-spawn path; the UI now passively reports "down"
+    # and instructs the user to run ``llauncher-agent`` themselves.
+    if not is_agent_ready(registry):
+        show_agent_down_banner()
+        st.stop()
     st.markdown("Manage your llama.cpp servers across multiple nodes")
 
     # Sidebar

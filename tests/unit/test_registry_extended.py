@@ -174,51 +174,26 @@ class TestIsLocalAgentReady:
         assert result is False
 
 
-class TestStartLocalAgent:
-    """Tests for NodeRegistry.start_local_agent method."""
+class TestStartLocalAgentRemoved:
+    """Regression guard for issue #49 / audit H2.
 
-    @pytest.mark.skip(
-        reason="UI auto-spawn behavior flagged for removal in the "
-        "v2 orientation spike §6. start_local_agent gained a "
-        "post-launch poll() check (commit 6f19dc8) that this test "
-        "doesn't stub, and the auto-spawn surface itself is going "
-        "away. Removed alongside the v1 path in M3 (#46)."
-    )
-    def test_start_local_agent_success(self, monkeypatch):
-        """Test successful agent start with subprocess."""
+    ``NodeRegistry.start_local_agent`` was deleted in M4 Slice 12. ADR-009's
+    symmetric topology says the user starts the agent via the CLI; the
+    UI is purely a viewer. This test exists so a future revert that
+    re-introduces the auto-spawn surface fails loudly.
+    """
+
+    def test_start_local_agent_method_is_gone(self) -> None:
+        """The method must not be re-introduced."""
         from llauncher.remote.registry import NodeRegistry
 
         registry = NodeRegistry()
-
-        # Mock subprocess.Popen
-        mock_process = MagicMock()
-        monkeypatch.setattr("subprocess.Popen", lambda *args, **kwargs: mock_process)
-
-        # Mock add_node
-        added = []
-
-        def mock_add_node(name, host, port, overwrite=False):
-            added.append((name, host, port))
-            return True, "Added"
-
-        monkeypatch.setattr(registry, "add_node", mock_add_node)
-
-        result = registry.start_local_agent()
-
-        assert result is True
-
-    def test_start_local_agent_failure(self, monkeypatch):
-        """Test agent start when subprocess fails."""
-        from llauncher.remote.registry import NodeRegistry
-
-        registry = NodeRegistry()
-
-        # Mock subprocess.Popen to raise exception
-        monkeypatch.setattr("subprocess.Popen", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("Failed")))
-
-        result = registry.start_local_agent()
-
-        assert result is False
+        assert not hasattr(registry, "start_local_agent"), (
+            "NodeRegistry.start_local_agent was removed in M4 Slice 12 "
+            "(issue #49). Re-introducing it conflicts with ADR-009 "
+            "(symmetric hub-spoke topology). The user starts the agent "
+            "with `llauncher-agent`; the UI does not auto-spawn."
+        )
 
 
 class TestGetNodeInfoAll:

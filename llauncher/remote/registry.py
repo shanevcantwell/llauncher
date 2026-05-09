@@ -197,52 +197,13 @@ class NodeRegistry:
 
         return False
 
-    def start_local_agent(self) -> bool:
-        """Start the agent as a detached background process and register it.
-
-        Returns:
-            True if agent was started successfully, False otherwise.
-        """
-        import os
-        import sys
-        import subprocess
-
-        AGENT_PORT = int(os.getenv("LAUNCHER_AGENT_PORT", "8765"))
-
-        # Cross-platform process detachment:
-        # - Windows: CREATE_NEW_PROCESS_GROUP detaches from console
-        # - Unix: start_new_session creates new session (daemon-like)
-        kwargs = {
-            "stdout": subprocess.DEVNULL,
-            "stderr": subprocess.PIPE,  # Capture stderr for error visibility
-        }
-        if sys.platform == "win32":
-            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-        else:
-            kwargs["start_new_session"] = True
-
-        try:
-            proc = subprocess.Popen(["llauncher-agent"], **kwargs)
-
-            # Add to registry if not present
-            if not self.get_node("local"):
-                self.add_node("local", "localhost", AGENT_PORT, overwrite=True)
-
-            # Check for immediate startup failure (exit before we can read stderr)
-            import time
-            time.sleep(0.5)
-            if proc.poll() is not None:
-                stderr_output = proc.stderr.read().decode("utf-8", errors="replace").strip()
-                error_msg = f"llauncher-agent exited immediately (code {proc.returncode}). "
-                if stderr_output:
-                    error_msg += f"Error: {stderr_output[:500]}"
-                logger.error(error_msg)
-                return False
-
-            return True
-        except Exception as e:
-            logger.error(f"Failed to start llauncher-agent: {e}")
-            return False
+    # ``start_local_agent`` removed in M4 Slice 12 (issue #49 / audit H2).
+    # ADR-009 prescribes a symmetric hub-spoke topology where every node —
+    # including ``local`` — is started deliberately by the user (typically
+    # via ``llauncher-agent``), not auto-spawned by whatever tool happened
+    # to load first. The UI now renders an "agent down" banner via
+    # :func:`llauncher.ui.app.show_agent_down_banner` when the local agent
+    # is unreachable.
 
     def to_dict(self) -> dict:
         """Convert registry to dictionary representation."""

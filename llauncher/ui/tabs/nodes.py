@@ -1,7 +1,5 @@
 """Node management tab for multi-node llauncher."""
 
-import time
-
 import streamlit as st
 
 from llauncher.remote.registry import NodeRegistry
@@ -245,31 +243,8 @@ def render_add_node_form(registry: NodeRegistry) -> None:
                 st.error(message)
 
 
-def check_and_prompt_local_agent(registry: NodeRegistry) -> None:
-    """Check if local agent is running and prompt to start if not.
-
-    Args:
-        registry: NodeRegistry instance.
-    """
-    # Check if agent is running using registry method
-    if registry.is_local_agent_ready():
-        return  # Local agent is running
-
-    # Prompt to start local agent
-    if st.sidebar.button("🚀 Start Local Agent", use_container_width=True):
-        try:
-            # Start agent using registry method
-            if registry.start_local_agent():
-                st.sidebar.success("Starting local agent...")
-                time.sleep(2)
-
-                # Test connection
-                local_node = registry.get_node("local")
-                if local_node and local_node.ping():
-                    st.sidebar.success("Local agent is running!")
-                else:
-                    st.sidebar.error("Failed to start local agent")
-            else:
-                st.sidebar.error("Failed to start local agent")
-        except Exception as e:
-            st.sidebar.error(f"Failed to start agent: {e}")
+# ``check_and_prompt_local_agent`` was removed in M4 Slice 12 (issue #49).
+# It originally hosted the "Start Local Agent" sidebar button; after that
+# button's removal the function had zero callers and the agent-down case
+# is now surfaced by :func:`llauncher.ui.app.show_agent_down_banner`
+# before any tab renders.

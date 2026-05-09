@@ -112,32 +112,56 @@ class TestIsAgentReady:
         assert result is False
 
 
-class TestStartAgentBackground:
-    """Tests for start_agent_background function."""
+class TestAgentDownBanner:
+    """M4 Slice 12 (issue #49) — auto-spawn replaced by passive banner.
 
-    def test_start_agent_background_calls_registry(self):
-        """Calls registry.start_local_agent()."""
-        from llauncher.ui.app import start_agent_background
+    ``start_agent_background`` and ``show_loading_screen`` were deleted
+    along with ``NodeRegistry.start_local_agent``. The replacement is
+    :func:`llauncher.ui.app.show_agent_down_banner`, which does not
+    spawn anything — it just instructs the user to run
+    ``llauncher-agent`` themselves.
+    """
 
-        mock_registry = MagicMock()
+    def test_show_agent_down_banner_renders_error_with_command(self):
+        """The banner must surface the CLI command the user needs to run.
 
-        start_agent_background(mock_registry)
-
-        mock_registry.start_local_agent.assert_called_once()
-
-
-class TestShowLoadingScreen:
-    """Tests for show_loading_screen function."""
-
-    def test_show_loading_screen_renders(self):
-        """Renders loading screen HTML."""
-        from llauncher.ui.app import show_loading_screen
+        Page-level chrome (``st.title``) lives in ``main()`` rather than
+        in the banner — see the docstring on
+        :func:`show_agent_down_banner` — so the assertion below
+        deliberately does NOT check for ``st.title``.
+        """
+        from llauncher.ui.app import show_agent_down_banner
 
         with patch("llauncher.ui.app.st") as mock_st:
-            show_loading_screen()
+            show_agent_down_banner()
 
-            # Verify st.markdown was called with CSS
-            mock_st.markdown.assert_called()
+        mock_st.error.assert_called_once()
+        mock_st.title.assert_not_called()  # title is the caller's job
+        # The error text contains the literal command string so users
+        # can copy-paste from the screen.
+        error_text = mock_st.error.call_args[0][0]
+        assert "llauncher-agent" in error_text
+        assert "agent is not running" in error_text.lower()
+
+    def test_start_agent_background_is_gone(self):
+        """Regression guard against re-introducing the auto-spawn helper."""
+        import llauncher.ui.app as app
+
+        assert not hasattr(app, "start_agent_background"), (
+            "start_agent_background was removed in M4 Slice 12 (issue #49). "
+            "The UI no longer spawns the agent — users run "
+            "`llauncher-agent` themselves per ADR-009."
+        )
+
+    def test_show_loading_screen_is_gone(self):
+        """Regression guard: the spinner-overlay screen is gone too."""
+        import llauncher.ui.app as app
+
+        assert not hasattr(app, "show_loading_screen"), (
+            "show_loading_screen was removed in M4 Slice 12 (issue #49). "
+            "It only existed to mask the auto-spawn delay; without "
+            "auto-spawn there is no delay to mask."
+        )
 
 
 class TestGetStateFunctions:
@@ -167,35 +191,14 @@ class TestGetStateFunctions:
 
 
 class TestMainFunctionLogic:
-    """Tests for main() function logic (non-Streamlit portions)."""
+    """Tests for main() function logic (non-Streamlit portions).
 
-    def test_agent_startup_state_tracking(self):
-        """Verify agent startup state is tracked correctly."""
-        # This test verifies the logic of agent_startup_started tracking
-
-        # Simulate initial state
-        session_state = {
-            "agent_startup_started": False,
-            "state": MagicMock(),
-            "registry": MagicMock(),
-            "aggregator": MagicMock(),
-        }
-
-        # Simulate agent not ready - should set startup_started
-        assert session_state["agent_startup_started"] is False
-
-        session_state["agent_startup_started"] = True
-        assert session_state["agent_startup_started"] is True
-
-    def test_agent_startup_error_handling(self):
-        """Verify agent_startup_error is cleared on success."""
-        session_state = {
-            "agent_startup_error": "Connection failed",
-        }
-
-        # Simulate success - error should be cleared
-        session_state.pop("agent_startup_error", None)
-        assert "agent_startup_error" not in session_state
+    M4 Slice 12 (issue #49) deleted the ``agent_startup_started`` /
+    ``agent_startup_error`` session-state plumbing along with the
+    auto-spawn flow they orchestrated. The tests that exercised those
+    keys were removed; ``TestAgentDownBanner`` covers the replacement
+    flow (passive banner + ``st.stop()``).
+    """
 
     def test_selected_node_tracking(self):
         """Verify selected node is stored correctly in session state."""
