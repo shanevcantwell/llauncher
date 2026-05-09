@@ -1,7 +1,7 @@
 # v2 Handoff — Pick Up Cold
 
-**Last updated:** 2026-05-08 (end of session — pre-M4 cleanup + M4 foundations + ADR-013 done)
-**Current state:** M1+M2+M3 complete. Pre-M4 cleanup phase done (#57/#58/#59 closed). M4 foundations done (#48 node_selector, #51 render_op_result, #49 auto-spawn dropped). M5 ADR-013 (logs lifecycle) shipped. **Only one M4 slice remains: #50, the tab restructure.** After #50 lands, M4 is done and the remaining M5 ADRs (#53–#56) plus late audit cleanup (#60–#62) can run in any order. Test count: 680 passed / 10 skipped.
+**Last updated:** 2026-05-09 (end of session — M4 done; #50 landed, M4 milestone closed)
+**Current state:** M1+M2+M3+M4 complete. Pre-M4 cleanup phase done (#57/#58/#59 closed). M4 done end-to-end: #48 node_selector, #51 render_op_result, #49 auto-spawn dropped, and #50 tab restructure (Dashboard/Models/Nodes/Audit + port picker). M5 ADR-013 (logs lifecycle) shipped. The remaining M5 ADRs (#53–#56), late audit cleanup (#60–#62, #64), and #63 can run in any order. Test count: 686 passed / 10 skipped.
 
 A self-contained guide for picking up the v2 architecture work in a fresh context. Read this end-to-end before touching anything.
 
@@ -38,12 +38,14 @@ The repo is in the middle of a v2 architecture rewrite per ADRs 008–011. Curre
 | Remote node port-keyed ops | `llauncher/remote/node.py` | start_server(model, port), swap_server(model, port); aggregator.swap_on_node() in state.py |
 | CLI wired to v2 ops | `llauncher/cli.py` | Four subcommand groups: `model` (list, info), `server` (start, stop, status), `node` (add, list, remove, status), `config` (path, validate). Rich tables + `--json` output. |
 | Multi-node infrastructure (M3-scope) | `llauncher/remote/{node,registry,state}.py` | RemoteNode, NodeRegistry, RemoteAggregator. Port-keyed per ADR-010; swap_on_node() for remote eviction parity. |
-| Streamlit UI (M4-scope) | `llauncher/ui/app.py`, `ui/tabs/` | Dashboard, Nodes, Model Registry tabs. Pre-v2 code; auto-spawn-local-agent still present despite M4 saying to drop it.
+| Streamlit UI (M4-scope) | `llauncher/ui/app.py`, `ui/tabs/` | Tabs: Dashboard (read-only running view), Models (config CRUD + start/stop/swap verbs), Nodes (peer registry), Audit (local audit-log tail). Sidebar `node_selector` + per-card port picker (no auto-allocation). |
 
-**Tests:** 680 passed, 10 skipped (+68 net new tests this session). Test coverage ~85% overall; gaps in model_health cache edge cases, concurrent lockfile/marker access, and a few corners of the new log-rotation chain.
+**Tests:** 686 passed, 10 skipped (+6 net this session). Test coverage ~85% overall; gaps in model_health cache edge cases, concurrent lockfile/marker access, and a few corners of the new log-rotation chain.
 
-**Commit chain (most recent first; pre-M4 cleanup → M4 foundations → ADR-013):**
+**Commit chain (most recent first; pre-M4 cleanup → M4 foundations → ADR-013 → M4 Slice 13):**
 
+- `5513d26` — feat(ui): consolidate tabs into Dashboard+Models, add port picker (refs #50)
+- `f7b8818` — feat(ui): add Audit tab + sidebar node_selector (refs #50)
 - `0d06b89` — feat(ui): drop UI auto-spawn-local-agent (closes #49)
 - `1f55f3a` — feat(ui): centralize op-result rendering in render_op_result (closes #51)
 - `e993dcc` — feat(ui): reusable node_selector component for M4 (closes #48)
@@ -84,14 +86,15 @@ All single-node and multi-node v2 operations are wired through `operations/` pac
 
 ## Open Issues
 
-### M4 — UI rewrite (1 of 4 slices remain)
+### M4 — UI rewrite ✅ done (all 4 slices)
 | Issue | Title | Status |
 |-------|-------|--------|
 | [#48](https://github.com/shanevcantwell/llauncher/issues/48) | M4 Slice 11: Reusable `node_selector` UI component | ✅ closed (`e993dcc`) |
 | [#51](https://github.com/shanevcantwell/llauncher/issues/51) | M4 Slice 14: Centralize op-result rendering in `ui/utils.py` | ✅ closed (`1f55f3a`) |
 | [#49](https://github.com/shanevcantwell/llauncher/issues/49) | M4 Slice 12: Drop UI auto-spawn (closes audit H2) | ✅ closed (`0d06b89`) |
-| [#50](https://github.com/shanevcantwell/llauncher/issues/50) | **M4 Slice 13: Restructure UI tabs around verbs + new audit tab** | 📋 **NEXT — only M4 work left** |
-| [#47](https://github.com/shanevcantwell/llauncher/issues/47) | UI migration umbrella | subsumed by #48–#51, closes with #50 |
+| [#50](https://github.com/shanevcantwell/llauncher/issues/50) | M4 Slice 13: Restructure UI tabs around verbs + new audit tab | ✅ closed (`5513d26`) |
+| [#47](https://github.com/shanevcantwell/llauncher/issues/47) | UI migration umbrella | ✅ closed (`5513d26`) — subsumed by #48–#51 |
+| — | **M4 milestone** | ✅ **done (2026-05-09)** |
 
 ### M5 — Tier 2 ADRs (1 of 5 done)
 | Issue | Title | Status |
@@ -111,6 +114,7 @@ All single-node and multi-node v2 operations are wired through `operations/` pac
 | [#60](https://github.com/shanevcantwell/llauncher/issues/60) | H3: Persist audit entries on ConfigStore CRUD | open |
 | [#61](https://github.com/shanevcantwell/llauncher/issues/61) | H4: Replace BLE001 bare except in `operations/*` | open |
 | [#62](https://github.com/shanevcantwell/llauncher/issues/62) | M5-audit: Self-loop short-circuit in `RemoteNode` | open |
+| [#64](https://github.com/shanevcantwell/llauncher/issues/64) | Audit tab: remote-node audit log access | open (filed during #50) |
 
 ### Side concerns surfaced this session
 | Issue | Title | Notes |
@@ -147,17 +151,17 @@ The 2026-05-07 audit's findings as they stand at end-of-session:
 ## What NOT To Do
 
 - **Do not add compatibility shims.** "Rewrite, not migration." Old config data is silently dropped (per `ModelConfig.from_dict_unvalidated`); callers re-specify if they care. Don't try to support both v1 and v2 shapes simultaneously.
-- **Do not auto-allocate ports anywhere except the UI fallback.** Per ADR-010 / #58, port is required at every API and operations boundary. The single remaining auto-allocation lives in `ui/tabs/model_card.py:302` (`find_available_port(None)`), explicitly tagged for #50 cleanup when the M4 port picker lands. Don't add new fallbacks; tighten the existing one.
+- **Do not auto-allocate ports anywhere.** ADR-010 / #58 / #50: port is required at every API, operations, AND UI boundary. The port picker (`ui/components/port_picker.py`) requires explicit user input — no seed, no fallback. Don't reintroduce a fallback.
 - **Do not auto-spawn the local agent from the UI.** ADR-009 ratifies the symmetric topology — the user starts `llauncher-agent` themselves. The `show_agent_down_banner` in `ui/app.py` is the only acceptable response to "agent down." (#49 / audit H2 closed this; don't reintroduce.)
 - **Do not introduce a `v2/` branch.** All v2 work lands on `main`. The strategy is "direct on `main`, repo frozen for v1 work."
-- **Do not refactor `state.py` away yet.** The HTTP Agent (`agent/routing.py`), MCP server read tools (`mcp_server/`), and Streamlit UI still go through `LauncherState`. The eviction-compat path (`_start_with_eviction_impl`) is intentionally retained for the eviction-API smoke contract until M5/M6 cleans it up. The model-health pre-flight has already been lifted out (#57); the port-auto-allocation has too (#58).
+- **Do not refactor `state.py` away yet.** The HTTP Agent (`agent/routing.py`), MCP server read tools (`mcp_server/`), and Streamlit UI still go through `LauncherState` for reads. The eviction-compat path (`_start_with_eviction_impl`) is the main remaining v1 hook — intentionally retained for the eviction-API smoke contract until M5/M6 cleans it up. The model-health pre-flight has already been lifted out (#57); port-auto-allocation has too (#58 + #50).
 - **Do not add a `restart` verb.** Considered and explicitly deferred — see ADR-010 §"Considered but Not Implemented: Restart". `stop` then `start` is the substitute.
 - **Do not call `state.refresh()` inside hot loops or on every UI rerun.** Read tools refresh per call (#59 made this explicit and enforced); write tools refresh before the read step. Adding more refreshes on top is wasteful.
 - **Do not regress the log lifecycle (ADR-013).** Logs are append-mode; the per-run banner (`=== started at <iso> port=<n> ===`) marks boundaries. Rotation is opportunistic at start time. `_tail_file` reads a bounded window. Tests guard all three.
 
 ## Known Failures
 
-**None.** 680 tests pass, 10 skipped. Verify with: `python3 -m pytest tests/ -q | tail -3`
+**None.** 686 tests pass, 10 skipped. Verify with: `python3 -m pytest tests/ -q | tail -3`
 
 ## Code Audit Findings (2026-05-07)
 
@@ -198,19 +202,18 @@ A full code-vs-documentation audit was performed using 5 parallel subagent revie
 | 004 | CLI Subcommand Interface | ⚠️ Partial — `swap` subcommand still missing |
 | 005 | Model Cache Health | ✅ Compliant — endpoint and operations seam (`#57`) |
 | 006 | GPU Resource Monitoring | ⚠️ Partial — collector + status data exist; `?full=true` filter missing |
-| 008 | Stateless Facade | ⚠️ Partial — lockfile/audit/log paths all env-configurable; v1 `state.refresh()` still present until M4 Slice 13 (#50) |
+| 008 | Stateless Facade | ⚠️ Partial — lockfile/audit/log paths all env-configurable; v1 `state.refresh()` retained on read paths (eviction-compat lives in `state._start_with_eviction_impl`) |
 | 009 | Hub-Spoke Topology | ✅ Compliant — UI auto-spawn dropped (`#49`) |
-| 010 | Port Ownership at Call Site | ✅ Compliant at every API/operations boundary (`#58`); UI fallback intentional until #50 |
+| 010 | Port Ownership at Call Site | ✅ Compliant at every API/operations/UI boundary (`#58` + `#50` — UI port picker requires explicit input) |
 | 011 | Swap Semantics v2 | ✅ Compliant — all surfaces wired through `operations.swap()` (M3 merge) |
 | **013** | **Per-Server Log Lifecycle (NEW)** | ✅ **Accepted** — append/rotate/bounded-tail (`#52`) |
 
 ### Recommended Action Order — what's left
 
-1. **M4 Slice 13 (#50)** — the only M4 work remaining. Tab restructure: merge dashboard+running, merge forms+model_registry, delete `manager.py`, add `audit.py` tab, rewire `app.py` routing. Consumes the `node_selector` (#48) and `render_op_result` (#51) foundations. Cleans up the `find_available_port(None)` fallback in `model_card.py:302` once the port picker exists. **~1 session of focused Streamlit work + a manual smoke run.**
-2. **Remaining M5 ADRs** (~4 sessions, parallelizable): #53 footer (`/footer-context/{port}` + TTL cache), #54 cancel (marker flag + `POST /cancel/{port}`), #55 orphan (`is_managed` flag + `orphan list/adopt` verbs), #56 self-swap integration test (depends on #54).
-3. **Late audit cleanup** (~1 session, parallelizable with M5): #60 (H3 audit-on-CRUD), #61 (H4 BLE001 in `operations/*`), #62 (self-loop short-circuit).
-4. **#63** (sanitizer collision) — low priority, file-and-forget unless someone hits it.
-5. **M6 / M7** — backend adapter (vLLM, #42), then release.
+1. **Remaining M5 ADRs** (~4 sessions, parallelizable): #53 footer (`/footer-context/{port}` + TTL cache), #54 cancel (marker flag + `POST /cancel/{port}`), #55 orphan (`is_managed` flag + `orphan list/adopt` verbs), #56 self-swap integration test (depends on #54).
+2. **Late audit cleanup** (~1 session, parallelizable with M5): #60 (H3 audit-on-CRUD), #61 (H4 BLE001 in `operations/*`), #62 (self-loop short-circuit), #64 (audit-tab remote-node access).
+3. **#63** (sanitizer collision) — low priority, file-and-forget unless someone hits it.
+4. **M6 / M7** — backend adapter (vLLM, #42), then release.
 
 ## Conventions
 
@@ -233,16 +236,16 @@ Run these to confirm the state matches this handoff before touching anything:
 git log --oneline -10
 git tag -l 'v1-final'   # should print v1-final
 
-# Tests (680 passed, 10 skipped expected — all green)
+# Tests (686 passed, 10 skipped expected — all green)
 python -m pytest tests/ -q | tail -3
 
 # v2 modules present (operations is a package now)
 ls llauncher/core/lockfile.py llauncher/core/audit_log.py llauncher/core/log_rotation.py
 ls llauncher/operations/{start,stop,swap,delete,preflight}.py
-ls llauncher/ui/components/node_selector.py
+ls llauncher/ui/components/{node_selector,port_picker}.py
+ls llauncher/ui/tabs/{audit,dashboard,models,nodes}.py
 
-# Open Issues — #50 + #53–#56 + #60–#63 expected; everything else
-# (#48/#49/#51/#52/#57/#58/#59) closed this session.
+# Open Issues — #53–#56 + #60–#64 expected; M4 (#47/#48/#49/#50/#51) all closed.
 gh issue list --state open
 ```
 
@@ -266,11 +269,13 @@ gh issue list --state open
 
 9. **Foundation components for M4 (#48 / #51) live at `llauncher/ui/components/`.** `node_selector.render_node_selector()` writes to `st.session_state["ui.target_node"]` (constant `TARGET_NODE_KEY`) and synthesizes `"local"` as the first option. `ui/utils.py::render_op_result()` translates any `operations/*Result` envelope (or its `.to_dict()` form) into Streamlit feedback via the `OpResultSeverity` ladder (SUCCESS toast / INFO toast / WARNING sticky / ERROR sticky). #50 is the slice that wires both into the new tab structure.
 
-10. **Two `model_card.py` callsites carry `# v2 ops migration (issue #57)` markers** — at lines 144 (eviction → `ops.swap`) and 302 (start → `ops.start`). Don't re-route them through `state.py` during the M4 restructure. The auto-allocation `find_available_port(None)` at :302 is intentional UI-layer scaffolding pending the #50 port picker.
+10. **Two `model_card.py` callsites carry `# v2 ops migration (issue #57)` markers** — at lines 167 (eviction → `ops.swap`) and 344 (start → `ops.start`). Don't re-route them through `state.py`. The `_handle_start` signature is now `target_port: int` (required; no default) — the auto-allocation fallback that lived around line 302 has been deleted. The two markers themselves still call `ops.swap` / `ops.start` directly.
 
 11. **Test-mock target for model_health pre-flight is `llauncher.operations.preflight.mh.check_model_health`.** Patching `llauncher.state.check_model_health` no longer works (state.py doesn't import it). Tests that need the *real* implementation should mark themselves `@pytest.mark.real_model_health`.
 
 12. **Logs are append-mode now (ADR-013).** Per-run banner is `=== started at <iso> port=<n> ===`. Rotation is opportunistic at start time, capped at `LAUNCHER_LOG_MAX_BYTES` (default 50 MiB) with `LAUNCHER_LOG_KEEP` (default 3) files retained. `LAUNCHER_LOG_DIR` joins the ADR-008 family of env-configurable paths. `_tail_file` reads a bounded ~32 KiB window — `len(result)` may be less than `lines` for very long log lines, by design.
+
+13. **M4 Slice 13 surfaces (`#50`)**: tab structure is now Dashboard / Models / Nodes / Audit. `dashboard.py` is view-only (read-side only); `models.py` owns config CRUD + per-model verb buttons (start/stop/swap). `model_registry.py` parameter renamed `selected_node` → `target` (string, default `'local'`). The `'All Nodes'` cross-node aggregate view is dropped; a single target is always selected. The Audit tab (`ui/tabs/audit.py`) reads local `LAUNCHER_AUDIT_PATH` only; remote-node audit access is deferred to issue #64.
 
 ## Questions With Pinned Answers
 

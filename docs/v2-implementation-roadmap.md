@@ -1,6 +1,6 @@
 # v2 Implementation Roadmap
 
-**Date:** 2026-05-02 (updated 2026-05-08 end-of-session)
+**Date:** 2026-05-02 (updated 2026-05-09 end-of-session)
 **Status:** Active
 
 ## Purpose
@@ -25,13 +25,15 @@ The repo is frozen for v1 work except for this v2 effort. All v2 commits land di
 | M2 — Swap + Endpoints | ✅ done (2026-05-07) | M3 merge wired all surfaces to `operations.swap()`; closes #37, #40, #43, #46. |
 | M3 — Multi-node | ✅ done (2026-05-07) | Wired through v2 operations; remote swap parity. |
 | **Pre-M4 cleanup** | ✅ **done (2026-05-08)** | #57 (C2 layer), #58 (C3 port), #59 (H1 MCP refresh). Test count 612 → 621. |
-| M4 — UI rewrite | 🔄 **3/4 slices done (2026-05-08)** | #48 node_selector ✅, #51 render_op_result ✅, #49 auto-spawn dropped ✅. **Only #50 (Slice 13: tab restructure) remains.** |
+| M4 — UI rewrite | ✅ **done (2026-05-09)** | All 4 slices done. #50 tab restructure + port picker landed in commits `5513d26` (consolidation) and `f7b8818` (Audit tab + node_selector wiring). |
 | M5 — Tier 2 ADRs | 🔄 **1/5 done (2026-05-08)** | ADR-013 logs ✅ (#52). Remaining: #53 (ADR-012 footer), #54 (ADR-014 cancel), #55 (ADR-015 orphan), #56 (ADR-016 self-swap). Parallelizable. |
 | Late audit cleanup | 📋 planned | #60 (H3 audit-on-CRUD), #61 (H4 BLE001), #62 (self-loop). Parallelizable with M5. |
 | M6 — Multi-backend (vLLM) | — | Issue #42 |
 | M7 — Release | — | Tag `v2.0.0`. |
 
 **End-of-2026-05-08 session metrics:** 9 commits on `main` since the prior handoff, 7 issues closed (#48, #49, #51, #52, #57, #58, #59), 1 issue filed (#63), test count 612 → 680 (+68 net), ADR-013 ratified.
+
+**End-of-2026-05-09 session metrics:** 2 commits on `main` since the 2026-05-08 handoff (`f7b8818`, `5513d26`), 2 issues closed (#50, #47), 1 issue filed (#64 — audit-tab remote-node access), test count 680 → 686 (+6 net; planner estimated ~690+, slightly under because more obsolete tests were removed than expected). M4 milestone closed.
 
 For a self-contained guide a fresh context can use to pick up the work, see [`docs/v2-handoff.md`](v2-handoff.md).
 
@@ -107,15 +109,14 @@ Three audit findings the v2-handoff and m4-design called out as boundary-tighten
 
 ### M4 — UI rewrite
 
-**Status: 3/4 slices done (2026-05-08).** Foundation slices and the auto-spawn removal landed; only the tab restructure remains.
+**Status: ✅ done (2026-05-09).** All 4 slices landed.
 
 - [x] **Slice 11** ([#48](https://github.com/shanevcantwell/llauncher/issues/48), `e993dcc`) — Reusable `node_selector` component at `llauncher/ui/components/node_selector.py`. Writes to `st.session_state["ui.target_node"]`. 11 tests.
 - [x] **Slice 12** ([#49](https://github.com/shanevcantwell/llauncher/issues/49), `0d06b89`) — Auto-spawn dropped. `NodeRegistry.start_local_agent` deleted; UI shows a passive `show_agent_down_banner` instead. Closes audit H2.
-- [ ] **Slice 13** ([#50](https://github.com/shanevcantwell/llauncher/issues/50)) — **Tab restructure** (next session). Merge dashboard+running, merge forms+model_registry, delete `manager.py`, add `audit.py` tab, rewire `app.py` routing. Consumes both #48 and #51. Cleans up the `find_available_port(None)` fallback in `model_card.py:302` once a port picker exists.
+- [x] **Slice 13** ([#50](https://github.com/shanevcantwell/llauncher/issues/50), `f7b8818` + `5513d26`) — **Tab restructure done.** Tabs are now Dashboard / Models / Nodes / Audit. `dashboard.py` is read-only (running view); `models.py` owns config CRUD + start/stop/swap verbs; new `audit.py` tails local audit JSONL. New `ui/components/port_picker.py` requires explicit user input (no fallback) — the `find_available_port(None)` callsite is gone. `manager.py` and `running.py` deleted. `model_registry.py::render_model_registry` parameter renamed `selected_node` → `target`. Remote-node audit access deferred to #64. Also closes #47 (UI migration umbrella).
 - [x] **Slice 14** ([#51](https://github.com/shanevcantwell/llauncher/issues/51), `1f55f3a`) — `ui/utils.py::render_op_result()` translates any `operations/*Result` envelope into Streamlit feedback via the `OpResultSeverity` ladder. 32 tests.
 
-**Deliverable:** browser-driven daily use works against v2 operations.
-**Remaining estimate:** ~1 session (Slice 13 only).
+**Deliverable:** Done. Browser-driven daily use works against v2 operations.
 
 ### M5 — Tier 2 ADRs + Implementation
 
@@ -173,10 +174,10 @@ Three audit findings the v2-handoff and m4-design called out as boundary-tighten
 | #42 | Backend adapter (vLLM) | M6 | open |
 | #43 | VRAM consolidation | M2 | ✅ closed |
 | #46 | v1 test cleanup | M2 | ✅ closed |
-| #47 | UI migration umbrella | M4 | subsumed by #48–#51; closes with #50 |
+| #47 | UI migration umbrella | M4 | ✅ closed (`5513d26`) |
 | #48 | M4 Slice 11 — node_selector | M4 | ✅ closed (`e993dcc`) |
 | #49 | M4 Slice 12 — drop auto-spawn | M4 | ✅ closed (`0d06b89`) |
-| #50 | M4 Slice 13 — tab restructure | M4 | **open — only M4 slice left** |
+| #50 | M4 Slice 13 — tab restructure | M4 | ✅ closed (`5513d26`) |
 | #51 | M4 Slice 14 — render_op_result | M4 | ✅ closed (`1f55f3a`) |
 | #52 | M5 / ADR-013 — logs lifecycle | M5 | ✅ closed (`9dc2769`) |
 | #53 | M5 / ADR-012 — footer contract | M5 | open |
@@ -190,6 +191,7 @@ Three audit findings the v2-handoff and m4-design called out as boundary-tighten
 | #61 | Audit H4 — BLE001 in operations | post-M4 | open |
 | #62 | Audit self-loop short-circuit | post-M4 | open |
 | #63 | Log filename sanitization collision | side | open (filed during #52) |
+| #64 | Audit tab: remote-node audit log access | post-M4 | open (filed during #50) |
 
 ## References
 
