@@ -1,7 +1,7 @@
 # v2 Implementation Roadmap
 
-**Date:** 2026-05-02 (updated 2026-05-05)  
-**Status:** Active  
+**Date:** 2026-05-02 (updated 2026-05-08 end-of-session)
+**Status:** Active
 
 ## Purpose
 
@@ -24,10 +24,14 @@ The repo is frozen for v1 work except for this v2 effort. All v2 commits land di
 | M1 — Foundation | ✅ done (2026-05-02) | 4 commits, 555 tests passing (all green); see `docs/v2-handoff.md` |
 | M2 — Swap + Endpoints | ✅ done (2026-05-07) | M3 merge wired all surfaces to `operations.swap()`; closes #37, #40, #43, #46. |
 | M3 — Multi-node | ✅ done (2026-05-07) | Wired through v2 operations; remote swap parity. |
-| M4 — UI rewrite | 📋 planned (2026-05-08) | Punch-list filed: #48–#51 (4 slices). Pre-req cleanup: #57 #58 #59. |
-| M5 — Tier 2 ADRs | 📋 planned (2026-05-08) | Punch-list filed: #52–#56 (5 ADRs). Logs (#52) lands first to support M4 smoke testing. |
+| **Pre-M4 cleanup** | ✅ **done (2026-05-08)** | #57 (C2 layer), #58 (C3 port), #59 (H1 MCP refresh). Test count 612 → 621. |
+| M4 — UI rewrite | 🔄 **3/4 slices done (2026-05-08)** | #48 node_selector ✅, #51 render_op_result ✅, #49 auto-spawn dropped ✅. **Only #50 (Slice 13: tab restructure) remains.** |
+| M5 — Tier 2 ADRs | 🔄 **1/5 done (2026-05-08)** | ADR-013 logs ✅ (#52). Remaining: #53 (ADR-012 footer), #54 (ADR-014 cancel), #55 (ADR-015 orphan), #56 (ADR-016 self-swap). Parallelizable. |
+| Late audit cleanup | 📋 planned | #60 (H3 audit-on-CRUD), #61 (H4 BLE001), #62 (self-loop). Parallelizable with M5. |
 | M6 — Multi-backend (vLLM) | — | Issue #42 |
-| M7 — Release | — | |
+| M7 — Release | — | Tag `v2.0.0`. |
+
+**End-of-2026-05-08 session metrics:** 9 commits on `main` since the prior handoff, 7 issues closed (#48, #49, #51, #52, #57, #58, #59), 1 issue filed (#63), test count 612 → 680 (+68 net), ADR-013 ratified.
 
 For a self-contained guide a fresh context can use to pick up the work, see [`docs/v2-handoff.md`](v2-handoff.md).
 
@@ -93,33 +97,39 @@ For a self-contained guide a fresh context can use to pick up the work, see [`do
 **Deliverable:** target a peer from this node.  
 **Estimate:** ~1–2 sessions (infra done, wiring pending).
 
+### Pre-M4 cleanup (✅ done 2026-05-08)
+
+Three audit findings the v2-handoff and m4-design called out as boundary-tightening prerequisites for M4:
+
+- [x] **C2** ([#57](https://github.com/shanevcantwell/llauncher/issues/57), `b361b60`) — model-health pre-flight lifted out of `state.py` into `operations/preflight.py`. `operations.start()` gained the same `model_health_check` seam `operations.swap()` had. `_start_status_code` maps `rejected_preflight` → 409 (not 500).
+- [x] **C3** ([#58](https://github.com/shanevcantwell/llauncher/issues/58), `270a43e`) — port required at every API/operations boundary. CLI `--port` is required; `state.start_server` and `state.can_start` no longer accept `port=None`. `DEFAULT_PORT` env-var default 8080 → 8081 (handoff §6 institutional knowledge fix landed in passing).
+- [x] **H1** ([#59](https://github.com/shanevcantwell/llauncher/issues/59), `de9f10f`) — MCP write tools (`update_model_config`, `add_model`) refresh before reading `state.models`. Read tools were already refreshing (audit was stale on that point); regression guards added.
+
 ### M4 — UI rewrite
 
-**Status: planned (2026-05-08).** Pre-v2 UI exists but uses v1 `LauncherState`. Decomposed into 4 slices per `docs/m4-design.md`:
+**Status: 3/4 slices done (2026-05-08).** Foundation slices and the auto-spawn removal landed; only the tab restructure remains.
 
-- [ ] **Slice 11** ([#48](https://github.com/shanevcantwell/llauncher/issues/48)) — Reusable `node_selector` component
-- [ ] **Slice 12** ([#49](https://github.com/shanevcantwell/llauncher/issues/49)) — Drop auto-spawn-local-agent (closes audit H2)
-- [ ] **Slice 13** ([#50](https://github.com/shanevcantwell/llauncher/issues/50)) — Restructure tabs around verbs + new audit tab
-- [ ] **Slice 14** ([#51](https://github.com/shanevcantwell/llauncher/issues/51)) — Centralize op-result rendering in `ui/utils.py`
+- [x] **Slice 11** ([#48](https://github.com/shanevcantwell/llauncher/issues/48), `e993dcc`) — Reusable `node_selector` component at `llauncher/ui/components/node_selector.py`. Writes to `st.session_state["ui.target_node"]`. 11 tests.
+- [x] **Slice 12** ([#49](https://github.com/shanevcantwell/llauncher/issues/49), `0d06b89`) — Auto-spawn dropped. `NodeRegistry.start_local_agent` deleted; UI shows a passive `show_agent_down_banner` instead. Closes audit H2.
+- [ ] **Slice 13** ([#50](https://github.com/shanevcantwell/llauncher/issues/50)) — **Tab restructure** (next session). Merge dashboard+running, merge forms+model_registry, delete `manager.py`, add `audit.py` tab, rewire `app.py` routing. Consumes both #48 and #51. Cleans up the `find_available_port(None)` fallback in `model_card.py:302` once a port picker exists.
+- [x] **Slice 14** ([#51](https://github.com/shanevcantwell/llauncher/issues/51), `1f55f3a`) — `ui/utils.py::render_op_result()` translates any `operations/*Result` envelope into Streamlit feedback via the `OpResultSeverity` ladder. 32 tests.
 
-**Pre-req cleanup:** [#57](https://github.com/shanevcantwell/llauncher/issues/57) (C2 layer), [#58](https://github.com/shanevcantwell/llauncher/issues/58) (C3 port required), [#59](https://github.com/shanevcantwell/llauncher/issues/59) (H1 MCP refresh).
-
-**Deliverable:** browser-driven daily use works against v2 operations.  
-**Estimate:** ~2–3 sessions (UI exists; this is a rewrite of the call-graph + restructure).
+**Deliverable:** browser-driven daily use works against v2 operations.
+**Remaining estimate:** ~1 session (Slice 13 only).
 
 ### M5 — Tier 2 ADRs + Implementation
 
-**Status: planned (2026-05-08).** Five ADRs per `docs/m5-design.md`, decomposed into Issues:
+**Status: 1/5 done (2026-05-08).** ADR-013 ratified; the rest are parallelizable and can run in any order after M4 finishes.
 
-- [ ] **ADR-013 — Logs lifecycle** ([#52](https://github.com/shanevcantwell/llauncher/issues/52)): append mode, size-cap rotation, bounded tail. **Lands first** so M4 smoke testing doesn't lose history.
+- [x] **ADR-013 — Logs lifecycle** ([#52](https://github.com/shanevcantwell/llauncher/issues/52), `9dc2769`) — Append mode + size-cap rotation + bounded tail. New module `core/log_rotation.py`. New env vars `LAUNCHER_LOG_DIR`, `LAUNCHER_LOG_MAX_BYTES`, `LAUNCHER_LOG_KEEP`. 17 tests including a partial-rename-failure simulation. Filed [#63](https://github.com/shanevcantwell/llauncher/issues/63) for the sanitizer-collision side concern.
 - [ ] **ADR-012 — Footer contract** ([#53](https://github.com/shanevcantwell/llauncher/issues/53)): `/footer-context/{port}` endpoint with 1s TTL cache.
 - [ ] **ADR-014 — Cancellation** ([#54](https://github.com/shanevcantwell/llauncher/issues/54)): cancel flag in marker; `POST /cancel/{port}`; MCP tool.
 - [ ] **ADR-015 — Orphan policy** ([#55](https://github.com/shanevcantwell/llauncher/issues/55)): `is_managed` flag, `orphan list/adopt` verbs across CLI/HTTP/MCP.
-- [ ] **ADR-016 — Self-swap worked example** ([#56](https://github.com/shanevcantwell/llauncher/issues/56)): integration test + prose timeline.
+- [ ] **ADR-016 — Self-swap worked example** ([#56](https://github.com/shanevcantwell/llauncher/issues/56)): integration test + prose timeline. Depends on #54.
 
-**Late audit cleanup running alongside M5:** [#60](https://github.com/shanevcantwell/llauncher/issues/60) (H3), [#61](https://github.com/shanevcantwell/llauncher/issues/61) (H4), [#62](https://github.com/shanevcantwell/llauncher/issues/62) (self-loop).
+**Late audit cleanup running alongside M5:** [#60](https://github.com/shanevcantwell/llauncher/issues/60) (H3 audit-on-CRUD), [#61](https://github.com/shanevcantwell/llauncher/issues/61) (H4 BLE001 in `operations/*`), [#62](https://github.com/shanevcantwell/llauncher/issues/62) (self-loop short-circuit).
 
-**Estimate:** ~5–7 sessions (one per ADR + impl).
+**Remaining estimate:** ~4–5 sessions (one per ADR/cleanup, parallelizable).
 
 ### M6 — Multi-backend (vLLM)
 
@@ -156,23 +166,39 @@ For a self-contained guide a fresh context can use to pick up the work, see [`do
 | Issue | Title | Milestone | Status |
 |-------|-------|-----------|--------|
 | #37 | Add model Delete | M2 | ✅ closed |
-| #38 | Volume-mount paths | M1 | partial |
-| #39 | Audit commanded vs observed | M1 | partial (#60 closes config-CRUD gap) |
+| #38 | Volume-mount paths | M1 | partial — `LAUNCHER_LOG_DIR` added by ADR-013 |
+| #39 | Audit commanded vs observed | M1 | partial — #60 closes the config-CRUD gap |
 | #40 | Endpoint refactor (port-keyed) | M2 | ✅ closed |
 | #41 | CLI naming | — | ✅ resolved: `llauncher` |
 | #42 | Backend adapter (vLLM) | M6 | open |
 | #43 | VRAM consolidation | M2 | ✅ closed |
 | #46 | v1 test cleanup | M2 | ✅ closed |
-| #47 | UI migration umbrella | M4 | subsumed by #48–#51 |
-| #48–#51 | M4 slices 11–14 | M4 | open |
-| #52–#56 | M5 ADRs 013, 012, 014, 015, 016 | M5 | open |
-| #57–#62 | Audit cleanup C2, C3, H1, H3, H4, self-loop | pre/post M4 | open |
+| #47 | UI migration umbrella | M4 | subsumed by #48–#51; closes with #50 |
+| #48 | M4 Slice 11 — node_selector | M4 | ✅ closed (`e993dcc`) |
+| #49 | M4 Slice 12 — drop auto-spawn | M4 | ✅ closed (`0d06b89`) |
+| #50 | M4 Slice 13 — tab restructure | M4 | **open — only M4 slice left** |
+| #51 | M4 Slice 14 — render_op_result | M4 | ✅ closed (`1f55f3a`) |
+| #52 | M5 / ADR-013 — logs lifecycle | M5 | ✅ closed (`9dc2769`) |
+| #53 | M5 / ADR-012 — footer contract | M5 | open |
+| #54 | M5 / ADR-014 — cancellation | M5 | open |
+| #55 | M5 / ADR-015 — orphan policy | M5 | open |
+| #56 | M5 / ADR-016 — self-swap test | M5 | open (depends on #54) |
+| #57 | Audit C2 — state→core layer | pre-M4 | ✅ closed (`b361b60`) |
+| #58 | Audit C3 — port required | pre-M4 | ✅ closed (`270a43e`) |
+| #59 | Audit H1 — MCP refresh | pre-M4 | ✅ closed (`de9f10f`) |
+| #60 | Audit H3 — config-CRUD audit | post-M4 | open |
+| #61 | Audit H4 — BLE001 in operations | post-M4 | open |
+| #62 | Audit self-loop short-circuit | post-M4 | open |
+| #63 | Log filename sanitization collision | side | open (filed during #52) |
 
 ## References
 
-- ADRs 008–011 (`docs/adrs/`)
+- ADRs 008–011 (`docs/adrs/`) — Tier 1, foundation
+- ADR-013 (`docs/adrs/013-logs-lifecycle.md`) — accepted 2026-05-08
 - ADR-008 amendment notes (2026-05-02)
 - ADR-002 (Superseded by ADR-011)
 - Orientation spike (`docs/reviews/2026-05-02-v2-orientation-spike.md`)
-- Issues #37–#42
+- M4/M5 design docs (`docs/m4-design.md`, `docs/m5-design.md`)
+- Code audit synthesis (`docs/_audit_synthesis.md` + 5 domain reports)
+- Issues #37–#63
 - prompt-prix architecture as adapter-pattern reference (`~/github/shanevcantwell/prompt-prix/docs/ARCHITECTURE.md`)
