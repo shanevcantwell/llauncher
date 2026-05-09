@@ -8,7 +8,7 @@ from llauncher.core import settings
 from llauncher.state import LauncherState
 from llauncher.remote.registry import NodeRegistry
 from llauncher.remote.state import RemoteAggregator
-from llauncher.remote.node import NodeStatus
+from llauncher.ui.components.node_selector import render_node_selector
 
 
 # Configure page
@@ -125,49 +125,22 @@ def main():
 
         st.divider()
 
-        # Node selector
+        # Node selector — reusable component (issue #48 / m4-design Slice 11).
+        # Writes to st.session_state[TARGET_NODE_KEY]. "local" is the default.
         st.subheader("🖥️ Node")
+        selected = render_node_selector(registry)
 
-        # Build node options with offline filtering
-        show_offline = st.session_state.get("show_offline_nodes", True)
-        node_options = ["All Nodes"]
-        for node in registry:
-            is_online = node.status == NodeStatus.ONLINE
-            if not is_online and not show_offline:
-                continue  # Skip offline nodes if toggle is off
-            status = "🟢" if is_online else "⚫"
-            node_options.append(f"{status} {node.name}")
-
-        selected = st.selectbox(
-            "Select Node",
-            options=node_options,
-            index=0,
-            help="Select a specific node or view all nodes",
-        )
-
-        # Store selected node in session state
-        if selected == "All Nodes":
-            st.session_state["selected_node"] = None
-        else:
-            st.session_state["selected_node"] = selected.replace("🟢 ", "").replace("⚫ ", "")
-
-        st.divider()
-
-        # Options
-        st.subheader("🔧 Options")
-        st.session_state["show_offline_nodes"] = st.checkbox(
-            "Show offline nodes",
-            value=st.session_state.get("show_offline_nodes", True),
-            help="Uncheck to hide offline nodes from the selector",
-        )
-
-    # Tab navigation
-    tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🖥️ Nodes", "🗂️ Model Registry"])
+    # Tab navigation. Stage 1 of #50 keeps the existing 3 tabs intact and
+    # adds Audit as a 4th. Stage 2 will consolidate Manager into Dashboard
+    # and merge forms/registry into a Models tab.
+    tab1, tab2, tab3, tab4 = st.tabs(
+        ["📊 Dashboard", "🖥️ Nodes", "🗂️ Model Registry", "📝 Audit"]
+    )
 
     with tab1:
         from llauncher.ui.tabs.dashboard import render_dashboard
 
-        render_dashboard(state, registry, aggregator, st.session_state.get("selected_node"))
+        render_dashboard(state, registry, aggregator, selected)
 
     with tab2:
         from llauncher.ui.tabs.nodes import render_nodes_tab
@@ -177,7 +150,12 @@ def main():
     with tab3:
         from llauncher.ui.tabs.model_registry import render_model_registry
 
-        render_model_registry(state, registry, aggregator, st.session_state.get("selected_node"))
+        render_model_registry(state, registry, aggregator, selected)
+
+    with tab4:
+        from llauncher.ui.tabs.audit import render_audit_tab
+
+        render_audit_tab(selected)
 
 
 if __name__ == "__main__":

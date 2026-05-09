@@ -190,117 +190,106 @@ class TestGetStateFunctions:
             assert aggregator1 is aggregator2
 
 
-class TestMainFunctionLogic:
-    """Tests for main() function logic (non-Streamlit portions).
+class TestNodeSelectorIntegration:
+    """The sidebar uses the reusable ``node_selector`` component (#48).
 
-    M4 Slice 12 (issue #49) deleted the ``agent_startup_started`` /
-    ``agent_startup_error`` session-state plumbing along with the
-    auto-spawn flow they orchestrated. The tests that exercised those
-    keys were removed; ``TestAgentDownBanner`` covers the replacement
-    flow (passive banner + ``st.stop()``).
+    Stage 1 of M4 Slice 13 (#50) replaced the old emoji-prefixed selectbox
+    plus ``show_offline_nodes`` checkbox with a single call to
+    :func:`render_node_selector`. The component owns option construction
+    and session-state wiring; ``app.main()`` only has to call it.
+
+    The pre-existing ``test_selected_node_tracking`` /
+    ``test_selected_node_with_status`` tests probed the now-deleted
+    selectbox-string parsing and were removed in this slice.
     """
 
-    def test_selected_node_tracking(self):
-        """Verify selected node is stored correctly in session state."""
-        # Test "All Nodes" selection
-        selected = "All Nodes"
-        expected_selected_node = None
+    def test_main_calls_render_node_selector(self):
+        """main() delegates node selection to the reusable component."""
+        from llauncher.ui import app
 
-        if selected == "All Nodes":
-            actual = None
-        else:
-            actual = selected.replace(" ", "").replace(" ", "")
+        with patch("llauncher.ui.app.st") as mock_st, patch(
+            "llauncher.ui.app.render_node_selector"
+        ) as mock_render_selector, patch(
+            "llauncher.ui.app.is_agent_ready", return_value=True
+        ), patch("llauncher.ui.app.get_state") as mock_get_state, patch(
+            "llauncher.ui.app.get_registry"
+        ) as mock_get_registry, patch(
+            "llauncher.ui.app.get_aggregator"
+        ) as mock_get_aggregator, patch(
+            "llauncher.ui.tabs.dashboard.render_dashboard"
+        ), patch(
+            "llauncher.ui.tabs.nodes.render_nodes_tab"
+        ), patch(
+            "llauncher.ui.tabs.model_registry.render_model_registry"
+        ), patch(
+            "llauncher.ui.tabs.audit.render_audit_tab"
+        ):
+            mock_st.session_state = {}
+            mock_st.sidebar.__enter__ = MagicMock(return_value=None)
+            mock_st.sidebar.__exit__ = MagicMock(return_value=None)
+            mock_st.button.return_value = False
+            # st.tabs returns a list of context managers; supply 4 mocks.
+            tab_mocks = [MagicMock() for _ in range(4)]
+            for t in tab_mocks:
+                t.__enter__ = MagicMock(return_value=None)
+                t.__exit__ = MagicMock(return_value=None)
+            mock_st.tabs.return_value = tab_mocks
+            mock_render_selector.return_value = "local"
 
-        assert expected_selected_node == actual
+            registry = MagicMock()
+            mock_get_registry.return_value = registry
+            mock_get_state.return_value = MagicMock()
+            mock_get_aggregator.return_value = MagicMock()
 
-    def test_selected_node_with_status(self):
-        """Verify node selection with status icon."""
-        # Test node selection with status indicator
-        selected = "🟢 test-node"
-        expected_selected_node = "test-node"
+            app.main()
 
-        # Simulate the selection parsing logic
-        actual = selected.replace("🟢 ", "").replace("⚫ ", "")
-
-        assert expected_selected_node == actual
+            mock_render_selector.assert_called_once_with(registry)
 
 
-class TestNodeSelectorLogic:
-    """Tests for node selector logic."""
+class TestMainTabs:
+    """``main()`` should mount four tabs after stage 1 of #50."""
 
-    def test_node_options_empty(self):
-        """No nodes configured returns only 'All Nodes'."""
-        mock_registry = MagicMock()
-        mock_registry.__len__.return_value = 0
-        mock_registry.__iter__.return_value = iter([])
+    def test_main_renders_four_tabs(self):
+        """st.tabs is called with a 4-element list including Audit."""
+        from llauncher.ui import app
 
-        show_offline = True
-        node_options = ["All Nodes"]
+        with patch("llauncher.ui.app.st") as mock_st, patch(
+            "llauncher.ui.app.render_node_selector", return_value="local"
+        ), patch("llauncher.ui.app.is_agent_ready", return_value=True), patch(
+            "llauncher.ui.app.get_state"
+        ), patch("llauncher.ui.app.get_registry"), patch(
+            "llauncher.ui.app.get_aggregator"
+        ), patch(
+            "llauncher.ui.tabs.dashboard.render_dashboard"
+        ), patch(
+            "llauncher.ui.tabs.nodes.render_nodes_tab"
+        ), patch(
+            "llauncher.ui.tabs.model_registry.render_model_registry"
+        ), patch(
+            "llauncher.ui.tabs.audit.render_audit_tab"
+        ):
+            mock_st.session_state = {}
+            mock_st.sidebar.__enter__ = MagicMock(return_value=None)
+            mock_st.sidebar.__exit__ = MagicMock(return_value=None)
+            mock_st.button.return_value = False
+            tab_mocks = [MagicMock() for _ in range(4)]
+            for t in tab_mocks:
+                t.__enter__ = MagicMock(return_value=None)
+                t.__exit__ = MagicMock(return_value=None)
+            mock_st.tabs.return_value = tab_mocks
 
-        for node in mock_registry:
-            is_online = node.status == "ONLINE"
-            if not is_online and not show_offline:
-                continue
-            status = "🟢" if is_online else "⚫"
-            node_options.append(f"{status} {node.name}")
+            app.main()
 
-        assert node_options == ["All Nodes"]
-
-    def test_node_options_with_nodes(self):
-        """Nodes configured returns proper options."""
-        mock_node1 = MagicMock()
-        mock_node1.name = "node1"
-        mock_node1.status = "ONLINE"
-
-        mock_node2 = MagicMock()
-        mock_node2.name = "node2"
-        mock_node2.status = "OFFLINE"
-
-        mock_registry = MagicMock()
-        mock_registry.__len__.return_value = 2
-        mock_registry.__iter__.return_value = iter([mock_node1, mock_node2])
-
-        show_offline = True
-        node_options = ["All Nodes"]
-
-        for node in mock_registry:
-            is_online = node.status == "ONLINE"
-            if not is_online and not show_offline:
-                continue
-            status = "🟢" if is_online else "⚫"
-            node_options.append(f"{status} {node.name}")
-
-        assert "All Nodes" in node_options
-        assert "🟢 node1" in node_options
-        assert "⚫ node2" in node_options
-
-    def test_node_options_filter_offline(self):
-        """show_offline=False filters offline nodes."""
-        mock_node1 = MagicMock()
-        mock_node1.name = "node1"
-        mock_node1.status = "ONLINE"
-
-        mock_node2 = MagicMock()
-        mock_node2.name = "node2"
-        mock_node2.status = "OFFLINE"
-
-        mock_registry = MagicMock()
-        mock_registry.__len__.return_value = 2
-        mock_registry.__iter__.return_value = iter([mock_node1, mock_node2])
-
-        show_offline = False
-        node_options = ["All Nodes"]
-
-        for node in mock_registry:
-            is_online = node.status == "ONLINE"
-            if not is_online and not show_offline:
-                continue
-            status = "🟢" if is_online else "⚫"
-            node_options.append(f"{status} {node.name}")
-
-        assert "All Nodes" in node_options
-        assert "🟢 node1" in node_options
-        assert "⚫ node2" not in node_options
+            mock_st.tabs.assert_called_once()
+            tab_labels = mock_st.tabs.call_args[0][0]
+            assert len(tab_labels) == 4
+            joined = " ".join(tab_labels)
+            assert "Dashboard" in joined
+            assert "Nodes" in joined
+            # Stage 1 keeps the legacy "Model Registry" label; stage 2
+            # rewrites it to "Models" alongside the forms merge.
+            assert "Model Registry" in joined or "Models" in joined
+            assert "Audit" in joined
 
 
 class TestRefreshLogic:
