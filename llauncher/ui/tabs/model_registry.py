@@ -9,86 +9,80 @@ from __future__ import annotations
 import streamlit as st
 
 
-def render_model_registry(state, registry=None, aggregator=None, selected_node=None):
-    """Render the Model Registry tab.
+def render_model_registry(state, registry=None, aggregator=None, target="local"):
+    """Render the Model Registry health table for a single target.
+
+    Stage 2 of M4 Slice 13 (#50) folded the registry view into the
+    consolidated Models tab and dropped the legacy "All Nodes" branch.
+    The function now scopes to a single ``target`` (string), matching
+    the rest of the M4 tab API.
 
     Args:
         state: The local LauncherState.
         registry: NodeRegistry for remote nodes (optional).
         aggregator: RemoteAggregator for multi-node state (optional).
-        selected_node: Name of selected node or None for all.
+        target: Selected target node — ``"local"`` or a remote peer name.
     """
     from llauncher.core.model_health import check_model_health
 
-    st.header("🗂️ Model Registry")
+    st.subheader("🗂️ Model Registry")
 
-    # Gather models to display (reuses the same logic as dashboard.py)
-    if registry and aggregator:
-        if selected_node and selected_node != "local":
-            all_models = {}
-            for node_name, node_models in aggregator.get_all_models().items():
-                all_models[node_name] = [m.to_dict() if hasattr(m, "to_dict") else m for m in node_models]
-        else:
-            all_models = aggregator.get_all_models()
-            # Merge local models
-            state.refresh()
-            all_models["local"] = [m.to_dict() for m in state.models.values()]
-    else:
+    # Gather models for the target node only.
+    if target == "local":
         state.refresh()
-        all_models = {"local": [m.to_dict() for m in state.models.values()]}
+        node_models = [m.to_dict() for m in state.models.values()]
+    else:
+        if aggregator:
+            raw = aggregator.get_all_models().get(target, [])
+            node_models = [m.to_dict() if hasattr(m, "to_dict") else m for m in raw]
+        else:
+            node_models = []
 
-    if not all_models.get("local") and (not all_models or all(v == [] for v in all_models.values())):
-        st.info("No models configured. Add one from the Dashboard tab.")
+    if not node_models:
+        st.info(f"No models configured on **{target}**.")
         return
 
     # ── Collect health data for each model ───────────────────────
     rows = []  # list[dict] for st.dataframe / TableWidget
 
-    for node_name, node_models in all_models.items():
-        if selected_node and node_name != selected_node:
-            continue
+    for model_data in node_models:
+        name = model_data.get("name", "unknown")
+        path = model_data.get("model_path", "")
+        try:
+            health = check_model_health(path)
+            dump = health.model_dump()
+            valid = dump["valid"]
+        except Exception:
+            valid = False
+            dump = {"exists": False, "size_bytes": None, "last_modified": None}
 
-        if not isinstance(node_models, list):
-            continue
-
-        for model_data in node_models:
-            name = model_data.get("name", "unknown")
-            path = model_data.get("model_path", "")
-            try:
-                health = check_model_health(path)
-                dump = health.model_dump()
-                valid = dump["valid"]
-            except Exception:
-                valid, reason = False, "error"
-                dump = {"exists": False, "size_bytes": None, "last_modified": None}
-
-            # Status label
-            if not dump.get("exists"):
-                status = "❌ missing"
-            elif valid:
-                status = "✅ ready"
+        # Status label
+        if not dump.get("exists"):
+            status = "❌ missing"
+        elif valid:
+            status = "✅ ready"
+        else:
+            reason_lower = (dump.get("reason") or "").lower()
+            if "too small" in reason_lower or "unreadable" in reason_lower:
+                status = "⚠️ corrupted"
             else:
-                reason_lower = (dump.get("reason") or "").lower()
-                if "too small" in reason_lower or "unreadable" in reason_lower:
-                    status = "⚠️ corrupted"
-                else:
-                    status = f"❓ unknown ({dump.get('reason')})"
+                status = f"❓ unknown ({dump.get('reason')})"
 
-            size_str = _format_size(dump.get("size_bytes")) if dump.get("size_bytes") is not None else "—"
-            last_mod = (
-                dump["last_modified"].strftime("%Y-%m-%d %H:%M")
-                if isinstance(dump.get("last_modified"), str) or hasattr(dump.get("last_modified"), "strftime")
-                else ("—")
-            )
+        size_str = _format_size(dump.get("size_bytes")) if dump.get("size_bytes") is not None else "—"
+        last_mod = (
+            dump["last_modified"].strftime("%Y-%m-%d %H:%M")
+            if isinstance(dump.get("last_modified"), str) or hasattr(dump.get("last_modified"), "strftime")
+            else ("—")
+        )
 
-            rows.append({
-                "node": node_name,
-                "name": name,
-                "path": path[:80] + "…" if len(path) > 80 else path,
-                "size": size_str,
-                "last_modified": last_mod,
-                "status": status,
-            })
+        rows.append({
+            "node": target,
+            "name": name,
+            "path": path[:80] + "…" if len(path) > 80 else path,
+            "size": size_str,
+            "last_modified": last_mod,
+            "status": status,
+        })
 
     if not rows:
         st.info("No model entries to display.")

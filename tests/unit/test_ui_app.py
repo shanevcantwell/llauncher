@@ -220,7 +220,7 @@ class TestNodeSelectorIntegration:
         ), patch(
             "llauncher.ui.tabs.nodes.render_nodes_tab"
         ), patch(
-            "llauncher.ui.tabs.model_registry.render_model_registry"
+            "llauncher.ui.tabs.models.render_models_tab"
         ), patch(
             "llauncher.ui.tabs.audit.render_audit_tab"
         ):
@@ -264,7 +264,7 @@ class TestMainTabs:
         ), patch(
             "llauncher.ui.tabs.nodes.render_nodes_tab"
         ), patch(
-            "llauncher.ui.tabs.model_registry.render_model_registry"
+            "llauncher.ui.tabs.models.render_models_tab"
         ), patch(
             "llauncher.ui.tabs.audit.render_audit_tab"
         ):
@@ -286,9 +286,9 @@ class TestMainTabs:
             joined = " ".join(tab_labels)
             assert "Dashboard" in joined
             assert "Nodes" in joined
-            # Stage 1 keeps the legacy "Model Registry" label; stage 2
-            # rewrites it to "Models" alongside the forms merge.
-            assert "Model Registry" in joined or "Models" in joined
+            # Stage 2 of #50 swaps the legacy "Model Registry" label for
+            # "Models" alongside the forms/registry merge.
+            assert "Models" in joined
             assert "Audit" in joined
 
 

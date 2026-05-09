@@ -4,9 +4,10 @@ import streamlit as st
 
 from llauncher import operations as ops
 from llauncher.state import LauncherState
-from llauncher.core.process import find_available_port, stream_logs
+from llauncher.core.process import stream_logs
 from llauncher.remote.state import RemoteAggregator
 from llauncher.remote.node import RemoteServerInfo
+from llauncher.ui.components.port_picker import render_port_picker
 from llauncher.ui.utils import format_uptime
 
 
@@ -68,7 +69,13 @@ def _render_start_button(
     model_name: str,
     status_icon: str,
 ) -> None:
-    """Render the start button with eviction confirmation flow.
+    """Render the start button with port-picker + eviction confirmation flow.
+
+    Stage 2 of M4 Slice 13 (#50) gates the start button on the port
+    picker (``components/port_picker.py``). The button is disabled
+    whenever the picker returns ``None`` (no port entered or blacklisted),
+    so the caller cannot click into ``_handle_start`` without an explicit
+    port — the auto-allocation seam is gone.
 
     Args:
         state: The launcher state.
@@ -91,14 +98,29 @@ def _render_start_button(
             )
             return
 
-    # Normal start button - click to start (with eviction check on click)
+    # ADR-010: caller supplies the port. The picker is rendered alongside
+    # the start button; the button stays disabled until the picker yields
+    # a usable port.
+    chosen_port = render_port_picker(
+        state,
+        key_prefix=f"start_{node_name}_{model_name}",
+        model_name=model_name,
+    )
+
     if st.button(
         status_icon,
         key=f"toggle_start_{node_name}_{model_name}",
         help=f"Start {model_name}",
         use_container_width=True,
+        disabled=chosen_port is None,
     ):
-        _handle_start(state, aggregator, node_name, model_name)
+        if chosen_port is None:
+            # Defence-in-depth: ``disabled=True`` already blocks the
+            # click, but if a future Streamlit upgrade fires the
+            # callback anyway, refusing to call ``_handle_start`` here
+            # preserves the ADR-010 invariant.
+            return
+        _handle_start(state, aggregator, node_name, model_name, target_port=chosen_port)
 
 
 def _render_eviction_dialog(
@@ -285,16 +307,22 @@ def _handle_start(
     aggregator: RemoteAggregator | None,
     node_name: str,
     model_name: str,
-    target_port: int | None = None,
+    target_port: int,
 ) -> None:
     """Handle starting a server with eviction logic.
+
+    The port is **required**. M4 Slice 13 (#50, stage 2) deleted the
+    auto-allocation fallback that used to live here; the port picker
+    component owns elicitation and the button is disabled until the
+    user supplies a value. Calling ``_handle_start`` without a real
+    port is a programmer error.
 
     Args:
         state: The launcher state.
         aggregator: RemoteAggregator.
         node_name: Name of the node.
         model_name: Name of the model.
-        target_port: Port to use (or None for auto-allocate; only used for local nodes).
+        target_port: Port to bind, supplied by the port picker per ADR-010.
     """
     if node_name == "local":
         config = state.models.get(model_name)
@@ -306,25 +334,11 @@ def _handle_start(
         temp_state = LauncherState()
         temp_state.refresh()
 
-        if target_port is not None and target_port in temp_state.running:
+        if target_port in temp_state.running:
             # Port is occupied by another llauncher server - show eviction dialog
             _render_eviction_dialog(state, node_name, target_port, model_name, "")
         else:
-            # Resolve port FIRST, then validate. ADR-010 requires the caller
-            # to supply a port; the UI does not yet expose a port picker
-            # (M4 work — issue #50), so we auto-allocate here when the
-            # caller didn't pass one. This keeps the "(C3) drop
-            # DEFAULT_PORT auto-allocation" smell visible at the UI layer
-            # until #50 gives us a real picker.
             resolved_port = target_port
-            if resolved_port is None:
-                success_alloc, resolved_port, alloc_msg = find_available_port(None)
-                if not success_alloc:
-                    st.error(f"Cannot allocate port: {alloc_msg}")
-                    st.toast(f"Cannot allocate port: {alloc_msg}", icon="❌")
-                    st.rerun()
-                    return
-
             valid, msg = state.can_start(config, caller="ui", port=resolved_port)
             if valid:
                 # v2 ops migration (issue #57): route plain start through
@@ -344,16 +358,9 @@ def _handle_start(
                 st.toast(f"Cannot start: {msg}", icon="❌")
             st.rerun()
     elif aggregator:
-        # Per ADR-010, port is at the call site. The UI does not yet pick a
-        # remote port (issue #47 — M3); fall back to ``target_port`` when
-        # supplied (eviction dialog) or surface a clear error.
-        if target_port is None:
-            st.error(
-                f"Cannot start {model_name} on {node_name}: a target port is "
-                "required (UI port selection is M3 work — see issue #47)."
-            )
-            st.rerun()
-            return
+        # Per ADR-010, port is at the call site. M4 Slice 13 (#50) made
+        # ``target_port`` required at this entry, so the previous
+        # "no-port" guard is gone — the picker upstream enforces it.
         result = aggregator.start_on_node(node_name, model_name, target_port)
         if result:
             if result.get("success"):

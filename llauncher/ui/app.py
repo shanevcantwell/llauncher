@@ -130,11 +130,11 @@ def main():
         st.subheader("🖥️ Node")
         selected = render_node_selector(registry)
 
-    # Tab navigation. Stage 1 of #50 keeps the existing 3 tabs intact and
-    # adds Audit as a 4th. Stage 2 will consolidate Manager into Dashboard
-    # and merge forms/registry into a Models tab.
+    # Tab navigation. Stage 2 of #50 collapses Manager + Model Registry +
+    # Dashboard's verb surface into the Models tab; Dashboard becomes a
+    # glance-only view.
     tab1, tab2, tab3, tab4 = st.tabs(
-        ["📊 Dashboard", "🖥️ Nodes", "🗂️ Model Registry", "📝 Audit"]
+        ["📊 Dashboard", "🗂️ Models", "🖥️ Nodes", "📝 Audit"]
     )
 
     with tab1:
@@ -143,14 +143,14 @@ def main():
         render_dashboard(state, registry, aggregator, selected)
 
     with tab2:
+        from llauncher.ui.tabs.models import render_models_tab
+
+        render_models_tab(state, registry, aggregator, selected)
+
+    with tab3:
         from llauncher.ui.tabs.nodes import render_nodes_tab
 
         render_nodes_tab(registry, aggregator)
-
-    with tab3:
-        from llauncher.ui.tabs.model_registry import render_model_registry
-
-        render_model_registry(state, registry, aggregator, selected)
 
     with tab4:
         from llauncher.ui.tabs.audit import render_audit_tab

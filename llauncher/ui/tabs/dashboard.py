@@ -1,63 +1,61 @@
-"""Dashboard tab showing model cards with status (multi-node support)."""
+"""Dashboard tab — glance-only view of running servers (M4 Slice 13, stage 2).
+
+Stage 2 of #50 reduced this tab to a *view-only* surface: it lists the
+running servers on the selected target plus the configured-but-stopped
+models, and that's it. All verbs (start/stop/swap/edit/add/delete) and
+their forms migrated to :mod:`models`. The "All Nodes" cross-node
+listing is gone too — ``target`` is always a real node name now, and
+this module no longer accepts ``None``.
+
+Why split? The legacy Dashboard tried to be *both* a status board and a
+management console. That dual role is what kept seducing us into adding
+more verbs to it (ADR-010's port-on-config used to live here). Splitting
+the view from the verbs locks the dashboard's surface area down.
+"""
+
+from __future__ import annotations
 
 import streamlit as st
 
-from llauncher.state import LauncherState
+from llauncher.remote.node import RemoteServerInfo
 from llauncher.remote.registry import NodeRegistry
 from llauncher.remote.state import RemoteAggregator
-from llauncher.remote.node import RemoteServerInfo
-
-from llauncher.ui.tabs.model_card import render_model_card, _handle_stop, _handle_start
-from llauncher.ui.tabs.forms import render_add_model, render_edit_model
+from llauncher.state import LauncherState
+from llauncher.ui.components.node_selector import LOCAL_NODE
+from llauncher.ui.utils import format_uptime
 
 
 def get_servers_to_display(
     state: LauncherState,
-    registry: NodeRegistry | None = None,
-    aggregator: RemoteAggregator | None = None,
-    selected_node: str | None = None,
-) -> list:
-    """Get servers to display based on current view.
+    registry: NodeRegistry,
+    aggregator: RemoteAggregator,
+    target: str,
+) -> list[RemoteServerInfo]:
+    """Return the running servers on ``target`` as :class:`RemoteServerInfo`.
 
     Args:
-        state: The launcher state (local).
-        registry: NodeRegistry for remote nodes.
-        aggregator: RemoteAggregator for multi-node state.
-        selected_node: Name of selected node or None for all.
+        state: The local launcher state.
+        registry: Node registry. Currently unused — kept in the
+            signature for symmetry with the rest of the tab API and to
+            leave room for future "is the agent reachable?" warnings.
+        aggregator: Remote aggregator.
+        target: Selected target node. Pass :data:`LOCAL_NODE` for the
+            local agent; any other string for a remote peer.
 
     Returns:
-        List of RemoteServerInfo to display.
+        The list of server records the dashboard should render. Empty
+        list when ``target`` has no running servers.
     """
-    servers = []
+    del registry  # reserved for future use; see docstring.
 
-    if registry and aggregator and selected_node:
-        # Show only selected node
-        if selected_node == "local":
-            # Local node only
-            state.refresh()
-            for port, server in state.running.items():
-                servers.append(
-                    RemoteServerInfo(
-                        node_name="local",
-                        pid=server.pid,
-                        port=server.port,
-                        config_name=server.config_name,
-                        start_time=server.start_time.isoformat(),
-                        uptime_seconds=server.uptime_seconds(),
-                        logs_path=server.logs_path,
-                    )
-                )
-        else:
-            # Specific remote node
-            servers.extend(get_node_servers(aggregator, selected_node))
-    elif registry and aggregator:
-        # Show all nodes (remote + local)
-        servers.extend(aggregator.get_all_servers())
+    servers: list[RemoteServerInfo] = []
+
+    if target == LOCAL_NODE:
         state.refresh()
-        for port, server in state.running.items():
+        for _, server in state.running.items():
             servers.append(
                 RemoteServerInfo(
-                    node_name="local",
+                    node_name=LOCAL_NODE,
                     pid=server.pid,
                     port=server.port,
                     config_name=server.config_name,
@@ -66,148 +64,105 @@ def get_servers_to_display(
                     logs_path=server.logs_path,
                 )
             )
-    else:
-        # Show only local
-        state.refresh()
-        for port, server in state.running.items():
-            servers.append(
-                RemoteServerInfo(
-                    node_name="local",
-                    pid=server.pid,
-                    port=server.port,
-                    config_name=server.config_name,
-                    start_time=server.start_time.isoformat(),
-                    uptime_seconds=server.uptime_seconds(),
-                    logs_path=server.logs_path,
-                )
-            )
+        return servers
 
+    # Remote target.
+    for server in aggregator.get_all_servers():
+        if server.node_name == target:
+            servers.append(server)
     return servers
 
 
 def get_models_to_display(
     state: LauncherState,
-    registry: NodeRegistry | None = None,
-    aggregator: RemoteAggregator | None = None,
-    selected_node: str | None = None,
-) -> dict[str, list[dict]]:
-    """Get models to display based on current view.
+    registry: NodeRegistry,
+    aggregator: RemoteAggregator,
+    target: str,
+) -> list[dict]:
+    """Return the configured models for ``target`` as plain dicts.
 
     Args:
-        state: The launcher state (local).
-        registry: NodeRegistry for remote nodes.
-        aggregator: RemoteAggregator for multi-node state.
-        selected_node: Name of selected node or None for all.
+        state: The local launcher state.
+        registry: Node registry. Unused — see :func:`get_servers_to_display`.
+        aggregator: Remote aggregator.
+        target: Selected target node.
 
     Returns:
-        Dictionary mapping node names to their model lists.
+        List of model dicts (as ``ModelConfig.to_dict()`` would yield),
+        in registry order.
     """
-    all_models = {}
+    del registry
 
-    if registry and aggregator and selected_node:
-        if selected_node == "local":
-            # Show only local models when "local" node is selected
-            all_models["local"] = [m.to_dict() for m in state.models.values()]
-        else:
-            # Show only selected remote node's models
-            all_models = aggregator.get_all_models()
-    elif registry and aggregator:
-        # Show all models grouped by node (All Nodes view)
-        all_models = aggregator.get_all_models()
-        # Merge in local models for "All Nodes" view
-        all_models["local"] = [m.to_dict() for m in state.models.values()]
-    else:
-        # Show only local models
-        all_models["local"] = [m.to_dict() for m in state.models.values()]
+    if target == LOCAL_NODE:
+        return [m.to_dict() for m in state.models.values()]
 
-    return all_models
-
-
-def get_node_servers(aggregator: RemoteAggregator, node_name: str) -> list:
-    """Get servers for a specific node."""
-    all_servers = aggregator.get_all_servers()
-    return [s for s in all_servers if s.node_name == node_name]
+    all_remote = aggregator.get_all_models()
+    raw_models = all_remote.get(target, [])
+    return [m.to_dict() if hasattr(m, "to_dict") else m for m in raw_models]
 
 
 def render_dashboard(
     state: LauncherState,
-    registry: NodeRegistry | None = None,
-    aggregator: RemoteAggregator | None = None,
-    selected_node: str | None = None,
+    registry: NodeRegistry,
+    aggregator: RemoteAggregator,
+    target: str,
 ) -> None:
-    """Render the dashboard view.
+    """Render the read-only dashboard for ``target``.
 
     Args:
-        state: The launcher state (local).
-        registry: NodeRegistry for remote nodes.
-        aggregator: RemoteAggregator for multi-node state.
-        selected_node: Name of selected node or None for all.
+        state: The local launcher state.
+        registry: Node registry.
+        aggregator: Remote aggregator.
+        target: Selected target node from the sidebar.
     """
     st.header("📊 Dashboard")
+    st.caption(
+        f"Glance view for **{target}**. Use the **Models** tab to "
+        f"start, stop, edit, or add models."
+    )
 
-    # Show node filter indicator
-    if registry and len(registry) > 1:
-        if selected_node:
-            st.markdown(f"*Viewing: **{selected_node}** only*")
-        else:
-            st.markdown("*Viewing: All nodes*")
+    servers = get_servers_to_display(state, registry, aggregator, target)
+    models = get_models_to_display(state, registry, aggregator, target)
 
-    # Check if we're editing a model
-    editing_model = _get_editing_model(state)
+    # ── Running servers ──────────────────────────────────────────
+    st.subheader("Running")
+    if not servers:
+        st.info(f"No servers running on **{target}**.")
+    else:
+        rows = [
+            {
+                "Model": s.config_name,
+                "Port": s.port,
+                "PID": s.pid,
+                "Uptime": format_uptime(s.uptime_seconds),
+            }
+            for s in servers
+        ]
+        # Lazy pandas import keeps the module bootable on minimal envs.
+        # (Streamlit ships pandas, so this is belt-and-suspenders.)
+        import pandas as pd
 
-    # Show edit form if editing
-    if editing_model:
-        render_edit_model(state, editing_model)
+        st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+
+    # ── Configured-but-stopped models ───────────────────────────
+    running_names = {s.config_name for s in servers}
+    stopped = [m for m in models if m["name"] not in running_names]
+
+    st.subheader("Configured (not running)")
+    if not stopped:
+        st.caption("All configured models are running, or none are configured.")
         return
 
-    # Add New Model section (collapsible)
-    with st.expander("➕ Add New Model", expanded=False):
-        render_add_model(state)
+    # Sort alphabetically (case-insensitive) for a stable display order.
+    stopped_sorted = sorted(stopped, key=lambda m: m["name"].lower())
+    rows = [
+        {
+            "Model": m["name"],
+            "Path": m.get("model_path", ""),
+            "GPU layers": m.get("n_gpu_layers", "—"),
+        }
+        for m in stopped_sorted
+    ]
+    import pandas as pd
 
-    # Get servers and models to display using helper functions
-    servers = get_servers_to_display(state, registry, aggregator, selected_node)
-    all_models = get_models_to_display(state, registry, aggregator, selected_node)
-
-    if not servers and not state.models:
-        st.info("No models configured. Use the 'Add New Model' section above to add one.")
-        return
-
-    st.divider()
-    st.subheader("Models")
-
-    # Build a map of running servers for quick lookup (node_name, config_name) -> server info
-    running_server_map: dict[tuple[str, str], RemoteServerInfo] = {}
-    for server in servers:
-        key = (server.node_name, server.config_name)
-        running_server_map[key] = server
-
-    if not all_models and not state.models:
-        return
-
-    # Render models by node
-    for node_name, node_models in all_models.items():
-        if selected_node and node_name != selected_node:
-            continue
-
-        st.markdown(f"**Node: {node_name}**")
-        # Sort models alphabetically by name (case-insensitive)
-        sorted_models = sorted(node_models, key=lambda m: m["name"].lower())
-        for model in sorted_models:
-            # Check if this model is currently running
-            running_server = running_server_map.get((node_name, model["name"]))
-            render_model_card(state, registry, aggregator, node_name, model, running_server)
-
-
-def _get_editing_model(state: LauncherState) -> str | None:
-    """Find the model currently being edited.
-
-    Args:
-        state: The launcher state.
-
-    Returns:
-        Model name being edited, or None if not editing.
-    """
-    for name in state.models:
-        if st.session_state.get(f"editing_{name}"):
-            return name
-    return None
+    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)

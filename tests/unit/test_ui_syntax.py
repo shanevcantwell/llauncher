@@ -63,15 +63,33 @@ class TestDashboardSyntax:
         ast.parse(content)
 
     def test_dashboard_imports_valid(self):
-        """Verify all imports in dashboard.py can be resolved."""
+        """Verify all imports in dashboard.py can be resolved.
+
+        Stage 2 of M4 Slice 13 (#50) made the dashboard view-only —
+        ``render_add_model`` / ``render_edit_model`` / ``render_model_card``
+        moved to the Models tab. The dashboard now exposes only the
+        view helpers and ``render_dashboard``.
+        """
         from llauncher.ui.tabs import dashboard
 
-        # If this imports successfully, all dependencies are available
-        # Only check for functions that actually exist in dashboard.py
         assert hasattr(dashboard, "render_dashboard")
-        assert hasattr(dashboard, "render_model_card")
-        assert hasattr(dashboard, "render_add_model")
-        assert hasattr(dashboard, "render_edit_model")
+        assert hasattr(dashboard, "get_servers_to_display")
+        assert hasattr(dashboard, "get_models_to_display")
+
+
+class TestModelsTabSyntax:
+    """Syntax + import surface tests for the consolidated Models tab."""
+
+    def test_models_tab_syntax_valid(self):
+        from pathlib import Path
+
+        path = Path(__file__).parent.parent.parent / "llauncher" / "ui" / "tabs" / "models.py"
+        ast.parse(path.read_text())
+
+    def test_models_tab_imports_valid(self):
+        from llauncher.ui.tabs import models
+
+        assert hasattr(models, "render_models_tab")
 
 
 class TestAppSyntax:

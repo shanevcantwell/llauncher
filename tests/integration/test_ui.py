@@ -10,21 +10,27 @@ class TestDashboardIntegration:
     """Integration tests for dashboard rendering."""
 
     def test_dashboard_no_models(self):
-        """Dashboard with no models shows info message."""
-        with patch("streamlit.header") as mock_header:
-            with patch("streamlit.expander") as mock_expander:
-                with patch("streamlit.info") as mock_info:
-                    with patch("streamlit.divider"):
-                        with patch("streamlit.subheader"):
+        """Dashboard with no running servers shows info message.
+
+        Stage 2 of M4 Slice 13 (#50) made the dashboard view-only and
+        target-string-only. ``render_dashboard`` now requires
+        ``(state, registry, aggregator, target)``.
+        """
+        with patch("streamlit.header"):
+            with patch("streamlit.caption"):
+                with patch("streamlit.subheader"):
+                    with patch("streamlit.info") as mock_info:
+                        with patch("streamlit.dataframe"):
                             state = MagicMock()
                             state.models = {}
+                            state.running = {}
 
                             from llauncher.ui.tabs.dashboard import render_dashboard
 
-                            render_dashboard(state)
+                            render_dashboard(state, MagicMock(), MagicMock(), "local")
 
                             mock_info.assert_called_once()
-                            assert "no models" in mock_info.call_args[0][0].lower()
+                            assert "no servers running" in mock_info.call_args[0][0].lower()
 
     def test_dashboard_multiple_models(self):
         """Dashboard with multiple models has correct state."""
