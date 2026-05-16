@@ -1132,7 +1132,10 @@ def test_delete_model_happy_path(
 ) -> None:
     from llauncher.core.config import ConfigStore
 
-    ConfigStore.add_model(sample_config)
+    # Use save() directly (not add_model) so the setup doesn't emit
+    # its own MODEL_ADDED audit entry — keeps the assertions below
+    # focused on the operation under test.
+    ConfigStore.save({sample_config.name: sample_config})
     assert ConfigStore.get_model("mistral-7b") is not None
 
     result = ops.delete_model("mistral-7b", caller="test")
@@ -1161,7 +1164,10 @@ def test_delete_model_rejected_when_in_use(
 
     from llauncher.core.config import ConfigStore
 
-    ConfigStore.add_model(sample_config)
+    # Use save() directly (not add_model) so the setup doesn't emit
+    # its own MODEL_ADDED audit entry — keeps the assertions below
+    # focused on the operation under test.
+    ConfigStore.save({sample_config.name: sample_config})
     # Use this process's pid as a known-live pid.
     lf.write_lockfile(8081, "mistral-7b", os.getpid(), run_dir=run_dir)
 
@@ -1192,7 +1198,10 @@ def test_delete_model_with_stale_lockfile_proceeds(
     the delete proceeds."""
     from llauncher.core.config import ConfigStore
 
-    ConfigStore.add_model(sample_config)
+    # Use save() directly (not add_model) so the setup doesn't emit
+    # its own MODEL_ADDED audit entry — keeps the assertions below
+    # focused on the operation under test.
+    ConfigStore.save({sample_config.name: sample_config})
     # Dead pid (max int unlikely to be a live process).
     lf.write_lockfile(8081, "mistral-7b", 2**31 - 1, run_dir=run_dir)
 
@@ -1223,7 +1232,10 @@ def test_delete_model_ignores_lockfiles_for_other_models(
 
     from llauncher.core.config import ConfigStore
 
-    ConfigStore.add_model(sample_config)
+    # Use save() directly (not add_model) so the setup doesn't emit
+    # its own MODEL_ADDED audit entry — keeps the assertions below
+    # focused on the operation under test.
+    ConfigStore.save({sample_config.name: sample_config})
     # Some other model is running on port 8081 — irrelevant to our delete.
     lf.write_lockfile(8081, "other-model", os.getpid(), run_dir=run_dir)
 

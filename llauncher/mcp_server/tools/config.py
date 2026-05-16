@@ -159,7 +159,7 @@ async def update_model_config(state: LauncherState, args: dict) -> dict:
     # Save the updated config
     from llauncher.core.config import ConfigStore
 
-    ConfigStore.update_model(name, updated_config)
+    ConfigStore.update_model(name, updated_config, caller="mcp")
     state.models[name] = updated_config
 
     state.record_action("update", name, "mcp", "success", "Configuration updated")
@@ -228,7 +228,7 @@ async def add_model(state: LauncherState, args: dict) -> dict:
     # Save the new config
     from llauncher.core.config import ConfigStore
 
-    ConfigStore.add_model(config)
+    ConfigStore.add_model(config, caller="mcp")
     state.models[config.name] = config
 
     state.record_action("add", config.name, "mcp", "success", "Model added")

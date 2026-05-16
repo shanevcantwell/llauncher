@@ -47,7 +47,12 @@ def delete_model(name: str, *, caller: str = "unknown") -> DeleteModelResult:
       effect with an ``OBSERVED_STOPPED`` audit entry, then deletion
       proceeds.
     - Otherwise → config entry removed, audit
-      ``MODEL_REMOVED + SUCCESS``, ``action="deleted"``.
+      ``MODEL_REMOVED + SUCCESS``, ``action="deleted"``. Since issue
+      #60 wired audit emission into :class:`ConfigStore` itself, the
+      success audit is owned by ``ConfigStore.remove_model``; this op
+      only emits the operation-level events
+      (``OBSERVED_STOPPED``, ``REJECTED_OCCUPIED``) that ConfigStore
+      cannot know about.
     """
     cfg = ConfigStore.get_model(name)
     if cfg is None:
@@ -97,13 +102,10 @@ def delete_model(name: str, *, caller: str = "unknown") -> DeleteModelResult:
         )
         lf.remove_lockfile(lock.port)
 
-    ConfigStore.remove_model(name)
-    al.record(
-        AuditAction.MODEL_REMOVED,
-        AuditResult.SUCCESS,
-        caller=caller,
-        model=name,
-    )
+    # ConfigStore emits the MODEL_REMOVED + SUCCESS audit entry itself
+    # per issue #60; propagate ``caller`` so the entry attributes to
+    # the right surface.
+    ConfigStore.remove_model(name, caller=caller)
     return DeleteModelResult(
         success=True,
         action="deleted",

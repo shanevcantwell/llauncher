@@ -1,8 +1,17 @@
-"""Configuration persistence for llauncher."""
+"""Configuration persistence for llauncher.
+
+CRUD methods (``add_model``, ``update_model``, ``remove_model``) emit
+audit-log entries per ADR-008 / issue #60. Each method takes an
+optional ``caller`` kwarg identifying the surface that initiated the
+mutation (``"cli"`` / ``"mcp"`` / ``"http"`` / ``"ui"``); callers that
+don't pass one are recorded as ``"unknown"``.
+"""
 
 import json
 from pathlib import Path
 
+from llauncher.core import audit_log as al
+from llauncher.core.audit_log import AuditAction, AuditResult
 from llauncher.models.config import ModelConfig
 
 
@@ -56,23 +65,36 @@ class ConfigStore:
 
  
     @classmethod
-    def add_model(cls, config: ModelConfig) -> None:
+    def add_model(cls, config: ModelConfig, *, caller: str = "unknown") -> None:
         """Add a new model configuration.
 
         Args:
             config: Model configuration to add.
+            caller: Identifies the surface that initiated the change
+                (``"cli"`` / ``"mcp"`` / ``"http"`` / ``"ui"``).
+                Recorded in the audit log per ADR-008 / issue #60.
         """
         models = cls.load()
         models[config.name] = config
         cls.save(models)
+        al.record(
+            AuditAction.MODEL_ADDED,
+            AuditResult.SUCCESS,
+            caller=caller,
+            model=config.name,
+        )
 
     @classmethod
-    def update_model(cls, name: str, config: ModelConfig) -> None:
+    def update_model(
+        cls, name: str, config: ModelConfig, *, caller: str = "unknown"
+    ) -> None:
         """Update an existing model configuration.
 
         Args:
             name: Name of the model to update (for validation).
             config: New configuration (name should match).
+            caller: Identifies the surface that initiated the change
+                (audit log; see :meth:`add_model`).
         """
         if name != config.name:
             raise ValueError(f"Name mismatch: {name} != {config.name}")
@@ -81,20 +103,51 @@ class ConfigStore:
         if name not in models:
             raise KeyError(f"Model not found: {name}")
 
+        previous = models[name]
         models[name] = config
         cls.save(models)
 
+        # Capture which fields actually changed so the audit message is
+        # informative without bloating the entry with a full dump.
+        # ``AuditEntry`` has no payload field by design (ADR-008); the
+        # ``message`` is the natural carrier.
+        prev_d = previous.to_dict()
+        new_d = config.to_dict()
+        changed = sorted(k for k in new_d if prev_d.get(k) != new_d.get(k))
+        message = (
+            f"changed: {', '.join(changed)}" if changed else "no field changes"
+        )
+        al.record(
+            AuditAction.MODEL_UPDATED,
+            AuditResult.SUCCESS,
+            caller=caller,
+            model=name,
+            message=message,
+        )
+
     @classmethod
-    def remove_model(cls, name: str) -> None:
+    def remove_model(cls, name: str, *, caller: str = "unknown") -> None:
         """Remove a model configuration.
+
+        No audit entry is emitted when ``name`` does not exist — the
+        ``remove`` verb is idempotent and a no-op is not a user-visible
+        state change worth recording.
 
         Args:
             name: Name of the model to remove.
+            caller: Identifies the surface that initiated the change
+                (audit log; see :meth:`add_model`).
         """
         models = cls.load()
         if name in models:
             del models[name]
             cls.save(models)
+            al.record(
+                AuditAction.MODEL_REMOVED,
+                AuditResult.SUCCESS,
+                caller=caller,
+                model=name,
+            )
 
     @classmethod
     def get_model(cls, name: str) -> ModelConfig | None:

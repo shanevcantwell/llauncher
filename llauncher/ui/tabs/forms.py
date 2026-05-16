@@ -203,7 +203,7 @@ def _process_add_model(
             extra_args=extra_args.strip() if extra_args else "",
         )
 
-        ConfigStore.add_model(config)
+        ConfigStore.add_model(config, caller="ui")
         state.models[name] = config
         st.success(f"Added model '{name}'")
         st.rerun()
@@ -437,10 +437,10 @@ def _process_edit_model(
 
         persisted_models = ConfigStore.load()
         if model_name in persisted_models:
-            ConfigStore.update_model(model_name, updated_config)
+            ConfigStore.update_model(model_name, updated_config, caller="ui")
             st.success(f"Updated model '{model_name}'")
         else:
-            ConfigStore.add_model(updated_config)
+            ConfigStore.add_model(updated_config, caller="ui")
             st.success(f"Saved model '{model_name}'")
 
         state.models[model_name] = updated_config

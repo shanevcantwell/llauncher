@@ -88,11 +88,18 @@ def tmp_config_dir(tmp_path):
 
 @pytest.fixture
 def mock_config_store(tmp_config_dir):
-    """Mock ConfigStore with temporary path."""
-    # We need to patch the constants in the config module
-    with patch('llauncher.core.config.CONFIG_DIR', tmp_config_dir) as mock_dir:
-        with patch('llauncher.core.config.CONFIG_PATH', tmp_config_dir / 'config.json') as mock_path:
-            yield mock_dir, mock_path
+    """Mock ConfigStore with temporary paths.
+
+    Also redirects ``LAUNCHER_AUDIT_PATH`` so the CRUD audit entries
+    added per issue #60 are written into ``tmp_path`` instead of the
+    developer's real ``~/.llauncher/audit.jsonl``.
+    """
+    audit_target = tmp_config_dir / "audit.jsonl"
+    with patch('llauncher.core.config.CONFIG_DIR', tmp_config_dir) as mock_dir, \
+         patch('llauncher.core.config.CONFIG_PATH', tmp_config_dir / 'config.json') as mock_path, \
+         patch('llauncher.core.audit_log.LAUNCHER_AUDIT_PATH', audit_target), \
+         patch('llauncher.core.settings.LAUNCHER_AUDIT_PATH', audit_target):
+        yield mock_dir, mock_path
 
 @pytest.fixture
 def sample_model_config():
