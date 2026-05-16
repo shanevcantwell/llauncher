@@ -1403,3 +1403,67 @@ class TestAgentServerFunctions:
 
         assert exit_code == 1
 
+
+
+class TestFooterContextEndpoint:
+    """Tests for GET /footer-context/{port} (ADR-012)."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_footer_cache(self):
+        from llauncher.agent import footer_cache
+        footer_cache.clear_cache()
+        yield
+        footer_cache.clear_cache()
+
+    def test_happy_path_returns_pinned_shape(self, client, monkeypatch):
+        from llauncher.agent import footer_cache
+
+        ctx = footer_cache.FooterContext(
+            port=8081, model="qwen3-coder-30b", ctx_size=131072, parallel=4
+        )
+        monkeypatch.setattr(
+            "llauncher.agent.footer_cache.get_footer_context",
+            lambda port: ctx if port == 8081 else None,
+        )
+
+        response = client.get("/footer-context/8081")
+        assert response.status_code == 200
+        body = response.json()
+        # Shape is pinned by ADR-012 — these four keys, nothing more, nothing less.
+        assert set(body.keys()) == {"port", "model", "ctx_size", "parallel"}
+        assert body == {
+            "port": 8081,
+            "model": "qwen3-coder-30b",
+            "ctx_size": 131072,
+            "parallel": 4,
+        }
+
+    def test_returns_404_port_empty_when_no_lockfile(self, client, monkeypatch):
+        monkeypatch.setattr(
+            "llauncher.agent.footer_cache.get_footer_context",
+            lambda port: None,
+        )
+        response = client.get("/footer-context/9999")
+        assert response.status_code == 404
+        assert response.json() == {"detail": "port_empty"}
+
+    def test_returns_null_fields_when_config_missing(self, client, monkeypatch):
+        from llauncher.agent import footer_cache
+
+        ctx = footer_cache.FooterContext(
+            port=8081, model="ghost", ctx_size=None, parallel=None
+        )
+        monkeypatch.setattr(
+            "llauncher.agent.footer_cache.get_footer_context",
+            lambda port: ctx,
+        )
+
+        response = client.get("/footer-context/8081")
+        assert response.status_code == 200
+        body = response.json()
+        assert body == {
+            "port": 8081,
+            "model": "ghost",
+            "ctx_size": None,
+            "parallel": None,
+        }

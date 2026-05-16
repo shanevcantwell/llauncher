@@ -1,7 +1,7 @@
 # v2 Handoff — Pick Up Cold
 
-**Last updated:** 2026-05-09 (end of session — M4 done; #50 landed, M4 milestone closed)
-**Current state:** M1+M2+M3+M4 complete. Pre-M4 cleanup phase done (#57/#58/#59 closed). M4 done end-to-end: #48 node_selector, #51 render_op_result, #49 auto-spawn dropped, and #50 tab restructure (Dashboard/Models/Nodes/Audit + port picker). M5 ADR-013 (logs lifecycle) shipped. The remaining M5 ADRs (#53–#56), late audit cleanup (#60–#62, #64), and #63 can run in any order. Test count: 686 passed / 10 skipped.
+**Last updated:** 2026-05-16 (end of session — M5/ADR-012 footer endpoint landed)
+**Current state:** M1+M2+M3+M4 complete. Pre-M4 cleanup phase done (#57/#58/#59 closed). M4 done end-to-end: #48 node_selector, #51 render_op_result, #49 auto-spawn dropped, and #50 tab restructure (Dashboard/Models/Nodes/Audit + port picker). M5 progress: ADR-013 (logs lifecycle) and ADR-012 (footer-context endpoint) shipped. Remaining M5 ADRs (#54–#56), late audit cleanup (#60–#62, #64), and #63 can run in any order. Test count: 700 passed / 9 skipped.
 
 A self-contained guide for picking up the v2 architecture work in a fresh context. Read this end-to-end before touching anything.
 
@@ -96,11 +96,11 @@ All single-node and multi-node v2 operations are wired through `operations/` pac
 | [#47](https://github.com/shanevcantwell/llauncher/issues/47) | UI migration umbrella | ✅ closed (`5513d26`) — subsumed by #48–#51 |
 | — | **M4 milestone** | ✅ **done (2026-05-09)** |
 
-### M5 — Tier 2 ADRs (1 of 5 done)
+### M5 — Tier 2 ADRs (2 of 5 done)
 | Issue | Title | Status |
 |-------|-------|--------|
 | [#52](https://github.com/shanevcantwell/llauncher/issues/52) | M5 / ADR-013: Logs lifecycle — append, rotation, bounded tail | ✅ closed (`9dc2769`) |
-| [#53](https://github.com/shanevcantwell/llauncher/issues/53) | M5 / ADR-012: Footer contract — `/footer-context/{port}` endpoint | open |
+| [#53](https://github.com/shanevcantwell/llauncher/issues/53) | M5 / ADR-012: Footer contract — `/footer-context/{port}` endpoint | ✅ closed (this session) — TS migration deferred |
 | [#54](https://github.com/shanevcantwell/llauncher/issues/54) | M5 / ADR-014: Cancellation of in-flight start/swap | open |
 | [#55](https://github.com/shanevcantwell/llauncher/issues/55) | M5 / ADR-015: Orphan policy — managed flag, list/adopt verbs | open |
 | [#56](https://github.com/shanevcantwell/llauncher/issues/56) | M5 / ADR-016: Canonical self-swap integration test | open (depends on #54) |
@@ -228,11 +228,12 @@ A full code-vs-documentation audit was performed using 5 parallel subagent revie
 | 009 | Hub-Spoke Topology | ✅ Compliant — UI auto-spawn dropped (`#49`) |
 | 010 | Port Ownership at Call Site | ✅ Compliant at every API/operations/UI boundary (`#58` + `#50` — UI port picker requires explicit input) |
 | 011 | Swap Semantics v2 | ✅ Compliant — all surfaces wired through `operations.swap()` (M3 merge) |
+| **012** | **Footer Context Endpoint (NEW)** | ✅ **Accepted** — `/footer-context/{port}` + per-port TTL cache (`#53`); TS migration deferred |
 | **013** | **Per-Server Log Lifecycle (NEW)** | ✅ **Accepted** — append/rotate/bounded-tail (`#52`) |
 
 ### Recommended Action Order — what's left
 
-1. **Remaining M5 ADRs** (~4 sessions, parallelizable): #53 footer (`/footer-context/{port}` + TTL cache), #54 cancel (marker flag + `POST /cancel/{port}`), #55 orphan (`is_managed` flag + `orphan list/adopt` verbs), #56 self-swap integration test (depends on #54).
+1. **Remaining M5 ADRs** (~3 sessions, parallelizable): #54 cancel (marker flag + `POST /cancel/{port}`), #55 orphan (`is_managed` flag + `orphan list/adopt` verbs), #56 self-swap integration test (depends on #54). The TS-side footer migration (consumer of #53) is a separate slice in `pi-footer-extension/` whenever that subtree is touched next.
 2. **Late audit cleanup** (~1 session, parallelizable with M5): #60 (H3 audit-on-CRUD), #61 (H4 BLE001 in `operations/*`), #62 (self-loop short-circuit), #64 (audit-tab remote-node access).
 3. **#63** (sanitizer collision) — low priority, file-and-forget unless someone hits it.
 4. **M6 / M7** — backend adapter (vLLM, #42), then release.
@@ -297,7 +298,9 @@ gh issue list --state open
 
 12. **Logs are append-mode now (ADR-013).** Per-run banner is `=== started at <iso> port=<n> ===`. Rotation is opportunistic at start time, capped at `LAUNCHER_LOG_MAX_BYTES` (default 50 MiB) with `LAUNCHER_LOG_KEEP` (default 3) files retained. `LAUNCHER_LOG_DIR` joins the ADR-008 family of env-configurable paths. `_tail_file` reads a bounded ~32 KiB window — `len(result)` may be less than `lines` for very long log lines, by design.
 
-13. **M4 Slice 13 surfaces (`#50`)**: tab structure is now Dashboard / Models / Nodes / Audit. `dashboard.py` is view-only (read-side only); `models.py` owns config CRUD + per-model verb buttons (start/stop/swap). `model_registry.py` parameter renamed `selected_node` → `target` (string, default `'local'`). The `'All Nodes'` cross-node aggregate view is dropped; a single target is always selected. The Audit tab (`ui/tabs/audit.py`) reads local `LAUNCHER_AUDIT_PATH` only; remote-node audit access is deferred to issue #64.
+13. **Footer-context endpoint (ADR-012 / #53)**: `GET /footer-context/{port}` returns a pinned four-field payload (`{port, model, ctx_size, parallel}`) fed from the lockfile + `ConfigStore` with a per-port TTL cache in `llauncher/agent/footer_cache.py`. TTL is `LAUNCHER_FOOTER_CACHE_S` (default 1.0 s; `<= 0` disables the cache). The response shape is contractually pinned — extending it requires an ADR amendment, not a code change. The pi-footer-extension TS migration is deferred to a separate slice; until then `pi-footer-extension/footer-budget.ts` still hits `/status`.
+
+14. **M4 Slice 13 surfaces (`#50`)**: tab structure is now Dashboard / Models / Nodes / Audit. `dashboard.py` is view-only (read-side only); `models.py` owns config CRUD + per-model verb buttons (start/stop/swap). `model_registry.py` parameter renamed `selected_node` → `target` (string, default `'local'`). The `'All Nodes'` cross-node aggregate view is dropped; a single target is always selected. The Audit tab (`ui/tabs/audit.py`) reads local `LAUNCHER_AUDIT_PATH` only; remote-node audit access is deferred to issue #64.
 
 ## Questions With Pinned Answers
 

@@ -99,3 +99,9 @@ LAUNCHER_LOG_MAX_BYTES = int(os.getenv(
 # (ADR-013). With the default 3, the on-disk set is
 # ``foo-8081.log`` plus ``foo-8081.log.{1,2,3}``.
 LAUNCHER_LOG_KEEP = int(os.getenv("LAUNCHER_LOG_KEEP", "3"))
+
+# TTL in seconds for the ``/footer-context/{port}`` per-port cache
+# (ADR-012). Default 1.0 absorbs footer poll cadence (multiple
+# redraws per second collapse into one lockfile + ConfigStore read).
+# ``<= 0`` disables caching — every request hits disk.
+LAUNCHER_FOOTER_CACHE_S = float(os.getenv("LAUNCHER_FOOTER_CACHE_S", "1.0"))

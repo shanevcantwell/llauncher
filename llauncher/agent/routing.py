@@ -185,6 +185,22 @@ async def get_status() -> dict:
     return response
 
 
+@router.get("/footer-context/{port}")
+async def get_footer_context(port: int) -> dict:
+    """Minimal footer payload for ``port`` (ADR-012).
+
+    Response shape is **pinned** by ADR-012; do not extend without
+    amending that ADR. Returns 404 with ``port_empty`` when the port
+    has no lockfile, matching the ADR-011 vocabulary.
+    """
+    from llauncher.agent.footer_cache import get_footer_context as _get
+
+    ctx = _get(port)
+    if ctx is None:
+        raise HTTPException(status_code=404, detail="port_empty")
+    return ctx.to_dict()
+
+
 @router.get("/models")
 async def list_models() -> list[dict]:
     """List all configured models on this node."""

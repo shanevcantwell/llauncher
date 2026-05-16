@@ -1,6 +1,6 @@
 # v2 Implementation Roadmap
 
-**Date:** 2026-05-02 (updated 2026-05-09 end-of-session)
+**Date:** 2026-05-02 (updated 2026-05-16 end-of-session)
 **Status:** Active
 
 ## Purpose
@@ -26,7 +26,7 @@ The repo is frozen for v1 work except for this v2 effort. All v2 commits land di
 | M3 — Multi-node | ✅ done (2026-05-07) | Wired through v2 operations; remote swap parity. |
 | **Pre-M4 cleanup** | ✅ **done (2026-05-08)** | #57 (C2 layer), #58 (C3 port), #59 (H1 MCP refresh). Test count 612 → 621. |
 | M4 — UI rewrite | ✅ **done (2026-05-09)** | All 4 slices done. #50 tab restructure + port picker landed in commits `5513d26` (consolidation) and `f7b8818` (Audit tab + node_selector wiring). |
-| M5 — Tier 2 ADRs | 🔄 **1/5 done (2026-05-08)** | ADR-013 logs ✅ (#52). Remaining: #53 (ADR-012 footer), #54 (ADR-014 cancel), #55 (ADR-015 orphan), #56 (ADR-016 self-swap). Parallelizable. |
+| M5 — Tier 2 ADRs | 🔄 **2/5 done (2026-05-16)** | ADR-013 logs ✅ (#52); ADR-012 footer endpoint ✅ (#53, TS migration deferred). Remaining: #54 (ADR-014 cancel), #55 (ADR-015 orphan), #56 (ADR-016 self-swap). Parallelizable. |
 | Late audit cleanup | 📋 planned | #60 (H3 audit-on-CRUD), #61 (H4 BLE001), #62 (self-loop). Parallelizable with M5. |
 | M6 — Multi-backend (vLLM) | — | Issue #42 |
 | M7 — Release | — | Tag `v2.0.0`. |
@@ -34,6 +34,8 @@ The repo is frozen for v1 work except for this v2 effort. All v2 commits land di
 **End-of-2026-05-08 session metrics:** 9 commits on `main` since the prior handoff, 7 issues closed (#48, #49, #51, #52, #57, #58, #59), 1 issue filed (#63), test count 612 → 680 (+68 net), ADR-013 ratified.
 
 **End-of-2026-05-09 session metrics:** 2 commits on `main` since the 2026-05-08 handoff (`f7b8818`, `5513d26`), 2 issues closed (#50, #47), 1 issue filed (#64 — audit-tab remote-node access), test count 680 → 686 (+6 net; planner estimated ~690+, slightly under because more obsolete tests were removed than expected). M4 milestone closed.
+
+**End-of-2026-05-16 session metrics:** ADR-012 ratified and the `/footer-context/{port}` endpoint + per-port TTL cache (`llauncher/agent/footer_cache.py`) landed; #53 closed (TS-side consumer migration deferred). New env var `LAUNCHER_FOOTER_CACHE_S` joins the ADR-008/013 family. Test count 686 → 700 (+14 net: 11 cache unit + 3 endpoint integration).
 
 For a self-contained guide a fresh context can use to pick up the work, see [`docs/v2-handoff.md`](v2-handoff.md).
 
@@ -123,7 +125,7 @@ Three audit findings the v2-handoff and m4-design called out as boundary-tighten
 **Status: 1/5 done (2026-05-08).** ADR-013 ratified; the rest are parallelizable and can run in any order after M4 finishes.
 
 - [x] **ADR-013 — Logs lifecycle** ([#52](https://github.com/shanevcantwell/llauncher/issues/52), `9dc2769`) — Append mode + size-cap rotation + bounded tail. New module `core/log_rotation.py`. New env vars `LAUNCHER_LOG_DIR`, `LAUNCHER_LOG_MAX_BYTES`, `LAUNCHER_LOG_KEEP`. 17 tests including a partial-rename-failure simulation. Filed [#63](https://github.com/shanevcantwell/llauncher/issues/63) for the sanitizer-collision side concern.
-- [ ] **ADR-012 — Footer contract** ([#53](https://github.com/shanevcantwell/llauncher/issues/53)): `/footer-context/{port}` endpoint with 1s TTL cache.
+- [x] **ADR-012 — Footer contract** ([#53](https://github.com/shanevcantwell/llauncher/issues/53), 2026-05-16): `GET /footer-context/{port}` with per-port TTL cache in `llauncher/agent/footer_cache.py`. Pinned four-field shape `{port, model, ctx_size, parallel}`; reads from lockfile + `ConfigStore` only — no process scan, no GPU probe. New env var `LAUNCHER_FOOTER_CACHE_S` (default 1.0 s). 14 tests. TS-side `pi-footer-extension` migration deferred to a separate slice.
 - [ ] **ADR-014 — Cancellation** ([#54](https://github.com/shanevcantwell/llauncher/issues/54)): cancel flag in marker; `POST /cancel/{port}`; MCP tool.
 - [ ] **ADR-015 — Orphan policy** ([#55](https://github.com/shanevcantwell/llauncher/issues/55)): `is_managed` flag, `orphan list/adopt` verbs across CLI/HTTP/MCP.
 - [ ] **ADR-016 — Self-swap worked example** ([#56](https://github.com/shanevcantwell/llauncher/issues/56)): integration test + prose timeline. Depends on #54.
@@ -180,7 +182,7 @@ Three audit findings the v2-handoff and m4-design called out as boundary-tighten
 | #50 | M4 Slice 13 — tab restructure | M4 | ✅ closed (`5513d26`) |
 | #51 | M4 Slice 14 — render_op_result | M4 | ✅ closed (`1f55f3a`) |
 | #52 | M5 / ADR-013 — logs lifecycle | M5 | ✅ closed (`9dc2769`) |
-| #53 | M5 / ADR-012 — footer contract | M5 | open |
+| #53 | M5 / ADR-012 — footer contract | M5 | ✅ closed (2026-05-16) |
 | #54 | M5 / ADR-014 — cancellation | M5 | open |
 | #55 | M5 / ADR-015 — orphan policy | M5 | open |
 | #56 | M5 / ADR-016 — self-swap test | M5 | open (depends on #54) |
