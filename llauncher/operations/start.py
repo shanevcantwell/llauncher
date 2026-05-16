@@ -177,7 +177,11 @@ def start(
         # down the process we just started and report the conflict.
         try:
             popen.terminate()
-        except Exception:  # noqa: BLE001 — best-effort cleanup
+        except OSError:
+            # Process already exited between the race and our cleanup
+            # (ESRCH), or we lack permission to signal it. Logging the
+            # exception preserves the traceback; the race outcome is
+            # already determined and we proceed to the error record.
             logger.exception("Failed to terminate raced-launch process %s", popen.pid)
         al.record(
             AuditAction.STARTED,

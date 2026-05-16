@@ -6,6 +6,8 @@ import logging
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+import psutil
+
 from llauncher.core import audit_log as al
 from llauncher.core import lockfile as lf
 from llauncher.core import marker as mk
@@ -97,16 +99,22 @@ def _launch_and_await_ready(
     except FileExistsError:
         try:
             popen.terminate()
-        except Exception:  # noqa: BLE001 — best-effort cleanup
+        except OSError:
+            # Process already exited between the race and our cleanup
+            # (ESRCH), or we lack permission to signal it. Race outcome
+            # is already decided; log and proceed to the error return.
             logger.exception("Failed to terminate raced-launch process %s", popen.pid)
         return False, popen.pid, [], "lockfile race: another writer claimed the port"
 
     ready, logs = proc.wait_for_server_ready(port, timeout=readiness_timeout)
     if not ready:
         # Process started but never reached ready — terminate and clean up.
+        # ``stop_server_by_pid`` swallows ``psutil.NoSuchProcess`` internally;
+        # the escape hatch we still need to guard is ``AccessDenied`` (trying
+        # to terminate a process we don't own).
         try:
             proc.stop_server_by_pid(popen.pid)
-        except Exception:  # noqa: BLE001 — best-effort cleanup
+        except psutil.AccessDenied:
             logger.exception("Failed to terminate non-ready process %s", popen.pid)
         lf.remove_lockfile(port)
         return False, popen.pid, _tail_logs(logs), "readiness timeout"

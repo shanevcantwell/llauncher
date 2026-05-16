@@ -1251,3 +1251,121 @@ def test_delete_model_result_to_dict_envelope() -> None:
     assert d["name"] == "mistral-7b"
     assert d["in_use_port"] == 8081
     assert d["message"] == "busy"
+
+
+# ---------------------------------------------------------------------------
+# Issue #61 — scoped exceptions in cleanup paths (audit H4)
+#
+# Previously, these cleanup paths wrapped ``popen.terminate()`` and
+# ``proc.stop_server_by_pid()`` in bare ``except Exception:``. The tests
+# below pin the scoped-exception behavior: the cleanup failure is
+# logged and the operation's user-facing result is unaffected.
+# ---------------------------------------------------------------------------
+
+
+def test_start_lockfile_race_terminate_oserror_does_not_mask_error(
+    run_dir: Path, audit_path: Path, sample_config: ModelConfig, caplog
+) -> None:
+    """OSError from ``popen.terminate`` during a lockfile race is logged, not swallowed silently."""
+    import logging
+
+    racing_popen = MagicMock()
+    racing_popen.pid = 88888
+    racing_popen.terminate.side_effect = OSError("process already exited (ESRCH)")
+
+    with patch(
+        "llauncher.operations.start.ConfigStore.get_model", return_value=sample_config
+    ), patch("llauncher.operations.start.proc.start_server", return_value=racing_popen), \
+         patch(
+             "llauncher.operations.start.lf.write_lockfile",
+             side_effect=FileExistsError("raced"),
+         ):
+        with caplog.at_level(logging.ERROR, logger="llauncher.operations.start"):
+            result = ops.start("mistral-7b", 8081, caller="test", model_health_check=None)
+
+    # User-facing result reflects the race, not the terminate failure.
+    assert result.success is False
+    assert result.action == "error"
+    # The previously-swallowed exception is now visible in the log record.
+    assert any("Failed to terminate" in r.message for r in caplog.records)
+    assert any(
+        isinstance(r.exc_info, tuple) and r.exc_info[0] is OSError
+        for r in caplog.records
+    )
+
+
+def test_swap_readiness_timeout_terminate_accessdenied_does_not_mask_rollback(
+    run_dir: Path, marker_run_dir: Path, audit_path: Path, caplog
+) -> None:
+    """psutil.AccessDenied from cleanup terminate is logged; rollback still completes."""
+    import os
+    import logging
+
+    import psutil
+
+    lf.write_lockfile(8081, "old", os.getpid(), run_dir=run_dir)
+
+    new_popen = MagicMock(); new_popen.pid = 88888
+    rollback_popen = MagicMock(); rollback_popen.pid = 77777
+    ready_returns = [(False, ["timeout"]), (True, ["ready"])]
+
+    with patch(
+        "llauncher.operations.ConfigStore.get_model",
+        side_effect=_config_lookup(_make_config("old"), _make_config("new-model")),
+    ), patch("llauncher.operations.proc.stop_server_by_port", return_value=True), \
+         patch(
+             "llauncher.operations.proc.start_server",
+             side_effect=[new_popen, rollback_popen],
+         ), \
+         patch(
+             "llauncher.operations.proc.wait_for_server_ready",
+             side_effect=ready_returns,
+         ), \
+         patch(
+             "llauncher.operations.proc.stop_server_by_pid",
+             side_effect=psutil.AccessDenied(pid=88888, name="llama-server"),
+         ):
+        with caplog.at_level(logging.ERROR, logger="llauncher.operations.swap"):
+            result = ops.swap("new-model", 8081, caller="test", **_NO_PREFLIGHT)
+
+    # The cleanup failure must not abort the rollback path.
+    assert result.success is False
+    assert result.action == "rolled_back"
+    # And the exception is now logged, not swallowed.
+    assert any("Failed to terminate non-ready" in r.message for r in caplog.records)
+    assert any(
+        isinstance(r.exc_info, tuple) and r.exc_info[0] is psutil.AccessDenied
+        for r in caplog.records
+    )
+
+
+def test_swap_terminate_unexpected_exception_now_propagates(
+    run_dir: Path, marker_run_dir: Path, audit_path: Path
+) -> None:
+    """Non-OSError, non-AccessDenied exceptions are NOT swallowed by the cleanup path.
+
+    Regression guard: the prior bare ``except Exception:`` would have
+    hidden a ``RuntimeError`` from ``popen.terminate()``. With scoped
+    catches, an unexpected exception now surfaces — which is the
+    correct behavior, so a programmer mistake at the cleanup boundary
+    is visible.
+    """
+    import os
+
+    lf.write_lockfile(8081, "old", os.getpid(), run_dir=run_dir)
+
+    racing_popen = MagicMock()
+    racing_popen.pid = 88888
+    racing_popen.terminate.side_effect = RuntimeError("programmer-mistake-style failure")
+
+    with patch(
+        "llauncher.operations.ConfigStore.get_model",
+        side_effect=_config_lookup(_make_config("old"), _make_config("new-model")),
+    ), patch("llauncher.operations.proc.stop_server_by_port", return_value=True), \
+         patch("llauncher.operations.proc.start_server", return_value=racing_popen), \
+         patch(
+             "llauncher.operations.swap.lf.write_lockfile",
+             side_effect=FileExistsError("raced"),
+         ):
+        with pytest.raises(RuntimeError, match="programmer-mistake-style"):
+            ops.swap("new-model", 8081, caller="test", **_NO_PREFLIGHT)
