@@ -124,10 +124,32 @@ All single-node and multi-node v2 operations are wired through `operations/` pac
 ### Carried from earlier milestones
 | Issue | Title | Notes |
 |-------|-------|-------|
+| [#10](https://github.com/shanevcantwell/llauncher/issues/10) | Log file naming creates orphaned logs on port changes | Open, adjacent to M5 work. |
+| [#36](https://github.com/shanevcantwell/llauncher/issues/36) | Footer-budget cache early return → wrong model display multi-node | Open, not blocking. |
 | [#38](https://github.com/shanevcantwell/llauncher/issues/38) | Volume-mountable lockfile + audit paths | M1 partially done; ADR-013 (`#52`) added `LAUNCHER_LOG_DIR` to the family. |
 | [#39](https://github.com/shanevcantwell/llauncher/issues/39) | Audit log: commanded vs observed | Partially done; `#60` closes the config-CRUD gap. |
 | [#42](https://github.com/shanevcantwell/llauncher/issues/42) | Backend adapter (vLLM) | M6. |
-| [#10](https://github.com/shanevcantwell/llauncher/issues/10), [#36](https://github.com/shanevcantwell/llauncher/issues/36), [#44](https://github.com/shanevcantwell/llauncher/issues/44), [#45](https://github.com/shanevcantwell/llauncher/issues/45) | Misc | Adjacent to M5 work but not blocking. |
+| [#44](https://github.com/shanevcantwell/llauncher/issues/44) | VRAM estimator: refine TYPICAL_MAX_LAYERS heuristic | Open, not blocking. |
+| [#45](https://github.com/shanevcantwell/llauncher/issues/45) | Regression test for RemoteAggregator falsy-registry guard | Open, not blocking. |
+
+### V1-era carryover (audit/discovery phase — needs explicit evaluation)
+
+These issues date from the April 2026 audit/discovery phase and remain open on GitHub.
+Some may be implicitly resolved by M3/M4 v2 rewrite; each should be evaluated against current code then either closed or carried forward with a milestone assignment.
+| Issue | Title | Notes |
+|-------|-------|-------|
+| [#14](https://github.com/shanevcantwell/llauncher/issues/14) | Windows: Fix run.bat errors and add .env loading support | Check whether `run.bat` still exists in v2. Likely stale if removed during rewrite. |
+| [#15](https://github.com/shanevcantwell/llauncher/issues/15) | FEATURE-UI-001: Remote model management via dashboard | May be subsumed by M4 tab restructure (`#50`). Evaluate against current UI tabs (Dashboard / Models / Nodes). |
+| [#16](https://github.com/shanevcantwell/llauncher/issues/16) | BUG-UI-003: Logs expander missing from Running Servers section | May be resolved by M4 tab restructure (`#50`). Check if log viewing is present in new Dashboard view. |
+| [#20](https://github.com/shanevcantwell/llauncher/issues/20) | BUG-MCP-001: Model name resolution uses greedy/prefix matching instead of exact match | Core behavior issue. Evaluate against current v2 MCP tool `list_models` and model lookup in `config.py`. |
+| [#21](https://github.com/shanevcantwell/llauncher/issues/21) | BUG-DESIGN-004: Script discovery still active after migration | Likely stale — check whether `scripts/` folder or script-discovery code remains. |
+| [#22](https://github.com/shanevcantwell/llauncher/issues/22) | BUG-MCP-002: list_models output format confuses LLM agent | Evaluate against current MCP tool `list_models` response schema (M3/M4 changes may have addressed this). |
+| [#23](https://github.com/shanevcantwell/llauncher/issues/23) | BUG-CORE-002: resolve_model_shards() defined but never used | Dead-code cleanup — grep codebase for `resolve_model_shards`. Close if removed. |
+| [#24](https://github.com/shanevcantwell/llauncher/issues/24) | BUG-ARCH-001: No single source of truth — runtime merge of config.json and scripts | Foundational concern from audit phase. May be resolved by M3 `ConfigStore` rewrite; evaluate whether runtime merge still exists. |
+| [#26](https://github.com/shanevcantwell/llauncher/issues/26) | Enhancement: Add repeat_penalty configuration support | Low-priority feature request, unrelated to v2 work but should be triaged (close or assign milestone). |
+| [#27](https://github.com/shanevcantwell/llauncher/issues/27) | TECH-DEBT: Add Pydantic validation to remote node configuration | Related to M3 multi-node. Evaluate against current `RemoteNode` model and `registry.py`. |
+
+> **Note:** [#29](https://github.com/shanevcantwell/llauncher/issues/29) (Expose `np` in /models and /status) is implemented and verified — close on GitHub when connectivity allows.
 
 ## Audit re-verification (post-2026-05-08 session)
 
