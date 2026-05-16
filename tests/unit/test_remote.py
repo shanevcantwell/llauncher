@@ -74,7 +74,7 @@ class TestRemoteNode:
 
         mock_client_class.return_value = mock_client
 
-        node = RemoteNode("test-node", "localhost", port=8765)
+        node = RemoteNode("test-node", "192.168.1.100", port=8765)
         result = node.ping()
 
         assert result is True
@@ -86,7 +86,7 @@ class TestRemoteNode:
         """Test failed ping."""
         mock_client_class.side_effect = httpx.RequestError("Connection refused")
 
-        node = RemoteNode("test-node", "localhost", port=8765)
+        node = RemoteNode("test-node", "192.168.1.100", port=8765)
         result = node.ping()
 
         assert result is False
@@ -114,7 +114,7 @@ class TestRemoteNode:
 
         mock_client_class.return_value = mock_client
 
-        node = RemoteNode("test-node", "localhost", port=8765)
+        node = RemoteNode("test-node", "192.168.1.100", port=8765)
         info = node.get_node_info()
 
         assert info is not None
@@ -134,7 +134,7 @@ class TestRemoteNode:
 
         mock_client_class.return_value = mock_client
 
-        node = RemoteNode("test-node", "localhost", port=8765)
+        node = RemoteNode("test-node", "192.168.1.100", port=8765)
         result = node.ping()
 
         assert result is False
@@ -154,7 +154,7 @@ class TestRemoteNode:
 
         mock_client_class.return_value = mock_client
 
-        node = RemoteNode("test-node", "localhost", port=8765)
+        node = RemoteNode("test-node", "192.168.1.100", port=8765)
         info = node.get_node_info()
 
         assert info is None
@@ -180,7 +180,7 @@ class TestRemoteNode:
 
         mock_client_class.return_value = mock_client
 
-        node = RemoteNode("test-node", "localhost", port=8765)
+        node = RemoteNode("test-node", "192.168.1.100", port=8765)
         status = node.get_status()
 
         assert status is not None
@@ -206,7 +206,7 @@ class TestRemoteNode:
 
         mock_client_class.return_value = mock_client
 
-        node = RemoteNode("test-node", "localhost", port=8765)
+        node = RemoteNode("test-node", "192.168.1.100", port=8765)
         models = node.get_models()
 
         assert models is not None
@@ -229,7 +229,7 @@ class TestRemoteNode:
 
         mock_client_class.return_value = mock_client
 
-        node = RemoteNode("test-node", "localhost", port=8765)
+        node = RemoteNode("test-node", "192.168.1.100", port=8765)
         result = node.start_server("test-model", 8081)
 
         assert result is not None
@@ -264,7 +264,7 @@ class TestRemoteNode:
         mock_client.post = MagicMock(return_value=mock_response)
         mock_client_class.return_value = mock_client
 
-        node = RemoteNode("test-node", "localhost", port=8765)
+        node = RemoteNode("test-node", "192.168.1.100", port=8765)
         result = node.start_server("ghost", 8081)
 
         assert result is not None
@@ -294,7 +294,7 @@ class TestRemoteNode:
         mock_client.post = MagicMock(return_value=mock_response)
         mock_client_class.return_value = mock_client
 
-        node = RemoteNode("test-node", "localhost", port=8765)
+        node = RemoteNode("test-node", "192.168.1.100", port=8765)
         result = node.start_server("test-model", 8081)
 
         assert result is not None
@@ -317,7 +317,7 @@ class TestRemoteNode:
 
         mock_client_class.return_value = mock_client
 
-        node = RemoteNode("test-node", "localhost", port=8765)
+        node = RemoteNode("test-node", "192.168.1.100", port=8765)
         result = node.stop_server(8080)
 
         assert result is not None
@@ -336,7 +336,7 @@ class TestRemoteNode:
 
         mock_client_class.return_value = mock_client
 
-        node = RemoteNode("test-node", "localhost", port=8765)
+        node = RemoteNode("test-node", "192.168.1.100", port=8765)
         result = node.stop_server(9999)
 
         assert result is not None
@@ -362,7 +362,7 @@ class TestRemoteNode:
 
         mock_client_class.return_value = mock_client
 
-        node = RemoteNode("test-node", "localhost", port=8765)
+        node = RemoteNode("test-node", "192.168.1.100", port=8765)
         logs = node.get_logs(8080, lines=100)
 
         assert logs is not None
@@ -373,7 +373,7 @@ class TestRemoteNode:
         """Test get_logs returns None on failure."""
         mock_client_class.side_effect = httpx.RequestError("Connection failed")
 
-        node = RemoteNode("test-node", "localhost", port=8765)
+        node = RemoteNode("test-node", "192.168.1.100", port=8765)
         logs = node.get_logs(8080)
 
         assert logs is None
@@ -831,3 +831,140 @@ class TestRemoteAggregator:
 
         # Cleanup
         registry.remove_node("offline-node-models")
+
+
+# ---------------------------------------------------------------------------
+# Issue #62 — RemoteNode self-loop short-circuit per ADR-009
+#
+# When a RemoteNode resolves to the local agent, verb methods should
+# bypass HTTP entirely and call the in-process operations layer. Auth
+# is enforced only at the network boundary; the in-process path
+# intentionally skips it.
+# ---------------------------------------------------------------------------
+
+
+class TestSelfLoopDetection:
+    """``_is_self_loop`` covers two independent signals."""
+
+    def test_name_local_is_self_loop_regardless_of_host(self):
+        node = RemoteNode("local", "192.168.1.100", port=9000)
+        assert node._is_self_loop() is True
+
+    def test_localhost_host_and_default_port_is_self_loop(self):
+        node = RemoteNode("anything", "localhost", port=8765)
+        assert node._is_self_loop() is True
+
+    def test_127_0_0_1_with_default_port_is_self_loop(self):
+        node = RemoteNode("anything", "127.0.0.1", port=8765)
+        assert node._is_self_loop() is True
+
+    def test_localhost_with_different_port_is_NOT_self_loop(self):
+        # Same host, different port — different process. Not local.
+        node = RemoteNode("anything", "localhost", port=9999)
+        assert node._is_self_loop() is False
+
+    def test_remote_host_with_default_port_is_NOT_self_loop(self):
+        node = RemoteNode("peer", "192.168.1.100", port=8765)
+        assert node._is_self_loop() is False
+
+    def test_hostname_match_with_default_port_is_self_loop(self, monkeypatch):
+        import socket
+        monkeypatch.setattr(socket, "gethostname", lambda: "my-workstation")
+        node = RemoteNode("renamed", "my-workstation", port=8765)
+        assert node._is_self_loop() is True
+
+
+class TestSelfLoopShortCircuit:
+    """Verb methods bypass HTTP when self-loop is detected."""
+
+    def test_ping_self_loop_skips_http_and_returns_true(self):
+        node = RemoteNode("local", "localhost", port=8765)
+        with patch("httpx.Client") as mock_client_class:
+            assert node.ping() is True
+            mock_client_class.assert_not_called()
+        assert node.status == NodeStatus.ONLINE
+
+    def test_start_server_self_loop_calls_ops_directly(self):
+        node = RemoteNode("local", "localhost", port=8765)
+
+        canned = MagicMock()
+        canned.to_dict.return_value = {
+            "success": True,
+            "action": "started",
+            "port": 8081,
+            "model": "qwen",
+            "pid": 12345,
+            "message": "",
+        }
+        with patch("httpx.Client") as mock_client_class, \
+             patch("llauncher.operations.start", return_value=canned) as mock_start:
+            result = node.start_server("qwen", 8081)
+
+        mock_client_class.assert_not_called()
+        mock_start.assert_called_once_with("qwen", 8081, caller="local")
+        assert result["success"] is True
+        assert result["action"] == "started"
+
+    def test_stop_server_self_loop_calls_ops_directly(self):
+        node = RemoteNode("local", "localhost", port=8765)
+        canned = MagicMock()
+        canned.to_dict.return_value = {"success": True, "action": "stopped"}
+        with patch("httpx.Client") as mock_client_class, \
+             patch("llauncher.operations.stop", return_value=canned) as mock_stop:
+            result = node.stop_server(8081)
+        mock_client_class.assert_not_called()
+        mock_stop.assert_called_once_with(8081, caller="local")
+        assert result["success"] is True
+
+    def test_swap_server_self_loop_calls_ops_directly(self):
+        node = RemoteNode("local", "localhost", port=8765)
+        canned = MagicMock()
+        canned.to_dict.return_value = {"success": True, "action": "swapped"}
+        with patch("httpx.Client") as mock_client_class, \
+             patch("llauncher.operations.swap", return_value=canned) as mock_swap:
+            result = node.swap_server("new", 8081)
+        mock_client_class.assert_not_called()
+        mock_swap.assert_called_once_with("new", 8081, caller="local")
+        assert result["success"] is True
+
+    def test_delete_model_self_loop_calls_ops_directly(self):
+        node = RemoteNode("local", "localhost", port=8765)
+        canned = MagicMock()
+        canned.to_dict.return_value = {"success": True, "action": "deleted"}
+        with patch("httpx.Client") as mock_client_class, \
+             patch("llauncher.operations.delete_model", return_value=canned) as mock_del:
+            result = node.delete_model("qwen")
+        mock_client_class.assert_not_called()
+        mock_del.assert_called_once_with("qwen", caller="local")
+        assert result["success"] is True
+
+    def test_self_loop_skips_auth_header_check(self):
+        """In-process path is not subject to LAUNCHER_AGENT_TOKEN — auth is a
+        network-boundary concern only."""
+        node = RemoteNode("local", "localhost", port=8765, api_key=None)
+        canned = MagicMock()
+        canned.to_dict.return_value = {"success": True}
+        with patch("llauncher.operations.start", return_value=canned):
+            # Should not raise even though api_key is None and the agent's
+            # token might be set; auth middleware is bypassed.
+            result = node.start_server("qwen", 8081)
+        assert result["success"] is True
+
+    def test_remote_node_still_uses_http(self):
+        """Regression guard: a genuinely remote node still goes over HTTP."""
+        node = RemoteNode("peer", "192.168.1.100", port=8765)
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"success": True, "action": "started"}
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client.post.return_value = mock_response
+
+        with patch("httpx.Client", return_value=mock_client) as mock_client_class, \
+             patch("llauncher.operations.start") as mock_ops_start:
+            result = node.start_server("qwen", 8081)
+
+        mock_client_class.assert_called_once()
+        mock_ops_start.assert_not_called()
+        assert result["success"] is True

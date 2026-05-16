@@ -1,10 +1,46 @@
-"""Remote node client for connecting to llauncher agents."""
+"""Remote node client for connecting to llauncher agents.
 
+Per ADR-009 the topology is symmetric: every node runs an agent and
+every node also acts as a client of peer agents. The same
+:class:`RemoteNode` abstraction is therefore used to talk to the
+*local* node too — but routing local calls over HTTP-loopback wastes
+a TCP roundtrip, an auth hop, and an introduces a spurious failure
+mode (agent down). Per issue #62, verb methods detect the self-loop
+case (``_is_self_loop``) and route through the in-process
+``llauncher.operations`` package directly. Auth is enforced only at
+the network boundary (see ``agent.middleware``); the in-process path
+intentionally skips it.
+"""
+
+import logging
+import os
+import socket
 from datetime import datetime
 from enum import Enum
 from typing import Literal
 
 import httpx
+
+logger = logging.getLogger(__name__)
+
+
+def _local_host_names() -> frozenset[str]:
+    """Hostnames + addresses that resolve to this machine.
+
+    ``socket.gethostname()`` can raise on misconfigured systems; fall
+    back gracefully so a registry lookup never blows up here.
+    """
+    names: set[str] = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+    try:
+        names.add(socket.gethostname())
+    except OSError:
+        logger.debug("socket.gethostname() failed; falling back to literal set")
+    return frozenset(names)
+
+
+def _local_agent_port() -> int:
+    """The agent port the local node is configured to bind."""
+    return int(os.getenv("LAUNCHER_AGENT_PORT", "8765"))
 
 
 class NodeStatus(Enum):
@@ -100,12 +136,42 @@ class RemoteNode:
         """Create an HTTP client configured for this node."""
         return httpx.Client(timeout=self.timeout)
 
+    def _is_self_loop(self) -> bool:
+        """Return True if this node points back at the local agent.
+
+        The detection is conservative — over-reporting "self" would
+        route remote calls in-process and silently lose multi-node
+        isolation, which is much worse than the cost of one extra
+        loopback HTTP call. Two independent signals are accepted:
+
+        * ``self.name == "local"`` — the registry convention from
+          :mod:`llauncher.remote.registry`.
+        * ``self.host in {localhost, 127.0.0.1, ::1, 0.0.0.0, this
+          machine's hostname}`` AND ``self.port`` matches the local
+          agent's bind port.
+
+        The host+port conjunction guards against the case where a
+        user has renamed the local node away from ``"local"``.
+        """
+        if self.name == "local":
+            return True
+        return (
+            self.host in _local_host_names()
+            and self.port == _local_agent_port()
+        )
+
     def ping(self) -> bool:
         """Check if the node's agent is reachable.
 
         Returns:
             True if the agent responded, False otherwise.
         """
+        if self._is_self_loop():
+            # In-process — by definition reachable. Mirror the bookkeeping
+            # the HTTP path does on a successful ping.
+            self.status = NodeStatus.ONLINE
+            self.last_seen = datetime.now()
+            return True
         try:
             with self._get_client() as client:
                 response = client.get(
@@ -201,6 +267,12 @@ class RemoteNode:
             error. The error dict surfaces the agent's ``action`` field
             when available so callers can distinguish a 409 from a 500.
         """
+        if self._is_self_loop():
+            from llauncher import operations as ops
+
+            self.status = NodeStatus.ONLINE
+            self.last_seen = datetime.now()
+            return ops.start(model_name, port, caller="local").to_dict()
         try:
             with self._get_client() as client:
                 response = client.post(
@@ -231,6 +303,12 @@ class RemoteNode:
 
     def swap_server(self, model_name: str, port: int) -> dict | None:
         """Swap the model on ``port`` to ``model_name`` per ADR-011."""
+        if self._is_self_loop():
+            from llauncher import operations as ops
+
+            self.status = NodeStatus.ONLINE
+            self.last_seen = datetime.now()
+            return ops.swap(model_name, port, caller="local").to_dict()
         try:
             with self._get_client() as client:
                 response = client.post(
@@ -259,6 +337,12 @@ class RemoteNode:
 
     def delete_model(self, model_name: str) -> dict | None:
         """Delete ``model_name`` from this node's config (ADR-008 §4.1)."""
+        if self._is_self_loop():
+            from llauncher import operations as ops
+
+            self.status = NodeStatus.ONLINE
+            self.last_seen = datetime.now()
+            return ops.delete_model(model_name, caller="local").to_dict()
         try:
             with self._get_client() as client:
                 response = client.delete(
@@ -293,6 +377,12 @@ class RemoteNode:
         Returns:
             Result dictionary or None if failed.
         """
+        if self._is_self_loop():
+            from llauncher import operations as ops
+
+            self.status = NodeStatus.ONLINE
+            self.last_seen = datetime.now()
+            return ops.stop(port, caller="local").to_dict()
         try:
             with self._get_client() as client:
                 response = client.post(

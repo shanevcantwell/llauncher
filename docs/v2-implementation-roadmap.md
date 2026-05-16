@@ -36,7 +36,7 @@ The repo is frozen for v1 work except for this v2 effort. All v2 commits land di
 
 **End-of-2026-05-09 session metrics:** 2 commits on `main` since the 2026-05-08 handoff (`f7b8818`, `5513d26`), 2 issues closed (#50, #47), 1 issue filed (#64 — audit-tab remote-node access), test count 680 → 686 (+6 net; planner estimated ~690+, slightly under because more obsolete tests were removed than expected). M4 milestone closed.
 
-**End-of-2026-05-16 session metrics:** ADR-012 ratified and the `/footer-context/{port}` endpoint + per-port TTL cache (`llauncher/agent/footer_cache.py`) landed; #53 closed (TS-side consumer migration deferred). New env var `LAUNCHER_FOOTER_CACHE_S` joins the ADR-008/013 family. Test count 686 → 700 (+14 net: 11 cache unit + 3 endpoint integration).
+**End-of-2026-05-16 session metrics:** ADR-012 ratified and the `/footer-context/{port}` endpoint + per-port TTL cache (`llauncher/agent/footer_cache.py`) landed; #53 closed (TS-side consumer migration deferred). New env var `LAUNCHER_FOOTER_CACHE_S` joins the ADR-008/013 family. **Phase 1 of the phased plan also landed in the same session:** #61 (BLE001 scoped exceptions in `operations/*`), #60 (audit-on-CRUD via ConfigStore, with the layering fix that ConfigStore now owns the `MODEL_REMOVED+SUCCESS` audit while ops layer keeps only operation-level events), #62 (RemoteNode self-loop short-circuit for `ping`/`start`/`stop`/`swap`/`delete_model` verbs). Test count 686 → 722 (+36 net across all four issues).
 
 For a self-contained guide a fresh context can use to pick up the work, see [`docs/v2-handoff.md`](v2-handoff.md).
 
@@ -256,9 +256,9 @@ Each phase tightens a contract — exception scope, audit shape, dispatch path, 
 | #57 | Audit C2 — state→core layer | pre-M4 | ✅ closed (`b361b60`) |
 | #58 | Audit C3 — port required | pre-M4 | ✅ closed (`270a43e`) |
 | #59 | Audit H1 — MCP refresh | pre-M4 | ✅ closed (`de9f10f`) |
-| #60 | Audit H3 — config-CRUD audit | audit-cleanup | open — **Phase 1** |
-| #61 | Audit H4 — BLE001 in operations | audit-cleanup | open — **Phase 1** |
-| #62 | Audit self-loop short-circuit | audit-cleanup | open — **Phase 1** |
+| #60 | Audit H3 — config-CRUD audit | audit-cleanup | ✅ closed (2026-05-16, Phase 1) |
+| #61 | Audit H4 — BLE001 in operations | audit-cleanup | ✅ closed (2026-05-16, Phase 1) |
+| #62 | Audit self-loop short-circuit | audit-cleanup | ✅ closed (2026-05-16, Phase 1) |
 | #63 | Log filename sanitization collision | side | open — file-and-forget (filed during #52) |
 | #64 | Audit tab — remote-node audit log access | audit-cleanup | open — **Phase 4** |
 | #65 | SIGTERM not handled — mid-request termination | Production Hardening | open — **Phase 2** |

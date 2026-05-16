@@ -1,7 +1,7 @@
 # v2 Handoff — Pick Up Cold
 
-**Last updated:** 2026-05-16 (end of session — M5/ADR-012 footer endpoint landed)
-**Current state:** M1+M2+M3+M4 complete. Pre-M4 cleanup phase done (#57/#58/#59 closed). M4 done end-to-end: #48 node_selector, #51 render_op_result, #49 auto-spawn dropped, and #50 tab restructure (Dashboard/Models/Nodes/Audit + port picker). M5 progress: ADR-013 (logs lifecycle) and ADR-012 (footer-context endpoint) shipped. Remaining M5 ADRs (#54–#56), late audit cleanup (#60–#62, #64), and #63 can run in any order. Test count: 700 passed / 9 skipped.
+**Last updated:** 2026-05-16 (end of session — M5/ADR-012 footer endpoint + Phase 1 foundation tightening landed)
+**Current state:** M1+M2+M3+M4 complete. Pre-M4 cleanup phase done (#57/#58/#59 closed). M4 done end-to-end (#47/#48/#49/#50/#51 closed). M5 progress: ADR-013 (logs) and ADR-012 (footer) shipped. **Phase 1 of the post-M4 phased plan complete:** #61 (BLE001 scoped exceptions in `operations/*`), #60 (audit-on-CRUD via ConfigStore), #62 (RemoteNode self-loop short-circuit) all closed in one session. Remaining work follows the phased plan in [`docs/v2-implementation-roadmap.md`](v2-implementation-roadmap.md): Phase 2 = #65 SIGTERM; Phase 3 = #54 cancellation + #55 orphan policy; Phase 4 = #56/#67/#64. Test count: 722 passed / 10 skipped.
 
 A self-contained guide for picking up the v2 architecture work in a fresh context. Read this end-to-end before touching anything.
 
