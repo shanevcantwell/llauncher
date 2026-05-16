@@ -116,10 +116,16 @@ All single-node and multi-node v2 operations are wired through `operations/` pac
 | [#62](https://github.com/shanevcantwell/llauncher/issues/62) | M5-audit: Self-loop short-circuit in `RemoteNode` | open |
 | [#64](https://github.com/shanevcantwell/llauncher/issues/64) | Audit tab: remote-node audit log access | open (filed during #50) |
 
-### Side concerns surfaced this session
+### Production Hardening track (parallel to M5)
+| Issue | Title | Phase |
+|-------|-------|-------|
+| [#65](https://github.com/shanevcantwell/llauncher/issues/65) | SIGTERM not handled — mid-request termination on systemd/docker stop | Phase 2 |
+| [#67](https://github.com/shanevcantwell/llauncher/issues/67) | Official systemd service integration with `.service` unit files | Phase 4 |
+
+### Side concerns
 | Issue | Title | Notes |
 |-------|-------|-------|
-| [#63](https://github.com/shanevcantwell/llauncher/issues/63) | Log filename sanitization can collide for distinct model names | Filed during #52 — append-mode amplifies the risk; fix belongs in `ConfigStore` (sanitized-name uniqueness check), not in log handling. Low priority. |
+| [#63](https://github.com/shanevcantwell/llauncher/issues/63) | Log filename sanitization can collide for distinct model names | Filed during #52 — append-mode amplifies the risk; fix belongs in `ConfigStore` (sanitized-name uniqueness check), not in log handling. Low priority; Phase 5 file-and-forget. |
 
 ### Carried from earlier milestones
 | Issue | Title | Notes |
@@ -231,12 +237,23 @@ A full code-vs-documentation audit was performed using 5 parallel subagent revie
 | **012** | **Footer Context Endpoint (NEW)** | ✅ **Accepted** — `/footer-context/{port}` + per-port TTL cache (`#53`); TS migration deferred |
 | **013** | **Per-Server Log Lifecycle (NEW)** | ✅ **Accepted** — append/rotate/bounded-tail (`#52`) |
 
-### Recommended Action Order — what's left
+### Phased Plan — what's left (sequenced by coupling, not size)
 
-1. **Remaining M5 ADRs** (~3 sessions, parallelizable): #54 cancel (marker flag + `POST /cancel/{port}`), #55 orphan (`is_managed` flag + `orphan list/adopt` verbs), #56 self-swap integration test (depends on #54). The TS-side footer migration (consumer of #53) is a separate slice in `pi-footer-extension/` whenever that subtree is touched next.
-2. **Late audit cleanup** (~1 session, parallelizable with M5): #60 (H3 audit-on-CRUD), #61 (H4 BLE001 in `operations/*`), #62 (self-loop short-circuit), #64 (audit-tab remote-node access).
-3. **#63** (sanitizer collision) — low priority, file-and-forget unless someone hits it.
-4. **M6 / M7** — backend adapter (vLLM, #42), then release.
+Full rationale in [`docs/v2-implementation-roadmap.md` §Phased Plan](v2-implementation-roadmap.md). Summary:
+
+- **Phase 1 — Foundation tightening** (1 session): #61 (BLE001 in `operations/*`), #60 (audit-on-CRUD), #62 (RemoteNode self-loop short-circuit). Each pins a contract that a later phase consumes.
+- **Phase 2 — Lifecycle correctness** (1 session): #65 (SIGTERM graceful shutdown). Lands *before* #55 because un-graceful shutdown is itself a producer of the orphans #55 codifies policy for.
+- **Phase 3 — Capability additions** (2 sessions, may interleave): #54 (ADR-014 cancellation), #55 (ADR-015 orphan policy).
+- **Phase 4 — Validation + deployment surface** (1–1.5 sessions): #56 (ADR-016 canonical self-swap test, gated on #54), #67 (systemd `.service` units, gated on #65), #64 (audit-tab remote-node access, consumer of #60).
+- **Phase 5 — Pre-M6 sweep**: V1-carryover triage (#10, #14–#27) batched with explore subagents; #36 folds into the pi-footer-extension TS migration; #63 file-and-forget.
+
+**Total remaining to M5 close:** ~5–5.5 sessions.
+
+After M5: **M6** (vLLM backend adapter, #42) → **M7** release (`v2.0.0` tag + TS footer migration).
+
+The phasing is set by *coupling direction*: each phase tightens a contract — exception scope, audit shape, dispatch path, agent lifecycle — that the next phase's new code consumes. The alternative ordering (cheapest-first) would land new mechanisms on un-tightened foundations and pay the difference in retro-fit work.
+
+**Production Hardening (#65, #67) is a parallel track to M5, not a v2-architecture milestone.** It is sequenced into the phased plan because of its coupling to #55, but does not gate v2-correctness; it gates confident deployment.
 
 ## Conventions
 

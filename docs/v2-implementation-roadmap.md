@@ -26,10 +26,11 @@ The repo is frozen for v1 work except for this v2 effort. All v2 commits land di
 | M3 — Multi-node | ✅ done (2026-05-07) | Wired through v2 operations; remote swap parity. |
 | **Pre-M4 cleanup** | ✅ **done (2026-05-08)** | #57 (C2 layer), #58 (C3 port), #59 (H1 MCP refresh). Test count 612 → 621. |
 | M4 — UI rewrite | ✅ **done (2026-05-09)** | All 4 slices done. #50 tab restructure + port picker landed in commits `5513d26` (consolidation) and `f7b8818` (Audit tab + node_selector wiring). |
-| M5 — Tier 2 ADRs | 🔄 **2/5 done (2026-05-16)** | ADR-013 logs ✅ (#52); ADR-012 footer endpoint ✅ (#53, TS migration deferred). Remaining: #54 (ADR-014 cancel), #55 (ADR-015 orphan), #56 (ADR-016 self-swap). Parallelizable. |
-| Late audit cleanup | 📋 planned | #60 (H3 audit-on-CRUD), #61 (H4 BLE001), #62 (self-loop). Parallelizable with M5. |
+| M5 — Tier 2 ADRs | 🔄 **2/5 done (2026-05-16)** | ADR-013 logs ✅ (#52); ADR-012 footer endpoint ✅ (#53, TS migration deferred). Remaining: #54 (ADR-014 cancel), #55 (ADR-015 orphan), #56 (ADR-016 self-swap). **Phased** — see §Phased Plan below. |
+| Audit cleanup | 📋 planned | #60 (H3 audit-on-CRUD), #61 (H4 BLE001), #62 (self-loop), #64 (audit-tab remote). Phase 1 + Phase 4. |
+| **Production Hardening** | 📋 **planned** | **Parallel track to M5**, not a v2-architecture milestone. #65 (SIGTERM graceful shutdown), #67 (systemd `.service` units). Required for confident deployment but not for v2-correctness. |
 | M6 — Multi-backend (vLLM) | — | Issue #42 |
-| M7 — Release | — | Tag `v2.0.0`. |
+| M7 — Release | — | Tag `v2.0.0`. Pre-tag: V1-carryover triage sweep (#10, #14–#27). |
 
 **End-of-2026-05-08 session metrics:** 9 commits on `main` since the prior handoff, 7 issues closed (#48, #49, #51, #52, #57, #58, #59), 1 issue filed (#63), test count 612 → 680 (+68 net), ADR-013 ratified.
 
@@ -162,7 +163,73 @@ Three audit findings the v2-handoff and m4-design called out as boundary-tighten
 
 - **M1 → M2** is the critical path. Once M2 lands, you have a working v2; everything after is extensions.
 - **M3 → M4** restore daily-driver capability (multi-node + UI).
-- **M5 → M7** can run in any order after M4, paced by capacity.
+- **M5 + Production Hardening + audit cleanup** run as a single phased plan after M4 — see §Phased Plan below. Ordering is set by *coupling*, not by issue size, so each phase lands on a foundation the next phase does not refactor.
+
+## Phased Plan (post-M4, 2026-05-16)
+
+The remaining open work spans three tracks (M5 Tier 2 ADRs, audit cleanup, Production Hardening) that share enough touch points — `operations/*`, `core/marker.py`, `remote/node.py`, the audit log contract, the agent lifecycle — that landing them in arbitrary order would force retro-fits. The phasing below sequences them by **dependency direction**: each phase tightens a contract that the next phase consumes.
+
+Tracks are colour-coded in the table below: **[M5]** = Tier 2 ADR, **[AC]** = audit cleanup, **[PH]** = Production Hardening.
+
+### Phase 1 — Foundation tightening
+
+Bedrock smoothing before any new mechanism lands. Three independent slices, one session, three commits.
+
+| Issue | Track | Why this phase |
+|-------|-------|----------------|
+| [#61](https://github.com/shanevcantwell/llauncher/issues/61) — H4 BLE001 in `operations/*` | [AC] | Threading cancel checks (#54) through bare `except Exception:` blocks is the kind of integration that hides regressions. Scope the exceptions first so #54's cancel-during-cleanup paths are reviewable. |
+| [#60](https://github.com/shanevcantwell/llauncher/issues/60) — H3 audit-on-CRUD | [AC] | Pins the audit-event shape that #64 (audit tab remote-node access) will consume. Producer before consumer. |
+| [#62](https://github.com/shanevcantwell/llauncher/issues/62) — RemoteNode self-loop short-circuit | [AC] | Stabilizes local-target dispatch before #55's orphan-aggregator builds on it; otherwise #55 routes local-node orphan queries through HTTP unnecessarily and we refactor twice. |
+
+**Exit:** all three closed, audit-cleanup track has only #64 remaining (which lives in Phase 4).
+
+### Phase 2 — Lifecycle correctness
+
+| Issue | Track | Why this phase |
+|-------|-------|----------------|
+| [#65](https://github.com/shanevcantwell/llauncher/issues/65) — SIGTERM graceful shutdown | [PH] | Un-graceful shutdown is itself a producer of orphans. Doing #55 first means writing orphan-handling code against a known-broken shutdown path; on the day #65 lands, half the orphan fixtures become wrong shape. |
+
+**Exit:** agent reaps child llama-server processes and drains in-flight HTTP requests on SIGTERM identically to SIGINT.
+
+### Phase 3 — Capability additions (M5 Tier 2 ADRs)
+
+| Issue | Track | Why this phase |
+|-------|-------|----------------|
+| [#54](https://github.com/shanevcantwell/llauncher/issues/54) — ADR-014 cancellation | [M5] | Most invasive M5 slice. Lands on clean `operations/*` (after #61) and the marker module's existing five-phase contract. |
+| [#55](https://github.com/shanevcantwell/llauncher/issues/55) — ADR-015 orphan policy | [M5] | Lands on stable remote dispatch (#62) and correct shutdown (#65). The managed-vs-unmanaged distinction it codifies is then available to the rest of v2. |
+
+#54 and #55 are independent of each other and may interleave if convenient, but both must land before Phase 4.
+
+### Phase 4 — Validation + deployment surface
+
+| Issue | Track | Why this phase |
+|-------|-------|----------------|
+| [#56](https://github.com/shanevcantwell/llauncher/issues/56) — ADR-016 canonical self-swap test | [M5] | The worked example *of* #54's mechanics. Must be last in the M5 track. |
+| [#67](https://github.com/shanevcantwell/llauncher/issues/67) — systemd `.service` units | [PH] | Pure packaging on top of #65. Meaningless without graceful shutdown. |
+| [#64](https://github.com/shanevcantwell/llauncher/issues/64) — Audit tab: remote-node audit log access | [AC] | UI consumer of the audit contract pinned in Phase 1 (#60). |
+
+**Exit:** M5 milestone closes; audit-cleanup track closes; Production Hardening track closes.
+
+### Phase 5 — Pre-M6 sweep (deferred until M5 closes)
+
+- V1-carryover triage (#10, #14, #15, #16, #20, #21, #22, #23, #24, #26, #27) — one batched session with explore subagents reading the live code and reporting close-or-keep verdicts. Don't mix into M5 work; cheap to delegate after M5 closes.
+- #36 (footer-budget cache early-return on multi-node) — folds into the pi-footer-extension TS migration to `/footer-context/{port}` (M7 territory).
+- #63 (log filename sanitizer collision) — file-and-forget unless someone hits it.
+
+### Why this ordering, in one sentence
+
+Each phase tightens a contract — exception scope, audit shape, dispatch path, agent lifecycle — that the next phase's new code consumes; the alternative ordering (cheapest-first) lands new mechanisms on un-tightened foundations and pays the difference in retro-fit work later.
+
+### Session estimate
+
+| Phase | Sessions |
+|-------|---------:|
+| Phase 1 | 1 |
+| Phase 2 | 1 |
+| Phase 3 | 2 (one each for #54 and #55) |
+| Phase 4 | 1–1.5 |
+| Phase 5 (post-M5) | 1 |
+| **Total remaining to M5 close** | **~5–5.5** |
 
 ## Issue ↔ Milestone Map
 
@@ -183,16 +250,19 @@ Three audit findings the v2-handoff and m4-design called out as boundary-tighten
 | #51 | M4 Slice 14 — render_op_result | M4 | ✅ closed (`1f55f3a`) |
 | #52 | M5 / ADR-013 — logs lifecycle | M5 | ✅ closed (`9dc2769`) |
 | #53 | M5 / ADR-012 — footer contract | M5 | ✅ closed (2026-05-16) |
-| #54 | M5 / ADR-014 — cancellation | M5 | open |
-| #55 | M5 / ADR-015 — orphan policy | M5 | open |
-| #56 | M5 / ADR-016 — self-swap test | M5 | open (depends on #54) |
+| #54 | M5 / ADR-014 — cancellation | M5 | open — **Phase 3** |
+| #55 | M5 / ADR-015 — orphan policy | M5 | open — **Phase 3** |
+| #56 | M5 / ADR-016 — self-swap test | M5 | open (depends on #54) — **Phase 4** |
 | #57 | Audit C2 — state→core layer | pre-M4 | ✅ closed (`b361b60`) |
 | #58 | Audit C3 — port required | pre-M4 | ✅ closed (`270a43e`) |
 | #59 | Audit H1 — MCP refresh | pre-M4 | ✅ closed (`de9f10f`) |
-| #60 | Audit H3 — config-CRUD audit | post-M4 | open |
-| #61 | Audit H4 — BLE001 in operations | post-M4 | open |
-| #62 | Audit self-loop short-circuit | post-M4 | open |
-| #63 | Log filename sanitization collision | side | open (filed during #52) |
+| #60 | Audit H3 — config-CRUD audit | audit-cleanup | open — **Phase 1** |
+| #61 | Audit H4 — BLE001 in operations | audit-cleanup | open — **Phase 1** |
+| #62 | Audit self-loop short-circuit | audit-cleanup | open — **Phase 1** |
+| #63 | Log filename sanitization collision | side | open — file-and-forget (filed during #52) |
+| #64 | Audit tab — remote-node audit log access | audit-cleanup | open — **Phase 4** |
+| #65 | SIGTERM not handled — mid-request termination | Production Hardening | open — **Phase 2** |
+| #67 | Official systemd service integration | Production Hardening | open — **Phase 4** |
 | #64 | Audit tab: remote-node audit log access | post-M4 | open (filed during #50) |
 
 ## References
