@@ -28,7 +28,7 @@ The repo is frozen for v1 work except for this v2 effort. All v2 commits land di
 | M4 — UI rewrite | ✅ **done (2026-05-09)** | All 4 slices done. #50 tab restructure + port picker landed in commits `5513d26` (consolidation) and `f7b8818` (Audit tab + node_selector wiring). |
 | M5 — Tier 2 ADRs | 🔄 **2/5 done (2026-05-16)** | ADR-013 logs ✅ (#52); ADR-012 footer endpoint ✅ (#53, TS migration deferred). Remaining: #54 (ADR-014 cancel), #55 (ADR-015 orphan), #56 (ADR-016 self-swap). **Phased** — see §Phased Plan below. |
 | Audit cleanup | 📋 planned | #60 (H3 audit-on-CRUD), #61 (H4 BLE001), #62 (self-loop), #64 (audit-tab remote). Phase 1 + Phase 4. |
-| **Production Hardening** | 📋 **planned** | **Parallel track to M5**, not a v2-architecture milestone. #65 (SIGTERM graceful shutdown), #67 (systemd `.service` units). Required for confident deployment but not for v2-correctness. |
+| **Production Hardening** | 🔄 **1/2 done (2026-05-16)** | **Parallel track to M5**, not a v2-architecture milestone. #65 (SIGTERM graceful shutdown) ✅ closed — FastAPI lifespan handler reaps managed llama-server children on SIGTERM and SIGINT. #67 (systemd `.service` units) remaining — Phase 4. |
 | M6 — Multi-backend (vLLM) | — | Issue #42 |
 | M7 — Release | — | Tag `v2.0.0`. Pre-tag: V1-carryover triage sweep (#10, #14–#27). |
 
@@ -37,6 +37,8 @@ The repo is frozen for v1 work except for this v2 effort. All v2 commits land di
 **End-of-2026-05-09 session metrics:** 2 commits on `main` since the 2026-05-08 handoff (`f7b8818`, `5513d26`), 2 issues closed (#50, #47), 1 issue filed (#64 — audit-tab remote-node access), test count 680 → 686 (+6 net; planner estimated ~690+, slightly under because more obsolete tests were removed than expected). M4 milestone closed.
 
 **End-of-2026-05-16 session metrics:** ADR-012 ratified and the `/footer-context/{port}` endpoint + per-port TTL cache (`llauncher/agent/footer_cache.py`) landed; #53 closed (TS-side consumer migration deferred). New env var `LAUNCHER_FOOTER_CACHE_S` joins the ADR-008/013 family. **Phase 1 of the phased plan also landed in the same session:** #61 (BLE001 scoped exceptions in `operations/*`), #60 (audit-on-CRUD via ConfigStore, with the layering fix that ConfigStore now owns the `MODEL_REMOVED+SUCCESS` audit while ops layer keeps only operation-level events), #62 (RemoteNode self-loop short-circuit for `ping`/`start`/`stop`/`swap`/`delete_model` verbs). Test count 686 → 722 (+36 net across all four issues).
+
+**End-of-2026-05-16 follow-up session (Phase 2):** #65 closed. FastAPI lifespan handler in `agent/server.py` enumerates `core/lockfile.list_lockfiles()` on shutdown and dispatches each through `operations.stop(caller="agent-shutdown")`. `uvicorn.run(..., lifespan="on")` forces the handler to fire regardless of auto-detection. Symmetric on SIGTERM and SIGINT — behavior change from the pre-#65 bare-`KeyboardInterrupt` path which orphaned children silently (called out in handoff §What NOT To Do). Test count 722 → 728 (+6 net; one new `tests/unit/test_agent_lifespan.py` module).
 
 For a self-contained guide a fresh context can use to pick up the work, see [`docs/v2-handoff.md`](v2-handoff.md).
 
@@ -183,13 +185,13 @@ Bedrock smoothing before any new mechanism lands. Three independent slices, one 
 
 **Exit:** all three closed, audit-cleanup track has only #64 remaining (which lives in Phase 4).
 
-### Phase 2 — Lifecycle correctness
+### Phase 2 — Lifecycle correctness ✅ done (2026-05-16)
 
 | Issue | Track | Why this phase |
 |-------|-------|----------------|
-| [#65](https://github.com/shanevcantwell/llauncher/issues/65) — SIGTERM graceful shutdown | [PH] | Un-graceful shutdown is itself a producer of orphans. Doing #55 first means writing orphan-handling code against a known-broken shutdown path; on the day #65 lands, half the orphan fixtures become wrong shape. |
+| ~~[#65](https://github.com/shanevcantwell/llauncher/issues/65)~~ — SIGTERM graceful shutdown | [PH] | ✅ closed. FastAPI lifespan handler + `lifespan="on"` in `agent/server.py`. Dispatches each lockfile through `operations.stop(caller="agent-shutdown")`. Symmetric on SIGTERM/SIGINT. |
 
-**Exit:** agent reaps child llama-server processes and drains in-flight HTTP requests on SIGTERM identically to SIGINT.
+**Exit:** ✅ agent reaps child llama-server processes via the lockfile registry on SIGTERM identically to SIGINT; uvicorn 0.35's `capture_signals()` drains in-flight HTTP requests at the transport layer.
 
 ### Phase 3 — Capability additions (M5 Tier 2 ADRs)
 
@@ -225,11 +227,11 @@ Each phase tightens a contract — exception scope, audit shape, dispatch path, 
 | Phase | Sessions |
 |-------|---------:|
 | Phase 1 | 1 |
-| Phase 2 | 1 |
+| ~~Phase 2~~ | ~~1~~ ✅ done |
 | Phase 3 | 2 (one each for #54 and #55) |
 | Phase 4 | 1–1.5 |
 | Phase 5 (post-M5) | 1 |
-| **Total remaining to M5 close** | **~5–5.5** |
+| **Total remaining to M5 close** | **~4–4.5** |
 
 ## Issue ↔ Milestone Map
 
@@ -261,7 +263,7 @@ Each phase tightens a contract — exception scope, audit shape, dispatch path, 
 | #62 | Audit self-loop short-circuit | audit-cleanup | ✅ closed (2026-05-16, Phase 1) |
 | #63 | Log filename sanitization collision | side | open — file-and-forget (filed during #52) |
 | #64 | Audit tab — remote-node audit log access | audit-cleanup | open — **Phase 4** |
-| #65 | SIGTERM not handled — mid-request termination | Production Hardening | open — **Phase 2** |
+| #65 | SIGTERM not handled — mid-request termination | Production Hardening | ✅ closed (2026-05-16, Phase 2) |
 | #67 | Official systemd service integration | Production Hardening | open — **Phase 4** |
 | #64 | Audit tab: remote-node audit log access | post-M4 | open (filed during #50) |
 

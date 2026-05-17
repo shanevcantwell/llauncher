@@ -1,7 +1,7 @@
 # v2 Handoff — Pick Up Cold
 
-**Last updated:** 2026-05-16 (end of session — M5/ADR-012 footer endpoint + Phase 1 foundation tightening landed)
-**Current state:** M1+M2+M3+M4 complete. Pre-M4 cleanup phase done (#57/#58/#59 closed). M4 done end-to-end (#47/#48/#49/#50/#51 closed). M5 progress: ADR-013 (logs) and ADR-012 (footer) shipped. **Phase 1 of the post-M4 phased plan complete:** #61 (BLE001 scoped exceptions in `operations/*`), #60 (audit-on-CRUD via ConfigStore), #62 (RemoteNode self-loop short-circuit) all closed in one session. Remaining work follows the phased plan in [`docs/v2-implementation-roadmap.md`](v2-implementation-roadmap.md): Phase 2 = #65 SIGTERM; Phase 3 = #54 cancellation + #55 orphan policy; Phase 4 = #56/#67/#64. Test count: 722 passed / 10 skipped.
+**Last updated:** 2026-05-16 (end of session — Phase 2 SIGTERM graceful shutdown landed)
+**Current state:** M1+M2+M3+M4 complete. Pre-M4 cleanup phase done (#57/#58/#59 closed). M4 done end-to-end (#47/#48/#49/#50/#51 closed). M5 progress: ADR-013 (logs) and ADR-012 (footer) shipped. **Phase 1 + Phase 2 of the post-M4 phased plan complete:** #61 (BLE001 scoped exceptions in `operations/*`), #60 (audit-on-CRUD via ConfigStore), #62 (RemoteNode self-loop short-circuit), and #65 (SIGTERM/SIGINT lifespan child-reaping) all closed. Remaining work follows the phased plan in [`docs/v2-implementation-roadmap.md`](v2-implementation-roadmap.md): Phase 3 = #54 cancellation + #55 orphan policy; Phase 4 = #56/#67/#64. Test count: 728 passed / 10 skipped.
 
 A self-contained guide for picking up the v2 architecture work in a fresh context. Read this end-to-end before touching anything.
 
@@ -119,7 +119,7 @@ All single-node and multi-node v2 operations are wired through `operations/` pac
 ### Production Hardening track (parallel to M5)
 | Issue | Title | Phase |
 |-------|-------|-------|
-| [#65](https://github.com/shanevcantwell/llauncher/issues/65) | SIGTERM not handled — mid-request termination on systemd/docker stop | Phase 2 |
+| ~~[#65](https://github.com/shanevcantwell/llauncher/issues/65)~~ | ~~SIGTERM not handled — mid-request termination on systemd/docker stop~~ | ✅ closed (Phase 2, 2026-05-16) — FastAPI lifespan handler in `agent/server.py::lifespan` enumerates lockfiles and dispatches each through `operations.stop(caller="agent-shutdown")`. Symmetric on SIGTERM and SIGINT. |
 | [#67](https://github.com/shanevcantwell/llauncher/issues/67) | Official systemd service integration with `.service` unit files | Phase 4 |
 
 ### Side concerns
@@ -186,10 +186,11 @@ The 2026-05-07 audit's findings as they stand at end-of-session:
 - **Do not add a `restart` verb.** Considered and explicitly deferred — see ADR-010 §"Considered but Not Implemented: Restart". `stop` then `start` is the substitute.
 - **Do not call `state.refresh()` inside hot loops or on every UI rerun.** Read tools refresh per call (#59 made this explicit and enforced); write tools refresh before the read step. Adding more refreshes on top is wasteful.
 - **Do not regress the log lifecycle (ADR-013).** Logs are append-mode; the per-run banner (`=== started at <iso> port=<n> ===`) marks boundaries. Rotation is opportunistic at start time. `_tail_file` reads a bounded window. Tests guard all three.
+- **Do not assume Ctrl+C orphans children.** As of #65 (2026-05-16), agent shutdown — SIGTERM *or* SIGINT — runs the FastAPI lifespan handler in `agent/server.py`, which enumerates the per-port lockfile registry and dispatches each managed child through `operations.stop(caller="agent-shutdown")`. This is a behavior change from the pre-#65 bare-`KeyboardInterrupt` path. If you need to leave children running for some reason (post-mortem debugging, etc.), kill the agent with SIGKILL (`-9`) instead, which bypasses the lifespan handler. The lockfile registry is the source of truth — anything not in `LAUNCHER_RUN_DIR/*.lock` is unmanaged and is #55's territory.
 
 ## Known Failures
 
-**None.** 686 tests pass, 10 skipped. Verify with: `python3 -m pytest tests/ -q | tail -3`
+**None.** 728 tests pass, 10 skipped. Verify with: `python3 -m pytest tests/ -q | tail -3`
 
 ## Code Audit Findings (2026-05-07)
 
@@ -242,12 +243,12 @@ A full code-vs-documentation audit was performed using 5 parallel subagent revie
 Full rationale in [`docs/v2-implementation-roadmap.md` §Phased Plan](v2-implementation-roadmap.md). Summary:
 
 - **Phase 1 — Foundation tightening** (1 session): #61 (BLE001 in `operations/*`), #60 (audit-on-CRUD), #62 (RemoteNode self-loop short-circuit). Each pins a contract that a later phase consumes.
-- **Phase 2 — Lifecycle correctness** (1 session): #65 (SIGTERM graceful shutdown). Lands *before* #55 because un-graceful shutdown is itself a producer of the orphans #55 codifies policy for.
+- ~~**Phase 2 — Lifecycle correctness**~~ ✅ done (2026-05-16): #65 closed. Agent now reaps managed llama-server children on SIGTERM and SIGINT via FastAPI lifespan handler.
 - **Phase 3 — Capability additions** (2 sessions, may interleave): #54 (ADR-014 cancellation), #55 (ADR-015 orphan policy).
 - **Phase 4 — Validation + deployment surface** (1–1.5 sessions): #56 (ADR-016 canonical self-swap test, gated on #54), #67 (systemd `.service` units, gated on #65), #64 (audit-tab remote-node access, consumer of #60).
 - **Phase 5 — Pre-M6 sweep**: V1-carryover triage (#10, #14–#27) batched with explore subagents; #36 folds into the pi-footer-extension TS migration; #63 file-and-forget.
 
-**Total remaining to M5 close:** ~5–5.5 sessions.
+**Total remaining to M5 close:** ~4–4.5 sessions.
 
 After M5: **M6** (vLLM backend adapter, #42) → **M7** release (`v2.0.0` tag + TS footer migration).
 
@@ -276,7 +277,7 @@ Run these to confirm the state matches this handoff before touching anything:
 git log --oneline -10
 git tag -l 'v1-final'   # should print v1-final
 
-# Tests (686 passed, 10 skipped expected — all green)
+# Tests (728 passed, 10 skipped expected — all green)
 python -m pytest tests/ -q | tail -3
 
 # v2 modules present (operations is a package now)

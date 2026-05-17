@@ -17,14 +17,18 @@ import os
 import signal
 import socket
 import sys
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI
 
 from llauncher import __version__
+from llauncher import operations as ops
 from llauncher.agent.config import AgentConfig
 from llauncher.agent.middleware import AuthenticationMiddleware
 from llauncher.agent.routing import router, get_node_name
+from llauncher.core import lockfile as lf
 from llauncher.core.settings import AGENT_API_KEY
 
 # Configure logging
@@ -120,6 +124,64 @@ def stop_agent(port: int) -> bool:
         return False
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """FastAPI lifespan: reap llauncher-managed llama-server children on shutdown.
+
+    Per Issue #65 (Phase 2 of the v2 phased plan): uvicorn 0.35 captures both
+    SIGTERM and SIGINT and drains in-flight HTTP requests, but the agent does
+    not reap the llama-server children it spawned because those processes are
+    started with ``start_new_session=True`` (own process group) and therefore
+    do not receive the agent's signals transitively.
+
+    On shutdown we enumerate the per-port lockfile registry — the durable
+    record of llauncher-managed children — and dispatch each through the
+    existing :func:`operations.stop` verb, which handles audit emission,
+    psutil-based termination, and lockfile removal.
+
+    Symmetric on SIGTERM and SIGINT: any agent shutdown reaps children. This
+    is a behavior change from the previous bare ``KeyboardInterrupt`` path,
+    which orphaned children silently. See ``docs/v2-handoff.md`` §What NOT
+    To Do for context.
+    """
+    # Startup — nothing to do.
+    yield
+
+    # Shutdown — reap managed children. We catch OSError specifically because
+    # the lockfile directory may be missing or unreadable; we do NOT use a
+    # bare ``except Exception`` here per the ADR-tightened convention from
+    # #61. Per-port failures are logged and skipped so one bad lockfile
+    # cannot abort the reap loop.
+    try:
+        lockfiles = lf.list_lockfiles()
+    except OSError as exc:
+        logger.error("Lifespan shutdown: cannot enumerate lockfiles: %s", exc)
+        return
+
+    if not lockfiles:
+        logger.info("Lifespan shutdown: no managed llama-server children to reap")
+        return
+
+    logger.info(
+        "Lifespan shutdown: reaping %d managed llama-server child(ren)",
+        len(lockfiles),
+    )
+    for entry in lockfiles:
+        try:
+            result = ops.stop(entry.port, caller="agent-shutdown")
+        except OSError as exc:
+            logger.error(
+                "Lifespan shutdown: stop(port=%d) failed: %s", entry.port, exc
+            )
+            continue
+        logger.info(
+            "Lifespan shutdown: port=%d action=%s model=%s",
+            entry.port,
+            result.action,
+            result.model,
+        )
+
+
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     auth_active = AGENT_API_KEY is not None
@@ -135,6 +197,7 @@ def create_app() -> FastAPI:
         openapi_url=None if auth_active else "/openapi.json",
         docs_url=docs_url,
         redoc_url=redoc_url,
+        lifespan=lifespan,
     )
 
     if auth_active:
@@ -181,12 +244,15 @@ def run_agent(config: AgentConfig) -> None:
                 config.host,
             )
 
-    # Run the server
+    # Run the server. ``lifespan="on"`` ensures the FastAPI lifespan handler
+    # (which reaps llama-server children on shutdown per #65) actually fires
+    # regardless of uvicorn's auto-detection heuristics.
     uvicorn.run(
         app,
         host=config.host,
         port=config.port,
         log_level="info",
+        lifespan="on",
     )
 
 
@@ -219,10 +285,18 @@ def main() -> None:
 
     try:
         run_agent(config)
-        # Normal exit if run_agent completed successfully
+        # Normal exit — uvicorn's capture_signals() handler returns cleanly
+        # on SIGTERM after draining in-flight requests, and the FastAPI
+        # lifespan shutdown handler (per #65) has already reaped managed
+        # llama-server children at this point.
+        logger.info("Agent shutdown complete")
         sys.exit(0)
     except KeyboardInterrupt:
-        logger.info("Agent requested shutdown")
+        # Some uvicorn versions re-raise KeyboardInterrupt on SIGINT after
+        # the lifespan shutdown handler runs. Treat identically to a clean
+        # SIGTERM exit — children have already been reaped by the lifespan
+        # handler.
+        logger.info("Agent shutdown complete (interrupted)")
         sys.exit(0)
     except Exception as e:
         logger.error(f"Agent failed: {e}")

@@ -591,7 +591,7 @@ class TestUtilityFunctions:
         import llauncher.agent.server
 
         # Mock uvicorn.run to capture the arguments
-        mock_run = lambda app, host=None, port=None, log_level="info": None
+        mock_run = lambda app, host=None, port=None, log_level="info", lifespan="auto": None
         monkeypatch.setattr("uvicorn.run", mock_run)
 
         # Mock logging.info to avoid output
@@ -616,7 +616,7 @@ class TestUtilityFunctions:
         import llauncher.agent.server
 
         # Mock uvicorn.run to capture the arguments
-        mock_run = lambda app, host=None, port=None, log_level="info": None
+        mock_run = lambda app, host=None, port=None, log_level="info", lifespan="auto": None
         monkeypatch.setattr("uvicorn.run", mock_run)
 
         # Mock logging.info and logging.warning
@@ -1226,8 +1226,8 @@ class TestAgentServerFunctions:
 
         # Mock uvicorn.run to capture arguments
         captured_args = {}
-        def mock_run(app, host=None, port=None, log_level="info"):
-            captured_args.update({"app": app, "host": host, "port": port, "log_level": log_level})
+        def mock_run(app, host=None, port=None, log_level="info", lifespan="auto"):
+            captured_args.update({"app": app, "host": host, "port": port, "log_level": log_level, "lifespan": lifespan})
 
         monkeypatch.setattr("uvicorn.run", mock_run)
 
