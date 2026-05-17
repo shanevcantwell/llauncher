@@ -100,6 +100,8 @@ async def _dispatch_tool(name: str, arguments: dict) -> dict:
         return await servers_tools.server_status(state, arguments)
     elif name == "get_server_logs":
         return await servers_tools.get_server_logs(state, arguments)
+    elif name == "list_orphans":
+        return await servers_tools.list_orphans(state, arguments)
 
     if name == "update_model_config":
         return await config_tools.update_model_config(state, arguments)

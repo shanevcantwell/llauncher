@@ -173,6 +173,11 @@ async def get_status() -> dict:
         "node": get_node_name(),
         "running_servers": running_servers,
         "total_running": len(running_servers),
+        # ADR-015: surface orphan (unmanaged) llama-server pids alongside
+        # the managed roster. Empty list when none — callers shouldn't
+        # need a presence check.
+        "orphans": [o.to_dict() for o in state.orphans],
+        "total_orphans": len(state.orphans),
     }
 
     try:
@@ -186,6 +191,32 @@ async def get_status() -> dict:
         response["gpu"] = {"degraded": True, "error": type(e).__name__}
 
     return response
+
+
+@router.get("/orphans")
+async def list_orphans_endpoint() -> dict:
+    """List unmanaged ``llama-server`` processes on this node (ADR-015).
+
+    An orphan is a live ``llama-server`` whose ``(port, pid)`` does not
+    match a live lockfile. The response shape is::
+
+        {
+            "node": "...",
+            "orphans": [{"pid": 1234, "port": 8081, "cmdline_unreadable": false}, ...],
+            "total": <int>,
+        }
+
+    Adopt is intentionally out of scope for this revision — see ADR-015
+    §Deferred Work.
+    """
+    state = get_state()
+    state.refresh_orphans()
+
+    return {
+        "node": get_node_name(),
+        "orphans": [o.to_dict() for o in state.orphans],
+        "total": len(state.orphans),
+    }
 
 
 @router.get("/footer-context/{port}")

@@ -348,6 +348,73 @@ def find_all_llama_servers() -> list[psutil.Process]:
     return servers
 
 
+# Sentinel returned by :func:`find_all_llama_servers_annotated` when a
+# process is iterable but its cmdline cannot be read (AccessDenied) — the
+# pid is still observable but the port cannot be extracted. Callers that
+# care about port-keyed reconciliation should skip pids in this state and
+# log a warning once per pid.
+class _UnreadableCmdline:
+    pass
+
+
+def find_all_llama_servers_annotated() -> list[tuple[psutil.Process, int | None, bool]]:
+    """Find all running llama-server processes with port annotation.
+
+    Companion to :func:`find_all_llama_servers` for ADR-015 orphan
+    discovery. Returns each process paired with the port extracted from
+    its argv (when readable), and a ``cmdline_unreadable`` flag that
+    distinguishes "process exists but we couldn't read its cmdline" from
+    "process exists and has no port in its cmdline."
+
+    Mirrors the port-extraction idiom in
+    :meth:`llauncher.state.LauncherState.refresh_running_servers` so the
+    two scans agree on what counts as a port.
+
+    Returns:
+        List of ``(proc, port, cmdline_unreadable)`` tuples. ``port`` is
+        ``None`` when no ``--port`` argument was found OR when cmdline
+        was unreadable; the third element disambiguates these.
+    """
+    annotated: list[tuple[psutil.Process, int | None, bool]] = []
+
+    for proc in psutil.process_iter(["pid", "cmdline", "name"]):
+        try:
+            try:
+                cmdline = proc.cmdline()
+            except psutil.AccessDenied:
+                # We can see the pid (name() succeeded for the matcher
+                # below to even be relevant) but cannot read argv. Surface
+                # the pid with the unreadable flag so callers can dedupe
+                # warnings rather than re-checking each scan tick.
+                if "llama-server" in (proc.name() or ""):
+                    annotated.append((proc, None, True))
+                continue
+
+            if not cmdline:
+                continue
+
+            if "llama-server" not in proc.name() and not any(
+                "llama-server" in c for c in cmdline
+            ):
+                continue
+
+            port: int | None = None
+            for i, arg in enumerate(cmdline):
+                if arg == "--port" and i + 1 < len(cmdline):
+                    try:
+                        port = int(cmdline[i + 1])
+                    except (TypeError, ValueError):
+                        port = None
+                    break
+
+            annotated.append((proc, port, False))
+
+        except (psutil.NoSuchProcess, psutil.ZombieProcess):
+            continue
+
+    return annotated
+
+
 def stream_logs(pid: int | None = None, model_name: str | None = None, lines: int = 100) -> list[str]:
     """Stream recent log lines for a process.
 

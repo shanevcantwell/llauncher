@@ -38,6 +38,7 @@ from llauncher.core import process as proc  # noqa: F401
 from llauncher.core.config import ConfigStore  # noqa: F401
 
 from .delete import DeleteModelResult, delete_model
+from .orphan import OrphanInfo, list_orphans, record_observed_orphan
 from .preflight import (
     default_model_health_check,
     default_vram_check,
@@ -64,6 +65,10 @@ __all__ = [
     "StopResult",
     "SwapResult",
     "DeleteModelResult",
+    # Orphan discovery (ADR-015)
+    "OrphanInfo",
+    "list_orphans",
+    "record_observed_orphan",
     # Swap-related constants and types
     "PreflightCheck",
     "STARTUP_LOG_TAIL_MAX",

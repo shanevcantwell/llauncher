@@ -1,5 +1,6 @@
 """State management for llauncher."""
 
+import logging
 import subprocess
 import psutil
 from dataclasses import dataclass, field
@@ -22,6 +23,13 @@ from llauncher.models.config import (
     ModelConfig,
     RunningServer,
 )
+from llauncher.operations.orphan import (
+    OrphanInfo,
+    list_orphans,
+    record_observed_orphan,
+)
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -57,6 +65,13 @@ class LauncherState:
     running: dict[int, RunningServer] = field(default_factory=dict)
     audit: list[AuditEntry] = field(default_factory=list)
     rules: ChangeRules = field(default_factory=ChangeRules)
+    orphans: list[OrphanInfo] = field(default_factory=list)
+    # In-memory dedupe sets for ADR-015 reconciliation. Both are pruned
+    # to the set of currently-observed pids on every refresh so that a
+    # pid which leaves and later re-enters the scan re-emits exactly
+    # once.
+    _observed_orphan_pids: set[int] = field(default_factory=set)
+    _warned_unreadable_pids: set[int] = field(default_factory=set)
 
     def __post_init__(self):
         """Initialize state on creation."""
@@ -69,6 +84,9 @@ class LauncherState:
 
         # Refresh running servers
         self.refresh_running_servers()
+
+        # Refresh orphan (unmanaged) llama-server processes per ADR-015.
+        self.refresh_orphans()
 
     def refresh_running_servers(self) -> None:
         """Refresh the list of running servers from the process table."""
@@ -105,6 +123,54 @@ class LauncherState:
                 continue
 
         self.running = current_running
+
+    def refresh_orphans(self) -> None:
+        """Refresh the list of orphan (unmanaged) llama-server processes.
+
+        Per ADR-015, an orphan is a live ``llama-server`` whose port (or
+        pid, when port-keyed) does not match a live lockfile. Audit
+        emission cadence:
+
+        - First sighting of an orphan pid → emit ``observed_orphan``.
+        - Pid still present on subsequent refreshes → no re-emission.
+        - Pid leaves the scan → drop from dedupe set; next sighting
+          re-emits.
+
+        Processes whose ``cmdline`` cannot be read (``psutil.AccessDenied``)
+        are logged once per pid (deduped via
+        :attr:`_warned_unreadable_pids`) and surfaced in
+        :attr:`orphans` so the operator can still see them.
+        """
+        current = list_orphans()
+        current_pids = {o.pid for o in current}
+
+        for orphan in current:
+            if orphan.cmdline_unreadable:
+                if orphan.pid not in self._warned_unreadable_pids:
+                    logger.warning(
+                        "llama-server pid %d: cmdline unreadable "
+                        "(permission denied); skipping reconciliation.",
+                        orphan.pid,
+                    )
+                    self._warned_unreadable_pids.add(orphan.pid)
+                # Don't emit audit for unreadable pids — we can't tell
+                # if they're managed or not. Surface them in self.orphans
+                # but skip the OBSERVED_ORPHAN entry to avoid noise.
+                continue
+
+            if orphan.pid in self._observed_orphan_pids:
+                continue
+
+            record_observed_orphan(orphan)
+            self._observed_orphan_pids.add(orphan.pid)
+
+        # Prune pids that left the scan so a future re-appearance emits
+        # again. Use intersection rather than reassignment to preserve
+        # the set's identity in case external code holds a reference.
+        self._observed_orphan_pids &= current_pids
+        self._warned_unreadable_pids &= current_pids
+
+        self.orphans = current
 
     def _find_model_by_path(self, model_path: str | None) -> str | None:
         """Find model name by model path."""

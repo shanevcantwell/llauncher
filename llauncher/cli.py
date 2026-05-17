@@ -248,6 +248,50 @@ def server_status(
 app.add_typer(server_app)
 
 # ---------------------------------------------------------------------------
+# orphan subcommands (ADR-015)
+# ---------------------------------------------------------------------------
+
+orphan_app = typer.Typer(
+    name="orphan",
+    help="Inspect unmanaged llama-server processes (ADR-015)",
+)
+
+
+@orphan_app.command("list")
+def list_orphans_cmd(
+    as_json: bool = typer.Option(False, "--json", "-j", help="Output in JSON format"),
+) -> None:
+    """List unmanaged llama-server processes on the local node.
+
+    An orphan is a live ``llama-server`` whose ``(port, pid)`` does not
+    match a live lockfile in ``LAUNCHER_RUN_DIR``. Per ADR-015 this
+    revision is read-only; no ``adopt`` verb is exposed.
+    """
+    from llauncher import operations as ops
+
+    orphans = ops.list_orphans(caller="cli")
+
+    if as_json:
+        _json_output([o.to_dict() for o in orphans])
+        return
+
+    if not orphans:
+        console.print("[green]No orphan llama-server processes found.[/green]")
+        return
+
+    headers = ["PID", "PORT", "CMDLINE"]
+    rows: list[list] = []
+    for orphan in orphans:
+        port_str = str(orphan.port) if orphan.port is not None else "-"
+        cmdline_str = "unreadable" if orphan.cmdline_unreadable else "ok"
+        rows.append([str(orphan.pid), port_str, cmdline_str])
+
+    _print_table(headers, rows, title="Orphan llama-server Processes")
+
+
+app.add_typer(orphan_app)
+
+# ---------------------------------------------------------------------------
 # node subcommands
 # ---------------------------------------------------------------------------
 

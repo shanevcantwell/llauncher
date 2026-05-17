@@ -130,6 +130,24 @@ def get_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="list_orphans",
+            description=(
+                "List unmanaged llama-server processes on this node "
+                "(ADR-015). An orphan is a live llama-server that "
+                "llauncher did not launch — its (port, pid) does not "
+                "match any live lockfile. Returns each orphan's pid, "
+                "port (when discoverable from argv), and a "
+                "cmdline_unreadable flag for processes whose argv "
+                "could not be read. Adopt is intentionally not "
+                "exposed in this revision — see ADR-015 §Deferred Work."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        ),
+        Tool(
             name="get_server_logs",
             description="Fetch recent logs for a running server by port",
             inputSchema={
@@ -251,6 +269,19 @@ async def cancel_server(args: dict) -> dict:
 
 
 # ───────────────── Read tools (state-backed) ───────────────────────
+
+
+async def list_orphans(state: LauncherState, args: dict) -> dict:
+    """List unmanaged llama-server processes per ADR-015.
+
+    Read-side tool; refreshes orphan state once per call.
+    """
+    del args
+    state.refresh_orphans()
+    return {
+        "orphans": [o.to_dict() for o in state.orphans],
+        "total": len(state.orphans),
+    }
 
 
 async def server_status(state: LauncherState, args: dict) -> dict:

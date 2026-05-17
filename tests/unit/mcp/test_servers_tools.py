@@ -340,13 +340,14 @@ class TestGetServerLogs:
 class TestGetTools:
     """Tool descriptors must reflect the port-keyed shape."""
 
-    def test_returns_six_tools(self):
-        """start, stop, swap, cancel, server_status, get_server_logs."""
+    def test_returns_seven_tools(self):
+        """start, stop, swap, cancel, server_status, get_server_logs, list_orphans (ADR-015)."""
         tools = get_tools()
         names = [t.name for t in tools]
-        assert len(tools) == 6
+        assert len(tools) == 7
         for expected in ("start_server", "stop_server", "swap_server",
-                         "cancel_server", "server_status", "get_server_logs"):
+                         "cancel_server", "server_status", "get_server_logs",
+                         "list_orphans"):
             assert expected in names
 
     def test_start_server_requires_model_and_port(self):

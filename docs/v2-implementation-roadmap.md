@@ -26,7 +26,7 @@ The repo is frozen for v1 work except for this v2 effort. All v2 commits land di
 | M3 — Multi-node | ✅ done (2026-05-07) | Wired through v2 operations; remote swap parity. |
 | **Pre-M4 cleanup** | ✅ **done (2026-05-08)** | #57 (C2 layer), #58 (C3 port), #59 (H1 MCP refresh). Test count 612 → 621. |
 | M4 — UI rewrite | ✅ **done (2026-05-09)** | All 4 slices done. #50 tab restructure + port picker landed in commits `5513d26` (consolidation) and `f7b8818` (Audit tab + node_selector wiring). |
-| M5 — Tier 2 ADRs | 🔄 **3/5 done (2026-05-16)** | ADR-013 logs ✅ (#52); ADR-012 footer endpoint ✅ (#53, TS migration deferred); ADR-014 cancellation ✅ (#54). Remaining: #55 (ADR-015 orphan), #56 (ADR-016 self-swap). **Phased** — see §Phased Plan below. |
+| M5 — Tier 2 ADRs | 🔄 **4/5 done (2026-05-17)** | ADR-013 logs ✅ (#52); ADR-012 footer endpoint ✅ (#53, TS migration deferred); ADR-014 cancellation ✅ (#54); ADR-015 orphan (annotation + list) ✅ (#55, **reduced scope** — adopt verb deferred per ADR-015 §Deferred Work). Remaining: #56 (ADR-016 self-swap). **Phased** — see §Phased Plan below. |
 | Audit cleanup | 📋 planned | #60 (H3 audit-on-CRUD), #61 (H4 BLE001), #62 (self-loop), #64 (audit-tab remote). Phase 1 + Phase 4. |
 | **Production Hardening** | 🔄 **1/2 done (2026-05-16)** | **Parallel track to M5**, not a v2-architecture milestone. #65 (SIGTERM graceful shutdown) ✅ closed — FastAPI lifespan handler reaps managed llama-server children on SIGTERM and SIGINT. #67 (systemd `.service` units) remaining — Phase 4. |
 | M6 — Multi-backend (vLLM) | — | Issue #42 |
@@ -132,7 +132,7 @@ Three audit findings the v2-handoff and m4-design called out as boundary-tighten
 - [x] **ADR-013 — Logs lifecycle** ([#52](https://github.com/shanevcantwell/llauncher/issues/52), `9dc2769`) — Append mode + size-cap rotation + bounded tail. New module `core/log_rotation.py`. New env vars `LAUNCHER_LOG_DIR`, `LAUNCHER_LOG_MAX_BYTES`, `LAUNCHER_LOG_KEEP`. 17 tests including a partial-rename-failure simulation. Filed [#63](https://github.com/shanevcantwell/llauncher/issues/63) for the sanitizer-collision side concern.
 - [x] **ADR-012 — Footer contract** ([#53](https://github.com/shanevcantwell/llauncher/issues/53), 2026-05-16): `GET /footer-context/{port}` with per-port TTL cache in `llauncher/agent/footer_cache.py`. Pinned four-field shape `{port, model, ctx_size, parallel}`; reads from lockfile + `ConfigStore` only — no process scan, no GPU probe. New env var `LAUNCHER_FOOTER_CACHE_S` (default 1.0 s). 14 tests. TS-side `pi-footer-extension` migration deferred to a separate slice.
 - [x] **ADR-014 — Cancellation** ([#54](https://github.com/shanevcantwell/llauncher/issues/54), 2026-05-16): cancel flag in marker (boolean, back-compat default False); `POST /cancel/{port}` (port-keyed per ADR-010); MCP `cancel_server` tool; CLI `llauncher server cancel <port>`. Phase-boundary polling only (no mid-phase checks, no new threads). Cancel before commit reuses rollback path → `cancelled` action; cancel after commit is a no-op with `cancel_ignored_post_commit=True` advisory. 23 new tests.
-- [ ] **ADR-015 — Orphan policy** ([#55](https://github.com/shanevcantwell/llauncher/issues/55)): `is_managed` flag, `orphan list/adopt` verbs across CLI/HTTP/MCP.
+- [x] **ADR-015 — Orphan policy (reduced scope)** ([#55](https://github.com/shanevcantwell/llauncher/issues/55), ADR-015): annotation + `orphan list` across CLI/HTTP/MCP, audit emission deduped on first sighting per pid. Adopt verb and `is_managed` field on `RunningServer` deferred — see ADR-015 §Deferred Work.
 - [ ] **ADR-016 — Self-swap worked example** ([#56](https://github.com/shanevcantwell/llauncher/issues/56)): integration test + prose timeline. Depends on #54.
 
 **Late audit cleanup running alongside M5:** [#60](https://github.com/shanevcantwell/llauncher/issues/60) (H3 audit-on-CRUD), [#61](https://github.com/shanevcantwell/llauncher/issues/61) (H4 BLE001 in `operations/*`), [#62](https://github.com/shanevcantwell/llauncher/issues/62) (self-loop short-circuit).
@@ -255,7 +255,7 @@ Each phase tightens a contract — exception scope, audit shape, dispatch path, 
 | #52 | M5 / ADR-013 — logs lifecycle | M5 | ✅ closed (`9dc2769`) |
 | #53 | M5 / ADR-012 — footer contract | M5 | ✅ closed (2026-05-16) |
 | #54 | M5 / ADR-014 — cancellation | M5 | ✅ closed (2026-05-16, Phase 3) |
-| #55 | M5 / ADR-015 — orphan policy | M5 | open — **Phase 3** |
+| #55 | M5 / ADR-015 — orphan policy (annotation + list) | M5 | ✅ closed — adopt deferred per ADR-015 §Deferred Work |
 | #56 | M5 / ADR-016 — self-swap test | M5 | open (depends on #54) — **Phase 4** |
 | #57 | Audit C2 — state→core layer | pre-M4 | ✅ closed (`b361b60`) |
 | #58 | Audit C3 — port required | pre-M4 | ✅ closed (`270a43e`) |

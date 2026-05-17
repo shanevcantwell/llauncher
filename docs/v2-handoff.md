@@ -1,7 +1,7 @@
 # v2 Handoff — Pick Up Cold
 
-**Last updated:** 2026-05-16 (end of session — Phase 3 first half: ADR-014 cancellation landed)
-**Current state:** M1+M2+M3+M4 complete. Pre-M4 cleanup phase done (#57/#58/#59 closed). M4 done end-to-end (#47/#48/#49/#50/#51 closed). M5 progress: ADR-013 (logs), ADR-012 (footer), and ADR-014 (cancellation) shipped. **Phase 1 + Phase 2 of the post-M4 phased plan complete; Phase 3 half-done:** #61/#60/#62/#65 closed in earlier sessions; **#54 (cancel verb across marker/operations/HTTP/MCP/CLI) closed this session**. Remaining work follows the phased plan in [`docs/v2-implementation-roadmap.md`](v2-implementation-roadmap.md): Phase 3 still-open = #55 orphan policy; Phase 4 = #56/#67/#64. Test count: 751 passed / 10 skipped.
+**Last updated:** 2026-05-17 (end of session — Phase 3 complete at reduced scope: ADR-015 annotation + list landed)
+**Current state:** M1+M2+M3+M4 complete. Pre-M4 cleanup phase done (#57/#58/#59 closed). M4 done end-to-end (#47/#48/#49/#50/#51 closed). M5 progress: ADR-013 (logs), ADR-012 (footer), ADR-014 (cancellation), and ADR-015 (orphan policy — annotation + list only; adopt deferred) shipped. **Phase 1 + Phase 2 + Phase 3 of the post-M4 phased plan complete:** #61/#60/#62/#65 closed in earlier sessions; #54 closed previous session; **#55 (orphan annotation + `orphan list` across CLI/HTTP/MCP) closed this session at reduced scope per ADR-015 §Deferred Work — adopt verb intentionally not implemented**. Remaining work follows the phased plan in [`docs/v2-implementation-roadmap.md`](v2-implementation-roadmap.md): Phase 4 = #56/#67/#64. Test count: 775 passed / 10 skipped.
 
 A self-contained guide for picking up the v2 architecture work in a fresh context. Read this end-to-end before touching anything.
 
@@ -102,7 +102,7 @@ All single-node and multi-node v2 operations are wired through `operations/` pac
 | [#52](https://github.com/shanevcantwell/llauncher/issues/52) | M5 / ADR-013: Logs lifecycle — append, rotation, bounded tail | ✅ closed (`9dc2769`) |
 | [#53](https://github.com/shanevcantwell/llauncher/issues/53) | M5 / ADR-012: Footer contract — `/footer-context/{port}` endpoint | ✅ closed (this session) — TS migration deferred |
 | [#54](https://github.com/shanevcantwell/llauncher/issues/54) | M5 / ADR-014: Cancellation of in-flight start/swap | ✅ closed (this session) |
-| [#55](https://github.com/shanevcantwell/llauncher/issues/55) | M5 / ADR-015: Orphan policy — managed flag, list/adopt verbs | open |
+| [#55](https://github.com/shanevcantwell/llauncher/issues/55) | M5 / ADR-015: Orphan policy — annotation + `orphan list` only | ✅ closed (this session, reduced scope; adopt deferred per ADR-015 §Deferred Work) |
 | [#56](https://github.com/shanevcantwell/llauncher/issues/56) | M5 / ADR-016: Canonical self-swap integration test | open (depends on #54) |
 
 ### Audit cleanup (3 of 6 done)
@@ -245,7 +245,7 @@ Full rationale in [`docs/v2-implementation-roadmap.md` §Phased Plan](v2-impleme
 
 - **Phase 1 — Foundation tightening** (1 session): #61 (BLE001 in `operations/*`), #60 (audit-on-CRUD), #62 (RemoteNode self-loop short-circuit). Each pins a contract that a later phase consumes.
 - ~~**Phase 2 — Lifecycle correctness**~~ ✅ done (2026-05-16): #65 closed. Agent now reaps managed llama-server children on SIGTERM and SIGINT via FastAPI lifespan handler.
-- **Phase 3 — Capability additions** (2 sessions, may interleave): ~~#54 (ADR-014 cancellation)~~ ✅ done (2026-05-16), #55 (ADR-015 orphan policy).
+- **Phase 3 — Capability additions** (2 sessions, may interleave): ~~#54 (ADR-014 cancellation)~~ ✅ done (2026-05-16), ~~#55 (ADR-015 orphan policy — reduced to annotation + list; adopt deferred)~~ ✅ done (2026-05-17).
 - **Phase 4 — Validation + deployment surface** (1–1.5 sessions): #56 (ADR-016 canonical self-swap test, gated on #54), #67 (systemd `.service` units, gated on #65), #64 (audit-tab remote-node access, consumer of #60).
 - **Phase 5 — Pre-M6 sweep**: V1-carryover triage (#10, #14–#27) batched with explore subagents; #36 folds into the pi-footer-extension TS migration; #63 file-and-forget.
 

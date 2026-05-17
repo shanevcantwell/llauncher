@@ -58,11 +58,15 @@ class _MockState:
 
     models: dict = {}
     running: dict = {}
+    orphans: list = []
 
     def refresh(self):
         pass
 
     def refresh_running_servers(self):
+        pass
+
+    def refresh_orphans(self):
         pass
 
 
