@@ -340,13 +340,13 @@ class TestGetServerLogs:
 class TestGetTools:
     """Tool descriptors must reflect the port-keyed shape."""
 
-    def test_returns_five_tools(self):
-        """start, stop, swap, server_status, get_server_logs."""
+    def test_returns_six_tools(self):
+        """start, stop, swap, cancel, server_status, get_server_logs."""
         tools = get_tools()
         names = [t.name for t in tools]
-        assert len(tools) == 5
+        assert len(tools) == 6
         for expected in ("start_server", "stop_server", "swap_server",
-                         "server_status", "get_server_logs"):
+                         "cancel_server", "server_status", "get_server_logs"):
             assert expected in names
 
     def test_start_server_requires_model_and_port(self):
@@ -364,3 +364,52 @@ class TestGetTools:
         tool = next(t for t in get_tools() if t.name == "stop_server")
         required = set(tool.inputSchema["required"])
         assert required == {"port"}
+
+
+# ─────────────────────── cancel_server (ADR-014) ──────────────────────
+
+
+class TestCancelServer:
+    """Verifies cancel_server tool delivers cancel via the marker module."""
+
+    @pytest.mark.asyncio
+    async def test_missing_port(self):
+        from llauncher.mcp_server.tools.servers import cancel_server
+
+        result = await cancel_server({})
+
+        assert result["success"] is False
+        assert result["action"] == "error"
+        assert "port" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_delivered_when_marker_exists(self):
+        from llauncher.mcp_server.tools.servers import cancel_server
+
+        with patch(
+            "llauncher.core.marker.request_cancel", return_value=True
+        ) as mock_cancel:
+            result = await cancel_server({"port": 8081})
+
+        mock_cancel.assert_called_once_with(8081)
+        assert result == {
+            "success": True,
+            "cancelled": True,
+            "marker_existed": True,
+            "port": 8081,
+        }
+
+    @pytest.mark.asyncio
+    async def test_no_op_when_marker_absent(self):
+        """No in-flight op → marker_existed=False, still success=True."""
+        from llauncher.mcp_server.tools.servers import cancel_server
+
+        with patch("llauncher.core.marker.request_cancel", return_value=False):
+            result = await cancel_server({"port": 9999})
+
+        assert result == {
+            "success": True,
+            "cancelled": False,
+            "marker_existed": False,
+            "port": 9999,
+        }

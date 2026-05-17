@@ -25,9 +25,16 @@ from llauncher.models.config import ModelConfig
 
 @pytest.fixture
 def run_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Redirect lockfile writes to a tmp dir and inject the path into reads."""
+    """Redirect lockfile writes to a tmp dir and inject the path into reads.
+
+    Also redirects marker reads/writes (the marker module's module-level
+    ``LAUNCHER_RUN_DIR`` constant is bound at import time). ADR-014 added
+    a marker take/release to ``operations.start`` so this is needed for
+    every test that exercises ``start``.
+    """
     target = tmp_path / "run"
     monkeypatch.setattr("llauncher.core.lockfile.LAUNCHER_RUN_DIR", target)
+    monkeypatch.setattr("llauncher.core.marker.LAUNCHER_RUN_DIR", target)
     monkeypatch.setattr("llauncher.core.settings.LAUNCHER_RUN_DIR", target)
     return target
 
@@ -1381,3 +1388,194 @@ def test_swap_terminate_unexpected_exception_now_propagates(
          ):
         with pytest.raises(RuntimeError, match="programmer-mistake-style"):
             ops.swap("new-model", 8081, caller="test", **_NO_PREFLIGHT)
+
+
+# ---------------------------------------------------------------------------
+# ADR-014: cancellation tests
+# ---------------------------------------------------------------------------
+
+
+def test_start_cancel_before_preflight_returns_cancelled(
+    run_dir: Path, audit_path: Path, sample_config: ModelConfig, mock_popen: MagicMock
+) -> None:
+    """A cancel detected at the pre-flight checkpoint yields no state change."""
+    from llauncher.core import marker as mk
+
+    # Set up: make take_marker proceed, then immediately flag cancel before
+    # the first is_cancelled checkpoint fires. Use a model_health_check side
+    # effect to signal between checkpoints, but the cleanest path is to
+    # patch is_cancelled directly.
+    with patch("llauncher.operations.ConfigStore.get_model", return_value=sample_config), \
+         patch("llauncher.operations.proc.start_server", return_value=mock_popen), \
+         patch("llauncher.operations.start.mk.is_cancelled", return_value=True):
+        result = ops.start("mistral-7b", 8081, caller="test", model_health_check=None)
+
+    assert result.success is False
+    assert result.action == "cancelled"
+    # No lockfile written.
+    assert lf.read_lockfile(8081, run_dir=run_dir) is None
+    # Marker released.
+    assert (run_dir / "8081.swap").exists() is False
+
+    entries = al.read_entries(path=audit_path)
+    assert any(
+        e.action == AuditAction.STARTED and e.result == AuditResult.CANCELLED
+        for e in entries
+    )
+
+
+def test_start_rejected_in_progress_when_marker_present(
+    run_dir: Path, audit_path: Path, sample_config: ModelConfig
+) -> None:
+    """A pre-existing marker on the port causes start to reject (ADR-014)."""
+    from llauncher.core import marker as mk
+
+    # Pre-existing marker simulates another op in flight.
+    mk.take_marker(8081, caller="other", from_model="", to_model="x", run_dir=run_dir)
+
+    with patch("llauncher.operations.ConfigStore.get_model", return_value=sample_config), \
+         patch("llauncher.operations.proc.start_server") as start_proc:
+        result = ops.start("mistral-7b", 8081, caller="test", model_health_check=None)
+
+    assert result.success is False
+    assert result.action == "rejected_in_progress"
+    start_proc.assert_not_called()
+    # The pre-existing marker is untouched (we don't own it).
+    assert (run_dir / "8081.swap").exists() is True
+
+
+def test_start_cancel_post_commit_completes_with_advisory(
+    run_dir: Path, audit_path: Path, sample_config: ModelConfig, mock_popen: MagicMock
+) -> None:
+    """A cancel that arrives after the lockfile is written is a no-op (ADR-014)."""
+    # Patch is_cancelled to return False during early checkpoints, True
+    # only on the post-commit check. The function is called several times;
+    # the last call is the post-commit one in operations/start.py.
+    calls = {"n": 0}
+
+    def is_cancelled_side(*_args, **_kwargs):
+        calls["n"] += 1
+        # First two calls are pre-preflight + post-preflight (False).
+        # Third call is the post-commit check (True).
+        return calls["n"] >= 3
+
+    with patch("llauncher.operations.ConfigStore.get_model", return_value=sample_config), \
+         patch("llauncher.operations.proc.start_server", return_value=mock_popen), \
+         patch("llauncher.operations.start.mk.is_cancelled", side_effect=is_cancelled_side):
+        result = ops.start("mistral-7b", 8081, caller="test", model_health_check=None)
+
+    assert result.success is True
+    assert result.action == "started"
+    assert result.cancel_ignored_post_commit is True
+    # Lockfile committed.
+    assert lf.read_lockfile(8081, run_dir=run_dir) is not None
+
+
+def test_swap_cancel_post_stop_restores_previous(
+    run_dir: Path, marker_run_dir: Path, audit_path: Path, mock_popen: MagicMock
+) -> None:
+    """Cancel detected after Phase 3 (stop-old) triggers restore + 'cancelled' action."""
+    import os as _os
+
+    lf.write_lockfile(8081, "old", _os.getpid(), run_dir=run_dir)
+    rollback_popen = MagicMock(); rollback_popen.pid = 77777
+
+    # is_cancelled returns True at the post-stop checkpoint.
+    with patch(
+        "llauncher.operations.ConfigStore.get_model",
+        side_effect=_config_lookup(_make_config("old"), _make_config("new-model")),
+    ), patch("llauncher.operations.proc.stop_server_by_port", return_value=True), \
+         patch("llauncher.operations.proc.start_server", return_value=rollback_popen), \
+         patch("llauncher.operations.proc.wait_for_server_ready", return_value=(True, ["ready"])), \
+         patch("llauncher.operations.swap.mk.is_cancelled", return_value=True):
+        result = ops.swap("new-model", 8081, caller="test", **_NO_PREFLIGHT)
+
+    assert result.success is False
+    assert result.action == "cancelled"
+    assert result.port_state == "restored"
+    assert result.model == "old"
+    assert result.previous_model == "old"
+
+    # New model never launched (only rollback launch happened).
+    written = lf.read_lockfile(8081, run_dir=run_dir)
+    assert written is not None
+    assert written.model == "old"
+    # Marker released.
+    assert (run_dir / "8081.swap").exists() is False
+
+    actions = [(e.action, e.result) for e in al.read_entries(path=audit_path)]
+    assert (AuditAction.SWAPPED, AuditResult.CANCELLED) in actions
+
+
+def test_swap_cancel_during_readiness_rolls_back_as_cancelled(
+    run_dir: Path, marker_run_dir: Path, audit_path: Path
+) -> None:
+    """Cancel during Phase 5 readiness poll → rollback path; action='cancelled'."""
+    import os as _os
+
+    lf.write_lockfile(8081, "old", _os.getpid(), run_dir=run_dir)
+    new_popen = MagicMock(); new_popen.pid = 88888
+    rollback_popen = MagicMock(); rollback_popen.pid = 77777
+
+    # is_cancelled: False at post-stop checkpoint (first call), True during
+    # readiness (subsequent calls via cancel_check inside wait_for_server_ready).
+    cancel_calls = {"n": 0}
+
+    def is_cancelled_side(*_args, **_kwargs):
+        cancel_calls["n"] += 1
+        return cancel_calls["n"] >= 2
+
+    # Simulate wait_for_server_ready honoring cancel_check.
+    def fake_wait(port, timeout=120, check_interval=1.0, cancel_check=None):
+        if cancel_check is not None and cancel_check():
+            return False, ["cancelled by caller"]
+        return True, ["listening"]
+
+    with patch(
+        "llauncher.operations.ConfigStore.get_model",
+        side_effect=_config_lookup(_make_config("old"), _make_config("new-model")),
+    ), patch("llauncher.operations.proc.stop_server_by_port", return_value=True), \
+         patch("llauncher.operations.proc.start_server", side_effect=[new_popen, rollback_popen]), \
+         patch("llauncher.operations.proc.wait_for_server_ready", side_effect=fake_wait), \
+         patch("llauncher.operations.proc.stop_server_by_pid"), \
+         patch("llauncher.operations.swap.mk.is_cancelled", side_effect=is_cancelled_side):
+        result = ops.swap("new-model", 8081, caller="test", **_NO_PREFLIGHT)
+
+    assert result.success is False
+    assert result.action == "cancelled"
+    assert result.port_state == "restored"
+    assert result.model == "old"
+
+
+def test_swap_cancel_after_success_is_no_op_with_advisory(
+    run_dir: Path, marker_run_dir: Path, audit_path: Path, mock_popen: MagicMock
+) -> None:
+    """Cancel that arrives after readiness returns ready is a no-op (ADR-014)."""
+    import os as _os
+
+    lf.write_lockfile(8081, "old", _os.getpid(), run_dir=run_dir)
+
+    # is_cancelled: False at the post-stop checkpoint (first call), True
+    # only at the post-success advisory check.
+    cancel_calls = {"n": 0}
+
+    def is_cancelled_side(*_args, **_kwargs):
+        cancel_calls["n"] += 1
+        return cancel_calls["n"] >= 2
+
+    with patch(
+        "llauncher.operations.ConfigStore.get_model",
+        side_effect=_config_lookup(_make_config("old"), _make_config("new-model")),
+    ), patch("llauncher.operations.proc.stop_server_by_port", return_value=True), \
+         patch("llauncher.operations.proc.start_server", return_value=mock_popen), \
+         patch("llauncher.operations.proc.wait_for_server_ready", return_value=(True, ["listening"])), \
+         patch("llauncher.operations.swap.mk.is_cancelled", side_effect=is_cancelled_side):
+        result = ops.swap("new-model", 8081, caller="test", **_NO_PREFLIGHT)
+
+    assert result.success is True
+    assert result.action == "swapped"
+    assert result.cancel_ignored_post_commit is True
+    # New model committed.
+    written = lf.read_lockfile(8081, run_dir=run_dir)
+    assert written is not None
+    assert written.model == "new-model"

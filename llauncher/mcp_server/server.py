@@ -79,6 +79,8 @@ async def _dispatch_tool(name: str, arguments: dict) -> dict:
         return await servers_tools.stop_server(arguments)
     elif name == "swap_server":
         return await servers_tools.swap_server(arguments)
+    elif name == "cancel_server":
+        return await servers_tools.cancel_server(arguments)
     elif name == "delete_model":
         return await config_tools.delete_model(arguments)
 

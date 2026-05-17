@@ -26,7 +26,7 @@ The repo is frozen for v1 work except for this v2 effort. All v2 commits land di
 | M3 — Multi-node | ✅ done (2026-05-07) | Wired through v2 operations; remote swap parity. |
 | **Pre-M4 cleanup** | ✅ **done (2026-05-08)** | #57 (C2 layer), #58 (C3 port), #59 (H1 MCP refresh). Test count 612 → 621. |
 | M4 — UI rewrite | ✅ **done (2026-05-09)** | All 4 slices done. #50 tab restructure + port picker landed in commits `5513d26` (consolidation) and `f7b8818` (Audit tab + node_selector wiring). |
-| M5 — Tier 2 ADRs | 🔄 **2/5 done (2026-05-16)** | ADR-013 logs ✅ (#52); ADR-012 footer endpoint ✅ (#53, TS migration deferred). Remaining: #54 (ADR-014 cancel), #55 (ADR-015 orphan), #56 (ADR-016 self-swap). **Phased** — see §Phased Plan below. |
+| M5 — Tier 2 ADRs | 🔄 **3/5 done (2026-05-16)** | ADR-013 logs ✅ (#52); ADR-012 footer endpoint ✅ (#53, TS migration deferred); ADR-014 cancellation ✅ (#54). Remaining: #55 (ADR-015 orphan), #56 (ADR-016 self-swap). **Phased** — see §Phased Plan below. |
 | Audit cleanup | 📋 planned | #60 (H3 audit-on-CRUD), #61 (H4 BLE001), #62 (self-loop), #64 (audit-tab remote). Phase 1 + Phase 4. |
 | **Production Hardening** | 🔄 **1/2 done (2026-05-16)** | **Parallel track to M5**, not a v2-architecture milestone. #65 (SIGTERM graceful shutdown) ✅ closed — FastAPI lifespan handler reaps managed llama-server children on SIGTERM and SIGINT. #67 (systemd `.service` units) remaining — Phase 4. |
 | M6 — Multi-backend (vLLM) | — | Issue #42 |
@@ -39,6 +39,8 @@ The repo is frozen for v1 work except for this v2 effort. All v2 commits land di
 **End-of-2026-05-16 session metrics:** ADR-012 ratified and the `/footer-context/{port}` endpoint + per-port TTL cache (`llauncher/agent/footer_cache.py`) landed; #53 closed (TS-side consumer migration deferred). New env var `LAUNCHER_FOOTER_CACHE_S` joins the ADR-008/013 family. **Phase 1 of the phased plan also landed in the same session:** #61 (BLE001 scoped exceptions in `operations/*`), #60 (audit-on-CRUD via ConfigStore, with the layering fix that ConfigStore now owns the `MODEL_REMOVED+SUCCESS` audit while ops layer keeps only operation-level events), #62 (RemoteNode self-loop short-circuit for `ping`/`start`/`stop`/`swap`/`delete_model` verbs). Test count 686 → 722 (+36 net across all four issues).
 
 **End-of-2026-05-16 follow-up session (Phase 2):** #65 closed. FastAPI lifespan handler in `agent/server.py` enumerates `core/lockfile.list_lockfiles()` on shutdown and dispatches each through `operations.stop(caller="agent-shutdown")`. `uvicorn.run(..., lifespan="on")` forces the handler to fire regardless of auto-detection. Symmetric on SIGTERM and SIGINT — behavior change from the pre-#65 bare-`KeyboardInterrupt` path which orphaned children silently (called out in handoff §What NOT To Do). Test count 722 → 728 (+6 net; one new `tests/unit/test_agent_lifespan.py` module).
+
+**End-of-2026-05-16 follow-up session (Phase 3, first half):** ADR-014 ratified and #54 closed. Cancellation verb landed across the stack: `SwapMarker` gained a `cancelled` boolean (back-compat via `data.get("cancelled", False)`); marker module gained `request_cancel()` / `is_cancelled()`; `core/process.wait_for_server_ready` gained an optional `cancel_check` callable for the readiness poll; `operations.start` now takes/releases an in-flight marker (uniform with swap, enabling cancel); `operations.swap` checks cancel at the post-stop checkpoint and during readiness; both verbs surface a `cancel_ignored_post_commit` advisory when a cancel arrives after the lockfile is written. New `POST /cancel/{port}` HTTP endpoint, `cancel_server` MCP tool, and `llauncher server cancel <port>` CLI verb. New `AuditResult.CANCELLED` enum. Test count 728 → 751 (+23 net across `test_marker.py`, `test_operations.py`, `test_agent.py`, `test_servers_tools.py`, `test_cli.py`).
 
 For a self-contained guide a fresh context can use to pick up the work, see [`docs/v2-handoff.md`](v2-handoff.md).
 
@@ -129,7 +131,7 @@ Three audit findings the v2-handoff and m4-design called out as boundary-tighten
 
 - [x] **ADR-013 — Logs lifecycle** ([#52](https://github.com/shanevcantwell/llauncher/issues/52), `9dc2769`) — Append mode + size-cap rotation + bounded tail. New module `core/log_rotation.py`. New env vars `LAUNCHER_LOG_DIR`, `LAUNCHER_LOG_MAX_BYTES`, `LAUNCHER_LOG_KEEP`. 17 tests including a partial-rename-failure simulation. Filed [#63](https://github.com/shanevcantwell/llauncher/issues/63) for the sanitizer-collision side concern.
 - [x] **ADR-012 — Footer contract** ([#53](https://github.com/shanevcantwell/llauncher/issues/53), 2026-05-16): `GET /footer-context/{port}` with per-port TTL cache in `llauncher/agent/footer_cache.py`. Pinned four-field shape `{port, model, ctx_size, parallel}`; reads from lockfile + `ConfigStore` only — no process scan, no GPU probe. New env var `LAUNCHER_FOOTER_CACHE_S` (default 1.0 s). 14 tests. TS-side `pi-footer-extension` migration deferred to a separate slice.
-- [ ] **ADR-014 — Cancellation** ([#54](https://github.com/shanevcantwell/llauncher/issues/54)): cancel flag in marker; `POST /cancel/{port}`; MCP tool.
+- [x] **ADR-014 — Cancellation** ([#54](https://github.com/shanevcantwell/llauncher/issues/54), 2026-05-16): cancel flag in marker (boolean, back-compat default False); `POST /cancel/{port}` (port-keyed per ADR-010); MCP `cancel_server` tool; CLI `llauncher server cancel <port>`. Phase-boundary polling only (no mid-phase checks, no new threads). Cancel before commit reuses rollback path → `cancelled` action; cancel after commit is a no-op with `cancel_ignored_post_commit=True` advisory. 23 new tests.
 - [ ] **ADR-015 — Orphan policy** ([#55](https://github.com/shanevcantwell/llauncher/issues/55)): `is_managed` flag, `orphan list/adopt` verbs across CLI/HTTP/MCP.
 - [ ] **ADR-016 — Self-swap worked example** ([#56](https://github.com/shanevcantwell/llauncher/issues/56)): integration test + prose timeline. Depends on #54.
 
@@ -197,7 +199,7 @@ Bedrock smoothing before any new mechanism lands. Three independent slices, one 
 
 | Issue | Track | Why this phase |
 |-------|-------|----------------|
-| [#54](https://github.com/shanevcantwell/llauncher/issues/54) — ADR-014 cancellation | [M5] | Most invasive M5 slice. Lands on clean `operations/*` (after #61) and the marker module's existing five-phase contract. |
+| ~~[#54](https://github.com/shanevcantwell/llauncher/issues/54)~~ — ADR-014 cancellation | [M5] | ✅ done (2026-05-16). Cancel flag on marker, `cancel_check` callable through readiness poll, `POST /cancel/{port}`. Lands on clean `operations/*` (after #61) and the marker module's existing five-phase contract. |
 | [#55](https://github.com/shanevcantwell/llauncher/issues/55) — ADR-015 orphan policy | [M5] | Lands on stable remote dispatch (#62) and correct shutdown (#65). The managed-vs-unmanaged distinction it codifies is then available to the rest of v2. |
 
 #54 and #55 are independent of each other and may interleave if convenient, but both must land before Phase 4.
@@ -252,7 +254,7 @@ Each phase tightens a contract — exception scope, audit shape, dispatch path, 
 | #51 | M4 Slice 14 — render_op_result | M4 | ✅ closed (`1f55f3a`) |
 | #52 | M5 / ADR-013 — logs lifecycle | M5 | ✅ closed (`9dc2769`) |
 | #53 | M5 / ADR-012 — footer contract | M5 | ✅ closed (2026-05-16) |
-| #54 | M5 / ADR-014 — cancellation | M5 | open — **Phase 3** |
+| #54 | M5 / ADR-014 — cancellation | M5 | ✅ closed (2026-05-16, Phase 3) |
 | #55 | M5 / ADR-015 — orphan policy | M5 | open — **Phase 3** |
 | #56 | M5 / ADR-016 — self-swap test | M5 | open (depends on #54) — **Phase 4** |
 | #57 | Audit C2 — state→core layer | pre-M4 | ✅ closed (`b361b60`) |

@@ -1,7 +1,7 @@
 # v2 Handoff — Pick Up Cold
 
-**Last updated:** 2026-05-16 (end of session — Phase 2 SIGTERM graceful shutdown landed)
-**Current state:** M1+M2+M3+M4 complete. Pre-M4 cleanup phase done (#57/#58/#59 closed). M4 done end-to-end (#47/#48/#49/#50/#51 closed). M5 progress: ADR-013 (logs) and ADR-012 (footer) shipped. **Phase 1 + Phase 2 of the post-M4 phased plan complete:** #61 (BLE001 scoped exceptions in `operations/*`), #60 (audit-on-CRUD via ConfigStore), #62 (RemoteNode self-loop short-circuit), and #65 (SIGTERM/SIGINT lifespan child-reaping) all closed. Remaining work follows the phased plan in [`docs/v2-implementation-roadmap.md`](v2-implementation-roadmap.md): Phase 3 = #54 cancellation + #55 orphan policy; Phase 4 = #56/#67/#64. Test count: 728 passed / 10 skipped.
+**Last updated:** 2026-05-16 (end of session — Phase 3 first half: ADR-014 cancellation landed)
+**Current state:** M1+M2+M3+M4 complete. Pre-M4 cleanup phase done (#57/#58/#59 closed). M4 done end-to-end (#47/#48/#49/#50/#51 closed). M5 progress: ADR-013 (logs), ADR-012 (footer), and ADR-014 (cancellation) shipped. **Phase 1 + Phase 2 of the post-M4 phased plan complete; Phase 3 half-done:** #61/#60/#62/#65 closed in earlier sessions; **#54 (cancel verb across marker/operations/HTTP/MCP/CLI) closed this session**. Remaining work follows the phased plan in [`docs/v2-implementation-roadmap.md`](v2-implementation-roadmap.md): Phase 3 still-open = #55 orphan policy; Phase 4 = #56/#67/#64. Test count: 751 passed / 10 skipped.
 
 A self-contained guide for picking up the v2 architecture work in a fresh context. Read this end-to-end before touching anything.
 
@@ -101,7 +101,7 @@ All single-node and multi-node v2 operations are wired through `operations/` pac
 |-------|-------|--------|
 | [#52](https://github.com/shanevcantwell/llauncher/issues/52) | M5 / ADR-013: Logs lifecycle — append, rotation, bounded tail | ✅ closed (`9dc2769`) |
 | [#53](https://github.com/shanevcantwell/llauncher/issues/53) | M5 / ADR-012: Footer contract — `/footer-context/{port}` endpoint | ✅ closed (this session) — TS migration deferred |
-| [#54](https://github.com/shanevcantwell/llauncher/issues/54) | M5 / ADR-014: Cancellation of in-flight start/swap | open |
+| [#54](https://github.com/shanevcantwell/llauncher/issues/54) | M5 / ADR-014: Cancellation of in-flight start/swap | ✅ closed (this session) |
 | [#55](https://github.com/shanevcantwell/llauncher/issues/55) | M5 / ADR-015: Orphan policy — managed flag, list/adopt verbs | open |
 | [#56](https://github.com/shanevcantwell/llauncher/issues/56) | M5 / ADR-016: Canonical self-swap integration test | open (depends on #54) |
 
@@ -237,6 +237,7 @@ A full code-vs-documentation audit was performed using 5 parallel subagent revie
 | 011 | Swap Semantics v2 | ✅ Compliant — all surfaces wired through `operations.swap()` (M3 merge) |
 | **012** | **Footer Context Endpoint (NEW)** | ✅ **Accepted** — `/footer-context/{port}` + per-port TTL cache (`#53`); TS migration deferred |
 | **013** | **Per-Server Log Lifecycle (NEW)** | ✅ **Accepted** — append/rotate/bounded-tail (`#52`) |
+| **014** | **Cancellation of In-Flight Start/Swap (NEW)** | ✅ **Accepted** — cancel flag in marker; `POST /cancel/{port}`; MCP `cancel_server`; CLI `server cancel` (`#54`) |
 
 ### Phased Plan — what's left (sequenced by coupling, not size)
 
@@ -244,7 +245,7 @@ Full rationale in [`docs/v2-implementation-roadmap.md` §Phased Plan](v2-impleme
 
 - **Phase 1 — Foundation tightening** (1 session): #61 (BLE001 in `operations/*`), #60 (audit-on-CRUD), #62 (RemoteNode self-loop short-circuit). Each pins a contract that a later phase consumes.
 - ~~**Phase 2 — Lifecycle correctness**~~ ✅ done (2026-05-16): #65 closed. Agent now reaps managed llama-server children on SIGTERM and SIGINT via FastAPI lifespan handler.
-- **Phase 3 — Capability additions** (2 sessions, may interleave): #54 (ADR-014 cancellation), #55 (ADR-015 orphan policy).
+- **Phase 3 — Capability additions** (2 sessions, may interleave): ~~#54 (ADR-014 cancellation)~~ ✅ done (2026-05-16), #55 (ADR-015 orphan policy).
 - **Phase 4 — Validation + deployment surface** (1–1.5 sessions): #56 (ADR-016 canonical self-swap test, gated on #54), #67 (systemd `.service` units, gated on #65), #64 (audit-tab remote-node access, consumer of #60).
 - **Phase 5 — Pre-M6 sweep**: V1-carryover triage (#10, #14–#27) batched with explore subagents; #36 folds into the pi-footer-extension TS migration; #63 file-and-forget.
 
@@ -319,6 +320,8 @@ gh issue list --state open
 13. **Footer-context endpoint (ADR-012 / #53)**: `GET /footer-context/{port}` returns a pinned four-field payload (`{port, model, ctx_size, parallel}`) fed from the lockfile + `ConfigStore` with a per-port TTL cache in `llauncher/agent/footer_cache.py`. TTL is `LAUNCHER_FOOTER_CACHE_S` (default 1.0 s; `<= 0` disables the cache). The response shape is contractually pinned — extending it requires an ADR amendment, not a code change. The pi-footer-extension TS migration is deferred to a separate slice; until then `pi-footer-extension/footer-budget.ts` still hits `/status`.
 
 14. **M4 Slice 13 surfaces (`#50`)**: tab structure is now Dashboard / Models / Nodes / Audit. `dashboard.py` is view-only (read-side only); `models.py` owns config CRUD + per-model verb buttons (start/stop/swap). `model_registry.py` parameter renamed `selected_node` → `target` (string, default `'local'`). The `'All Nodes'` cross-node aggregate view is dropped; a single target is always selected. The Audit tab (`ui/tabs/audit.py`) reads local `LAUNCHER_AUDIT_PATH` only; remote-node audit access is deferred to issue #64.
+
+15. **Cancellation semantics (ADR-014 / #54)**: Cancel polling happens at **phase boundaries only** — never mid-phase. The cancel flag lives in the in-flight marker JSON (`{LAUNCHER_RUN_DIR}/{port}.swap`) as a boolean rewritten atomically via tempfile + `os.replace`. `operations.start` now takes/releases its own marker (same primitive as swap) so cancel works uniformly across both verbs; this means a concurrent `start` and `swap` on the same port get `rejected_in_progress` per ADR-011, which is the correct behavior. Cancel after spawn-success + lockfile-write is a **no-op** that completes the operation and sets `cancel_ignored_post_commit=True` on the result envelope — we don't kill a healthy child for a late cancel. The cancel-during-readiness path is plumbed through a `cancel_check` callable parameter on `core.process.wait_for_server_ready`; no new threads, no asyncio. Cancel before commit reuses the existing rollback path with a new `cancelled` action; `AuditResult.CANCELLED` is the new enum value. Worst-case cancel latency is the readiness `check_interval` (1 s default). The marker module's `read_marker` was updated for back-compat — pre-ADR-014 markers (missing the `cancelled` key) deserialize with `cancelled=False`.
 
 ## Questions With Pinned Answers
 

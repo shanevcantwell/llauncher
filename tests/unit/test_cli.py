@@ -239,6 +239,31 @@ def test_start_with_explicit_port(mock_config_store):
         assert args[1] == 9999
 
 
+def test_server_cancel_delivered(mock_config_store):
+    """ADR-014: cancel reports marker_existed=True when a marker existed."""
+    with patch("llauncher.core.marker.request_cancel", return_value=True) as mock_req:
+        result = runner.invoke(app, ["server", "cancel", "8081"])
+    assert result.exit_code == 0
+    mock_req.assert_called_once_with(8081)
+    assert "8081" in result.stdout
+
+
+def test_server_cancel_no_op_when_no_marker(mock_config_store):
+    """ADR-014: 'nothing to cancel' is a successful no-op (exit 0)."""
+    with patch("llauncher.core.marker.request_cancel", return_value=False):
+        result = runner.invoke(app, ["server", "cancel", "9999"])
+    assert result.exit_code == 0
+    assert "nothing to cancel" in result.stdout.lower()
+
+
+def test_server_cancel_json_output(mock_config_store):
+    with patch("llauncher.core.marker.request_cancel", return_value=True):
+        result = runner.invoke(app, ["server", "cancel", "8081", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload == {"cancelled": True, "marker_existed": True, "port": 8081}
+
+
 def test_stop_nonexistent_port(mock_config_store):
     """Stopping a non-running server is now idempotent (per ADR-010)."""
     _dir, _path = mock_config_store

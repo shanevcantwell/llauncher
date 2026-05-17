@@ -8,6 +8,7 @@ from pathlib import Path
 
 from llauncher.core import audit_log as al
 from llauncher.core import lockfile as lf
+from llauncher.core import marker as mk
 from llauncher.core import process as proc
 from llauncher.core.audit_log import AuditAction, AuditResult
 from llauncher.core.config import ConfigStore
@@ -22,14 +23,22 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class StartResult:
-    """Outcome of a start operation, mirroring ADR-010's response envelope."""
+    """Outcome of a start operation, mirroring ADR-010's response envelope.
+
+    ``action`` values: ``started | already_running | rejected_occupied |
+    rejected_preflight | rejected_in_progress | cancelled | error``.
+
+    ``cancel_ignored_post_commit`` (ADR-014): True iff a cancel arrived
+    between spawn-success and lockfile-write. The op completed normally.
+    """
 
     success: bool
-    action: str  # started | already_running | rejected_occupied | rejected_preflight | error
+    action: str
     port: int
     model: str | None = None
     pid: int | None = None
     message: str = ""
+    cancel_ignored_post_commit: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -127,92 +136,169 @@ def start(
             message=f"Model not found: {model_name}",
         )
 
-    # Pre-flight model-file health check (ADR-005). This used to live in
-    # ``state.start_server``; lifting it here removes the State→Core import
-    # the audit flagged as C2 (issue #57) and gives ``start`` the same
-    # pluggable seam ``swap`` already exposes.
-    ok, reason = run_preflight_check(model_health_check, config, "model_health")
-    if not ok:
-        al.record(
-            AuditAction.STARTED,
-            AuditResult.REJECTED_PREFLIGHT,
-            caller=caller,
-            port=port,
-            model=model_name,
-            message=f"model_health pre-flight failed: {reason}",
-        )
-        return StartResult(
-            success=False,
-            action="rejected_preflight",
-            port=port,
-            model=model_name,
-            message=f"Model health check failed: {reason}",
-        )
-
-    # Launch the process.
+    # ADR-014: take the in-flight marker so a concurrent cancel can signal
+    # us before commit. Same primitive as swap; from_model is empty since
+    # the port is empty at this point.
     try:
-        popen = proc.start_server(config, port, server_bin=server_bin)
-    except (FileNotFoundError, OSError) as e:
-        al.record(
-            AuditAction.STARTED,
-            AuditResult.ERROR,
+        mk.take_marker(
+            port,
             caller=caller,
-            port=port,
-            model=model_name,
-            message=f"process launch failed: {e}",
+            from_model="",
+            to_model=model_name,
         )
-        return StartResult(
-            success=False,
-            action="error",
-            port=port,
-            model=model_name,
-            message=f"Failed to launch: {e}",
-        )
-
-    # Claim the port via lockfile (atomic O_EXCL).
-    try:
-        lf.write_lockfile(port, model_name, popen.pid)
     except FileExistsError:
-        # Race: another writer beat us between reconcile and write. Tear
-        # down the process we just started and report the conflict.
-        try:
-            popen.terminate()
-        except OSError:
-            # Process already exited between the race and our cleanup
-            # (ESRCH), or we lack permission to signal it. Logging the
-            # exception preserves the traceback; the race outcome is
-            # already determined and we proceed to the error record.
-            logger.exception("Failed to terminate raced-launch process %s", popen.pid)
+        # Another op is already in flight on this port. Refuse to start.
         al.record(
             AuditAction.STARTED,
-            AuditResult.ERROR,
+            AuditResult.REJECTED_IN_PROGRESS,
+            caller=caller,
+            port=port,
+            model=model_name,
+            message="another op is in flight on this port",
+        )
+        return StartResult(
+            success=False,
+            action="rejected_in_progress",
+            port=port,
+            model=model_name,
+            message=(
+                f"Another op is in flight on port {port}; "
+                "try again shortly or cancel it."
+            ),
+        )
+
+    try:
+        # ADR-014 checkpoint: before each pre-flight call.
+        if mk.is_cancelled(port):
+            return _cancelled_result(port, model_name, caller, stage="pre-preflight")
+
+        # Pre-flight model-file health check (ADR-005). This used to live in
+        # ``state.start_server``; lifting it here removes the State→Core import
+        # the audit flagged as C2 (issue #57) and gives ``start`` the same
+        # pluggable seam ``swap`` already exposes.
+        ok, reason = run_preflight_check(model_health_check, config, "model_health")
+        if not ok:
+            al.record(
+                AuditAction.STARTED,
+                AuditResult.REJECTED_PREFLIGHT,
+                caller=caller,
+                port=port,
+                model=model_name,
+                message=f"model_health pre-flight failed: {reason}",
+            )
+            return StartResult(
+                success=False,
+                action="rejected_preflight",
+                port=port,
+                model=model_name,
+                message=f"Model health check failed: {reason}",
+            )
+
+        # ADR-014 checkpoint: after pre-flight, before launch.
+        if mk.is_cancelled(port):
+            return _cancelled_result(port, model_name, caller, stage="post-preflight")
+
+        # Launch the process.
+        try:
+            popen = proc.start_server(config, port, server_bin=server_bin)
+        except (FileNotFoundError, OSError) as e:
+            al.record(
+                AuditAction.STARTED,
+                AuditResult.ERROR,
+                caller=caller,
+                port=port,
+                model=model_name,
+                message=f"process launch failed: {e}",
+            )
+            return StartResult(
+                success=False,
+                action="error",
+                port=port,
+                model=model_name,
+                message=f"Failed to launch: {e}",
+            )
+
+        # Claim the port via lockfile (atomic O_EXCL).
+        # ADR-014: by the time we successfully write the lockfile we have
+        # committed — a cancel that arrives after this point is a no-op
+        # with cancel_ignored_post_commit=True.
+        try:
+            lf.write_lockfile(port, model_name, popen.pid)
+        except FileExistsError:
+            # Race: another writer beat us between reconcile and write. Tear
+            # down the process we just started and report the conflict.
+            try:
+                popen.terminate()
+            except OSError:
+                # Process already exited between the race and our cleanup
+                # (ESRCH), or we lack permission to signal it. Logging the
+                # exception preserves the traceback; the race outcome is
+                # already determined and we proceed to the error record.
+                logger.exception("Failed to terminate raced-launch process %s", popen.pid)
+            al.record(
+                AuditAction.STARTED,
+                AuditResult.ERROR,
+                caller=caller,
+                port=port,
+                model=model_name,
+                pid=popen.pid,
+                message="lockfile race: another writer claimed the port",
+            )
+            return StartResult(
+                success=False,
+                action="error",
+                port=port,
+                model=model_name,
+                message="Lockfile race during start; retry.",
+            )
+
+        # Post-commit cancel detection: per ADR-014, a cancel that arrives
+        # between spawn-success/lockfile-write and this check is a no-op.
+        # We surface it via the advisory flag rather than tearing down.
+        cancel_ignored = mk.is_cancelled(port)
+
+        al.record(
+            AuditAction.STARTED,
+            AuditResult.SUCCESS,
             caller=caller,
             port=port,
             model=model_name,
             pid=popen.pid,
-            message="lockfile race: another writer claimed the port",
+            message=(
+                "cancel arrived post-commit; ignored"
+                if cancel_ignored
+                else ""
+            ),
         )
         return StartResult(
-            success=False,
-            action="error",
+            success=True,
+            action="started",
             port=port,
             model=model_name,
-            message="Lockfile race during start; retry.",
+            pid=popen.pid,
+            message=f"{model_name} started on port {port}",
+            cancel_ignored_post_commit=cancel_ignored,
         )
+    finally:
+        mk.release_marker(port)
 
+
+def _cancelled_result(
+    port: int, model_name: str, caller: str, *, stage: str
+) -> StartResult:
+    """ADR-014: cancel detected before commit. No state change; clean exit."""
     al.record(
         AuditAction.STARTED,
-        AuditResult.SUCCESS,
+        AuditResult.CANCELLED,
         caller=caller,
         port=port,
         model=model_name,
-        pid=popen.pid,
+        message=f"start cancelled at stage={stage}",
     )
     return StartResult(
-        success=True,
-        action="started",
+        success=False,
+        action="cancelled",
         port=port,
         model=model_name,
-        pid=popen.pid,
-        message=f"{model_name} started on port {port}",
+        message=f"Start of {model_name} on port {port} was cancelled at {stage}.",
     )

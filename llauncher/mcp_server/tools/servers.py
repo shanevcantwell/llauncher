@@ -97,6 +97,30 @@ def get_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="cancel_server",
+            description=(
+                "Cancel an in-flight start or swap on this port (ADR-014). "
+                "Sets a cancel flag on the in-flight marker; the running "
+                "op picks it up at the next phase boundary (typically "
+                "within ~1 s during readiness poll). Returns success with "
+                "marker_existed=False if there is no in-flight op — "
+                "'nothing to cancel' is a successful no-op, not an error. "
+                "A cancel that arrives after the new process has been "
+                "spawned and the lockfile written is ignored; the op "
+                "completes and reports cancel_ignored_post_commit=True."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "port": {
+                        "type": "integer",
+                        "description": "Port number of the in-flight op to cancel",
+                    },
+                },
+                "required": ["port"],
+            },
+        ),
+        Tool(
             name="server_status",
             description="Get the status of all running llama-servers",
             inputSchema={
@@ -198,6 +222,32 @@ async def swap_server(args: dict) -> dict:
 
     result = ops.swap(model_name, port, caller="mcp")
     return result.to_dict()
+
+
+async def cancel_server(args: dict) -> dict:
+    """Cancel an in-flight start/swap on ``args['port']`` per ADR-014.
+
+    Thin wrapper over :func:`llauncher.core.marker.request_cancel`. Returns
+    a small envelope so the caller can distinguish "cancel delivered" from
+    "no in-flight op to cancel."
+    """
+    from llauncher.core import marker as mk
+
+    port = args.get("port")
+    if port is None:
+        return {
+            "success": False,
+            "action": "error",
+            "error": "Missing required argument: port",
+        }
+
+    delivered = mk.request_cancel(port)
+    return {
+        "success": True,
+        "cancelled": delivered,
+        "marker_existed": delivered,
+        "port": port,
+    }
 
 
 # ───────────────── Read tools (state-backed) ───────────────────────

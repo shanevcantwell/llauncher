@@ -1467,3 +1467,30 @@ class TestFooterContextEndpoint:
             "ctx_size": None,
             "parallel": None,
         }
+
+
+class TestCancelEndpoint:
+    """Tests for POST /cancel/{port} (ADR-014)."""
+
+    def test_cancel_when_marker_exists_returns_200_delivered(self, client, monkeypatch):
+        monkeypatch.setattr(
+            "llauncher.core.marker.request_cancel",
+            lambda port, run_dir=None: True,
+        )
+        response = client.post("/cancel/8081")
+        assert response.status_code == 200
+        body = response.json()
+        assert body == {"cancelled": True, "marker_existed": True, "port": 8081}
+
+    def test_cancel_when_no_marker_returns_200_marker_existed_false(
+        self, client, monkeypatch
+    ):
+        """ADR-014 §5: 'nothing to cancel' is a successful no-op, not a 404."""
+        monkeypatch.setattr(
+            "llauncher.core.marker.request_cancel",
+            lambda port, run_dir=None: False,
+        )
+        response = client.post("/cancel/9999")
+        assert response.status_code == 200
+        body = response.json()
+        assert body == {"cancelled": False, "marker_existed": False, "port": 9999}

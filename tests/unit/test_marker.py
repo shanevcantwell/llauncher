@@ -178,6 +178,104 @@ def test_reconcile_alive_owner(run_dir: Path) -> None:
     assert result.marker == taken
 
 
+# ---------------------------------------------------------------------------
+# ADR-014: cancel flag (request_cancel, is_cancelled, back-compat)
+# ---------------------------------------------------------------------------
+
+
+def test_take_marker_defaults_cancelled_false(run_dir: Path) -> None:
+    marker = mk.take_marker(
+        8081, caller="cli", from_model="a", to_model="b", run_dir=run_dir
+    )
+    assert marker.cancelled is False
+
+
+def test_is_cancelled_false_when_no_marker(run_dir: Path) -> None:
+    assert mk.is_cancelled(8081, run_dir=run_dir) is False
+
+
+def test_is_cancelled_false_when_unflagged(run_dir: Path) -> None:
+    mk.take_marker(
+        8081, caller="cli", from_model="a", to_model="b", run_dir=run_dir
+    )
+    assert mk.is_cancelled(8081, run_dir=run_dir) is False
+
+
+def test_request_cancel_returns_false_when_no_marker(run_dir: Path) -> None:
+    """Per ADR-014: no marker → no-op; returns False (no signal delivered)."""
+    assert mk.request_cancel(8081, run_dir=run_dir) is False
+
+
+def test_request_cancel_sets_flag_and_is_cancelled_reads_it(run_dir: Path) -> None:
+    mk.take_marker(
+        8081, caller="cli", from_model="a", to_model="b", run_dir=run_dir
+    )
+    delivered = mk.request_cancel(8081, run_dir=run_dir)
+    assert delivered is True
+    assert mk.is_cancelled(8081, run_dir=run_dir) is True
+
+
+def test_request_cancel_preserves_other_fields(run_dir: Path) -> None:
+    """Atomic rewrite must not lose caller/from/to/pid/started_at."""
+    original = mk.take_marker(
+        8081, caller="ui", from_model="model-a", to_model="model-b", run_dir=run_dir
+    )
+    mk.request_cancel(8081, run_dir=run_dir)
+    updated = mk.read_marker(8081, run_dir=run_dir)
+
+    assert updated is not None
+    assert updated.cancelled is True
+    assert updated.caller == "ui"
+    assert updated.from_model == "model-a"
+    assert updated.to_model == "model-b"
+    assert updated.llauncher_pid == original.llauncher_pid
+    assert updated.started_at == original.started_at
+
+
+def test_release_marker_clears_cancel_state_implicitly(run_dir: Path) -> None:
+    """After release, a fresh take starts cancelled=False (ADR-014)."""
+    mk.take_marker(
+        8081, caller="cli", from_model="a", to_model="b", run_dir=run_dir
+    )
+    mk.request_cancel(8081, run_dir=run_dir)
+    mk.release_marker(8081, run_dir=run_dir)
+
+    fresh = mk.take_marker(
+        8081, caller="cli", from_model="a", to_model="b", run_dir=run_dir
+    )
+    assert fresh.cancelled is False
+    assert mk.is_cancelled(8081, run_dir=run_dir) is False
+
+
+def test_back_compat_read_of_pre_adr_marker(run_dir: Path) -> None:
+    """Markers written before ADR-014 omit the ``cancelled`` field; reads
+    must succeed with ``cancelled=False`` rather than KeyError."""
+    run_dir.mkdir(parents=True)
+    pre_adr_payload = {
+        "port": 8081,
+        "caller": "cli",
+        "started_at": "2026-05-01T00:00:00+00:00",
+        "llauncher_pid": os.getpid(),
+        "from_model": "a",
+        "to_model": "b",
+        # Note: no ``cancelled`` field.
+    }
+    (run_dir / "8081.swap").write_text(json.dumps(pre_adr_payload))
+
+    marker = mk.read_marker(8081, run_dir=run_dir)
+    assert marker is not None
+    assert marker.cancelled is False
+    assert mk.is_cancelled(8081, run_dir=run_dir) is False
+
+
+def test_request_cancel_on_corrupt_marker_returns_false(run_dir: Path) -> None:
+    """Corrupt marker → treated as 'no marker'; request_cancel returns False."""
+    run_dir.mkdir(parents=True)
+    (run_dir / "8081.swap").write_text("garbage{")
+
+    assert mk.request_cancel(8081, run_dir=run_dir) is False
+
+
 def test_reconcile_dead_owner(run_dir: Path) -> None:
     # Build a marker by hand whose llauncher_pid is overwhelmingly unlikely
     # to exist (sentinel above PID_MAX).

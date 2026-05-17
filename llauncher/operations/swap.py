@@ -47,9 +47,15 @@ class SwapResult:
     - ``rejected_stop_failed`` — couldn't stop old model; old still running
     - ``rejected_in_progress`` — swap already in flight on this port
     - ``rejected_empty`` — port had no occupant; per ADR-010 swap requires occupied
+    - ``cancelled`` — caller cancelled before commit; reused rollback path (ADR-014)
 
     ``port_state`` values: ``serving | restored | unchanged | unavailable``
     (semantics preserved from ADR-002).
+
+    ``cancel_ignored_post_commit`` (ADR-014): True iff a cancel arrived in
+    the sliver between spawn-success and lockfile-write (or after readiness
+    returned ready). The op completed normally; the flag exists so callers
+    can distinguish "we cancelled in time" from "cancelled too late."
     """
 
     success: bool
@@ -61,6 +67,7 @@ class SwapResult:
     pid: int | None = None
     message: str = ""
     startup_logs: list[str] = field(default_factory=list)
+    cancel_ignored_post_commit: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -79,6 +86,7 @@ def _launch_and_await_ready(
     *,
     server_bin: Path | None,
     readiness_timeout: int,
+    cancel_check=None,
 ) -> tuple[bool, int | None, list[str], str]:
     """Launch ``config`` on ``port`` and poll readiness.
 
@@ -86,6 +94,13 @@ def _launch_and_await_ready(
     ``ready`` is False; this function takes responsibility for cleaning up
     after itself (terminating the process if it started, removing the
     lockfile if one was written).
+
+    If ``cancel_check`` is provided (ADR-014), it is forwarded to
+    :func:`llauncher.core.process.wait_for_server_ready`, which calls it
+    once per poll tick. A cancel during the poll terminates the new
+    process and removes the lockfile; the returned ``error_message`` is
+    ``"cancelled"`` so the caller can distinguish a cancel from a
+    readiness timeout.
     """
     try:
         popen = proc.start_server(config, port, server_bin=server_bin)
@@ -106,8 +121,12 @@ def _launch_and_await_ready(
             logger.exception("Failed to terminate raced-launch process %s", popen.pid)
         return False, popen.pid, [], "lockfile race: another writer claimed the port"
 
-    ready, logs = proc.wait_for_server_ready(port, timeout=readiness_timeout)
+    ready, logs = proc.wait_for_server_ready(
+        port, timeout=readiness_timeout, cancel_check=cancel_check
+    )
     if not ready:
+        # Distinguish cancel from genuine timeout (ADR-014).
+        cancelled = cancel_check is not None and cancel_check()
         # Process started but never reached ready — terminate and clean up.
         # ``stop_server_by_pid`` swallows ``psutil.NoSuchProcess`` internally;
         # the escape hatch we still need to guard is ``AccessDenied`` (trying
@@ -117,7 +136,8 @@ def _launch_and_await_ready(
         except psutil.AccessDenied:
             logger.exception("Failed to terminate non-ready process %s", popen.pid)
         lf.remove_lockfile(port)
-        return False, popen.pid, _tail_logs(logs), "readiness timeout"
+        err = "cancelled" if cancelled else "readiness timeout"
+        return False, popen.pid, _tail_logs(logs), err
 
     return True, popen.pid, _tail_logs(logs), ""
 
@@ -394,15 +414,35 @@ def swap(
             message="phase 3 of swap",
         )
 
+        # ADR-014 checkpoint: between Phase 3 (stop-old) and Phase 4 (launch-new).
+        # Cancel here triggers rollback of the previous model.
+        if mk.is_cancelled(port):
+            return _handle_cancel_during_swap(
+                port=port,
+                model_name=model_name,
+                previous_model_name=previous_model_name,
+                previous_config=previous_config,
+                caller=caller,
+                server_bin=server_bin,
+                readiness_timeout=readiness_timeout,
+                stage="post-stop",
+            )
+
         # ---- Phase 4 + 5: Launch new + readiness poll ----------------------
+        # Pass a cancel_check that fires once per poll tick during readiness.
         ready, new_pid, startup_logs, err = _launch_and_await_ready(
             new_config,
             port,
             server_bin=server_bin,
             readiness_timeout=readiness_timeout,
+            cancel_check=lambda: mk.is_cancelled(port),
         )
 
         if ready:
+            # ADR-014: a cancel that arrived after readiness returned True
+            # is post-commit; we surface it as an advisory rather than
+            # tearing down the freshly-started process.
+            cancel_ignored = mk.is_cancelled(port)
             al.record(
                 AuditAction.STARTED,
                 AuditResult.SUCCESS,
@@ -410,7 +450,11 @@ def swap(
                 port=port,
                 model=model_name,
                 pid=new_pid,
-                message="phase 4 of swap",
+                message=(
+                    "phase 4 of swap; cancel arrived post-commit, ignored"
+                    if cancel_ignored
+                    else "phase 4 of swap"
+                ),
             )
             al.record(
                 AuditAction.SWAPPED,
@@ -434,17 +478,25 @@ def swap(
                     f"Swapped {previous_model_name} → {model_name} on port {port}"
                 ),
                 startup_logs=startup_logs,
+                cancel_ignored_post_commit=cancel_ignored,
             )
 
         # New model failed — record the failed start and fall through to rollback.
+        # If the failure was a cancel (ADR-014), audit as CANCELLED instead of
+        # ERROR; the rollback path is reused either way.
+        was_cancel = err == "cancelled"
         al.record(
             AuditAction.STARTED,
-            AuditResult.ERROR,
+            AuditResult.CANCELLED if was_cancel else AuditResult.ERROR,
             caller=caller,
             port=port,
             model=model_name,
             pid=new_pid,
-            message=f"phase 4 of swap failed: {err}",
+            message=(
+                f"phase 4 of swap cancelled: {err}"
+                if was_cancel
+                else f"phase 4 of swap failed: {err}"
+            ),
         )
 
         # ---- Rollback: restore the previous model --------------------------
@@ -465,30 +517,43 @@ def swap(
                 pid=rb_pid,
                 message="rollback restoration of previous model",
             )
+            # ADR-014: rollback path on cancel reports ``cancelled`` instead
+            # of ``rolled_back`` so callers can distinguish the two.
+            rb_action = "cancelled" if was_cancel else "rolled_back"
+            rb_result = (
+                AuditResult.CANCELLED if was_cancel else AuditResult.ROLLED_BACK
+            )
             al.record(
                 AuditAction.SWAPPED,
-                AuditResult.ROLLED_BACK,
+                rb_result,
                 caller=caller,
                 port=port,
                 model=previous_model_name,
                 from_model=previous_model_name,
                 pid=rb_pid,
                 message=(
-                    f"swap to {model_name} failed ({err}); rolled back to "
+                    f"swap to {model_name} cancelled; restored {previous_model_name}"
+                    if was_cancel
+                    else f"swap to {model_name} failed ({err}); rolled back to "
                     f"{previous_model_name}"
                 ),
             )
             return SwapResult(
                 success=False,
-                action="rolled_back",
+                action=rb_action,
                 port_state="restored",
                 port=port,
                 model=previous_model_name,
                 previous_model=previous_model_name,
                 pid=rb_pid,
                 message=(
-                    f"Swap to {model_name} failed ({err}); rolled back to "
-                    f"{previous_model_name}. Inference session was reset."
+                    f"Swap to {model_name} cancelled; restored {previous_model_name}. "
+                    "Inference session was reset."
+                    if was_cancel
+                    else (
+                        f"Swap to {model_name} failed ({err}); rolled back to "
+                        f"{previous_model_name}. Inference session was reset."
+                    )
                 ),
                 startup_logs=startup_logs,
             )
@@ -521,6 +586,92 @@ def swap(
         )
     finally:
         mk.release_marker(port)
+
+
+def _handle_cancel_during_swap(
+    *,
+    port: int,
+    model_name: str,
+    previous_model_name: str,
+    previous_config: ModelConfig,
+    caller: str,
+    server_bin: Path | None,
+    readiness_timeout: int,
+    stage: str,
+) -> SwapResult:
+    """ADR-014: cancel detected after stop-old, before launch-new.
+
+    Reuses the rollback path — restart the previous model. Returns a
+    ``cancelled`` SwapResult so the caller can distinguish a cancel from a
+    genuine rollback. The marker file is released by the surrounding
+    ``finally`` block in :func:`swap`.
+    """
+    al.record(
+        AuditAction.SWAPPED,
+        AuditResult.CANCELLED,
+        caller=caller,
+        port=port,
+        model=model_name,
+        from_model=previous_model_name,
+        message=f"swap cancelled at stage={stage}; attempting to restore {previous_model_name}",
+    )
+    rb_ready, rb_pid, rb_logs, rb_err = _launch_and_await_ready(
+        previous_config,
+        port,
+        server_bin=server_bin,
+        readiness_timeout=readiness_timeout,
+    )
+    if rb_ready:
+        al.record(
+            AuditAction.STARTED,
+            AuditResult.SUCCESS,
+            caller=caller,
+            port=port,
+            model=previous_model_name,
+            pid=rb_pid,
+            message=f"cancel-restore of {previous_model_name} succeeded",
+        )
+        return SwapResult(
+            success=False,
+            action="cancelled",
+            port_state="restored",
+            port=port,
+            model=previous_model_name,
+            previous_model=previous_model_name,
+            pid=rb_pid,
+            message=(
+                f"Swap to {model_name} cancelled at {stage}; restored "
+                f"{previous_model_name}. Inference session was reset."
+            ),
+            startup_logs=rb_logs,
+        )
+    # Cancel-restore failed — port is dead, same as rollback-also-failed.
+    al.record(
+        AuditAction.SWAPPED,
+        AuditResult.UNAVAILABLE,
+        caller=caller,
+        port=port,
+        model=None,
+        from_model=previous_model_name,
+        message=(
+            f"port_dead: swap to {model_name} cancelled at {stage}; "
+            f"restore of {previous_model_name} also failed ({rb_err})"
+        ),
+    )
+    return SwapResult(
+        success=False,
+        action="failed",
+        port_state="unavailable",
+        port=port,
+        model=None,
+        previous_model=previous_model_name,
+        message=(
+            f"Swap to {model_name} cancelled at {stage}; "
+            f"restoration of {previous_model_name} also failed ({rb_err}) — "
+            "manual intervention required."
+        ),
+        startup_logs=rb_logs,
+    )
 
 
 def _build_in_progress_result(

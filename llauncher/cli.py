@@ -185,6 +185,33 @@ def stop_server(
     console.print(_color(result.message, "stopped"))
 
 
+@server_app.command("cancel")
+def cancel_server(
+    port: int = typer.Argument(..., help="Port of the in-flight op to cancel"),
+    as_json: bool = typer.Option(False, "--json", "-j", help="Output in JSON format"),
+) -> None:
+    """Signal cancellation of an in-flight start or swap on the given port.
+
+    Per ADR-014: sets the cancel flag on the in-flight marker; the running
+    op picks it up at the next phase boundary. Returns success even when
+    there is no in-flight op (the caller's intent of "make sure nothing is
+    running" is satisfied either way).
+    """
+    from llauncher.core import marker as mk
+
+    delivered = mk.request_cancel(port)
+    payload = {"cancelled": delivered, "marker_existed": delivered, "port": port}
+
+    if as_json:
+        _json_output(payload)
+        return
+
+    if delivered:
+        console.print(_color(f"Cancel signal sent for port {port}.", "stopped"))
+    else:
+        console.print(f"[yellow]No in-flight op on port {port}; nothing to cancel.[/yellow]")
+
+
 @server_app.command("status")
 def server_status(
     as_json: bool = typer.Option(False, "--json", "-j", help="Output in JSON format"),

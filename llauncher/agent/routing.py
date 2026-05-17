@@ -66,6 +66,8 @@ def _start_status_code(action: str) -> int:
         "already_running": 200,
         "rejected_occupied": 409,
         "rejected_preflight": 409,  # added with issue #57 / ADR-005 seam
+        "rejected_in_progress": 409,  # ADR-014: marker conflict
+        "cancelled": 409,  # ADR-014: caller cancelled before commit
         "error": 500,
     }.get(action, 500)
 
@@ -87,6 +89,7 @@ def _swap_status_code(action: str) -> int:
         "rejected_in_progress": 409,
         "rejected_stop_failed": 500,
         "rolled_back": 503,
+        "cancelled": 503,  # ADR-014: cancel → rollback path
         "failed": 500,
     }.get(action, 500)
 
@@ -332,6 +335,30 @@ async def stop_server(port: int) -> dict:
     if code >= 400:
         raise HTTPException(status_code=code, detail=payload)
     return payload
+
+
+@router.post("/cancel/{port}")
+async def cancel_op(port: int) -> dict:
+    """Signal cancellation of an in-flight start/swap on ``port`` (ADR-014).
+
+    Sets ``cancelled=True`` on the in-flight marker. The actual abandonment
+    happens at the next phase-boundary checkpoint inside the running op;
+    this endpoint does not block on it.
+
+    Returns 200 in both cases:
+    - ``marker_existed=True`` — cancel signal delivered.
+    - ``marker_existed=False`` — no in-flight op (successful no-op per
+      ADR-014 §5; "nothing to cancel" is not an error from the caller's
+      view).
+    """
+    from llauncher.core import marker as mk
+
+    delivered = mk.request_cancel(port)
+    return {
+        "cancelled": delivered,
+        "marker_existed": delivered,
+        "port": port,
+    }
 
 
 @router.delete("/models/{model_name}")

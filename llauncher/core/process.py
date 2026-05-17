@@ -431,7 +431,8 @@ def _tail_file(path: Path, lines: int) -> list[str]:
 def wait_for_server_ready(
     port: int,
     timeout: int = 120,
-    check_interval: float = 1.0
+    check_interval: float = 1.0,
+    cancel_check=None,
 ) -> tuple[bool, list[str]]:
     """Wait for a llama-server to become ready to accept requests.
 
@@ -442,6 +443,11 @@ def wait_for_server_ready(
         port: Port number the server should be listening on.
         timeout: Maximum seconds to wait (default: 120).
         check_interval: Seconds between checks (default: 1.0).
+        cancel_check: Optional ``Callable[[], bool]`` invoked once per
+            poll tick. If it returns True the poll aborts and returns
+            ``(False, last_logs)`` immediately. Per ADR-014 — used by
+            ``operations.swap``/``start`` to react to a cancel request
+            without spinning a separate thread.
 
     Returns:
         Tuple of (is_ready, recent_log_lines).
@@ -455,6 +461,13 @@ def wait_for_server_ready(
     last_logs = []
 
     while time.time() - start_time < timeout:
+        # ADR-014: check cancel at the natural poll cadence — no new threads.
+        if cancel_check is not None and cancel_check():
+            proc = find_server_by_port(port)
+            if proc:
+                last_logs = stream_logs(pid=proc.pid, lines=50)
+            return False, last_logs
+
         # Check if port is listening
         port_ready = False
         try:

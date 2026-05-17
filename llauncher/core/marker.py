@@ -44,6 +44,7 @@ class SwapMarker:
     llauncher_pid: int
     from_model: str
     to_model: str
+    cancelled: bool = False  # Per ADR-014; absent in pre-ADR markers → False.
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -57,6 +58,9 @@ class SwapMarker:
             llauncher_pid=int(data["llauncher_pid"]),
             from_model=str(data["from_model"]),
             to_model=str(data["to_model"]),
+            # Pre-ADR-014 markers omit the field; default to False so
+            # back-compat reads continue to work without migration.
+            cancelled=bool(data.get("cancelled", False)),
         )
 
 
@@ -143,6 +147,63 @@ def release_marker(port: int, *, run_dir: Path | None = None) -> bool:
         return True
     except FileNotFoundError:
         return False
+
+
+def request_cancel(port: int, *, run_dir: Path | None = None) -> bool:
+    """Set ``cancelled=True`` on the in-flight marker for ``port`` (ADR-014).
+
+    Atomic read-modify-write via a tempfile + ``os.replace``. Returns
+    ``True`` if a marker existed (cancel signal delivered), ``False`` if no
+    marker existed (no in-flight op to cancel — successful no-op from the
+    caller's view per ADR-014 §5).
+
+    A corrupt marker is treated as "no marker" — we don't want to rewrite
+    garbage; the in-flight op's own reconciliation (per ADR-011) will
+    handle it on the next read.
+    """
+    base = _resolve_run_dir(run_dir)
+    path = marker_path(port, base)
+    existing = read_marker(port, run_dir=base)
+    if existing is None:
+        return False
+
+    updated = SwapMarker(
+        port=existing.port,
+        caller=existing.caller,
+        started_at=existing.started_at,
+        llauncher_pid=existing.llauncher_pid,
+        from_model=existing.from_model,
+        to_model=existing.to_model,
+        cancelled=True,
+    )
+
+    # Atomic rewrite: write to a tempfile in the same directory, then
+    # os.replace to swap it in. Matches the pattern used elsewhere for
+    # marker/lockfile mutations.
+    tmp_path = path.with_suffix(".swap.tmp")
+    try:
+        with tmp_path.open("w", encoding="utf-8") as f:
+            json.dump(updated.to_dict(), f, indent=2)
+        os.replace(str(tmp_path), str(path))
+    except OSError:
+        try:
+            tmp_path.unlink()
+        except FileNotFoundError:
+            pass
+        raise
+    return True
+
+
+def is_cancelled(port: int, *, run_dir: Path | None = None) -> bool:
+    """Return True iff the in-flight marker for ``port`` is flagged cancelled.
+
+    Returns False if no marker exists or if the marker is unflagged. Cheap
+    enough to call at every phase boundary; no process-table reconciliation
+    is performed (per ADR-014 §Open Questions — if the agent is dead the op
+    is already over).
+    """
+    marker = read_marker(port, run_dir=run_dir)
+    return marker is not None and marker.cancelled
 
 
 def reconcile_marker(marker: SwapMarker) -> MarkerReconcileResult:

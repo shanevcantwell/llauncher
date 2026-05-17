@@ -60,6 +60,7 @@ class AuditResult(str, Enum):
     REJECTED_STOP_FAILED = "rejected_stop_failed"
     ROLLED_BACK = "rolled_back"
     UNAVAILABLE = "unavailable"
+    CANCELLED = "cancelled"  # Per ADR-014: caller cancelled before commit.
 
 
 @dataclass(frozen=True)
