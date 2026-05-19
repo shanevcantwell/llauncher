@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""Stub llama-server binary for Phase C MCP integration tests.
+
+Honors the subset of llama-server CLI llauncher actually issues
+(``--host``, ``--port``, ``-m`` …). Behavior:
+
+- Binds the given ``--port`` on 127.0.0.1 (so the agent's readiness
+  poll can connect).
+- Writes a known banner ``rest api listening`` to stdout so
+  ``wait_for_server_ready`` in ``llauncher/core/process.py`` matches
+  one of its ready-indicators.
+- Emits a fixture line ``STUB_FIXTURE: ok`` for log-tail tests.
+- Reaps on SIGTERM/SIGINT.
+- Honors ``LLAMA_STUB_HANG_SECS`` — sleeps that many seconds before
+  binding (lets cancel-mid-start tests race the lifecycle deterministically).
+- Honors ``LLAMA_STUB_FAIL=1`` — exits non-zero before binding (used to
+  simulate Phase 4 launch failure → swap rollback).
+
+Tiny by design: stdlib only, no asyncio, single thread. Closes the
+listening socket on SIGTERM so the port frees promptly for the next test.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import signal
+import socket
+import sys
+import time
+
+
+def _parse_known_args() -> tuple[int, str]:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--host", type=str, default="127.0.0.1")
+    # Swallow every other flag/value llauncher might pass without choking.
+    args, _unknown = parser.parse_known_args()
+    return args.port, args.host
+
+
+def _make_listener(host: str, port: int) -> socket.socket:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind((host, port))
+    sock.listen(8)
+    sock.settimeout(0.25)
+    return sock
+
+
+def main() -> int:
+    port, host = _parse_known_args()
+
+    if os.environ.get("LLAMA_STUB_FAIL") == "1":
+        print("STUB_FIXTURE: forced-fail before bind", flush=True)
+        return 2
+
+    hang = float(os.environ.get("LLAMA_STUB_HANG_SECS", "0") or "0")
+    if hang > 0:
+        print(f"STUB_FIXTURE: hanging {hang}s before bind", flush=True)
+        # Sleep in small slices so SIGTERM still reaps us promptly.
+        end = time.monotonic() + hang
+        stop = [False]
+
+        def _stop_handler(_sig, _frm):
+            stop[0] = True
+
+        signal.signal(signal.SIGTERM, _stop_handler)
+        signal.signal(signal.SIGINT, _stop_handler)
+        while time.monotonic() < end and not stop[0]:
+            time.sleep(0.1)
+        if stop[0]:
+            print("STUB_FIXTURE: terminated during hang", flush=True)
+            return 0
+
+    # Bind and announce ready.
+    try:
+        listener = _make_listener("127.0.0.1", port)
+    except OSError as exc:
+        print(f"STUB_FIXTURE: bind failed: {exc}", flush=True)
+        return 3
+
+    # The banner llauncher's readiness poll greps for. Match one of the
+    # phrases in ``llauncher.core.process.wait_for_server_ready``.
+    print(f"STUB_FIXTURE: ok port={port} host={host}", flush=True)
+    print("rest api listening", flush=True)
+
+    stop = [False]
+
+    def _term(_sig, _frm):
+        stop[0] = True
+
+    signal.signal(signal.SIGTERM, _term)
+    signal.signal(signal.SIGINT, _term)
+
+    try:
+        while not stop[0]:
+            try:
+                conn, _addr = listener.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            # Minimal: drop connections immediately. The agent's readiness
+            # check is connect_ex + log-grep; it does not parse a response.
+            try:
+                conn.close()
+            except OSError:
+                pass
+    finally:
+        try:
+            listener.close()
+        except OSError:
+            pass
+    print("STUB_FIXTURE: shutdown", flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
