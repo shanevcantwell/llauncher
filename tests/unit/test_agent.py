@@ -604,6 +604,10 @@ class TestUtilityFunctions:
         # Mock socket.gethostname
         monkeypatch.setattr("socket.gethostname", lambda: "test-host")
 
+        # Provide a deterministic token so the loopback start path
+        # does not auto-generate a file under the real ~/.llauncher.
+        monkeypatch.setenv("LAUNCHER_AGENT_TOKEN", "test-token")
+
         # Create a config
         config = AgentConfig(host="127.0.0.1", port=9000, node_name="test-node")
 
@@ -613,33 +617,51 @@ class TestUtilityFunctions:
         # If we get here without exception, the test passes
         # For simplicity, we just ensure no exception.
 
-    def test_run_agent_bind_all_warning(self, monkeypatch):
-        """Test run_agent logs warning when binding to 0.0.0.0."""
+    def test_run_agent_refuses_non_loopback_without_token(self, monkeypatch):
+        """Security §3 C1: refuse to start on non-loopback without token.
+
+        Replaces the previous warn-on-0.0.0.0 test now that the hardening
+        plan upgrades the warning to a hard refusal.
+        """
         from llauncher.agent.server import run_agent
         from llauncher.agent.config import AgentConfig
         import llauncher.agent.server
 
-        # Mock uvicorn.run to capture the arguments
-        mock_run = lambda app, host=None, port=None, log_level="info", lifespan="auto": None
-        monkeypatch.setattr("uvicorn.run", mock_run)
+        # uvicorn.run must NOT be reached.
+        uvicorn_called = []
+        monkeypatch.setattr("uvicorn.run", lambda *a, **kw: uvicorn_called.append((a, kw)))
 
-        # Mock logging.info and logging.warning
-        info_msgs = []
-        warning_msgs = []
-        monkeypatch.setattr(llauncher.agent.server.logger, "info", lambda msg, *args: info_msgs.append(msg % args))
-        monkeypatch.setattr(llauncher.agent.server.logger, "warning", lambda msg, *args: warning_msgs.append(msg % args))
+        # No token anywhere.
+        monkeypatch.delenv("LAUNCHER_AGENT_TOKEN", raising=False)
+        # Force the on-disk token file lookup to a missing path so the
+        # refuse-to-start branch is exercised even if the operator's real
+        # home has a file present.
+        from llauncher.agent import auth as agent_auth
+        from pathlib import Path
 
-        # Mock socket.gethostname
+        monkeypatch.setattr(
+            agent_auth, "default_token_path",
+            lambda: Path("/nonexistent/llauncher/agent.token"),
+        )
+
         monkeypatch.setattr("socket.gethostname", lambda: "test-host")
 
-        # Create a config binding to all interfaces
+        # Capture stderr to verify the error message.
+        import io
+        buf = io.StringIO()
+        monkeypatch.setattr("sys.stderr", buf)
+
         config = AgentConfig(host="0.0.0.0", port=9000, node_name="test-node")
 
-        # Call the function
-        run_agent(config)
+        import pytest as _pytest
+        with _pytest.raises(SystemExit) as excinfo:
+            run_agent(config)
 
-        # Check that warning was logged
-        assert any("binding to 0.0.0.0" in msg for msg in warning_msgs)
+        assert excinfo.value.code == 2
+        assert not uvicorn_called, "uvicorn.run must not be invoked on refuse-to-start"
+        err = buf.getvalue()
+        assert "non-loopback" in err
+        assert "LAUNCHER_AGENT_TOKEN" in err
 
     def test_main_stop_flag(self, monkeypatch):
         """Test main with --stop flag."""
@@ -808,10 +830,12 @@ class TestAgentConfig:
         # Create config from environment
         config = AgentConfig.from_env()
 
-        # Check that default values are used
-        assert config.host == "0.0.0.0"  # Default host
-        assert config.port == 8765       # Default port
-        assert config.node_name is None  # No default for node_name
+        # Check that default values are used. Default host flipped from
+        # 0.0.0.0 to 127.0.0.1 in security hardening §3 C2 — operator
+        # opts into LAN exposure explicitly.
+        assert config.host == "127.0.0.1"  # Default host (loopback)
+        assert config.port == 8765         # Default port
+        assert config.node_name is None    # No default for node_name
 
     def test_from_env_invalid_port(self, monkeypatch):
         """Test from_env with invalid port value raises ValueError."""
@@ -1241,6 +1265,10 @@ class TestAgentServerFunctions:
         # Mock socket.gethostname
         monkeypatch.setattr("socket.gethostname", lambda: "test-host")
 
+        # Provide an explicit token so the loopback start path does not
+        # auto-generate a token file under the real ~/.llauncher.
+        monkeypatch.setenv("LAUNCHER_AGENT_TOKEN", "test-token")
+
         config = AgentConfig(host="127.0.0.1", port=9000, node_name="test-node")
         run_agent(config)
 
@@ -1249,28 +1277,36 @@ class TestAgentServerFunctions:
         assert captured_args["host"] == "127.0.0.1"
         assert captured_args["log_level"] == "info"
 
-    def test_run_agent_warning_on_0_0_0_0(self, monkeypatch):
-        """Test run_agent logs warning when binding to 0.0.0.0."""
+    def test_run_agent_non_loopback_with_token_starts(self, monkeypatch):
+        """Security §3 C1: non-loopback bind succeeds when a token is set.
+
+        Replaces the previous warn-on-0.0.0.0 assertion. The new contract
+        is binary: token + any host = start; no token + non-loopback =
+        refuse. This test exercises the happy path of the C1 guard.
+        """
         from llauncher.agent.server import run_agent
         from llauncher.agent.config import AgentConfig
         import llauncher.agent.server
 
         # Mock uvicorn.run
-        monkeypatch.setattr("uvicorn.run", lambda *args, **kwargs: None)
+        captured: dict = {}
+        def mock_run(app, host=None, port=None, log_level="info", lifespan="auto"):
+            captured["host"] = host
+            captured["port"] = port
+        monkeypatch.setattr("uvicorn.run", mock_run)
 
-        # Capture log messages
-        info_msgs = []
-        warning_msgs = []
-        monkeypatch.setattr(llauncher.agent.server.logger, "info", lambda msg, *args: info_msgs.append(msg % args) if args else info_msgs.append(msg))
-        monkeypatch.setattr(llauncher.agent.server.logger, "warning", lambda msg, *args: warning_msgs.append(msg % args) if args else warning_msgs.append(msg))
+        # Quiet logger
+        monkeypatch.setattr(llauncher.agent.server.logger, "info", lambda *a, **kw: None)
+        monkeypatch.setattr(llauncher.agent.server.logger, "warning", lambda *a, **kw: None)
 
         monkeypatch.setattr("socket.gethostname", lambda: "test-host")
+        monkeypatch.setenv("LAUNCHER_AGENT_TOKEN", "lan-token")
 
         config = AgentConfig(host="0.0.0.0", port=9000, node_name="test-node")
         run_agent(config)
 
-        # Check warning was logged for binding to all interfaces
-        assert any("binding to 0.0.0.0" in msg for msg in warning_msgs)
+        assert captured["host"] == "0.0.0.0"
+        assert captured["port"] == 9000
 
     def test_main_stop_flag_with_agent_stopped(self, monkeypatch):
         """Test main with --stop flag when agent is successfully stopped."""
