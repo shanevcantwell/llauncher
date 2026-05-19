@@ -316,9 +316,10 @@ run.bat agent
 ```
 
 **Environment Variables:**
-- `LAUNCHER_AGENT_HOST`: Host to bind to (default: `0.0.0.0`)
+- `LAUNCHER_AGENT_HOST`: Host to bind to (default: `127.0.0.1`). Set to `0.0.0.0` or a specific LAN IP to expose the agent to other hosts — see "Security Notes" below.
 - `LAUNCHER_AGENT_PORT`: Port to listen on (default: `8765`)
 - `LAUNCHER_AGENT_NODE_NAME`: Friendly name for the node
+- `LAUNCHER_AGENT_TOKEN`: Required when binding to anything other than loopback. The agent refuses to start on a non-loopback host without it. Special value `-` reads the token from stdin (one line). On a loopback start with no value set, a fresh token is auto-generated and written to `~/.llauncher/agent.token` (mode 0600).
 
 #### 3. Start the Dashboard on the Head Machine
 
@@ -373,8 +374,9 @@ New-NetFirewallRule -DisplayName "llauncher Agent" -Direction Inbound -LocalPort
 
 #### Security Notes
 
-- **Trusted LAN Only**: Agents run without authentication by default. Only expose them on trusted networks.
-- **Bind to Specific Interface**: Use `LAUNCHER_AGENT_HOST` to bind to a specific IP instead of `0.0.0.0`.
+- **Loopback by default**: The agent binds to `127.0.0.1` unless `LAUNCHER_AGENT_HOST` is set explicitly. Set it to a LAN IP (or `0.0.0.0`) to expose the agent to other hosts on the network.
+- **Token required for non-loopback binds**: Binding to anything other than `127.0.0.1` / `::1` / `localhost` requires `LAUNCHER_AGENT_TOKEN` to be set. The agent refuses to start otherwise. On loopback first-run with no token configured, a fresh token is generated at `~/.llauncher/agent.token` (mode 0600) and printed once to stderr.
+- **Trusted LAN Only**: Even with a token, only expose the agent on networks you trust — the transport is plain HTTP (no TLS). Tailscale is the recommended option for cross-host trust.
 - **Firewall**: Restrict port 8765 to your LAN subnet.
 
 ### Usage
@@ -405,7 +407,8 @@ New-NetFirewallRule -DisplayName "llauncher Agent" -Direction Inbound -LocalPort
 
 3. Verify the agent is binding to the correct interface:
    ```bash
-   # Should show 0.0.0.0:8765 or your LAN IP
+   # Default is 127.0.0.1:8765 (loopback). For LAN access you must
+   # have set LAUNCHER_AGENT_HOST and LAUNCHER_AGENT_TOKEN.
    netstat -tlnp | grep 8765
    ```
 
@@ -430,9 +433,11 @@ New-NetFirewallRule -DisplayName "llauncher Agent" -Direction Inbound -LocalPort
    ping <remote-node-ip>
    ```
 
-2. Check that the agent is not binding to localhost only:
-   - Look for `0.0.0.0:8765` in agent startup logs
-   - If it shows `127.0.0.1:8765`, set `LAUNCHER_AGENT_HOST=0.0.0.0`
+2. Check that the agent is not binding to loopback only:
+   - The default is `127.0.0.1:8765`. For cross-host access set
+     `LAUNCHER_AGENT_HOST=0.0.0.0` (or a specific LAN IP) **and**
+     `LAUNCHER_AGENT_TOKEN` — the agent refuses to start on a
+     non-loopback host without a token.
 
 ### API Documentation
 

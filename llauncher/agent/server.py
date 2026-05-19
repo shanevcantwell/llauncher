@@ -25,6 +25,7 @@ from fastapi import FastAPI
 
 from llauncher import __version__
 from llauncher import operations as ops
+from llauncher.agent.auth import is_loopback, resolve_agent_token
 from llauncher.agent.config import AgentConfig
 from llauncher.agent.middleware import AuthenticationMiddleware
 from llauncher.agent.routing import router, get_node_name
@@ -182,9 +183,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
 
 
-def create_app() -> FastAPI:
-    """Create and configure the FastAPI application."""
-    auth_active = AGENT_API_KEY is not None
+def create_app(auth_token: str | None = None) -> FastAPI:
+    """Create and configure the FastAPI application.
+
+    Args:
+        auth_token: Token to enforce on incoming requests via the
+            ``X-Api-Key`` header. When ``None``, falls back to the
+            module-level ``AGENT_API_KEY`` (captured from env at
+            import time) for backwards compatibility with existing
+            test fixtures that patch that symbol.
+    """
+    token = auth_token if auth_token is not None else AGENT_API_KEY
+    auth_active = token is not None
 
     # Disable OpenAPI docs endpoints when authentication is configured
     docs_url = None if auth_active else "/docs"
@@ -202,7 +212,7 @@ def create_app() -> FastAPI:
 
     if auth_active:
         # Add authentication middleware when API key is configured
-        app.add_middleware(AuthenticationMiddleware, expected_token=AGENT_API_KEY)
+        app.add_middleware(AuthenticationMiddleware, expected_token=token)
 
     # Include the router
     app.include_router(router, tags=["llauncher"])
@@ -213,36 +223,55 @@ def create_app() -> FastAPI:
 def run_agent(config: AgentConfig) -> None:
     """Run the agent server.
 
+    Enforces the security hardening §3 C1 guard: refuses to start
+    when binding to a non-loopback interface without an authentication
+    token configured. Auto-generates a token file at
+    ``~/.llauncher/agent.token`` on the first loopback start with no
+    env-provided token.
+
     Args:
         config: Agent configuration.
+
+    Raises:
+        SystemExit: With code 2 when binding non-loopback without an
+            available authentication token. The error message names
+            both remediation paths (set ``LAUNCHER_AGENT_TOKEN`` or
+            bind loopback).
     """
-    app = create_app()
+    env_token = os.environ.get("LAUNCHER_AGENT_TOKEN")
+    loopback = is_loopback(config.host)
+
+    if not loopback:
+        # Non-loopback bind: require a token from env, stdin, or the
+        # token file. Do NOT auto-generate in this branch — auto-gen
+        # is only safe for loopback (a freshly-generated secret that
+        # nobody outside the host has seen is meaningless for LAN
+        # exposure).
+        token = resolve_agent_token(env_value=env_token, allow_generate=False)
+        if token is None:
+            sys.stderr.write(
+                "[llauncher-agent] ERROR: refusing to bind to non-loopback host "
+                f"{config.host!r} without an authentication token.\n"
+                "[llauncher-agent] Set LAUNCHER_AGENT_TOKEN (or use "
+                "LAUNCHER_AGENT_TOKEN=- to pipe a token on stdin), or bind "
+                "to 127.0.0.1 to allow auto-generation of a local token.\n"
+            )
+            raise SystemExit(2)
+    else:
+        # Loopback bind: env > stdin > file > generate-and-write.
+        token = resolve_agent_token(env_value=env_token, allow_generate=True)
+
+    app = create_app(auth_token=token)
 
     # Log startup info
     node_name = config.node_name or socket.gethostname()
     logger.info(f"Starting llauncher agent on {config.host}:{config.port}")
     logger.info(f"Node name: {node_name}")
 
-    if AGENT_API_KEY:
-        logger.info("Authentication is active. Binding to %s", config.host)
-    else:
-        logger.warning("API key (LAUNCHER_AGENT_API_KEY) not set — no authentication enabled.")
-        logger.info("API docs: http://%s:%s/docs", config.host, config.port)
-
-    # Warning if binding to all interfaces without auth
-    if AGENT_API_KEY is None:
-        if config.host == "0.0.0.0":
-            logger.warning(
-                "Agent is binding to 0.0.0.0 (all interfaces). "
-                "Ensure this is a trusted network. "
-                "Use LAUNCHER_AGENT_HOST to bind to a specific interface."
-            )
-        elif config.host.startswith("192.168.") or config.host.startswith("10."):
-            logger.info(
-                "Agent binding to local address %s without authentication — "
-                "ensure this network segment is trusted.",
-                config.host,
-            )
+    # Token is always present at this point: the non-loopback branch
+    # would have exited above, and the loopback branch generates a
+    # token on first run if none was supplied.
+    logger.info("Authentication is active. Binding to %s", config.host)
 
     # Run the server. ``lifespan="on"`` ensures the FastAPI lifespan handler
     # (which reaps llama-server children on shutdown per #65) actually fires
