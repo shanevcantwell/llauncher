@@ -83,3 +83,21 @@ The user is using this project to learn orchestrator/subagent patterns. Captured
 ## 6. Suggested first move for next session
 
 Knock out the three quick-win items (§4 "Quick wins") first — they're independent, small, and clear the deck. Then file the C1+C2 security ticket pair from `docs/plans/security-hardening-plan.md` §6 and pick it up immediately (one PR, both controls, with the assertions in `tests/integration/test_agent_security_hooks.py` flipped from "documents current open default" to "enforces closed default" as the same diff). After that lands, Phase D against the §3 missed-line list and set the `--cov-fail-under=80` floor in the same PR.
+
+## 7. Closeout — C1+C2 follow-on session (appended 2026-05-19)
+
+The "first move" recommendation in §6 was executed. Status changes since this dossier was first written:
+
+- **PR #75** — `feat(security): require auth for non-loopback bind; default to loopback` — merged as `ec98026`. Lands the full C1 (refuse-to-start guard + auto-generated `~/.llauncher/agent.token` at mode 0600 + `LAUNCHER_AGENT_TOKEN=-` stdin trigger) plus C2 (default bind flips to `127.0.0.1`). New module `llauncher/agent/auth.py`. 8 new integration cases in `tests/integration/test_agent_security_c1_c2.py`. Suite: 902 pass / 10 skip, no regressions. Independent review verdict was *ship-with-followups*; one real finding (the `create_app(auth_token=None)` back-compat fallback) was filed as **#87** rather than blocking the merge.
+- **§6 ticket pass** filed all 11 follow-up titles as **#76–#86**; **#76 (C1)** and **#77 (C2)** closed immediately as already-shipped with merge-commit pointers. The actionable open backlog is **#78–#87** (10 issues, all labelled `security`).
+- **`docs/plans/security-hardening-plan.md`** — status line, §3 C1+C2 rows, and §6 ticket list all annotated with landed/issue-number state. Plan is now the durable index over the issue backlog rather than a pre-implementation spec.
+- **Network-trust posture** — corrected. The §1 "still default-open" sentence is stale; default is now loopback + auth-on (auto-generated token on loopback, refuse-to-start on non-loopback without explicit token).
+
+### New first move for *next* session
+
+Test-coverage thread vs. security thread are now both live. The dossier's §4 quick wins are still untouched:
+
+- #6 async test warnings, #9 stale failure placeholder, #11 Pydantic field collision — three independent small PRs.
+- After those: pick between **Phase D + `--cov-fail-under=80` floor** (test-coverage thread continues) or **#87 (`create_app` tightening)** or **#83 (chmod 0600 nodes.json) / #78 (1 MiB body cap)** as small security wins. None blocks the others.
+
+The bigger threads — **#56 canonical self-swap integration test** (M5 close), **#69 UI test harness**, **#86 TLS scoping** — remain queued. M6 (vLLM adapter, #42) and M7 (v2.0.0 tag) still wait on M5 closure.

@@ -1,6 +1,6 @@
 # Security Hardening Plan (Issue #70)
 
-Status: **draft / plan-only**. Implementation work follows per-surface tickets filed separately. Companion to `test-coverage-plan.md` (Phase C of that plan hosts the security-regression assertions enumerated in §4).
+Status: **partial landing**. C1 + C2 shipped in PR #75 (merge `ec98026`, 2026-05-19); §6 tickets filed as #78–#87. Companion to `test-coverage-plan.md` (Phase C of that plan hosts the security-regression assertions enumerated in §4).
 
 ---
 
@@ -125,8 +125,8 @@ The driving principle: **proportionate to a workstation tool, not enterprise**. 
 
 | # | Surface | Control class | Recommended action |
 |---|---|---|---|
-| C1 | Agent HTTP auth | Code change | **Require `LAUNCHER_AGENT_TOKEN` to be set when binding to anything other than `127.0.0.1`/`::1`.** Refuse to start with a clear error message; auto-generate a token in `~/.llauncher/agent.token` on first run with no `LAUNCHER_AGENT_TOKEN` and print it once. Keep stdin-piped override available. |
-| C2 | Agent default bind | Config hardening | Change `LAUNCHER_AGENT_HOST` default from `0.0.0.0` to `127.0.0.1`. Operator opts in to LAN exposure explicitly. Strictly a default change — keep 0.0.0.0 as a valid value. |
+| C1 | Agent HTTP auth | Code change | **Require `LAUNCHER_AGENT_TOKEN` to be set when binding to anything other than `127.0.0.1`/`::1`.** Refuse to start with a clear error message; auto-generate a token in `~/.llauncher/agent.token` on first run with no `LAUNCHER_AGENT_TOKEN` and print it once. Keep stdin-piped override available. **(LANDED — PR #75, `ec98026`)** |
+| C2 | Agent default bind | Config hardening | Change `LAUNCHER_AGENT_HOST` default from `0.0.0.0` to `127.0.0.1`. Operator opts in to LAN exposure explicitly. Strictly a default change — keep 0.0.0.0 as a valid value. **(LANDED — PR #75, `ec98026`)** |
 | C3 | HTTP request limits | Code change | Add a Starlette middleware capping body size (e.g. 1 MiB) — defense in depth against accidental large-payload bugs. Low effort, low risk. |
 | C4 | CORS | Do nothing + document | Document that no CORS headers are emitted (so browsers cannot make cross-origin requests to the agent from arbitrary pages). Add a regression test asserting absence of `Access-Control-Allow-Origin` on responses. |
 | C5 | MCP stdio | Do nothing + document | Threat model puts this out of scope. Add a single sentence to the README clarifying "MCP server trusts whatever invoked it via stdio". |
@@ -179,16 +179,17 @@ Concrete assertions future tests should encode. Each is a one-liner the integrat
 
 ## 6. Suggested follow-up tickets
 
-To be filed **after** this plan is approved, not now. One ticket per control that warrants implementation work:
+Filed 2026-05-19. Status reflects state at filing time; check each issue for current state.
 
-1. `security: require LAUNCHER_AGENT_TOKEN when binding non-loopback; auto-generate on loopback first run (C1)`
-2. `security: change default agent bind from 0.0.0.0 to 127.0.0.1 (C2)`
-3. `security: cap agent HTTP request body size at 1 MiB (C3)`
-4. `security: regression test asserting no CORS headers on agent responses (C4)`
-5. `docs: clarify MCP stdio trust boundary in README (C5)`
-6. `security: validate extra_args against a deny-list of llama-server flags llauncher controls (C7)`
-7. `security: optional LAUNCHER_MODELS_ROOT enforcement for model_path on save (C8)`
-8. `security: chmod 0600 on remote-node registry file (C10)`
-9. `security: audit UI for unsafe_allow_html and add escaping regression test (C11)`
-10. `docs: README guidance for Streamlit --server.address binding (C12)`
-11. `security/architecture: scope TLS / mTLS story for cross-host remote nodes (C9, deferred design)`
+1. ~~`security: require LAUNCHER_AGENT_TOKEN when binding non-loopback; auto-generate on loopback first run (C1)`~~ — **closed #76** (shipped in PR #75 / `ec98026`)
+2. ~~`security: change default agent bind from 0.0.0.0 to 127.0.0.1 (C2)`~~ — **closed #77** (shipped in PR #75 / `ec98026`)
+3. `security: cap agent HTTP request body size at 1 MiB (C3)` — open **#78**
+4. `security: regression test asserting no CORS headers on agent responses (C4)` — open **#79**
+5. `docs: clarify MCP stdio trust boundary in README (C5)` — open **#80**
+6. `security: validate extra_args against a deny-list of llama-server flags llauncher controls (C7)` — open **#81**
+7. `security: optional LAUNCHER_MODELS_ROOT enforcement for model_path on save (C8)` — open **#82**
+8. `security: chmod 0600 on remote-node registry file (C10)` — open **#83**
+9. `security: audit UI for unsafe_allow_html and add escaping regression test (C11)` — open **#84**
+10. `docs: README guidance for Streamlit --server.address binding (C12)` — open **#85**
+11. `security/architecture: scope TLS / mTLS story for cross-host remote nodes (C9, deferred design)` — open **#86**
+12. `security: tighten create_app(auth_token=None) to prevent silent no-auth construction` — open **#87** (added post-PR-#75 from independent review of the C1+C2 implementation)
