@@ -215,15 +215,10 @@ async def test_cancel_post_commit_during_swap_is_advisory(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Flow 6: list_orphans annotation + listing (ADR-015) — DEFERRED
+# Flow 6: list_orphans annotation + listing (ADR-015)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.skip(
-    reason="ADR-015 list_orphans verb landed on main in e2dc024; this worktree "
-    "is rooted on the cancel branch (67c07d5) so the verb is not present. "
-    "Phase C will reattach this flow once rebased onto main."
-)
 async def test_list_orphans_annotation_and_listing(mcp_env, mcp_dispatch):
     result = await mcp_dispatch("list_orphans", {})
     assert "orphans" in result
