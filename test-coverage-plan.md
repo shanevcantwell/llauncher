@@ -1,97 +1,110 @@
-# Test Coverage Plan
+# Test Coverage Plan — Phase 1 (Baseline + Plan)
+
+Generated against `main` (post #55 / ADR-015 orphan list).
+Baseline run: 776 passed, 9 skipped, 2 warnings, 14.34 s.
+Full coverage output: `/tmp/llauncher-cov-baseline.txt`.
 
 ## Baseline
 
-Run `pytest --cov --cov-report=term-missing` gave 85% overall coverage.
+**Total: 79% line coverage** (3685 stmts, 785 missed).
 
-See the coverage report for details on uncovered lines.
+Top modules ranked by uncovered line count:
 
-## Uncovered Modules Ranked by Gap Size
+| Module | Stmts | Miss | Cover | Key missing ranges |
+|---|---:|---:|---:|---|
+| `ui/tabs/forms.py` | 151 | 144 | 5% | 15-115, 169-212, 222-350, 403-451 |
+| `core/gpu.py` | 260 | 130 | 50% | 121-188, 230-235, 287-365, 373-432 |
+| `ui/tabs/nodes.py` | 117 | 111 | 5% | 16-27, 37-143, 152-243 |
+| `ui/tabs/model_card.py` | 146 | 81 | 45% | 92-99, 117-123, 143-190, 268-373 |
+| `remote/node.py` | 220 | 54 | 75% | 212-214, 292-336, 346-369, 398-401 |
+| `ui/tabs/model_registry.py` | 50 | 46 | 8% | 26-93, 109-116 |
+| `cli.py` | 213 | 43 | 80% | 56-78, 130-135, 233-245, 382-394, 427-429 |
+| `state.py` | 233 | 35 | 85% | 285-308, 410-434, 563-598 |
+| `core/process.py` | 255 | 15 | 94% | 60, 243-244, 322-325, 482, 533-536 |
+| `log_rotation.py` | 48 | 12 | 75% | 74-76, 102-108, 127-141 |
 
-1. **llauncher/agent/server.py** (20% covered) - Missing lines: 42-67, 79-117, 142-159, 170-199, 203
-2. **llauncher/ui/tabs/dashboard.py** (26% covered) - Missing lines: 34-51, 54-57, 72, 107-112, 115-117, 127-128, 149-152, 157-159, 163-164, 178-199, 204-205, 227-367, 476-522, 532-701
-3. **llauncher/mcp/server.py** (69% covered) - Missing lines: 45, 51, 53, 55, 57, 61, 63, 67, 75-86, 95, 99
-4. **llauncher/remote/registry.py** (57% covered) - Missing lines: 44-46, 148-153, 161-183, 191-217, 221
-5. **llauncher/remote/state.py** (71% covered) - Missing lines: 56-67, 88-94, 104-117, 187-188
-6. **llauncher/agent/routing.py** (82% covered) - Missing lines: 58-59, 167-187, 210-221
-7. **llauncher/core/discovery.py** (73% covered) - Missing lines: 28, 60-62, 67, 72, 168, 192, 195-196, 208-211, 221, 224-225, 247-271
-8. **llauncher/mcp/tools/config.py** (89% covered) - Missing lines: 129, 133, 135, 137, 139, 141, 146-147
-9. **llauncher/models/config.py** (90% covered) - Missing lines: 62-64, 67, 105, 145, 172, 174, 176, 182
-10. **llauncher/agent/config.py** (78% covered) - Missing lines: 22-24
-11. **llauncher/core/config.py** (93% covered) - Missing lines: 33-35, 105
-12. **llauncher/core/process.py** (97% covered) - Missing lines: 41, 46, 257, 270-273
-13. **llauncher/core/settings.py** (90% covered) - Missing line: 29
-14. **llauncher/remote/node.py** (91% covered) - Missing lines: 129-131, 189-192, 212-215, 235
-15. **llauncher/state.py** (93% covered) - Missing lines: 139, 167, 206-207, 241-243, 301
-16. **tests/integration/test_swap.py** (38% covered) - Missing lines: 55-92, 105, 135, 139, 151-158, 177-240, 244
-17. **tests/unit/test_ui_syntax.py** (89% covered) - Missing lines: 40-41, 47, 72-74
+Notable smaller modules below 90%: `core/settings.py` 79%, `agent/server.py` 93%, `models/config.py` 89%, `remote/state.py` 89%, `core/marker.py` 87%, `core/lockfile.py` 94%.
 
-## Closed Issues Lacking Corresponding Test Cases
+## Closed Issues Lacking Regression Tests
 
-We examined the last 50 closed issues (see below). For each, we note if there is likely a missing regression test.
+Recent ADR/audit work (#54, #55, #52, #53, #60, #61, #62, #65, #59, #57) all have either explicit regression tests or strong feature-test coverage. The gaps are concentrated in older UI bug reports and a few enhancement-flavored items.
 
-| Issue | Title | Area | Likely Missing Test? |
-|-------|-------|------|----------------------|
-| #18 | Bug: UI crash when editing models with old-format extra_args config | UI/models | Yes - need test for editing models with old config |
-| #17 | REF-UI-001: Consolidate Running Servers into Models section | UI/refactor | Yes - test UI after refactor |
-| #13 | BUG-UI-001: Local agent auto-start not working in ensure_local_agent() | UI/agent | Yes - test ensure_local_agent |
-| #12 | UX-UI-007: Log refresh button should not consume separate column width | UI | Yes - test UI layout |
-| #11 | BUG-UI-006: top_k and min_p missing from UI forms causes NameError | UI/forms | Yes - test UI forms with top_k/min_p |
-| #9 | ENHANCEMENT-UI-005: Add refresh button for individual model logs | UI/logs | Yes - test refresh button |
-| #8 | ENHANCEMENT-UI-004: Add filesystem browser for model/mmproj path selection | UI/filesystem | Yes - test filesystem browser |
-| #7 | BUG-CONFIG-003: Remove unused multi-GPU fields | config | Yes - test config without multi-GPU fields |
-| #6 | BUG-CONFIG-002: Missing llama-server config fields | config | Yes - test llama-server config fields |
-| #5 | BUG-CORE-001: Start button fails - config.port renamed to config.default_port | core/config | Yes - test start button with port rename |
-| #4 | BUG-DISCOVERY-004: Revisit launch-*.sh scripts for additional config fields | discovery/scripts | Yes - test launch scripts |
-| #3 | BUG-DESIGN-003: Port number coupled to model configuration profile | design/config | Yes - test port configuration |
-| #2 | BUG-UI-002: Manager tab missing Start/Stop controls for models | UI/manager | Yes - test Start/Stop controls |
-| #1 | BUG-UI-001: Dashboard tab layout should match Manager tab's single-column list | UI/layout | Yes - test dashboard layout |
+| Issue | Type | Title | Suggested test target |
+|---|---|---|---|
+| #1 | bug | Dashboard layout should match Manager tab single-column list | `tests/unit/test_dashboard.py` — snapshot dashboard column structure |
+| #2 | bug | Manager tab missing Start/Stop controls for models | `tests/unit/test_models_tab.py` — assert Start/Stop affordances per row |
+| #19 | bug | DuplicateElementKey error in dashboard refresh button | `tests/unit/test_dashboard.py` — unique keys with N models |
+| #35 | bug | CLI tools `nodeFg is not defined` — model swap broken | `tests/unit/test_cli.py` — exercise `llaunch swap` with mocked HTTP |
+| #25 | enh | Dashboard UX — sorting, status cleanup, inline toggle with eviction | `tests/unit/test_dashboard.py` — sort key + toggle semantics |
+| #17 | enh | Consolidate Running Servers into Models section | `tests/unit/test_models_tab.py` — running indicator merged in models list |
+| #12 | ux | Log refresh button shouldn't consume separate column | `tests/unit/test_model_card.py` (new) — layout assertion |
+| #9 | enh | Per-model log refresh button | `tests/unit/test_model_card.py` — refresh action wired |
+| #8 | enh | Filesystem browser for model/mmproj path | `tests/unit/test_model_card.py` — browser component rendered |
+| #41 | misc | CLI naming `llauncher` vs `llaunch` | `tests/unit/test_cli.py` — both entrypoints resolve |
+| #40 | refactor | Port-keyed start/swap, drop model-keyed eviction | `tests/integration/test_swap.py` — port-keyed semantics |
+| #47 | refactor | Migrate UI from v1 `state.start_server` to v2 `operations.start` | UI tab tests — call sites use v2 ops |
+| #30 | refactor | MCP lazy singleton + per-call refresh | `test_phase1_lazy_singleton.py` exists — verify covers original symptom |
 
-Note: This is not exhaustive; we recommend reviewing each closed issue to determine if a regression test is needed.
+Most regression-shaped historical bugs without explicit tests: **#1, #2, #19, #35** (four closed bug-labeled issues lacking obvious coverage).
 
-## Phased Groupings
+## Phases
 
-We group the work into logical phases to allow incremental progress.
+### Phase A — Recent feature regressions (ADR-013/014/015 + #65/#62)
 
-### Phase 1: Core Agent and MCP Server
-Focus on low-coverage agent and MCP server modules.
-- llauncher/agent/server.py
-- llauncher/mcp/server.py
-- llauncher/agent/routing.py
-- llauncher/agent/config.py
+Confirm and harden coverage for the most recent feature surface. Existing tests cover the unit-level happy paths; gaps are in cross-module wiring and error branches.
 
-### Phase 2: Remote and Registry
-Focus on remote modules.
-- llauncher/remote/registry.py
-- llauncher/remote/state.py
-- llauncher/remote/node.py
+Files to extend:
+- `tests/unit/test_log_rotation.py` — cover 74-76, 102-108, 127-141 (rotation failure modes: missing dir, permission error, oversized initial file).
+- `tests/unit/test_orphan.py` — cover `operations/orphan.py:73-74, 119` (cleanup failure path, edge in list verb).
+- `tests/unit/test_marker.py` — cover `core/marker.py:116-123, 188-193` (stale-marker reconciliation paths added with cancel/orphan).
+- `tests/unit/test_agent_lifespan.py` — add test that lifespan shutdown still reaps when one lockfile read raises.
+- `tests/unit/test_remote.py` — extend self-loop tests to cover `remote/node.py:292-336, 346-369` (non-self-loop branches refactored alongside #62).
 
-### Phase 3: Core and Models
-Focus on core configuration and models.
-- llauncher/core/discovery.py
-- llauncher/core/config.py
-- llauncher/core/process.py
-- llauncher/core/settings.py
-- llauncher/models/config.py
+### Phase B — Long-tail unit gaps in highest-uncovered non-UI modules
 
-### Phase 4: UI Components
-Focus on UI tabs and components.
-- llauncher/ui/tabs/dashboard.py
-- llauncher/ui/utils.py (already high coverage, but check)
-- llauncher/ui/tabs/ (other tabs if any)
+Target modules where logic is testable without GUI rendering. UI scope (`ui/tabs/forms.py` 130+ missed, `ui/tabs/nodes.py`, etc.) is **deferred** — out of scope for Phase B. Phase B focuses on `core/gpu.py` (130 missed) and other non-UI gaps. UI work is tracked in #69 (Streamlit `AppTest` harness).
 
-### Phase 5: Test Suite Improvements
-Improve existing tests that have low coverage.
-- tests/integration/test_swap.py
-- tests/unit/test_ui_syntax.py
+Files to add/extend:
+- `tests/unit/test_gpu.py` (new) or extend `test_gpu_health.py` — currently 50%. Cover NVML enumeration fallbacks (121-188), VRAM-budget arithmetic (287-329), accelerator-detection branches (333-365, 373-432). Mock `pynvml`/subprocess.
+- `tests/unit/test_remote_node_paths.py` (new) — push `remote/node.py` from 75% toward 90% by covering heartbeat / error-translation branches at 292-336.
+- `tests/unit/test_state.py` — cover state.py:285-308, 410-434, 563-598 (error-path / dehydration branches).
+- `tests/unit/test_cli.py` — cover flag-parsing / output-formatting branches at 56-78, 233-245, 382-394.
+- `tests/unit/test_core_settings_auth.py` — cover `core/settings.py:23-30` (auth/env edge).
 
-### Phase 6: Regression Tests for Closed Issues
-Add regression tests for each closed issue identified above.
+### Phase C — Real-use-case MCP integration automation (NEW HARNESS)
 
-## Open Questions
+Goal: drive llauncher exactly as an MCP client would, exercising **start → swap → cancel → orphan-list → stop** as a continuous flow plus failure variants. User-requested phase; produces high-value regression coverage the unit suite cannot, because it crosses MCP → operations → state → agent boundaries.
 
-- What is the expected behavior of the agent server under various configurations? (llauncher/agent/server.py)
-- How should the dashboard handle real-time updates and data streaming? (llauncher/ui/tabs/dashboard.py)
-- Are there any integration points between the MCP server and the remote modules that need testing?
-- What is the correct way to mock the discovery process for unit tests?
-- How should we test the UI components without requiring a full GUI? (We may need to use mocking or headless testing.)
+Harness shape: **in-process tool dispatch.** Tests import the MCP tool functions directly and call them via the same registration table the server uses — no stdio subprocess layer for now. (Revisit if wire-protocol drift becomes a concern; a future stdio smoke test could be added.)
+
+llama-server policy: **both, gated.** The stub binary is used by default in CI; real-binary tests are gated behind `@pytest.mark.integration_real` and are intended for manual runs on this workstation.
+
+- (a) **Stub binary** — a tiny shell script satisfying port-bind + health endpoint + graceful SIGTERM. Default for CI; configured via a test-only `models.toml` entry. Avoids requiring a real GGUF.
+- (b) **Real-binary path** — marker-gated (`@pytest.mark.integration_real`), uses `~/.local/bin/llama-server` with a small GGUF. Not run in CI; manual workstation verification only.
+
+Other dependencies:
+- A temp `LLAUNCHER_HOME` per test (fixture already exists in `tests/conftest.py`).
+- The agent's FastAPI app mounted in-process via `httpx.ASGITransport` so MCP → HTTP calls don't bind real ports.
+
+Proposed test files (new, under `tests/integration/mcp/`):
+- `conftest.py` — fixtures: `mcp_dispatch`, `stub_llama_server`, `agent_asgi_client`, `clean_lockfile_dir`.
+- `test_e2e_start_stop.py` — `start_server` then `stop_server`; assert lockfile + marker + audit transitions.
+- `test_e2e_swap.py` — start A, `swap_server` to B; assert eviction, marker continuity, audit log entries.
+- `test_e2e_cancel.py` — start A with delay; `cancel_server` mid-flight; assert ADR-014 marker terminal state + no orphan.
+- `test_e2e_orphan_lifecycle.py` — induce orphan (kill agent mid-start), then `list_orphans` and reconcile; assert ADR-015 list/cleanup verbs.
+- `test_e2e_failure_modes.py` — preflight failure, port already bound, swap-to-same-port no-op, cancel after completion.
+- `test_mcp_stdio_smoke.py` — minimal subprocess spawn of `llauncher-mcp`, single `list_models` round-trip (wire protocol check).
+
+### Phase D — Edge cases / error paths surfaced by coverage diff
+
+After Phases A–C land, re-run coverage and target residual >5-line gaps, especially:
+- `operations/swap.py:649-661` (cleanup-on-error branch).
+- `core/process.py:533-536` (terminal process state).
+- `core/lockfile.py:104-111`.
+- `models/config.py:74-79` (extra_args edge cases — re-check vs. #18 regression).
+
+UI tabs (`forms.py`, `nodes.py`, `model_registry.py`, `model_card.py`) are deferred to a later UI-focused effort — they need a Streamlit `AppTest` harness which is its own design choice; tracked in #69.
+
+## CI Coverage Floor
+
+Set `--cov-fail-under` after Phase A + Phase B complete, at whatever the post-B number is. The current 79% baseline is not locked in now.
