@@ -64,6 +64,11 @@ class TestMainFunctionCallsAsyncioRun:
             mock_asyncio_run.assert_called_once()
             args, _ = mock_asyncio_run.call_args
             assert asyncio.iscoroutine(args[0]) or hasattr(args[0], "_coro")
+            # asyncio.run is mocked, so the main_async() coroutine handed to
+            # it is never awaited. Close it explicitly to avoid a
+            # ``RuntimeWarning: coroutine 'main_async' was never awaited``.
+            if asyncio.iscoroutine(args[0]):
+                args[0].close()
 
 
 class TestDispatchToolAllTools:
