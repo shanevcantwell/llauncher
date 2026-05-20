@@ -54,6 +54,29 @@ class TestModelConfigPathValidation:
         cfg = ModelConfig(name="m", model_path=str(f))
         assert cfg.model_path == str(f)
 
+    def test_missing_non_shard_path_raises(self, tmp_path: Path) -> None:
+        """Cover ``llauncher/models/config.py:79`` — the non-shard
+        missing-path raise.
+
+        ``_skip_path_validation`` is declared as a Pydantic private attr,
+        so at first import ``getattr(cls, '_skip_path_validation', False)``
+        returns a ``ModelPrivateAttr`` (truthy) and the validator is a
+        no-op. ``from_dict_unvalidated`` mutates the class attribute to a
+        literal ``bool`` (``True`` then ``False`` in its ``finally``),
+        which makes the validator reachable for subsequent constructions.
+        Force that priming here so the test is independent of suite
+        ordering, then assert the non-shard branch raises.
+        """
+        # Prime the class-level flag to a real ``bool`` so the validator
+        # actually runs (see docstring).
+        ModelConfig.from_dict_unvalidated({
+            "name": "_prime",
+            "model_path": "/intentionally/missing.gguf",
+        })
+        missing = tmp_path / "does-not-exist.gguf"  # no ``-of-`` shard marker
+        with pytest.raises(ValueError, match="does not exist"):
+            ModelConfig(name="m", model_path=str(missing))
+
 
 # ---------------------------------------------------------------------------
 # from_dict / unvalidated migrations

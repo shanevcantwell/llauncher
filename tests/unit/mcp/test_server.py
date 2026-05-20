@@ -219,6 +219,13 @@ class TestMainFunctions:
         with patch("asyncio.run") as mock_asyncio_run:
             main()
             mock_asyncio_run.assert_called_once()
+            # asyncio.run is mocked, so the main_async() coroutine handed to
+            # it is never awaited. Close it explicitly to avoid a
+            # ``RuntimeWarning: coroutine 'main_async' was never awaited``.
+            args, _ = mock_asyncio_run.call_args
+            import asyncio as _asyncio
+            if _asyncio.iscoroutine(args[0]):
+                args[0].close()
 
     def test_main_entry_point(self):
         """Test the if __name__ == '__main__' block."""
