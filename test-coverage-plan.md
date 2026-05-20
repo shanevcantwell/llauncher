@@ -97,14 +97,23 @@ Proposed test files (new, under `tests/integration/mcp/`):
 
 ### Phase D — Edge cases / error paths surfaced by coverage diff
 
-After Phases A–C land, re-run coverage and target residual >5-line gaps, especially:
-- `operations/swap.py:649-661` (cleanup-on-error branch).
-- `core/process.py:533-536` (terminal process state).
-- `core/lockfile.py:104-111`.
-- `models/config.py:74-79` (extra_args edge cases — re-check vs. #18 regression).
+**Status: landed (2026-05-20).** `tests/unit/test_phase_d_coverage.py` adds 32 tests targeting:
+- `core/gpu.py`: `_try_NVIDIA`/`_try_ROCM`/`_try_MPS` exception-handler branches, secondary `nvidia-smi --query-gpu=driver_version` error paths, `_query_MPS` body with canned `system_profiler` output, `GPUDevice.to_dict`.
+- `state.py`: `start_server` validation-error early return, `_start_with_eviction_impl` strict-rollback "no old config" / "old path missing" branches, invalid-port range checks.
+- `cli.py`: table-render branches of `model info` / `server status` / `node list` / `_color` text inference.
+- `core/settings.py`: directory-detection branch for `LLAMA_SERVER_PATH` via `importlib.reload`.
 
-UI tabs (`forms.py`, `nodes.py`, `model_registry.py`, `model_card.py`) are deferred to a later UI-focused effort — they need a Streamlit `AppTest` harness which is its own design choice; tracked in #69.
+Non-UI coverage rose **92% → 95%** (78 lines newly covered, 935 passing).
+
+Residual Phase D candidates remaining (deferred — not blocking the floor):
+- `state.py:563-598` (readiness-error rollback path inside swap) — substantial setup, candidate for a follow-up sweep.
+- `core/process.py:60, 243-244, 325, 406-407, 482, 533-536` — terminal process states.
+- `core/lockfile.py:104-111`.
+
+UI tabs (`forms.py`, `nodes.py`, `model_registry.py`, `model_card.py`) remain deferred to #69's Streamlit `AppTest` harness.
 
 ## CI Coverage Floor
 
-Set `--cov-fail-under` after Phase A + Phase B complete, at whatever the post-B number is. The current 79% baseline is not locked in now.
+**Status: landed (2026-05-20).** `pytest.ini` `addopts` enforces `--cov-fail-under=93` against the non-UI scope (`llauncher/ui/*` and `llauncher/agent/__main__.py` are omitted in `pyproject.toml` `[tool.coverage.run]`).
+
+Rationale: an aggregate floor against the full source mixes two populations — non-UI (95%) and UI (5–8% pending #69) — so it is either vacuous or blocks UI work. The non-UI floor at 93% gives ~2pt headroom over the post-Phase D measurement, ratchets up when more lines land, and re-baselines against combined measurement when #69 closes.
