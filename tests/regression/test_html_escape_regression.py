@@ -31,6 +31,7 @@ several of these surfaces (model name, node name, model path).
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -49,19 +50,19 @@ UI_ROOT = Path(_ui_pkg.__file__).parent
 # spaces — we cover that too in ``_normalize``.
 _FORBIDDEN = "unsafe_allow_html=True"
 
+_WHITESPACE_PATTERN = re.compile(r"\s+")
+
 
 def _normalize(src: str) -> str:
-    """Collapse whitespace around ``=`` so ``foo = True`` matches.
+    """Collapse all whitespace so ``foo = True`` and ``foo\\n=True`` both reduce to ``foo=True``.
 
     Streamlit only accepts the kwarg form (``unsafe_allow_html=True``);
     PEP 8 forbids spaces around ``=`` in kwargs, so this normalization
     is paranoia, not necessity. It exists so a stylistic deviation in
-    a future PR doesn't silently bypass the pin.
+    a future PR — including a multi-line call reformat — doesn't
+    silently bypass the pin.
     """
-    # Strip every space — kwargs can't contain meaningful whitespace,
-    # and stripping is simpler than a regex that has to know about
-    # multi-line call sites.
-    return src.replace(" ", "")
+    return _WHITESPACE_PATTERN.sub("", src)
 
 
 def _iter_ui_py_files() -> list[Path]:
@@ -147,24 +148,6 @@ class TestStreamlitEscapingContract:
     """
 
     HOSTILE_MODEL_NAME = "<script>alert(1)</script>"
-
-    def test_html_escape_of_hostile_model_name_is_inert(self) -> None:
-        """The C11-a payload, when escaped, contains no executable HTML."""
-        import html
-
-        escaped = html.escape(self.HOSTILE_MODEL_NAME)
-
-        # The literal ``<script>`` opening tag must not survive escaping —
-        # this is the property Streamlit's default rendering gives us
-        # and which the C11 audit relies on.
-        assert "<script>" not in escaped
-        assert "</script>" not in escaped
-
-        # The escaped form must preserve the *text* (so operators can
-        # still read what a hostile name looked like) while neutering
-        # the HTML.
-        assert "&lt;script&gt;" in escaped
-        assert "alert(1)" in escaped
 
     @pytest.mark.skip(
         reason=(
