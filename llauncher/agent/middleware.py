@@ -1,18 +1,31 @@
-"""Authentication middleware for the llauncher agent service.
+"""Middleware for the llauncher agent service.
 
-Provides API key-based authentication via the X-Api-Key header,
-with exemptions for health check and OpenAPI documentation endpoints.
+Provides:
+
+* :class:`AuthenticationMiddleware` — API key auth via the ``X-Api-Key``
+  header with exemptions for health/OpenAPI paths.
+* :class:`BodySizeLimitMiddleware` — defense-in-depth cap on inbound
+  HTTP request body size (security plan §3 control C3 / issue #78).
 """
 
 import hmac
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from fastapi import Request
 
 
 # Paths that skip authentication regardless of token configuration
 _AUTH_EXEMPT_PATHS = frozenset({"/health", "/docs", "/redoc", "/openapi.json"})
+
+
+# Maximum allowed inbound HTTP request body size, in bytes.
+# Security plan §3 C3 / issue #78: defense-in-depth against accidental or
+# malicious oversize payloads. 1 MiB comfortably accommodates every legitimate
+# agent payload (model configs, swap/start requests are all small JSON
+# documents) while bounding worst-case memory pressure.
+MAX_REQUEST_BODY_BYTES: int = 1024 * 1024  # 1 MiB
 
 
 class AuthenticationMiddleware(BaseHTTPMiddleware):
@@ -64,3 +77,107 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
         response = await call_next(request)
         return response
+
+
+class BodySizeLimitMiddleware:
+    """Pure-ASGI middleware that rejects oversize HTTP request bodies.
+
+    Rejects with HTTP 413 (Payload Too Large) when an inbound HTTP request
+    body exceeds :data:`MAX_REQUEST_BODY_BYTES`. Implemented at the ASGI
+    layer (not :class:`BaseHTTPMiddleware`) so the body never gets fully
+    buffered into memory before the decision is made.
+
+    Two enforcement paths:
+
+    1. **Fast path** — if the client advertises a ``Content-Length`` header
+       exceeding the cap, reject before reading any body bytes.
+    2. **Streaming path** — otherwise, accumulate ``http.request`` byte
+       counts as they arrive and reject as soon as the total crosses the
+       cap. This covers chunked encoding and missing/lying
+       Content-Length headers.
+
+    Non-HTTP scopes (lifespan, websocket) and HTTP methods that do not
+    carry a body in the usual sense still flow through the size check
+    uniformly: a GET with an honestly-empty body trivially passes.
+    """
+
+    def __init__(self, app: ASGIApp, max_bytes: int = MAX_REQUEST_BODY_BYTES) -> None:
+        """Initialize the middleware.
+
+        Args:
+            app: The downstream ASGI application.
+            max_bytes: Maximum allowed body size in bytes. Defaults to
+                :data:`MAX_REQUEST_BODY_BYTES` (1 MiB).
+        """
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # Fast path: trust an honest Content-Length header if it exceeds
+        # the cap. (If it lies low, the streaming path still catches it.)
+        for name, value in scope.get("headers", []):
+            if name == b"content-length":
+                try:
+                    declared = int(value)
+                except (TypeError, ValueError):
+                    break
+                if declared > self.max_bytes:
+                    await _send_413(send)
+                    return
+                break
+
+        bytes_seen = 0
+        max_bytes = self.max_bytes
+        rejected = False
+
+        async def limited_receive() -> Message:
+            nonlocal bytes_seen, rejected
+            message = await receive()
+            if message["type"] != "http.request":
+                return message
+            body = message.get("body", b"") or b""
+            bytes_seen += len(body)
+            if bytes_seen > max_bytes:
+                rejected = True
+                # Surface as a sentinel disconnect so the downstream app
+                # stops reading; the 413 response is sent below.
+                return {"type": "http.disconnect"}
+            return message
+
+        # Wrap send so that once we've decided to reject, we suppress any
+        # response the downstream app might have started emitting on the
+        # disconnect signal.
+        response_started = False
+
+        async def guarded_send(message: Message) -> None:
+            nonlocal response_started
+            if rejected:
+                return
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        await self.app(scope, limited_receive, guarded_send)
+
+        if rejected and not response_started:
+            await _send_413(send)
+
+
+async def _send_413(send: Send) -> None:
+    """Emit a minimal HTTP 413 JSON response via raw ASGI ``send``."""
+    body = b'{"detail":"Request body too large"}'
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 413,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode("ascii")),
+            ],
+        }
+    )
+    await send({"type": "http.response.body", "body": body, "more_body": False})
