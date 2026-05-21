@@ -129,8 +129,6 @@ def model_info(
 
     headers = ["KEY", "VALUE"]
     cfg_dict = config.model_dump()
-    # Omit the internal flag used during deserialization
-    cfg_dict.pop("_skip_path_validation", None)
     rows = [[k, str(v)] for k, v in cfg_dict.items()]
     _print_table(headers, rows, title=f"Model: {name}")
 
