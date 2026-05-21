@@ -9,7 +9,7 @@ is implemented in M1, vLLM follows in M6.
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Literal
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -60,7 +60,14 @@ class ModelConfig(BaseModel):
     reverse_prompt: str | None = None
     mlock: bool = False
     extra_args: str = ""
-    _skip_path_validation: bool = False
+
+    # ClassVar (not Pydantic field): underscore-prefixed annotations are
+    # treated as PrivateAttr descriptors by Pydantic v2, which made
+    # ``getattr(cls, "_skip_path_validation", False)`` truthy at the class
+    # level and silently no-op'd the validator on a fresh process. ClassVar
+    # makes this a plain Python class variable so the validator runs as
+    # intended on first construction (see issue #88).
+    _skip_path_validation: ClassVar[bool] = False
 
     @field_validator("model_path", mode="before")
     @classmethod
