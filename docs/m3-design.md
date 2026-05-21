@@ -2,7 +2,7 @@
 
 **Status:** Draft
 **Date:** 2026-05-05
-**Predecessor:** [v2-handoff.md](v2-handoff.md), [v2-implementation-roadmap.md](v2-implementation-roadmap.md) §M3
+**Predecessor:** [v2-handoff.md](v2-handoff.md), [v2-implementation-roadmap.md](plans/v2-implementation-roadmap.md) §M3
 **Successor:** [m4-design.md](m4-design.md)
 
 ## Goal

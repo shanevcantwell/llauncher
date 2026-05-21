@@ -45,7 +45,7 @@ The main repo (this container) received only the M1 + M2 slice 1 commits that we
 | `llauncher/models/config.py` | Modified | Model config changes |
 | `llauncher/ui/tabs/model_card.py` | Modified | UI migration to v2 ops; remote swap parity |
 | `docs/v2-handoff.md` | Modified | Updated handoff doc |
-| `docs/v2-implementation-roadmap.md` | Modified | Roadmap progress update |
+| `docs/plans/v2-implementation-roadmap.md` | Modified | Roadmap progress update |
 | `scripts/run.sh` | Modified | Script updates |
 
 ### New Files (7 files)

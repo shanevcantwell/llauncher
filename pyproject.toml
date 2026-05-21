@@ -34,3 +34,40 @@ llauncher-agent = "llauncher.agent:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+# ---------------------------------------------------------------------------
+# Coverage configuration
+# ---------------------------------------------------------------------------
+#
+# The aggregate line-coverage number is misleading for this project: the
+# Streamlit UI tabs (``llauncher/ui/*``) sit at 5–8% pending the AppTest
+# harness in #69, while the non-UI code base sits above 90%. A single
+# ``--cov-fail-under`` floor against the full source mixes those two
+# populations and either becomes vacuous (low) or blocks legitimate UI
+# work (high).
+#
+# Resolution: scope coverage measurement to non-UI sources via ``omit``
+# below, then enforce a meaningful floor in ``pytest.ini`` ``addopts``.
+# When #69 lands the UI harness, drop the ``llauncher/ui/*`` omit and
+# re-baseline the floor against the combined measurement.
+
+[tool.coverage.run]
+source = ["llauncher"]
+branch = false
+omit = [
+    # UI tabs — deferred to #69 (Streamlit AppTest harness).
+    "llauncher/ui/*",
+    # CLI entry-point shim for ``python -m llauncher.agent``; covered
+    # indirectly through integration runs of the agent, not unit tests.
+    "llauncher/agent/__main__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+show_missing = true
+skip_covered = false

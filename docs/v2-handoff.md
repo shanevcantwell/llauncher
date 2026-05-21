@@ -1,7 +1,7 @@
 # v2 Handoff — Pick Up Cold
 
 **Last updated:** 2026-05-17 (end of session — Phase 3 complete at reduced scope: ADR-015 annotation + list landed)
-**Current state:** M1+M2+M3+M4 complete. Pre-M4 cleanup phase done (#57/#58/#59 closed). M4 done end-to-end (#47/#48/#49/#50/#51 closed). M5 progress: ADR-013 (logs), ADR-012 (footer), ADR-014 (cancellation), and ADR-015 (orphan policy — annotation + list only; adopt deferred) shipped. **Phase 1 + Phase 2 + Phase 3 of the post-M4 phased plan complete:** #61/#60/#62/#65 closed in earlier sessions; #54 closed previous session; **#55 (orphan annotation + `orphan list` across CLI/HTTP/MCP) closed this session at reduced scope per ADR-015 §Deferred Work — adopt verb intentionally not implemented**. Remaining work follows the phased plan in [`docs/v2-implementation-roadmap.md`](v2-implementation-roadmap.md): Phase 4 = #56/#67/#64. Test count: 775 passed / 10 skipped.
+**Current state:** M1+M2+M3+M4 complete. Pre-M4 cleanup phase done (#57/#58/#59 closed). M4 done end-to-end (#47/#48/#49/#50/#51 closed). M5 progress: ADR-013 (logs), ADR-012 (footer), ADR-014 (cancellation), and ADR-015 (orphan policy — annotation + list only; adopt deferred) shipped. **Phase 1 + Phase 2 + Phase 3 of the post-M4 phased plan complete:** #61/#60/#62/#65 closed in earlier sessions; #54 closed previous session; **#55 (orphan annotation + `orphan list` across CLI/HTTP/MCP) closed this session at reduced scope per ADR-015 §Deferred Work — adopt verb intentionally not implemented**. Remaining work follows the phased plan in [`docs/plans/v2-implementation-roadmap.md`](plans/v2-implementation-roadmap.md): Phase 4 = #56/#67/#64. Test count: 775 passed / 10 skipped.
 
 A self-contained guide for picking up the v2 architecture work in a fresh context. Read this end-to-end before touching anything.
 
@@ -13,7 +13,7 @@ The repo is in the middle of a v2 architecture rewrite per ADRs 008–011. Curre
 
 | Artifact | Path |
 |----------|------|
-| Implementation roadmap | `docs/v2-implementation-roadmap.md` |
+| Implementation roadmap | `docs/plans/v2-implementation-roadmap.md` |
 | Ratified ADRs | `docs/adrs/008-*.md` … `011-*.md` |
 | Orientation spike (live-tree gap analysis) | `docs/reviews/2026-05-02-v2-orientation-spike.md` |
 | Reverse-engineered v1 PRD (partial truth) | `docs/PRODUCT_REQUIREMENTS.md` |
@@ -241,7 +241,7 @@ A full code-vs-documentation audit was performed using 5 parallel subagent revie
 
 ### Phased Plan — what's left (sequenced by coupling, not size)
 
-Full rationale in [`docs/v2-implementation-roadmap.md` §Phased Plan](v2-implementation-roadmap.md). Summary:
+Full rationale in [`docs/plans/v2-implementation-roadmap.md` §Phased Plan](plans/v2-implementation-roadmap.md). Summary:
 
 - **Phase 1 — Foundation tightening** (1 session): #61 (BLE001 in `operations/*`), #60 (audit-on-CRUD), #62 (RemoteNode self-loop short-circuit). Each pins a contract that a later phase consumes.
 - ~~**Phase 2 — Lifecycle correctness**~~ ✅ done (2026-05-16): #65 closed. Agent now reaps managed llama-server children on SIGTERM and SIGINT via FastAPI lifespan handler.
@@ -327,7 +327,7 @@ gh issue list --state open
 
 If a fresh context is uncertain about any of these, the answer is already in the docs:
 
-- *Is the v2 work on a branch?* → No, on `main`. (`docs/v2-implementation-roadmap.md` §Strategy.)
+- *Is the v2 work on a branch?* → No, on `main`. (`docs/plans/v2-implementation-roadmap.md` §Strategy.)
 - *Should I migrate old config data?* → Silent drop only; no migration log. (Roadmap §Pre-Implementation Decisions.)
 - *What's the CLI command?* → `llauncher` (Issue #41 closed).
 - *Should I add a `restart` verb?* → No. (ADR-010 §"Considered but Not Implemented".)

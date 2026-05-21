@@ -1,6 +1,6 @@
 # Session handoff — test coverage push + security plan (2026-05-19)
 
-Companion to `docs/plans/security-hardening-plan.md` and `test-coverage-plan.md`. Pointers to source files inline; do not paste artifact contents here.
+Companion to `docs/plans/security-hardening-plan.md` and `docs/plans/test-coverage-plan.md`. Pointers to source files inline; do not paste artifact contents here.
 
 ## 1. Where we are
 
@@ -22,9 +22,9 @@ Network-trust posture: still default-open. `LAUNCHER_AGENT_TOKEN` is optional an
 | PR #72 | tests | `tests/regression/{test_cancel,test_logs_lifecycle,test_orphan}_regression.py` — Phase A pins ADR-013/014/015 + #65/#62 against regression. |
 | PR #73 | tests | `tests/unit/test_*_extended.py` (6 files) — Phase B long-tail unit coverage for non-UI modules (gpu, log_rotation, marker, models/config, remote/node, state). |
 | PR #74 | tests | `tests/integration/{conftest.py, test_agent_security_hooks.py, test_mcp_flows.py, _stubs/llama-server-stub}` — Phase C in-process MCP dispatch harness + stub llama-server binary + real-use-case flows + security regression assertions. |
-| commit `4057b5e` | docs | `test-coverage-plan.md` — phased plan committed to repo root as durable artifact (referenced by all four PRs above). |
+| commit `4057b5e` | docs | `test-coverage-plan.md` — phased plan committed as durable artifact (referenced by all four PRs above; now at `docs/plans/test-coverage-plan.md`). |
 
-Durable plan artifacts: `test-coverage-plan.md` (root) and `docs/plans/security-hardening-plan.md`.
+Durable plan artifacts: `docs/plans/test-coverage-plan.md` and `docs/plans/security-hardening-plan.md`.
 
 ## 3. Coverage baseline (post-merge)
 
@@ -54,8 +54,8 @@ UI tabs (`forms.py` 5%, `nodes.py` 5%, `model_registry.py` 8%, `model_card.py` 4
 
 ### Blocked-by-data
 
-- **Phase D edge-case sweep** — `test-coverage-plan.md` §"Phase D" now actionable against the §3 missed-line list above. Target `operations/swap.py:121-122, 284-285`, `core/lockfile.py:104-111`, `core/settings.py:23-30` (auth/env edge), `state.py:285-308`.
-- **CI `--cov-fail-under` floor** — `test-coverage-plan.md` §"CI Coverage Floor" says set after A+B. With B+C now landed, recommended floor is **80%** (a few points below the 83% measurement, with headroom for the Phase D additions to push the floor up later).
+- **Phase D edge-case sweep** — `docs/plans/test-coverage-plan.md` §"Phase D" now actionable against the §3 missed-line list above. Target `operations/swap.py:121-122, 284-285`, `core/lockfile.py:104-111`, `core/settings.py:23-30` (auth/env edge), `state.py:285-308`.
+- **CI `--cov-fail-under` floor** — `docs/plans/test-coverage-plan.md` §"CI Coverage Floor" says set after A+B. With B+C now landed, recommended floor is **80%** (a few points below the 83% measurement, with headroom for the Phase D additions to push the floor up later).
 
 ### Larger threads
 
@@ -67,7 +67,7 @@ UI tabs (`forms.py` 5%, `nodes.py` 5%, `model_registry.py` 8%, `model_card.py` 4
 
 ### Deferred design
 
-- **Real-binary `integration_real` parallels** — Phase C tests today use the stub at `tests/integration/_stubs/llama-server-stub`. The plan (`test-coverage-plan.md` §"Phase C", llama-server policy) reserves `@pytest.mark.integration_real` for workstation-only runs against `~/.local/bin/llama-server`. None of the flow tests have a real-binary parallel yet; defer until #56 lands and the swap semantics are stable.
+- **Real-binary `integration_real` parallels** — Phase C tests today use the stub at `tests/integration/_stubs/llama-server-stub`. The plan (`docs/plans/test-coverage-plan.md` §"Phase C", llama-server policy) reserves `@pytest.mark.integration_real` for workstation-only runs against `~/.local/bin/llama-server`. None of the flow tests have a real-binary parallel yet; defer until #56 lands and the swap semantics are stable.
 
 ## 5. Workflow observations (from the orchestrator/subagent experiment)
 
