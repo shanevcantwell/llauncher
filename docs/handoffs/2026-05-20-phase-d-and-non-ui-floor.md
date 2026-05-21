@@ -90,3 +90,34 @@ Two equally-good entry points; depends on appetite:
 The larger threads (**#56 M5 close**, **#69 UI harness**, **#86 TLS scoping**) remain queued. M6 / M7 still wait on M5 closure.
 
 If PR #90 needs follow-up before merge, address review there first.
+
+## 7. Closeout — plan reorg + #90 merge + #88(a) (appended 2026-05-20, later that day)
+
+Three changes landed in the same session that this dossier opened:
+
+### Plan-file reorganization
+Plan files now live as flat siblings under `docs/plans/`:
+- `docs/plans/v2-implementation-roadmap.md` (moved from `docs/`)
+- `docs/plans/test-coverage-plan.md` (moved from repo root)
+- `docs/plans/security-hardening-plan.md` (already here)
+
+A new `docs/plans/README.md` documents the convention: directory listing is the index; each plan carries a status header; issue state lives in GitHub (no inline lists); dossiers back-reference plans rather than the reverse. Inbound references in `docs/v2-handoff.md`, `docs/m3-design.md`, `docs/_audit_m3_divergence.md`, and the prior `docs/handoffs/2026-05-test-coverage-and-security.md` dossier were rewired. Landed in commit `f8edaf3` (folded into PR #90 squash).
+
+### PR #90 — landed
+Merged as `abd84a0` (squash) — "test: Phase D coverage + non-UI --cov-fail-under=93 floor (#90)". Two reviewer nits absorbed before merge: minimal exit-code assertions on two CLI render-branch tests, and a "Phase D test-quality follow-ups" note added to `docs/plans/test-coverage-plan.md` capturing the `TestNvidiaDriverVersionSecondarySubprocess` verification ask (no separate issue — convention keeps small follow-ups in the relevant plan). Phase D and the floor are closed from the plan's perspective.
+
+### PR #93 — #88(a) ClassVar fix (open)
+`fix(models): ClassVar-annotate _skip_path_validation (#88a)` — branch `fix/88-modelconfig-classvar`, commit `02e3797`. Annotates `_skip_path_validation` as `ClassVar[bool]` so Pydantic v2 stops treating it as a `PrivateAttr` descriptor; removes the order-dependency priming step in `TestModelConfigPathValidation` and tightens its prior order-tolerant assertion into a direct missing-path raise check. Suite: 935 pass / 10 skip, coverage 94.67%. **The (b) half of #88** (ContextVar refactor for thread-safety) remains queued under the same issue — not filed separately yet.
+
+### Triage outcomes for the remaining backlog
+
+Pass over the 11 open security follow-ups + Phase 4 items + enhancement pair produced:
+
+- **Parallel-safe cohort (8 issues)**: #78, #79, #80, #81, #83, #84, #85, #87 — all XS/S, no design question, disjoint files. Authorized for parallel-worktree fan-out **next session**, after PR #93 merges. Subagent prompts must include: rebase onto `origin/main` as step 1, save PR body to `/tmp/pr-body-<topic>.md` and use `--body-file` (sandbox-block workaround per the prior dossier §5).
+- **Q&A-blocked, punted**: #82 (LAUNCHER_MODELS_ROOT containment posture) and #86 (TLS/mTLS scoping) explicitly punted by the user; stay open, not in scope.
+- **Sequential / focused**: #56 (M5 close), #64 (audit tab remote), #92 → #91 (kv-unified pair) — each wants a dedicated single-agent session.
+- **#67** (systemd) — triage flagged blocked-on-#65 but #65 is closed; needs a 5-min confirm.
+
+## 8. Suggested first move for the *next* session
+
+Merge PR #93. Then fan out the 8-issue parallel-safe cohort into worktrees, one subagent per issue, per the dispatch protocol above. Reserve the focused threads (#56 / #64 / #92→#91) for sessions where they get full attention rather than competing with parallel-cohort review load.
