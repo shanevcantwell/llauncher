@@ -382,17 +382,17 @@ class TestCliTableRenderBranches:
             )
             MockReg.return_value._nodes = {"node-a": fake_node}
             result = runner.invoke(cli_app, ["node", "list", "--all"])
-        # Exit code may vary depending on whether `node list` exists; if
-        # the command is missing, this test still exercises code paths
-        # earlier in the CLI. Don't assert exit_code strictly.
-        # Render-path coverage is achieved either way.
+        # Exit code 0 (rendered) or 2 (subcommand absent in this build) are
+        # both acceptable; both exercise the same upstream CLI path. Assert
+        # it didn't blow up in an unexpected way.
+        assert result.exit_code in (0, 2)
 
     def test_node_list_empty_yellow_branch(self, tmp_path):
         """All-nodes filter with empty registry → 'No nodes registered' branch."""
         with patch("llauncher.cli.NodeRegistry") as MockReg:
             MockReg.return_value._nodes = {}
-            runner.invoke(cli_app, ["node", "list"])
-        # Coverage-only — no exit assertion.
+            result = runner.invoke(cli_app, ["node", "list"])
+        assert result.exit_code in (0, 2)
 
 
 # ===========================================================================
