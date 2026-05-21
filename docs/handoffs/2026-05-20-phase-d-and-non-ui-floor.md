@@ -90,3 +90,39 @@ Two equally-good entry points; depends on appetite:
 The larger threads (**#56 M5 close**, **#69 UI harness**, **#86 TLS scoping**) remain queued. M6 / M7 still wait on M5 closure.
 
 If PR #90 needs follow-up before merge, address review there first.
+
+## 7. Closeout — plan reorg + #90 merge + #88(a) (appended 2026-05-20, later that day)
+
+Three changes landed in the same session that this dossier opened:
+
+### Plan-file reorganization
+Plan files now live as flat siblings under `docs/plans/`:
+- `docs/plans/v2-implementation-roadmap.md` (moved from `docs/`)
+- `docs/plans/test-coverage-plan.md` (moved from repo root)
+- `docs/plans/security-hardening-plan.md` (already here)
+
+A new `docs/plans/README.md` documents the convention: directory listing is the index; each plan carries a status header; issue state lives in GitHub (no inline lists); dossiers back-reference plans rather than the reverse. Inbound references in `docs/v2-handoff.md`, `docs/m3-design.md`, `docs/_audit_m3_divergence.md`, and the prior `docs/handoffs/2026-05-test-coverage-and-security.md` dossier were rewired. Landed in commit `f8edaf3` (folded into PR #90 squash).
+
+### PR #90 — landed
+Merged as `abd84a0` (squash) — "test: Phase D coverage + non-UI --cov-fail-under=93 floor (#90)". Two reviewer nits absorbed before merge: minimal exit-code assertions on two CLI render-branch tests. The `TestNvidiaDriverVersionSecondarySubprocess` verification ask is filed as **#96**. Phase D and the floor are closed from the plan's perspective.
+
+### PR #93 — #88(a) ClassVar fix (merged)
+`fix(models): ClassVar-annotate _skip_path_validation (#88a)` — squash-merged as `5759a28`. Annotates `_skip_path_validation` as `ClassVar[bool]` so Pydantic v2 stops treating it as a `PrivateAttr` descriptor; removes the order-dependency priming step in `TestModelConfigPathValidation` and tightens its prior order-tolerant assertion into a direct missing-path raise check. Suite: 935 pass / 10 skip, coverage 94.67%. **The (b) half of #88** (ContextVar refactor for thread-safety) remains queued under the same issue.
+
+Reviewer flagged one stale artifact made obvious by the fix: `llauncher/cli.py:133` has a defensive `cfg_dict.pop("_skip_path_validation", None)` that's now provably dead since ClassVars don't appear in `model_dump()` output. Filed as **#95**.
+
+### Convention amendment
+The `docs/plans/README.md` convention was tightened mid-session: small follow-ups now go to **GH Issues**, never to plan files. Plan files document design intent only. The "Phase D test-quality follow-ups" subsection that had been added to `test-coverage-plan.md` during the #90 review was removed; the NVIDIA-test verification is now #96 instead.
+
+### Triage outcomes for the remaining backlog
+
+Pass over the 11 open security follow-ups + Phase 4 items + enhancement pair produced:
+
+- **Parallel-safe cohort (8 issues)**: #78, #79, #80, #81, #83, #84, #85, #87 — all XS/S, no design question, disjoint files. Authorized for parallel-worktree fan-out **next session**. #95 (cli.py:133 dead-code cleanup) is a candidate to join the cohort if scope allows; #96 (NVIDIA test verification) is investigation-shaped and probably wants its own small session. Subagent prompts must include: rebase onto `origin/main` as step 1, save PR body to `/tmp/pr-body-<topic>.md` and use `--body-file` (sandbox-block workaround per the prior dossier §5).
+- **Q&A-blocked, punted**: #82 (LAUNCHER_MODELS_ROOT containment posture) and #86 (TLS/mTLS scoping) explicitly punted by the user; stay open, not in scope.
+- **Sequential / focused**: #56 (M5 close), #64 (audit tab remote), #92 → #91 (kv-unified pair) — each wants a dedicated single-agent session.
+- **#67** (systemd) — triage flagged blocked-on-#65 but #65 is closed; needs a 5-min confirm.
+
+## 8. Suggested first move for the *next* session
+
+Fan out the 8-issue parallel-safe cohort (#78, #79, #80, #81, #83, #84, #85, #87) into worktrees, one subagent per issue, per the dispatch protocol above. Optionally add #95 (cli.py dead-code cleanup) — it's trivial enough to be a ninth slot. Reserve the focused threads (#56 / #64 / #92→#91) and #96 for sessions where they get full attention rather than competing with parallel-cohort review load.
