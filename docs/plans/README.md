@@ -20,7 +20,9 @@ Each plan file's first ~10 lines carry a status block:
 - **Last touched** — date or commit; lets a new session judge staleness.
 - **Companion dossier** (optional) — pointer into `docs/handoffs/` for the most recent session capsule.
 
-Beyond the header, plan files document **design** — controls, phases, threat models, milestone definitions. They do **not** maintain an inline issue list. Issues live in GitHub; `gh issue list` is the live view. Plan files may name specific issue numbers when explaining design intent, but the canonical state of any ticket is GitHub.
+Beyond the header, plan files document **design** — controls, phases, threat models, milestone definitions. They do **not** track work. All trackable items — issues, follow-ups, cleanup candidates, test-quality nits, deferred small fixes — live in GitHub Issues. `gh issue list` is the live view.
+
+Plan files may name specific issue numbers when explaining design intent ("C3 is tracked as #78"), but a plan file is never the home for a follow-up or a TODO. If something needs doing, it gets a GH Issue; the plan stays the design.
 
 ## Dossiers vs. plans
 

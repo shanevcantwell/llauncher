@@ -117,8 +117,7 @@ Residual Phase D candidates remaining (deferred — not blocking the floor):
 - `core/process.py:60, 243-244, 325, 406-407, 482, 533-536` — terminal process states.
 - `core/lockfile.py:104-111`.
 
-Phase D test-quality follow-ups (review nits, non-blocking):
-- `tests/unit/test_phase_d_coverage.py` `TestNvidiaDriverVersionSecondarySubprocess` (~lines 195-215) — review flagged that the global `subprocess.run`-raises patch may mean the test exercises the simulated-output short-circuit rather than the *secondary* subprocess path the docstring claims. Verify with a coverage-diff probe (`coverage run -m pytest -k Nvidia...Secondary` and inspect line hits in `core/gpu.py`); rewrite or rename if the claim doesn't match the actual hits.
+These are residual *design surface* (uncovered branches that the plan acknowledges as not-yet-reached); any actionable follow-up arising during Phase D review lives in GH Issues (e.g. #96 for the NVIDIA test-quality verification).
 
 UI tabs (`forms.py`, `nodes.py`, `model_registry.py`, `model_card.py`) remain deferred to #69's Streamlit `AppTest` harness.
 
