@@ -52,8 +52,24 @@ class NodeRegistry:
             self._nodes.clear()
 
     def _save(self) -> None:
-        """Save nodes to the persistent file."""
+        """Save nodes to the persistent file.
+
+        Security control C10 (security-hardening-plan §3): the registry
+        file may contain operator-visible node metadata. We ``chmod 0600``
+        on every save (not just on creation) so a file that already
+        existed at a wider mode — e.g. from a pre-#83 build that inherited
+        umask — gets defensively re-tightened. Parent dir is also pinned
+        to ``0700`` to match ``llauncher/agent/auth.py``'s convention for
+        ``~/.llauncher/``.
+        """
         NODES_FILE.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            NODES_FILE.parent.chmod(0o700)
+        except OSError:
+            # Best-effort; chmod is a no-op on some filesystems (e.g.
+            # WSL-on-NTFS). The 0600 on the file itself is the
+            # load-bearing protection.
+            pass
 
         data = {}
         for name, node in self._nodes.items():

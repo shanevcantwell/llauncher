@@ -289,6 +289,101 @@ class TestToDict:
         assert data["node1"]["port"] == 8765
 
 
+class TestRegistryFilePermissions:
+    """Regression tests for security control C10 / assertion C10-a.
+
+    The registry file at ``~/.llauncher/nodes.json`` may contain operator-
+    visible node metadata (host, port, has_api_key flag). It must be
+    created and maintained at mode ``0600`` (owner-only read/write).
+
+    References:
+      - Issue #83
+      - docs/plans/security-hardening-plan.md §3 C10, §4 C10-a, §5.6
+    """
+
+    def test_save_creates_file_at_mode_0600(self, tmp_path, monkeypatch):
+        """C10-a: After ``node add``, the registry file has mode ``0600``.
+
+        Covers the *creation* path: file does not exist when add_node runs.
+        """
+        from llauncher.remote import registry as registry_mod
+
+        nodes_file = tmp_path / ".llauncher" / "nodes.json"
+        monkeypatch.setattr(registry_mod, "NODES_FILE", nodes_file)
+
+        reg = registry_mod.NodeRegistry()
+        reg._nodes.clear()
+        ok, _ = reg.add_node("alpha", "10.0.0.1", 8765)
+
+        assert ok
+        assert nodes_file.exists()
+        mode = os.stat(nodes_file).st_mode & 0o777
+        assert mode == 0o600, f"expected 0600, got 0o{mode:o}"
+
+    def test_save_retightens_widened_existing_file(self, tmp_path, monkeypatch):
+        """Defensive: an existing world-readable file (e.g. from a
+        pre-#83 build inheriting umask) must be re-tightened on the next
+        save, not left as-is. This is the "subsequent writes" half of
+        the issue spec.
+        """
+        from llauncher.remote import registry as registry_mod
+
+        nodes_file = tmp_path / ".llauncher" / "nodes.json"
+        nodes_file.parent.mkdir(parents=True, exist_ok=True)
+        nodes_file.write_text("{}")
+        os.chmod(nodes_file, 0o644)  # simulate pre-#83 wider mode
+        assert (os.stat(nodes_file).st_mode & 0o777) == 0o644
+
+        monkeypatch.setattr(registry_mod, "NODES_FILE", nodes_file)
+
+        reg = registry_mod.NodeRegistry()
+        reg._nodes.clear()
+        reg.add_node("beta", "10.0.0.2", 8765)
+
+        mode = os.stat(nodes_file).st_mode & 0o777
+        assert mode == 0o600, (
+            f"registry file was not re-tightened on save: 0o{mode:o}"
+        )
+
+    def test_save_tightens_parent_directory(self, tmp_path, monkeypatch):
+        """Parent ``~/.llauncher/`` should be ``0700`` for symmetry with
+        ``llauncher/agent/auth.py``. Best-effort: we assert the call was
+        made by checking the resulting mode on a filesystem that supports
+        chmod (POSIX tmp_path always does).
+        """
+        from llauncher.remote import registry as registry_mod
+
+        nodes_file = tmp_path / ".llauncher" / "nodes.json"
+        monkeypatch.setattr(registry_mod, "NODES_FILE", nodes_file)
+
+        reg = registry_mod.NodeRegistry()
+        reg._nodes.clear()
+        reg.add_node("gamma", "10.0.0.3", 8765)
+
+        mode = os.stat(nodes_file.parent).st_mode & 0o777
+        assert mode == 0o700, f"expected parent 0700, got 0o{mode:o}"
+
+    def test_remove_node_keeps_file_at_mode_0600(self, tmp_path, monkeypatch):
+        """``remove_node`` also calls ``_save``; the file must stay 0600
+        after removal, not just after the initial add.
+        """
+        from llauncher.remote import registry as registry_mod
+
+        nodes_file = tmp_path / ".llauncher" / "nodes.json"
+        monkeypatch.setattr(registry_mod, "NODES_FILE", nodes_file)
+
+        reg = registry_mod.NodeRegistry()
+        reg._nodes.clear()
+        reg.add_node("delta", "10.0.0.4", 8765)
+        # Tamper with mode after add to prove remove_node re-tightens.
+        os.chmod(nodes_file, 0o644)
+
+        reg.remove_node("delta")
+
+        mode = os.stat(nodes_file).st_mode & 0o777
+        assert mode == 0o600, f"expected 0600 after remove, got 0o{mode:o}"
+
+
 class TestGetOnlineNodes:
     """Tests for NodeRegistry.get_online_nodes method."""
 
