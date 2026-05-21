@@ -1,5 +1,12 @@
 # Test Coverage Plan — Phase 1 (Baseline + Plan)
 
+**Status:** active — Phases A/B/C landed (PRs #72/#73/#74); Phase D in flight on `phase-d-coverage-floor` (PR #90, non-UI coverage 95%, `--cov-fail-under=93`). UI track deferred to #69.
+**Scope:** raise non-UI coverage and install a CI floor; coordinate with security plan's Phase C assertions.
+**Last touched:** 2026-05-20 (PR #90 open).
+**Companion dossier:** `docs/handoffs/2026-05-test-coverage-and-security.md`.
+
+---
+
 Generated against `main` (post #55 / ADR-015 orphan list).
 Baseline run: 776 passed, 9 skipped, 2 warnings, 14.34 s.
 Full coverage output: `/tmp/llauncher-cov-baseline.txt`.
