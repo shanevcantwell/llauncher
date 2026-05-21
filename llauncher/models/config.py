@@ -62,7 +62,13 @@ class ModelConfig(BaseModel):
     supplied at call time per ADR-010.
     """
 
-    model_config = {"arbitrary_types_allowed": True}
+    # ``validate_assignment``: the ``extra_args`` deny-list (C7) is also
+    # enforced on field assignment, not only at construction time. Without
+    # this, a caller that mutates ``cfg.extra_args`` after construction
+    # would silently bypass the deny-list (review of PR #101 / Issue #81).
+    # Production assignment surface today: ``mcp_server/tools/config.py``
+    # ``update_model_config``.
+    model_config = {"arbitrary_types_allowed": True, "validate_assignment": True}
 
     name: str
     model_path: str

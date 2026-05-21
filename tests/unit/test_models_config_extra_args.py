@@ -188,6 +188,35 @@ class TestExtraArgsDenyList:
         assert "--api-key-file" in cfg.extra_args
 
 
+class TestPostConstructionAssignment:
+    """``validate_assignment=True`` enforces the deny-list at field
+    assignment, not only at construction (review of PR #101). Without
+    this, a caller that mutates ``cfg.extra_args`` after construction
+    would silently bypass C7.
+
+    Production assignment surface today:
+    ``llauncher/mcp_server/tools/config.py::update_model_config``.
+    """
+
+    def test_assignment_of_denied_flag_raises(self, model_file: str) -> None:
+        cfg = ModelConfig(name="m", model_path=model_file, extra_args="")
+        with pytest.raises(ValueError, match="--api-key"):
+            cfg.extra_args = "--api-key leaked"
+
+    def test_assignment_of_denied_flag_equals_form_raises(
+        self, model_file: str
+    ) -> None:
+        cfg = ModelConfig(name="m", model_path=model_file, extra_args="")
+        with pytest.raises(ValueError, match="--alias"):
+            cfg.extra_args = "--alias=evil"
+
+    def test_assignment_of_benign_args_succeeds(self, model_file: str) -> None:
+        """Sanity: legitimate post-construction updates still work."""
+        cfg = ModelConfig(name="m", model_path=model_file, extra_args="")
+        cfg.extra_args = "--ctx-size 4096 --temp 0.7"
+        assert "--ctx-size" in cfg.extra_args
+
+
 class TestDenyListContents:
     """Lock down the deny-list shape so additions are intentional."""
 

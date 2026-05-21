@@ -135,23 +135,29 @@ async def update_model_config(state: LauncherState, args: dict) -> dict:
     existing = state.models[name]
     updated_config = existing.model_copy()
 
-    # Apply updates (default_port silently dropped per ADR-010)
+    # Apply updates (default_port silently dropped per ADR-010). With
+    # ``validate_assignment=True`` on ``ModelConfig`` (review of PR #101),
+    # each per-field assignment below validates that field's constraints;
+    # wrap the whole block so the resulting ValidationError returns the
+    # same clean error dict as the explicit ``model_validate`` below
+    # rather than escaping uncaught.
     updates.pop("default_port", None)
-    if "n_gpu_layers" in updates:
-        updated_config.n_gpu_layers = updates["n_gpu_layers"]
-    if "ctx_size" in updates:
-        updated_config.ctx_size = updates["ctx_size"]
-    if "threads" in updates:
-        updated_config.threads = updates["threads"]
-    if "flash_attn" in updates:
-        updated_config.flash_attn = updates["flash_attn"]
-    if "no_mmap" in updates:
-        updated_config.no_mmap = updates["no_mmap"]
-    if "extra_args" in updates:
-        updated_config.extra_args = updates["extra_args"]
-
-    # Validate the updated config
     try:
+        if "n_gpu_layers" in updates:
+            updated_config.n_gpu_layers = updates["n_gpu_layers"]
+        if "ctx_size" in updates:
+            updated_config.ctx_size = updates["ctx_size"]
+        if "threads" in updates:
+            updated_config.threads = updates["threads"]
+        if "flash_attn" in updates:
+            updated_config.flash_attn = updates["flash_attn"]
+        if "no_mmap" in updates:
+            updated_config.no_mmap = updates["no_mmap"]
+        if "extra_args" in updates:
+            updated_config.extra_args = updates["extra_args"]
+
+        # Re-validate the whole shape after per-field assignments — catches
+        # any cross-field invariants the individual validators don't cover.
         ModelConfig.model_validate(updated_config)
     except Exception as e:
         return {"success": False, "error": f"Validation error: {e}"}
