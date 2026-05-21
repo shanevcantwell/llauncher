@@ -6,6 +6,7 @@ field discriminates the backend inference engine; only ``llama_server``
 is implemented in M1, vLLM follows in M6.
 """
 
+import shlex
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -14,6 +15,34 @@ from typing import ClassVar, Literal
 from pydantic import BaseModel, Field, field_validator
 
 from llauncher.core.settings import BLACKLISTED_PORTS as _ENV_BLACKLISTED_PORTS
+
+
+# Deny-list of llama-server flags llauncher manages at its own boundary
+# (Issue #81 / security-hardening-plan §3 C7). These flags must not appear
+# in :attr:`ModelConfig.extra_args` because:
+#
+# * ``--api-key`` / ``--alias`` — security-sensitive identity that
+#   llauncher will own once #87/#10 land. A malicious config slipping
+#   one of these in would silently override llauncher's intent.
+# * ``-m`` / ``--model`` — set by ``build_command`` from
+#   :attr:`ModelConfig.model_path` (``core/process.py``). Duplication
+#   bypasses the path validator on ``model_path``.
+# * ``--host`` / ``--port`` — supplied at start time as runtime
+#   parameters (ADR-010). An override here defeats port allocation
+#   and the loopback-default binding (C2, PR #75).
+#
+# Kept intentionally small; the rest of llauncher's managed flags
+# (``--ctx-size``, sampling params, etc.) are merely "would conflict",
+# not "must be controlled at the boundary". Operators get a clearer
+# error from llama-server's argv parser for those.
+DENIED_EXTRA_ARG_FLAGS: frozenset[str] = frozenset({
+    "--api-key",
+    "--alias",
+    "-m",
+    "--model",
+    "--host",
+    "--port",
+})
 
 
 class BackendKind(str, Enum):
@@ -68,6 +97,49 @@ class ModelConfig(BaseModel):
     # makes this a plain Python class variable so the validator runs as
     # intended on first construction (see issue #88).
     _skip_path_validation: ClassVar[bool] = False
+
+    @field_validator("extra_args", mode="before")
+    @classmethod
+    def extra_args_no_managed_flags(cls, v):
+        """Reject ``extra_args`` tokens that collide with llauncher-managed flags.
+
+        Mirrors the runtime ``shlex.split`` at
+        ``llauncher/core/process.py`` so the boundary check sees argv the
+        same way the launcher will. Both bare (``--api-key foo``) and
+        equals (``--api-key=foo``) forms are rejected.
+
+        Implements security-hardening-plan §3 C7 (Issue #81). See
+        :data:`DENIED_EXTRA_ARG_FLAGS` for the curated deny-list and the
+        rationale for each entry.
+        """
+        if v is None or v == "":
+            return v
+        # Legacy ``list[str]`` shape is normalized to ``str`` in
+        # ``from_dict_unvalidated`` *before* validation runs, but defend
+        # in depth so the validator behaves sanely if called directly.
+        if isinstance(v, list):
+            tokens = [str(t) for t in v]
+        else:
+            try:
+                tokens = shlex.split(str(v))
+            except ValueError as e:
+                # Malformed shell-quoting (unbalanced quote, etc.) —
+                # surface as a validation error rather than letting
+                # subprocess construction blow up at start time.
+                raise ValueError(f"extra_args is not a valid shell token string: {e}")
+
+        for token in tokens:
+            # Match both bare flag and ``--flag=value`` form. We compare
+            # the head before ``=`` so ``--api-key=foo`` is rejected
+            # identically to ``--api-key foo``.
+            head = token.split("=", 1)[0]
+            if head in DENIED_EXTRA_ARG_FLAGS:
+                raise ValueError(
+                    f"extra_args contains llauncher-managed flag "
+                    f"{head!r} — set it via the dedicated ModelConfig "
+                    f"field or remove it. See security-hardening-plan §3 C7."
+                )
+        return v
 
     @field_validator("model_path", mode="before")
     @classmethod
