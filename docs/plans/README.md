@@ -32,3 +32,7 @@ Plan files may name specific issue numbers when explaining design intent ("C3 is
 ## Adding a track
 
 Drop a new `<topic>-plan.md` here with the status block above. No registration step. The directory listing is the registry.
+
+## Adoption signal
+
+The existence of this file (`docs/plans/README.md`) is what opts a project into the user-scope Claude Code hook at `~/.claude/hooks/docs-convention.sh`. The hook fires on `Write`/`Edit`/`MultiEdit` tool calls whose `file_path` is under `docs/plans/**` or `docs/handoffs/**`, injecting a one-line reminder of the canonical rule + a pointer back here. Projects without this README get no injection. To opt a new project in: copy this README (or write an equivalent), and the hook starts firing automatically — no per-project configuration.

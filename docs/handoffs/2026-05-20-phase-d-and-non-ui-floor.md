@@ -126,3 +126,18 @@ Pass over the 11 open security follow-ups + Phase 4 items + enhancement pair pro
 ## 8. Suggested first move for the *next* session
 
 Fan out the 8-issue parallel-safe cohort (#78, #79, #80, #81, #83, #84, #85, #87) into worktrees, one subagent per issue, per the dispatch protocol above. Optionally add #95 (cli.py dead-code cleanup) — it's trivial enough to be a ninth slot. Reserve the focused threads (#56 / #64 / #92→#91) and #96 for sessions where they get full attention rather than competing with parallel-cohort review load.
+
+## 9. Closeout — convention enforcement via user-scope hook (appended later 2026-05-20)
+
+After the PR #93 / #94 chain landed, a parallel thread explored *where* the docs convention should live to minimize cold-start friction. Mechanisms compared: system prompt addition, user memory (`~/.claude/CLAUDE.md`), repo `CLAUDE.md`, skill, hook. **Hook won** because the convention's trigger is procedurally detectable (a tool call's `file_path` matching a glob), so trigger-recognition can be externalized to the harness instead of relying on the model to invoke a skill or consult a memory section.
+
+Landed at **user scope**, not repo scope:
+
+- **`~/.claude/hooks/docs-convention.sh`** — bash script reading `tool_input.file_path` from stdin, gated by two checks: project must carry `docs/plans/README.md` (adoption signal), and the path must be under `docs/plans/**` or `docs/handoffs/**`. Emits a one-line reminder via `additionalContext` JSON.
+- **`~/.claude/settings.json`** — registers the hook on `PreToolUse` for `Edit|Write|MultiEdit`.
+
+Adoption is opt-in by file existence: any project that drops `docs/plans/README.md` in place gets the hook firing automatically; projects without it stay silent. The `llauncher` repo's `docs/plans/README.md` was annotated with an "Adoption signal" section explaining the linkage.
+
+Implementation plan archived at `~/.claude/plans/draft-out-the-workflow-jiggly-sedgewick.md` (user-scope plan file, not part of this repo).
+
+**End-to-end verified** mid-session: the hook fired correctly on the very Edits that wrote this §9 and the README annotation in `docs/plans/README.md`. The `additionalContext` injection appeared as `PreToolUse:Edit hook additional context: Docs convention: ...` in the next inference call. Both script-level and harness-invocation paths are green.
