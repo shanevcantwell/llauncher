@@ -308,10 +308,23 @@ class TestStrictRollbackValidationBranches:
 class TestStartServerValidationEarlyReturn:
     """start_server validation-error path (285-286)."""
 
-    def test_start_server_validation_error_recorded(self, state_with_running):
+    def test_start_server_validation_error_recorded(self, state_with_running, monkeypatch):
+        """Issue #107: this test must not depend on OS-level port state.
+
+        ``LauncherState.validate_start`` does an OS-level
+        ``is_port_in_use`` check *before* delegating to
+        ``rules.validate_start``. If port 8081 is bound on the host
+        running the suite (e.g. a developer running llama-server), the
+        OS check fires first and the test never reaches the rules
+        path it is trying to exercise. Mock the OS check so the test
+        deterministically reaches the validation-error branch.
+        """
         # rules say no.
         state_with_running.rules.validate_start.return_value = (False, "blacklisted caller")
-        state_with_running.running = {}  # avoid port-in-use detection earlier
+        state_with_running.running = {}  # avoid internal port-in-use detection
+        # Mock the OS-level port check (issue #107) so the test does not
+        # leak host port state.
+        monkeypatch.setattr("llauncher.state.is_port_in_use", lambda port: False)
         ok, msg, proc = state_with_running.start_server(
             "new-model", port=8081, caller="t",
         )
