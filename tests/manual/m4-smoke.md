@@ -4,7 +4,7 @@ After landing M4 Slice 13 (#50). Run this once on a real workstation before tagg
 
 ## Setup
 - [ ] `llauncher-agent` running in a terminal
-- [ ] `streamlit run llauncher/ui/app.py` opens cleanly
+- [ ] `streamlit run llauncher/ui/app.py --server.address 127.0.0.1` opens cleanly (loopback-bind per C12)
 
 ## Sidebar
 - [ ] `node_selector` renders with `local` as the first option

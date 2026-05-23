@@ -134,6 +134,20 @@ run.bat ui
 
 The UI automatically starts a local agent if one isn't running. You can also start the agent separately with `./run.sh agent` or `run.bat agent`.
 
+> **Bind to loopback (no built-in auth).** Streamlit binds wherever the
+> operator launches it; the default is loopback. The runner scripts
+> launch with `--server.address 127.0.0.1`, and that is the recommended
+> invocation for typical single-operator use. The dashboard itself has
+> **no built-in authentication** — anything that can reach the port can
+> drive every mutate path (start/stop servers, edit configs, manage
+> nodes). Do not expose it beyond loopback without an operator-supplied
+> gateway in front: Tailscale, an SSH tunnel, or a reverse proxy that
+> enforces auth. Passing `--server.address 0.0.0.0` (or a LAN IP)
+> without one of those is equivalent to publishing an unauthenticated
+> admin console on your network. See
+> `docs/plans/security-hardening-plan.md` §2.8 (control C12) for the
+> threat-model rationale.
+
 #### Dashboard Tab
 - Grid view of all configured models with status indicators (🟢 Running / ⚫ Stopped)
 - Quick **Start** and **Stop** buttons for each model

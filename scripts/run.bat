@@ -77,7 +77,12 @@ goto :help
 
 :ui
     echo [INFO] Starting Streamlit UI...
-    "%PYTHON_EXECUTABLE%" -m streamlit run "%PROJECT_DIR%\llauncher\ui\app.py"
+    REM Bind to loopback by default. The dashboard has no built-in auth;
+    REM see README "Streamlit UI" + docs/plans/security-hardening-plan.md
+    REM section 2.8 (C12). Override with LAUNCHER_UI_HOST only behind a
+    REM gateway (Tailscale / SSH tunnel / reverse proxy with auth).
+    if "%LAUNCHER_UI_HOST%"=="" set "LAUNCHER_UI_HOST=127.0.0.1"
+    "%PYTHON_EXECUTABLE%" -m streamlit run "%PROJECT_DIR%\llauncher\ui\app.py" --server.address %LAUNCHER_UI_HOST%
     goto :end
 
 :agent
