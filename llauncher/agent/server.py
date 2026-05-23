@@ -189,6 +189,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 def create_app(auth_token: str | None = None) -> FastAPI:
     """Create and configure the FastAPI application.
 
+    **No CORS by design** (security plan §3 control C4): this app
+    intentionally registers no CORS middleware and emits no
+    ``Access-Control-*`` response headers. Browsers therefore cannot
+    make cross-origin requests to the agent from arbitrary pages — a
+    drive-by from any website is blocked by the same-origin policy
+    before it ever reaches the auth layer. Do not add
+    ``CORSMiddleware`` without first revisiting the threat model;
+    ``tests/integration/test_agent_cors.py`` pins this posture as a
+    regression guard (plan §4 assertion C4-a).
+
     Args:
         auth_token: Token to enforce on incoming requests via the
             ``X-Api-Key`` header. When ``None``, falls back to the
