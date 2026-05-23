@@ -27,7 +27,10 @@ from llauncher import __version__
 from llauncher import operations as ops
 from llauncher.agent.auth import is_loopback, resolve_agent_token
 from llauncher.agent.config import AgentConfig
-from llauncher.agent.middleware import AuthenticationMiddleware
+from llauncher.agent.middleware import (
+    AuthenticationMiddleware,
+    BodySizeLimitMiddleware,
+)
 from llauncher.agent.routing import router, get_node_name
 from llauncher.core import lockfile as lf
 from llauncher.core.settings import AGENT_API_KEY
@@ -213,6 +216,12 @@ def create_app(auth_token: str | None = None) -> FastAPI:
     if auth_active:
         # Add authentication middleware when API key is configured
         app.add_middleware(AuthenticationMiddleware, expected_token=token)
+
+    # Body-size cap (security plan §3 C3 / issue #78). Registered last so
+    # it becomes the outermost layer: oversize requests are rejected with
+    # 413 before auth (or anything else) even sees the body, bounding the
+    # worst-case memory pressure from a malicious or buggy client.
+    app.add_middleware(BodySizeLimitMiddleware)
 
     # Include the router
     app.include_router(router, tags=["llauncher"])
