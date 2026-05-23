@@ -186,8 +186,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
 
 
-def create_app(auth_token: str | None = None) -> FastAPI:
-    """Create and configure the FastAPI application.
+# SECURITY (§3 C1 / issue #87): ``create_app`` requires a non-empty
+# ``auth_token`` so no caller can silently construct an unauthenticated
+# app. The production entry point (``run_agent`` below) resolves a token
+# via env / stdin / file / auto-generate before reaching this function;
+# test-only construction without auth must go through
+# ``create_app_unauthenticated`` so the no-auth path is grep-able and
+# never reachable from production code paths.
+def create_app(auth_token: str) -> FastAPI:
+    """Create and configure the FastAPI application with auth enforced.
 
     **No CORS by design** (security plan §3 control C4): this app
     intentionally registers no CORS middleware and emits no
@@ -200,14 +207,51 @@ def create_app(auth_token: str | None = None) -> FastAPI:
     regression guard (plan §4 assertion C4-a).
 
     Args:
-        auth_token: Token to enforce on incoming requests via the
-            ``X-Api-Key`` header. When ``None``, falls back to the
-            module-level ``AGENT_API_KEY`` (captured from env at
-            import time) for backwards compatibility with existing
-            test fixtures that patch that symbol.
+        auth_token: Non-empty token to enforce on incoming requests via
+            the ``X-Api-Key`` header. Passing ``None`` or an empty
+            string raises ``ValueError`` — callers that genuinely want
+            an unauthenticated app must use
+            :func:`create_app_unauthenticated`.
+
+    Raises:
+        ValueError: If ``auth_token`` is ``None`` or an empty string.
     """
-    token = auth_token if auth_token is not None else AGENT_API_KEY
-    auth_active = token is not None
+    if not auth_token:
+        raise ValueError(
+            "create_app requires a non-empty auth_token. "
+            "Use create_app_unauthenticated() for test-only no-auth construction."
+        )
+    return _build_app(auth_token=auth_token)
+
+
+def create_app_unauthenticated() -> FastAPI:
+    """Construct a FastAPI app with NO authentication middleware.
+
+    SECURITY: This is a **test-only** constructor. Production code paths
+    (``run_agent``) must use :func:`create_app` with a resolved token.
+    The C1 invariant — "no non-loopback bind without an auth token" — is
+    enforced at the ``run_agent`` callsite, not here, so this helper
+    must never be reached from a production entry point.
+
+    The ``__debug__`` tripwire below makes it observable when this
+    helper is invoked in an optimized build (``python -O``): production
+    deployments running with ``-O`` will trip the assertion and refuse
+    to construct, while normal pytest runs (``__debug__`` is True) keep
+    working unchanged.
+    """
+    # Tripwire: ``python -O`` strips asserts, so this fails fast in any
+    # build flagged as a release/production interpreter. In dev/test
+    # (``__debug__`` is True) the assertion is a no-op.
+    assert __debug__, (
+        "create_app_unauthenticated() must not be reached in optimized "
+        "(production) builds — use create_app(auth_token=...) instead."
+    )
+    return _build_app(auth_token=None)
+
+
+def _build_app(auth_token: str | None) -> FastAPI:
+    """Internal shared builder. See ``create_app`` / ``create_app_unauthenticated``."""
+    auth_active = auth_token is not None
 
     # Disable OpenAPI docs endpoints when authentication is configured
     docs_url = None if auth_active else "/docs"
@@ -225,7 +269,7 @@ def create_app(auth_token: str | None = None) -> FastAPI:
 
     if auth_active:
         # Add authentication middleware when API key is configured
-        app.add_middleware(AuthenticationMiddleware, expected_token=token)
+        app.add_middleware(AuthenticationMiddleware, expected_token=auth_token)
 
     # Body-size cap (security plan §3 C3 / issue #78). Registered last so
     # it becomes the outermost layer: oversize requests are rejected with

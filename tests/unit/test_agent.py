@@ -3,14 +3,14 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from llauncher.agent.server import create_app
+from llauncher.agent.server import create_app_unauthenticated
 from llauncher.state import LauncherState
 
 
 @pytest.fixture
 def client():
     """Create a test client for the agent API."""
-    app = create_app()
+    app = create_app_unauthenticated()
     return TestClient(app)
 
 
