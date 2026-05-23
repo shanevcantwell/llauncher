@@ -208,17 +208,21 @@ def create_app(auth_token: str) -> FastAPI:
 
     Args:
         auth_token: Non-empty token to enforce on incoming requests via
-            the ``X-Api-Key`` header. Passing ``None`` or an empty
-            string raises ``ValueError`` — callers that genuinely want
-            an unauthenticated app must use
+            the ``X-Api-Key`` header. Passing ``None``, an empty string,
+            or a whitespace-only string raises ``ValueError`` — callers
+            that genuinely want an unauthenticated app must use
             :func:`create_app_unauthenticated`.
 
     Raises:
-        ValueError: If ``auth_token`` is ``None`` or an empty string.
+        ValueError: If ``auth_token`` is ``None``, empty, or whitespace
+            only. A whitespace-only value indicates a malformed env-var
+            assignment (e.g., ``LAUNCHER_AGENT_TOKEN=" "``) that would
+            otherwise construct an app whose auth middleware compared
+            ``X-Api-Key`` against a whitespace string — see issue #111.
     """
-    if not auth_token:
+    if not auth_token or not auth_token.strip():
         raise ValueError(
-            "create_app requires a non-empty auth_token. "
+            "create_app requires a non-empty, non-whitespace auth_token. "
             "Use create_app_unauthenticated() for test-only no-auth construction."
         )
     return _build_app(auth_token=auth_token)
@@ -233,19 +237,24 @@ def create_app_unauthenticated() -> FastAPI:
     enforced at the ``run_agent`` callsite, not here, so this helper
     must never be reached from a production entry point.
 
-    The ``__debug__`` tripwire below makes it observable when this
-    helper is invoked in an optimized build (``python -O``): production
-    deployments running with ``-O`` will trip the assertion and refuse
-    to construct, while normal pytest runs (``__debug__`` is True) keep
-    working unchanged.
+    The ``__debug__`` guard below refuses to construct when the
+    interpreter is running in optimized mode (``python -O``), which is
+    the conventional posture for production deployment. In dev/test
+    (``__debug__`` is ``True``) the guard is a no-op. This is a real
+    runtime check — not an ``assert`` — because ``python -O`` strips
+    ``assert`` statements at compile time, so an ``assert __debug__``
+    would become a no-op under exactly the configuration it was meant
+    to guard against (see issue #112).
     """
-    # Tripwire: ``python -O`` strips asserts, so this fails fast in any
-    # build flagged as a release/production interpreter. In dev/test
-    # (``__debug__`` is True) the assertion is a no-op.
-    assert __debug__, (
-        "create_app_unauthenticated() must not be reached in optimized "
-        "(production) builds — use create_app(auth_token=...) instead."
-    )
+    # Runtime tripwire: __debug__ is False under `python -O`. We do not
+    # use `assert __debug__` because -O would strip the assert itself.
+    if not __debug__:
+        raise RuntimeError(
+            "create_app_unauthenticated() must not be reached in "
+            "optimized (production) builds — use create_app(auth_token=...) "
+            "instead. The C1 invariant forbids no-auth construction in any "
+            "code path that could be reached from a production entry point."
+        )
     return _build_app(auth_token=None)
 
 
