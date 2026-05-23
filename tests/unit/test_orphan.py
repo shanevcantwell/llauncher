@@ -337,9 +337,9 @@ class TestOrphansEndpoint:
     @pytest.fixture
     def client(self):
         from fastapi.testclient import TestClient
-        from llauncher.agent.server import create_app
+        from llauncher.agent.server import create_app_unauthenticated
 
-        return TestClient(create_app())
+        return TestClient(create_app_unauthenticated())
 
     @pytest.fixture(autouse=True)
     def _reset_state(self, client):

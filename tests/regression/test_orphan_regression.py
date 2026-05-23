@@ -157,11 +157,11 @@ _CANONICAL_FIELDS = {"pid", "port", "cmdline_unreadable"}
 @pytest.fixture
 def http_client():
     from fastapi.testclient import TestClient
-    from llauncher.agent.server import create_app
+    from llauncher.agent.server import create_app_unauthenticated
     from llauncher.agent import routing
 
     routing._state = None
-    yield TestClient(create_app())
+    yield TestClient(create_app_unauthenticated())
     routing._state = None
 
 

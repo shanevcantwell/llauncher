@@ -152,7 +152,7 @@ def test_lifespan_shutdown_tolerates_lockfile_enumeration_failure(
 
 def test_create_app_wires_lifespan() -> None:
     """``create_app()`` constructs a FastAPI app with the lifespan handler bound."""
-    app = agent_server.create_app()
+    app = agent_server.create_app(auth_token="test-token")
     # FastAPI stores the lifespan context manager on the router.
     assert app.router.lifespan_context is not None
 

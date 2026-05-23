@@ -49,7 +49,7 @@ def _write_temp_model(name=None):
 def _patched_health_client(models=None):
     """Create a FastAPI TestClient whose global state is replaced with mocks."""
     from fastapi.testclient import TestClient
-    from llauncher.agent.server import create_app
+    from llauncher.agent.server import create_app_unauthenticated as create_app
 
     app = create_app()
     client = TestClient(app)
@@ -65,7 +65,7 @@ class TestModelsHealthListEndpoint:
     def test_health_list_returns_200(self):
         """The endpoint returns 200 even when no models are configured."""
         from fastapi.testclient import TestClient
-        from llauncher.agent.server import create_app
+        from llauncher.agent.server import create_app_unauthenticated as create_app
         from llauncher.agent import routing as agent_routing
 
         app = create_app()
@@ -82,7 +82,7 @@ class TestModelsHealthListEndpoint:
     def test_health_list_with_mocked_models(self):
         """Endpoint returns correct structure for mocked model files."""
         from fastapi.testclient import TestClient
-        from llauncher.agent.server import create_app
+        from llauncher.agent.server import create_app_unauthenticated as create_app
         from llauncher.core.model_health import invalidate_health_cache as inv_hc
 
         app = create_app()
@@ -117,7 +117,7 @@ class TestModelHealthDetailEndpoint:
     def test_health_detail_returns_200(self):
         """Returns 200 when model exists in config."""
         from fastapi.testclient import TestClient
-        from llauncher.agent.server import create_app
+        from llauncher.agent.server import create_app_unauthenticated as create_app
 
         app = create_app()
         client = TestClient(app)
@@ -141,7 +141,7 @@ class TestModelHealthDetailEndpoint:
     def test_health_detail_returns_404_for_missing(self):
         """Returns 404 when the named model is not configured."""
         from fastapi.testclient import TestClient
-        from llauncher.agent.server import create_app
+        from llauncher.agent.server import create_app_unauthenticated as create_app
 
         app = create_app()
         client = TestClient(app)
@@ -157,7 +157,7 @@ class TestModelHealthWithMissingFile:
     def test_missing_file_shows_exists_false(self):
         """Health endpoint returns exists=False when file is absent."""
         from fastapi.testclient import TestClient
-        from llauncher.agent.server import create_app
+        from llauncher.agent.server import create_app_unauthenticated as create_app
 
         app = create_app()
         client = TestClient(app)
@@ -186,7 +186,7 @@ class TestVRAMPreFlightEndpoint:
     def test_vram_error_contains_required_and_available(self):
         """409 error includes required_mb and available_mb when insufficient."""
         from fastapi.testclient import TestClient
-        from llauncher.agent.server import create_app
+        from llauncher.agent.server import create_app_unauthenticated as create_app
         from unittest.mock import MagicMock as MM
 
         app = create_app()

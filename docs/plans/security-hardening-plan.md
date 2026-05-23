@@ -151,18 +151,19 @@ Concrete assertions future tests should encode. Each is a one-liner the integrat
 3. **C1-c**: `GET /health` returns 200 without `X-Api-Key` even when token is set (exempt path).
 4. **C1-d**: Agent process refuses to start when binding to non-loopback host with no token configured (exit code non-zero, stderr mentions token requirement).
 5. **C1-e**: Agent auto-generates `~/.llauncher/agent.token` on first run when no env var is set and host is loopback.
-6. **C2-a**: With no env overrides, agent binds to `127.0.0.1` (verified via `netstat`/socket introspection in test).
-7. **C3-a**: `POST /start/{port}` with a 10 MiB request body returns 413.
-8. **C4-a**: `OPTIONS /status` does not include `Access-Control-Allow-Origin` in response headers.
-9. **C7-a**: `add_model` (any surface) with `extra_args="--api-key foo"` raises a validation error.
-10. **C7-b**: `add_model` with `extra_args="--alias evil"` raises a validation error.
-11. **C7-c**: `add_model` with benign extra args (`--log-disable`) succeeds.
-12. **C8-a**: With `LAUNCHER_MODELS_ROOT=/srv/models`, `add_model` with `model_path=/etc/passwd` raises a validation error.
-13. **C8-b**: With `LAUNCHER_MODELS_ROOT` unset, the historical behavior is preserved (any existing path accepted).
-14. **C10-a**: After `node add`, the registry file has mode `0600`.
-15. **C11-a**: A model added with name `"<script>alert(1)</script>"` renders as escaped text in the dashboard's model-card view (HTML-level assertion against the Streamlit-rendered page).
-16. **timing**: Authentication failure response time has no observable secret-length dependence (smoke test that `hmac.compare_digest` is still in place).
-17. **MCP**: MCP server `call_tool` with an invalid model name returns a structured error, not a stack trace (already implicit; codify it).
+6. **C1-f** (#87, landed): `create_app(auth_token=None)` and `create_app(auth_token="")` raise `ValueError`; the no-auth sibling `create_app_unauthenticated()` is the only sanctioned no-auth construction path and is documented test-only.
+7. **C2-a**: With no env overrides, agent binds to `127.0.0.1` (verified via `netstat`/socket introspection in test).
+8. **C3-a**: `POST /start/{port}` with a 10 MiB request body returns 413.
+9. **C4-a**: `OPTIONS /status` does not include `Access-Control-Allow-Origin` in response headers.
+10. **C7-a**: `add_model` (any surface) with `extra_args="--api-key foo"` raises a validation error.
+11. **C7-b**: `add_model` with `extra_args="--alias evil"` raises a validation error.
+12. **C7-c**: `add_model` with benign extra args (`--log-disable`) succeeds.
+13. **C8-a**: With `LAUNCHER_MODELS_ROOT=/srv/models`, `add_model` with `model_path=/etc/passwd` raises a validation error.
+14. **C8-b**: With `LAUNCHER_MODELS_ROOT` unset, the historical behavior is preserved (any existing path accepted).
+15. **C10-a**: After `node add`, the registry file has mode `0600`.
+16. **C11-a**: A model added with name `"<script>alert(1)</script>"` renders as escaped text in the dashboard's model-card view (HTML-level assertion against the Streamlit-rendered page).
+17. **timing**: Authentication failure response time has no observable secret-length dependence (smoke test that `hmac.compare_digest` is still in place).
+18. **MCP**: MCP server `call_tool` with an invalid model name returns a structured error, not a stack trace (already implicit; codify it).
 
 ---
 

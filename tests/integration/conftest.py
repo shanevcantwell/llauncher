@@ -169,34 +169,27 @@ def mcp_dispatch(mcp_env):
 
 @pytest.fixture
 def agent_client(mcp_env):
-    """FastAPI TestClient against the real agent app — no auth configured."""
-    # AGENT_API_KEY is captured at import time; force-clear it for this test.
+    """FastAPI TestClient against the real agent app — no auth configured.
+
+    Uses ``create_app_unauthenticated`` (issue #87) which is the only
+    sanctioned no-auth construction path.
+    """
     import llauncher.agent.server as agent_srv
 
-    original = agent_srv.AGENT_API_KEY
-    agent_srv.AGENT_API_KEY = None
-    try:
-        app = agent_srv.create_app()
-        with TestClient(app) as client:
-            yield client
-    finally:
-        agent_srv.AGENT_API_KEY = original
+    app = agent_srv.create_app_unauthenticated()
+    with TestClient(app) as client:
+        yield client
 
 
 @pytest.fixture
 def agent_client_with_token(mcp_env):
-    """FastAPI TestClient with ``LAUNCHER_AGENT_TOKEN=phase-c-token``."""
+    """FastAPI TestClient with an explicit auth token wired into ``create_app``."""
     import llauncher.agent.server as agent_srv
 
     token = "phase-c-token"
-    original = agent_srv.AGENT_API_KEY
-    agent_srv.AGENT_API_KEY = token
-    try:
-        app = agent_srv.create_app()
-        with TestClient(app) as client:
-            yield client, token
-    finally:
-        agent_srv.AGENT_API_KEY = original
+    app = agent_srv.create_app(auth_token=token)
+    with TestClient(app) as client:
+        yield client, token
 
 
 # ─────────────────────────── Real-binary opt-in ─────────────────────────────
