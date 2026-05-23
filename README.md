@@ -92,6 +92,16 @@ Or configure in your MCP client (e.g., Claude Code):
 }
 ```
 
+> **Trust boundary (stdio only).** The MCP server speaks the MCP stdio
+> transport and has no authentication of its own — it implicitly trusts
+> whatever process spawned it over the stdio pipe (typically your MCP
+> client, e.g. Claude Desktop / Claude Code). There is no network
+> listener for MCP. Vetting the MCP client you hand these tools to is
+> the operator's responsibility; llauncher cannot distinguish a benign
+> caller from a malicious one once the stdio pipe is open. See
+> `docs/plans/security-hardening-plan.md` §2.2 (control C5) for the
+> threat-model rationale.
+
 ### Available MCP Tools
 
 | Tool | Description |
