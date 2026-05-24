@@ -2,6 +2,7 @@
 
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -289,12 +290,19 @@ class TestToDict:
         assert data["node1"]["port"] == 8765
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="POSIX permission semantics required"
+)
 class TestRegistryFilePermissions:
     """Regression tests for security control C10 / assertion C10-a.
 
     The registry file at ``~/.llauncher/nodes.json`` may contain operator-
     visible node metadata (host, port, has_api_key flag). It must be
     created and maintained at mode ``0600`` (owner-only read/write).
+
+    Skipped on Windows: ``os.chmod`` is a near no-op there and
+    ``st_mode & 0o777`` does not reliably return POSIX permission bits,
+    so these assertions cannot be evaluated meaningfully (issue #106).
 
     References:
       - Issue #83

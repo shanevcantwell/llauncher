@@ -45,10 +45,11 @@ def test_oversize_post_returns_413_no_auth(agent_client):
     so the cap fires on the no-auth app exactly as it does on the
     auth-enabled app.
     """
-    # 2 MiB of bytes — comfortably over the 1 MiB cap. We aim a POST at
+    # 10 MiB of bytes — matches the plan literal for assertion C3-a in
+    # docs/plans/security-hardening-plan.md §4. We aim a POST at
     # /start/{port}: in a normal flow this would Pydantic-parse a JSON
     # body, but the size cap must short-circuit before we get there.
-    oversize = b"x" * (2 * 1024 * 1024)
+    oversize = b"x" * (10 * 1024 * 1024)
 
     resp = agent_client.post(
         "/start/9999",
@@ -69,7 +70,7 @@ def test_oversize_post_returns_413_with_auth(agent_client_with_token):
     yields 413 (not 401/403). This confirms the middleware order: size
     cap is the outermost layer."""
     client, token = agent_client_with_token
-    oversize = b"x" * (2 * 1024 * 1024)
+    oversize = b"x" * (10 * 1024 * 1024)
 
     resp = client.post(
         "/start/9999",

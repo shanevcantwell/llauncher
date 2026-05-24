@@ -10,7 +10,16 @@ def get_tools() -> list[Tool]:
     return [
         Tool(
             name="list_models",
-            description="List all configured models with their current status (running/stopped)",
+            description=(
+                "List all configured models with their current status "
+                "(running/stopped). Returns ``{models: [...], count: N}`` "
+                "where each entry is nested as "
+                "``{identification: {name, model_path}, status: {state, port, pid?}}``. "
+                "The value to pass as ``model_name`` to ``start_server`` / "
+                "``swap_server`` is ``identification.name`` exactly as "
+                "returned — do NOT concatenate it with ``status.port`` or "
+                "any other field."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {},

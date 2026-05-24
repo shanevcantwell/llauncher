@@ -687,6 +687,21 @@ class TestRemoteAggregator:
 
         assert aggregator.registry is registry
 
+    def test_aggregator_preserves_explicitly_passed_empty_registry(self):
+        """Issue #45 regression: ``NodeRegistry`` defines ``__len__``, so an
+        empty registry is falsy. A previous ``registry or NodeRegistry()``
+        guard would silently swap an explicitly-passed empty registry for a
+        fresh one. The current guard uses ``is not None`` and must preserve
+        the caller's instance even when it is empty.
+        """
+        empty = NodeRegistry()
+        # Ensure we're exercising the falsy-but-not-None case.
+        empty._nodes.clear()
+        assert len(empty) == 0
+        assert not empty  # falsy by __len__
+        agg = RemoteAggregator(empty)
+        assert agg.registry is empty
+
     @patch("httpx.Client")
     def test_get_all_servers(self, mock_client_class):
         """Test getting all servers from all nodes."""
