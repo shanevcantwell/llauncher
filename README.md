@@ -338,6 +338,18 @@ Test files are in `tests/`:
 - `tests/unit/`: Unit tests for models, config, and process
 - `tests/integration/`: Integration tests for state management
 
+For an inventory of which tests exist (file-by-file, with markers and
+docstring first lines), see [`docs/generated/TEST_SUITE_SUMMARY.md`](docs/generated/TEST_SUITE_SUMMARY.md).
+Regenerate after adding or renaming tests:
+
+```bash
+python scripts/summarize_tests.py
+```
+
+The coverage floor is pinned at `--cov-fail-under=93` against non-UI
+scope in `pytest.ini`; UI coverage is deferred to the AppTest harness
+in #69 (v3-alpha).
+
 ## Multi-Node Management (Remote)
 
 llauncher supports managing llama-server instances across multiple machines (Windows and Linux) on a local network from a single dashboard.

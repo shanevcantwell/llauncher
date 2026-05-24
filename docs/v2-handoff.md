@@ -203,7 +203,7 @@ The 2026-05-07 audit's findings as they stand at end-of-session:
 
 ## Known Failures
 
-**None.** 728 tests pass, 10 skipped. Verify with: `python3 -m pytest tests/ -q | tail -3`
+**None.** Verify with `python3 -m pytest tests/ -q | tail -3`. Live pass/skip/coverage counts move; for the current inventory of *which* tests exist see `docs/generated/TEST_SUITE_SUMMARY.md` (regenerate via `python scripts/summarize_tests.py`). The coverage floor is pinned at `--cov-fail-under=93` against non-UI scope; see `pytest.ini`.
 
 ## Code Audit Findings (2026-05-07)
 
@@ -291,7 +291,7 @@ Run these to confirm the state matches this handoff before touching anything:
 git log --oneline -10
 git tag -l 'v1-final'   # should print v1-final
 
-# Tests (728 passed, 10 skipped expected — all green)
+# Tests (suite is green; live counts drift — see docs/generated/TEST_SUITE_SUMMARY.md for inventory)
 python -m pytest tests/ -q | tail -3
 
 # v2 modules present (operations is a package now)
