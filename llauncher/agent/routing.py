@@ -434,3 +434,40 @@ async def get_logs(port: int, lines: Annotated[int, None] = None) -> dict:
         "lines": log_lines,
         "total_lines": len(log_lines),
     }
+
+
+# ─────────────────────── Audit log (issue #64) ───────────────────
+
+
+@router.get("/audit")
+async def get_audit(
+    limit: Annotated[int, None] = None,
+    action: Annotated[str, None] = None,
+    result: Annotated[str, None] = None,
+) -> list[dict]:
+    """Return recent audit-log entries on this node (ADR-008, issue #64).
+
+    The audit log is process-global (not port-scoped), so query params are
+    used in place of a path key. ``limit`` bounds the tail (mirrors the
+    Audit tab's bounded-tail discipline); ``action`` and ``result`` filter
+    entries by their respective enum values. Filtering happens in-memory
+    after the bounded read — :func:`audit_log.read_entries` does not yet
+    accept those kwargs, and pushing them down is a separate change.
+
+    Returns a JSON list of :meth:`AuditEntry.to_dict` dicts. An empty list
+    (200) is returned when the log is missing or empty — consumers should
+    not treat "no entries" as an error.
+    """
+    from llauncher.core import audit_log
+
+    # Bound the tail. Omitted ``limit`` defaults to 200 entries — callers must
+    # pass an explicit ``limit`` to override.
+    num = limit if limit is not None else 200
+    entries = audit_log.read_entries(limit=int(num))
+
+    if action:
+        entries = [e for e in entries if e.action.value == action]
+    if result:
+        entries = [e for e in entries if e.result.value == result]
+
+    return [e.to_dict() for e in entries]

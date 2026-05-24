@@ -427,6 +427,58 @@ class RemoteNode:
             self.status = NodeStatus.OFFLINE
             return None
 
+    def read_audit(
+        self,
+        limit: int = 200,
+        action_filter: str | None = None,
+        result_filter: str | None = None,
+    ) -> list[dict] | None:
+        """Read recent audit-log entries from this node (issue #64).
+
+        Args:
+            limit: Maximum number of entries to read (bounded tail).
+            action_filter: Optional ``AuditAction`` value to filter on.
+            result_filter: Optional ``AuditResult`` value to filter on.
+
+        Returns:
+            A list of :meth:`AuditEntry.to_dict` dicts (chronological,
+            newest last — matches ``core.audit_log.read_entries``). Returns
+            ``None`` on transport or HTTP error so callers can distinguish
+            "log empty" (``[]``) from "unreachable" (``None``).
+        """
+        if self._is_self_loop():
+            from llauncher.core import audit_log
+
+            self.status = NodeStatus.ONLINE
+            self.last_seen = datetime.now()
+            entries = audit_log.read_entries(limit=int(limit))
+            if action_filter:
+                entries = [e for e in entries if e.action.value == action_filter]
+            if result_filter:
+                entries = [e for e in entries if e.result.value == result_filter]
+            return [e.to_dict() for e in entries]
+        try:
+            params: dict[str, str | int] = {"limit": int(limit)}
+            if action_filter:
+                params["action"] = action_filter
+            if result_filter:
+                params["result"] = result_filter
+            with self._get_client() as client:
+                response = client.get(
+                    f"{self.base_url}/audit",
+                    params=params,
+                    headers=self._get_headers(),
+                )
+                if response.status_code == 200:
+                    self.status = NodeStatus.ONLINE
+                    self.last_seen = datetime.now()
+                    data = response.json()
+                    return data if isinstance(data, list) else []
+                return None
+        except httpx.RequestError:
+            self.status = NodeStatus.OFFLINE
+            return None
+
     def to_dict(self) -> dict:
         """Convert node info to dictionary."""
         return {

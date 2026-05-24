@@ -321,6 +321,129 @@ class TestLogsEndpoint:
             assert isinstance(data["lines"], list)
 
 
+class TestAuditEndpoint:
+    """Tests for the /audit endpoint (issue #64)."""
+
+    def test_audit_empty_returns_empty_list(self, client, tmp_path, monkeypatch):
+        """Empty/missing audit log returns 200 with an empty list."""
+        audit_path = tmp_path / "audit.jsonl"
+        monkeypatch.setattr(
+            "llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path
+        )
+
+        response = client.get("/audit")
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_audit_returns_serialized_entries(self, client, tmp_path, monkeypatch):
+        """Populated audit log returns list of JSON-safe entry dicts."""
+        from llauncher.core import audit_log
+
+        audit_path = tmp_path / "audit.jsonl"
+        monkeypatch.setattr(
+            "llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path
+        )
+
+        audit_log.record(
+            audit_log.AuditAction.STARTED,
+            audit_log.AuditResult.SUCCESS,
+            caller="test",
+            port=8080,
+            model="m",
+            message="started m",
+        )
+        audit_log.record(
+            audit_log.AuditAction.STOPPED,
+            audit_log.AuditResult.SUCCESS,
+            caller="test",
+            port=8080,
+            model="m",
+            message="stopped m",
+        )
+
+        response = client.get("/audit")
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+        assert len(data) == 2
+        # Enum fields must be strings (JSON-safe), not enum instances.
+        assert data[0]["action"] == "started"
+        assert data[0]["result"] == "success"
+        assert data[1]["action"] == "stopped"
+        # Chronological order (newest last) — matches read_entries contract.
+        assert data[0]["message"] == "started m"
+        assert data[1]["message"] == "stopped m"
+
+    def test_audit_action_filter(self, client, tmp_path, monkeypatch):
+        """``?action=`` narrows the result to entries with that action."""
+        from llauncher.core import audit_log
+
+        audit_path = tmp_path / "audit.jsonl"
+        monkeypatch.setattr(
+            "llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path
+        )
+
+        audit_log.record(
+            audit_log.AuditAction.STARTED, audit_log.AuditResult.SUCCESS, caller="t"
+        )
+        audit_log.record(
+            audit_log.AuditAction.STOPPED, audit_log.AuditResult.SUCCESS, caller="t"
+        )
+
+        response = client.get("/audit?action=stopped")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["action"] == "stopped"
+
+    def test_audit_result_filter(self, client, tmp_path, monkeypatch):
+        """``?result=`` narrows the result to entries with that result."""
+        from llauncher.core import audit_log
+
+        audit_path = tmp_path / "audit.jsonl"
+        monkeypatch.setattr(
+            "llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path
+        )
+
+        audit_log.record(
+            audit_log.AuditAction.STARTED, audit_log.AuditResult.SUCCESS, caller="t"
+        )
+        audit_log.record(
+            audit_log.AuditAction.STARTED, audit_log.AuditResult.ERROR, caller="t"
+        )
+
+        response = client.get("/audit?result=error")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["result"] == "error"
+
+    def test_audit_limit_bounds_tail(self, client, tmp_path, monkeypatch):
+        """``?limit=`` caps the number of entries returned."""
+        from llauncher.core import audit_log
+
+        audit_path = tmp_path / "audit.jsonl"
+        monkeypatch.setattr(
+            "llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path
+        )
+
+        for i in range(5):
+            audit_log.record(
+                audit_log.AuditAction.STARTED,
+                audit_log.AuditResult.SUCCESS,
+                caller="t",
+                message=f"entry-{i}",
+            )
+
+        response = client.get("/audit?limit=2")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2
+        # Tail = newest 2 entries.
+        assert data[0]["message"] == "entry-3"
+        assert data[1]["message"] == "entry-4"
+
+
 class TestUtilityFunctions:
     """Tests for utility functions in llauncher.agent.server."""
 

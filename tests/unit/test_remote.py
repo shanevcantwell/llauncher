@@ -380,6 +380,129 @@ class TestRemoteNode:
         assert node.status == NodeStatus.OFFLINE
 
 
+class TestRemoteNodeReadAudit:
+    """Issue #64: ``RemoteNode.read_audit`` HTTP + self-loop branches."""
+
+    @patch("httpx.Client")
+    def test_read_audit_success_returns_list(self, mock_client_class):
+        """HTTP 200 with a JSON list payload is returned verbatim."""
+        payload = [
+            {
+                "timestamp": "2026-05-09T00:00:00+00:00",
+                "action": "started",
+                "result": "success",
+                "caller": "agent",
+                "port": 8080,
+                "model": "m",
+                "from_model": None,
+                "pid": 1,
+                "message": "",
+            }
+        ]
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json = MagicMock(return_value=payload)
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.get = MagicMock(return_value=mock_response)
+        mock_client_class.return_value = mock_client
+
+        node = RemoteNode("test-node", "192.168.1.100", port=8765)
+        result = node.read_audit(limit=50, action_filter="started")
+
+        assert result == payload
+        assert node.status == NodeStatus.ONLINE
+        # Confirm query params + URL routing.
+        called_kwargs = mock_client.get.call_args.kwargs
+        assert called_kwargs["params"]["limit"] == 50
+        assert called_kwargs["params"]["action"] == "started"
+        assert mock_client.get.call_args.args[0].endswith("/audit")
+
+    @patch("httpx.Client")
+    def test_read_audit_non_200_returns_none(self, mock_client_class):
+        """Non-200 responses surface as ``None``."""
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.get = MagicMock(return_value=mock_response)
+        mock_client_class.return_value = mock_client
+
+        node = RemoteNode("test-node", "192.168.1.100", port=8765)
+        assert node.read_audit() is None
+
+    @patch("httpx.Client")
+    def test_read_audit_request_error_marks_offline(self, mock_client_class):
+        """A transport-level error marks the node offline and returns ``None``."""
+        mock_client_class.side_effect = httpx.RequestError("Connection failed")
+
+        node = RemoteNode("test-node", "192.168.1.100", port=8765)
+        assert node.read_audit() is None
+        assert node.status == NodeStatus.OFFLINE
+
+    def test_read_audit_self_loop_reads_in_process(self, tmp_path, monkeypatch):
+        """Self-loop branch bypasses HTTP and reads the on-disk JSONL."""
+        from llauncher.core import audit_log
+
+        # Redirect audit-log writes to a tmp file.
+        audit_path = tmp_path / "audit.jsonl"
+        monkeypatch.setattr(
+            "llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path
+        )
+
+        audit_log.record(
+            audit_log.AuditAction.STARTED,
+            audit_log.AuditResult.SUCCESS,
+            caller="test",
+            port=8080,
+            model="m",
+            message="started",
+        )
+
+        # ``name == "local"`` triggers the self-loop short-circuit.
+        node = RemoteNode("local", "127.0.0.1", port=8765)
+
+        with patch("httpx.Client") as mock_client_class:
+            entries = node.read_audit(limit=10)
+            # HTTP must NOT have been used on the self-loop path.
+            mock_client_class.assert_not_called()
+
+        assert isinstance(entries, list)
+        assert len(entries) == 1
+        assert entries[0]["action"] == "started"
+        assert entries[0]["result"] == "success"
+        assert node.status == NodeStatus.ONLINE
+
+    def test_read_audit_self_loop_applies_filters(self, tmp_path, monkeypatch):
+        """In-process branch honors ``action_filter`` / ``result_filter``."""
+        from llauncher.core import audit_log
+
+        audit_path = tmp_path / "audit.jsonl"
+        monkeypatch.setattr(
+            "llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path
+        )
+
+        audit_log.record(
+            audit_log.AuditAction.STARTED,
+            audit_log.AuditResult.SUCCESS,
+            caller="t",
+        )
+        audit_log.record(
+            audit_log.AuditAction.STOPPED,
+            audit_log.AuditResult.SUCCESS,
+            caller="t",
+        )
+
+        node = RemoteNode("local", "127.0.0.1", port=8765)
+        entries = node.read_audit(action_filter="stopped")
+        assert len(entries) == 1
+        assert entries[0]["action"] == "stopped"
+
+
 class TestRemoteServerInfo:
     """Tests for the RemoteServerInfo class."""
 

@@ -1,7 +1,8 @@
 """Tests for the Audit tab (llauncher/ui/tabs/audit.py).
 
-M4 Slice 13 / issue #50, stage 1. The tab is local-only in this slice;
-stage 2 / a follow-up issue will wire remote-node audit access.
+M4 Slice 13 / issue #50 stage 1 plus issue #64: remote-node audit access
+is now wired. Local targets read on-disk JSONL directly; remote targets
+dispatch through :meth:`RemoteNode.read_audit`.
 """
 
 from __future__ import annotations
@@ -137,34 +138,99 @@ class TestLimitForwarding:
             mock_read.assert_called_once_with(limit=50)
 
 
-class TestRemoteTargetCaption:
-    """Non-local targets render a "local-only" caption."""
+class TestRemoteDispatch:
+    """Issue #64: non-local targets dispatch to ``RemoteNode.read_audit``."""
 
-    def test_remote_target_renders_caption(self):
+    def test_remote_target_dispatches_to_node_read_audit(self):
+        """Selecting a remote target calls ``node.read_audit`` instead of
+        the local on-disk reader."""
         from llauncher.ui.tabs.audit import render_audit_tab
 
+        remote_entry = {
+            "timestamp": "2026-05-09T00:00:00+00:00",
+            "action": "started",
+            "result": "success",
+            "caller": "agent",
+            "port": 8080,
+            "model": "remote-model",
+            "from_model": None,
+            "pid": 4242,
+            "message": "remote started",
+        }
+
+        mock_node = MagicMock()
+        mock_node.read_audit.return_value = [remote_entry]
+        mock_registry = MagicMock()
+        mock_registry.get_node.return_value = mock_node
+
         with _patched_st() as mock_st, patch(
-            "llauncher.ui.tabs.audit.audit_log.read_entries", return_value=[]
+            "llauncher.ui.tabs.audit.audit_log.read_entries"
+        ) as mock_local_read:
+            mock_st.number_input.return_value = 200
+            mock_st.multiselect.return_value = []
+
+            render_audit_tab("remote-1", mock_registry)
+
+            mock_registry.get_node.assert_called_once_with("remote-1")
+            mock_node.read_audit.assert_called_once_with(limit=200)
+            mock_local_read.assert_not_called()
+            mock_st.dataframe.assert_called_once()
+            df = mock_st.dataframe.call_args[0][0]
+            assert df.iloc[0]["model"] == "remote-model"
+
+    def test_remote_target_unreachable_renders_error(self):
+        """``read_audit`` returning ``None`` (offline) surfaces an error."""
+        from llauncher.ui.tabs.audit import render_audit_tab
+
+        mock_node = MagicMock()
+        mock_node.read_audit.return_value = None
+        mock_registry = MagicMock()
+        mock_registry.get_node.return_value = mock_node
+
+        with _patched_st() as mock_st, patch(
+            "llauncher.ui.tabs.audit.audit_log.read_entries"
         ):
             mock_st.number_input.return_value = 200
             mock_st.multiselect.return_value = []
 
-            render_audit_tab("remote-1")
+            render_audit_tab("remote-1", mock_registry)
 
-            mock_st.caption.assert_called_once()
-            caption_text = mock_st.caption.call_args[0][0]
-            assert "remote-node audit access is not yet wired" in caption_text
+            mock_st.error.assert_called_once()
+            mock_st.dataframe.assert_not_called()
 
-    def test_local_target_does_not_render_caption(self):
-        """Sanity check: the local case should NOT show the disclaimer."""
+    def test_remote_target_unknown_node_renders_error(self):
+        """Registry returning ``None`` for ``target`` surfaces an error."""
         from llauncher.ui.tabs.audit import render_audit_tab
 
+        mock_registry = MagicMock()
+        mock_registry.get_node.return_value = None
+
         with _patched_st() as mock_st, patch(
-            "llauncher.ui.tabs.audit.audit_log.read_entries", return_value=[]
+            "llauncher.ui.tabs.audit.audit_log.read_entries"
         ):
             mock_st.number_input.return_value = 200
             mock_st.multiselect.return_value = []
 
-            render_audit_tab("local")
+            render_audit_tab("ghost-node", mock_registry)
 
+            mock_st.error.assert_called_once()
+            mock_st.dataframe.assert_not_called()
+
+    def test_local_target_skips_registry(self):
+        """Sanity check: ``target == 'local'`` reads on-disk, ignoring registry."""
+        from llauncher.ui.tabs.audit import render_audit_tab
+
+        mock_registry = MagicMock()
+
+        with _patched_st() as mock_st, patch(
+            "llauncher.ui.tabs.audit.audit_log.read_entries", return_value=[]
+        ) as mock_local_read:
+            mock_st.number_input.return_value = 200
+            mock_st.multiselect.return_value = []
+
+            render_audit_tab("local", mock_registry)
+
+            mock_local_read.assert_called_once_with(limit=200)
+            mock_registry.get_node.assert_not_called()
+            # Disclaimer caption was removed in #64.
             mock_st.caption.assert_not_called()

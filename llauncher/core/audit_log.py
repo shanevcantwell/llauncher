@@ -77,12 +77,22 @@ class AuditEntry:
     pid: int | None = None
     message: str = ""
 
-    def to_jsonline(self) -> str:
-        """Serialize to a single newline-terminated JSON object."""
+    def to_dict(self) -> dict:
+        """Serialize to a JSON-safe dict.
+
+        Enum fields are coerced to their string values so the result is
+        directly JSON-encodable. Mirrors the shape produced by
+        :meth:`to_jsonline` (minus the trailing newline) — both surfaces
+        share this projection.
+        """
         d = asdict(self)
         d["action"] = self.action.value
         d["result"] = self.result.value
-        return json.dumps(d, separators=(",", ":")) + "\n"
+        return d
+
+    def to_jsonline(self) -> str:
+        """Serialize to a single newline-terminated JSON object."""
+        return json.dumps(self.to_dict(), separators=(",", ":")) + "\n"
 
 
 def _resolve_path(path: Path | None) -> Path:

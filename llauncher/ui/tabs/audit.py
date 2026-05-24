@@ -1,16 +1,16 @@
-"""Audit-tail tab for the Streamlit UI (M4 Slice 13 / issue #50, stage 1).
+"""Audit-tail tab for the Streamlit UI (M4 Slice 13 / issue #50, stage 1+).
 
-Reads the local audit log via :func:`core.audit_log.read_entries` and
-renders a filterable, newest-first table. This is intentionally a
-read-only viewer; mutating operations live in the other tabs.
+Reads the audit log of the selected node (local or remote) and renders a
+filterable, newest-first table. This is intentionally a read-only viewer;
+mutating operations live in the other tabs.
 
 ## Scope
 
-Stage 1 wires the **local** audit log only. Remote-node audit access is
-deferred (filed as a follow-up issue) — when the target is not "local",
-the tab still renders the local audit log and surfaces a caption
-explaining the limitation. The caption is rendered above the dataframe
-so the user sees the disclaimer before reading the data.
+Issue #64 wired the **remote** dispatch path: when the sidebar's node
+selector points at a remote node, the tab fetches that node's audit log
+via :meth:`RemoteNode.read_audit` (HTTP GET ``/audit``). For the local
+target, the tab reads the on-disk JSONL via
+:func:`core.audit_log.read_entries` directly — no HTTP hop.
 
 ## ADR-013 hook
 
@@ -31,10 +31,15 @@ yields a confusing "no data" hole rather than guidance).
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import streamlit as st
 
 from llauncher.core import audit_log
 from llauncher.ui.components.node_selector import LOCAL_NODE
+
+if TYPE_CHECKING:
+    from llauncher.remote.registry import NodeRegistry
 
 
 # Column order in the rendered dataframe. Kept tight on purpose — the
@@ -64,13 +69,38 @@ def _entry_to_row(entry: audit_log.AuditEntry) -> dict:
     }
 
 
-def render_audit_tab(target: str) -> None:
+def _dict_to_row(d: dict) -> dict:
+    """Flatten a remote AuditEntry-dict into a row dict in display order.
+
+    Remote entries arrive over HTTP as plain dicts (already enum-coerced
+    by :meth:`AuditEntry.to_dict`), so we can read fields verbatim.
+    """
+    return {
+        "timestamp": d.get("timestamp"),
+        "action": d.get("action"),
+        "result": d.get("result"),
+        "caller": d.get("caller"),
+        "port": d.get("port"),
+        "model": d.get("model"),
+        "message": d.get("message", ""),
+    }
+
+
+def render_audit_tab(
+    target: str,
+    registry: "NodeRegistry | None" = None,
+) -> None:
     """Render the audit tail.
 
     Args:
         target: Selected target node from the sidebar node selector.
-            When not :data:`LOCAL_NODE`, the tab shows a caption noting
-            the local-only scope and still renders the local log.
+            :data:`LOCAL_NODE` reads the local audit log directly; any
+            other value resolves the node via ``registry`` and fetches
+            its audit log over HTTP (issue #64).
+        registry: Node registry used to resolve a remote target. Optional
+            for backward compatibility — when omitted and ``target`` is
+            non-local, the tab degrades to an error message rather than
+            crashing.
     """
     st.header("📝 Audit log")
 
@@ -100,35 +130,53 @@ def render_audit_tab(target: str) -> None:
         help="Empty selection = all results.",
     )
 
-    # Local-only disclaimer for non-local targets. Rendered ABOVE the data
-    # so the user reads the caveat before interpreting what they see.
-    if target != LOCAL_NODE:
-        # Tracked as a follow-up (issue #64). Stage 1 of #50 explicitly
-        # scoped this tab to the local node.
-        st.caption(
-            f"Showing local audit log; remote-node audit access is not yet "
-            f"wired (deferred to post-M4, see issue #64). "
-            f"Selected target: '{target}'."
-        )
+    # Dispatch on target. Local: read entries from disk and convert each
+    # AuditEntry into a row. Remote: fetch JSON dicts over HTTP and pass
+    # them through ``_dict_to_row`` (skipping the AuditEntry round-trip
+    # — we already have JSON-safe shapes from the agent).
+    rows_source: list[dict]
+    if target == LOCAL_NODE:
+        entries = audit_log.read_entries(limit=int(limit))
+        if selected_actions:
+            entries = [e for e in entries if e.action.value in selected_actions]
+        if selected_results:
+            entries = [e for e in entries if e.result.value in selected_results]
+        rows_source = [_entry_to_row(e) for e in entries]
+    else:
+        node = registry.get_node(target) if registry is not None else None
+        if node is None:
+            st.error(
+                f"Unknown node '{target}'. Pick a node from the sidebar "
+                f"or add it on the Nodes tab."
+            )
+            return
+        remote_entries = node.read_audit(limit=int(limit))
+        if remote_entries is None:
+            st.error(
+                f"Could not read audit log from node '{target}' "
+                f"(node offline or unreachable)."
+            )
+            return
+        if selected_actions:
+            remote_entries = [
+                e for e in remote_entries if e.get("action") in selected_actions
+            ]
+        if selected_results:
+            remote_entries = [
+                e for e in remote_entries if e.get("result") in selected_results
+            ]
+        rows_source = [_dict_to_row(e) for e in remote_entries]
 
-    entries = audit_log.read_entries(limit=int(limit))
-
-    # Apply filters in-memory. Limit was applied at read time.
-    if selected_actions:
-        entries = [e for e in entries if e.action.value in selected_actions]
-    if selected_results:
-        entries = [e for e in entries if e.result.value in selected_results]
-
-    if not entries:
+    if not rows_source:
         st.info(
             "No audit entries yet. Actions you take in the Dashboard or "
             "Models tabs will appear here."
         )
         return
 
-    # read_entries returns chronological order (newest last); reverse for
-    # display so the freshest entries are at the top of the table.
-    rows = [_entry_to_row(e) for e in reversed(entries)]
+    # read_entries / /audit return chronological order (newest last);
+    # reverse for display so the freshest entries are at the top.
+    rows = list(reversed(rows_source))
 
     # Lazy pandas import keeps the UI bootable on minimal envs that have
     # streamlit but not pandas. (streamlit ships pandas as a hard dep, so

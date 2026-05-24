@@ -161,7 +161,7 @@ def main():
     with tab4:
         from llauncher.ui.tabs.audit import render_audit_tab
 
-        render_audit_tab(selected)
+        render_audit_tab(selected, registry)
 
 
 if __name__ == "__main__":
