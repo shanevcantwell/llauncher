@@ -1,10 +1,11 @@
 /**
  * footer-budget — Replaces Pi's built-in footer so the context window total
- * comes from llauncher instead of Pi's hardcoded 128k fallback.
+ * comes from llama-server directly (via provider baseUrl) instead of Pi's
+ * hardcoded 128k fallback.
  *
  * Output format matches Pi exactly:
  *   ↑input ↓output RcacheRead $cost P.P%/TTTk (auto)              model-name
- * Where TTK = ctx_size / parallel from llauncher /status
+ * Where TTK = ctx_size / parallel from llama-server /v1/models
  * And percentage = (tokens / effectiveWindow) × 100, recalculated with the real window.
  *
  * Usage: automatically activates on session_start for any provider.
@@ -16,25 +17,71 @@ import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 // ── Node.js I/O helpers (jiti-compatible destructuring) ──────────────────────
 
 import * as _fs from "node:fs";
-const { readFileSync } = _fs;
+const { readFileSync, existsSync } = _fs;
 import * as _path from "node:path";
-const { join } = _path;
+const { join, dirname } = _path;
 import * as _os from "node:os";
 const { homedir } = _os;
+import * as _http from "node:http";
+
+/**
+ * Lightweight JSON fetch that works in jiti (no global `fetch`).
+ */
+function jsonFetch(urlStr: string, timeoutMs = 3000): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const url = new URL(urlStr);
+    const req = _http.get(
+      { hostname: url.hostname, port: Number(url.port), path: url.pathname + url.search, protocol: url.protocol },
+      (res) => {
+        let body = "";
+        res.on("data", (chunk: string) => { body += chunk; });
+        res.on("end", () => {
+          if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
+          try { resolve(JSON.parse(body)); }
+          catch { reject(new Error("Invalid JSON")); }
+        });
+      },
+    );
+    req.on("error", reject);
+    req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error("timeout")); });
+  });
+}
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const DEFAULT_LLAUNCHER_PORT = 8765;
-const NODES_FILE = join(homedir(), ".llauncher", "nodes.json");
+const DEFAULT_CTX_SIZE = 128_000;
+const PI_AGENT_DIR = join(homedir(), ".pi", "agent");
+const MODELS_JSON = join(PI_AGENT_DIR, "models.json");
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 interface CacheEntry {
-  runningModel: string;
-  modelPort: number;
-  ctxSize: number;     // total KV cache (all slots) from llauncher /status
-  parallel: number;    // concurrent session slots
+  runningModel: string;   // actual model name from llama-server (e.g. "Qwen3.6-35B...")
+  ctxSize: number;        // n_ctx from /v1/models meta
+  parallel: number;       // num_parallel from /health or default 1
 }
+
+// ── Inline logger — writes to ~/.local/state/pi-extensions/footer-budget.log
+//     so debug output is searchable without cluttering the TUI.              ──
+const _logDir = (() => {
+  const os: any = require("node:os"), pathMod: any = require("node:path");
+  const d = pathMod.join(os.homedir(), ".local", "state", "pi-extensions");
+  if (!_fs.existsSync(d)) _fs.mkdirSync(d, { recursive: true });
+  return d;
+})();
+const _logFile = (() => {
+  const p: any = require("node:path");
+  return p.join(_logDir as string, "footer-budget.log") as unknown as string;
+})();
+function _writeLog(level: string, msg: string) {
+  try { _fs.appendFileSync(_logFile, `[${new Date().toISOString()}] [${level}] ${msg}\n`); } catch {}
+}
+const log = {
+  debug(m: string)   { _writeLog("DEBUG", m); },
+  warn(m: string)    { _writeLog("WARN", m); },
+  err(m: string)     { _writeLog("ERROR", m); },
+  json(d: unknown)   { try { const ts = new Date().toISOString(); _fs.appendFileSync(_logFile, `${ts} ${JSON.stringify(d)}\n`); } catch {} }
+};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -50,205 +97,165 @@ function formatTokens(count: number): string {
 }
 
 /**
- * Compute effective per-session context window from cached llauncher data.
+ * Compute effective per-session context window.
+ *
+ * With kv-unified + cont-batching, each slot has its own full n_ctx — the
+ * unified KV pool shares memory but doesn't slice sessions. Per-slot n_ctx
+ * from /v1/models is always the effective window.
  */
 function _effectiveWindow(entry: CacheEntry): number {
-  return entry.parallel > 0 ? Math.floor(entry.ctxSize / entry.parallel) : entry.ctxSize;
+  return entry.ctxSize;
 }
 
-// ── Llauncher Discovery & Status Fetch ───────────────────────────────────────
+// ── Pi config reader ────────────────────────────────────────────────────────
+
+interface ProviderConfig {
+  baseUrl?: string;
+  models?: Array<{ id: string }>;
+  apiKey?: string;
+  api?: string;
+}
 
 /**
- * Parse an llauncher address that may be either:
- *   - "inference-host" (bare hostname)       → http://inference-host:8765
- *   - "inference-host:8765" (host+port)     → http://inference-host:8765
- *   - "http://inference-host:8765" (full URL)→ extract host/port from URL
- * Returns { host, port } or null if unparseable.
+ * Read ~/.pi/agent/models.json and return provider map.
  */
-function parseLlancherAddress(raw: string): { host: string; port: number } | null {
-  // Try as a full URL first.
+function readPiModels(): Record<string, ProviderConfig> | null {
   try {
-    const url = new URL(raw);
-    return { host: url.hostname, port: Number(url.port) || DEFAULT_LLAUNCHER_PORT };
+    if (!existsSync(MODELS_JSON)) return null;
+    const raw = _fs.readFileSync(MODELS_JSON, "utf-8");
+    const parsed = JSON.parse(raw) as { providers?: Record<string, ProviderConfig> };
+    return parsed.providers || null;
   } catch {
-    /* not a URL — try bare host or host:port */
+    return null;
   }
-
-  if (raw.includes(":")) {
-    const idx = raw.lastIndexOf(":");
-    return { host: raw.slice(0, idx), port: Number(raw.slice(idx + 1)) || DEFAULT_LLAUNCHER_PORT };
-  }
-  return { host: raw.trim(), port: DEFAULT_LLAUNCHER_PORT };
 }
 
 /**
- * Discover llauncher hosts. Returns [{ host, port }] array.
- * Priority: $LLAUNCHER_HOST env var → ~/.llauncher/nodes.json.
+ * Given a provider name (e.g. "inference-host-llamaserver"), extract the
+ * baseUrl and port from the URL. Returns { host, port } or null.
  */
-function discoverLluncherHosts(): Array<{ host: string; port: number }> {
-  const results: Array<{ host: string; port: number }> = [];
+function parseProviderUrl(providerName: string): { url: string; host: string; port: number } | null {
+  const providers = readPiModels();
+  if (!providers || !providers[providerName]) return null;
 
-  // Primary: environment variable (set in docker-compose.yml).
-  // Accepts bare hostname, "host:port", or full URL like "http://inference-host:8765".
-  const rawHost = process.env.LLAUNCHER_HOST?.trim();
-  if (rawHost) {
-    const parsed = parseLlancherAddress(rawHost);
-    if (parsed) results.push(parsed);
-  }
-
-  // Fallback: ~/.llauncher/nodes.json for multi-node setups.
-  try {
-    if (results.length === 0 && _fs.existsSync(NODES_FILE)) {
-      const raw = _fs.readFileSync(NODES_FILE, "utf-8");
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      for (const v of Object.values(parsed)) {
-        if (
-          typeof v === "object" && v !== null &&
-          typeof (v as any).host === "string"
-        ) {
-          results.push({ host: (v as any).host, port: DEFAULT_LLAUNCHER_PORT });
-        }
-      }
-    }
-  } catch { /* ignore read errors */ }
-
-  return results;
-}
-
-/**
- * Build a mapping from provider names to node configurations.
- * Reads ~/.llauncher/nodes.json and indexes by:
- *   - name key ("shane-pc", "inference-host")
- *   - host value for cross-reference
- *
- * Returns { [providerName]: { host, port } | undefined }
- */
-function buildProviderToNodeMap(): Map<string, { host: string; port: number }> {
-  const map = new Map<string, { host: string; port: number }>();
-  try {
-    if (!_fs.existsSync(NODES_FILE)) return map;
-    const raw = _fs.readFileSync(NODES_FILE, "utf-8");
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    for (const [nameKey, v] of Object.entries(parsed)) {
-      if (
-        typeof v === "object" && v !== null &&
-        typeof (v as any).host === "string"
-      ) {
-        const host = (v as any).host as string;
-        const port = ((v as any).port ?? DEFAULT_LLAUNCHER_PORT) as number;
-        // Index by name key and host value
-        map.set(nameKey, { host, port });
-        map.set(host.toLowerCase(), { host, port });
-      }
-    }
-  } catch { /* ignore read errors */ }
-  return map;
-}
-
-/**
- * Resolve a provider name to the corresponding llauncher node.
- * Tries exact match on provider name first, then case-insensitive host lookup,
- * then falls back to any available node.
- */
-function resolveNodeForProvider(providerName: string): { host: string; port: number } | undefined {
-  const map = buildProviderToNodeMap();
-
-  // Exact match on provider name → node name key
-  if (map.has(providerName)) return map.get(providerName);
-
-  // Case-insensitive match against node names and hosts
-  const lowerProvider = providerName.toLowerCase();
-  for (const [key, val] of map) {
-    if (key.toLowerCase() === lowerProvider) return val;
-  }
-
-  // Fallback: no mapping found — try env var or any available node
-  const rawHost = process.env.LLAUNCHER_HOST?.trim();
-  if (rawHost) {
-    const parsed = parseLlancherAddress(rawHost);
-    if (parsed) return parsed;
-  }
-
-  // Last resort: first known node
-  for (const [, val] of map) return val;
-  return undefined;
-}
-
-/**
- * Fetch status from a single llauncher node. Returns undefined on failure.
- */
-async function fetchNodeStatus(nodeHost: string, port: number): Promise<CacheEntry | undefined> {
-  const url = `http://${nodeHost}:${port}/status`;
-  const controller = new AbortController();
-  setTimeout(() => controller.abort(), 3_000);
+  const baseUrl = providers[providerName].baseUrl;
+  if (!baseUrl) return null;
 
   try {
-    const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) return undefined;
-    const status = (await res.json()) as {
-      running_servers: Array<{
-        port: number;
-        config_name: string;
-        model_config?: { ctx_size?: number; parallel?: number | null };
-      }>;
-    };
-
-    if (!status.running_servers?.length) return undefined;
-
-    // Use first running server (single-node deployment assumed).
-    const srv = status.running_servers[0];
-    const mc = srv.model_config || {};
+    const url = new URL(baseUrl);
+    // Strip /v1 suffix to get the base server URL for /health and /v1/models
+    const baseUrlStr = `${url.protocol}//${url.host}`;
     return {
-      runningModel: srv.config_name || "",
-      modelPort: srv.port || 0,
-      ctxSize: mc.ctx_size ?? 0,
-      parallel: mc.parallel != null ? mc.parallel : 1,
+      url: baseUrl,
+      host: url.hostname,
+      port: Number(url.port) || (url.protocol === "https:" ? 443 : 80),
     };
-  } catch { return undefined; }
+  } catch {
+    return null;
+  }
+}
+
+// ── Fetch from llama-server directly ────────────────────────────────────────
+
+/**
+ * Fetch the list of models from a provider's baseUrl (/v1/models).
+ * Returns model info with n_ctx and num_parallel if available.
+ */
+async function fetchModelInfo(baseUrl: string): Promise<{
+  runningModel: string;
+  ctxSize: number;
+  parallel: number;
+} | null> {
+  try {
+    // baseUrl comes from models.json and already contains /v1, so append /models
+    const u = new URL(baseUrl);
+    const baseServer = `${u.protocol}//${u.host}`;
+    const modelsUrl = `${baseServer}/v1/models`;
+    log.debug(`fetching ${modelsUrl}`);
+
+    // Query /v1/models to get the active model's n_ctx from meta
+    let data: { data?: Array<{ id: string; meta?: Record<string, unknown> }>; models?: Array<{ name: string }> };
+    try {
+      const raw = await jsonFetch(modelsUrl);
+      log.json({ endpoint: "/v1/models", keys: Object.keys(raw) });
+      data = raw as any;
+    }
+    catch (e) {
+      log.err(`/v1/models failed: ${(e as Error).message}`);
+      return null;
+    }
+
+    // The first model in the list is the currently loaded one.
+    const model = data.data?.[0] || data.models?.[0];
+    if (!model) {
+      log.err(`/v1/models returned no models: ${JSON.stringify(data).slice(0, 200)}`);
+      return null;
+    }
+
+    const modelId = (model as any).id || (model as any).name || "unknown";
+    log.debug(`found model: ${modelId}`);
+
+    const meta = ((model as any).meta || {}) as Record<string, unknown>;
+    const ctxSize = Number(meta.n_ctx) || 0;
+
+    // Get num_parallel from /slots endpoint (each slot = one parallel context window)
+    let parallel = 1;
+    try {
+      const slotsUrl = `${baseServer}/slots`;
+      log.debug(`fetching ${slotsUrl}`);
+      const slotsData: Array<{ id: number }> | null = await jsonFetch(slotsUrl) as any;
+      if (Array.isArray(slotsData)) {
+        parallel = slotsData.length;
+        log.debug(`/slots returned ${parallel} slot(s)`);
+      }
+    } catch {
+      // /slots might not exist — default to 1
+    }
+
+    log.json({ model: modelId, ctxSize, parallel });
+    if (!ctxSize) {
+      log.err("n_ctx not found in meta");
+      return null;
+    }
+
+    return { runningModel: modelId, ctxSize, parallel };
+  } catch (e) {
+    log.err(`fetchModelInfo error: ${(e as Error).message}`);
+    return null;
+  }
 }
 
 // ── Cache ────────────────────────────────────────────────────────────────────
 
 let cachedEntry: CacheEntry | null = null;
-/** Track which provider/node the current cache entry came from */
+/** Track which provider the current cache entry came from */
 let _cachedProviderName: string | null = null;
 // Version counter for cache invalidation detection (race condition fix)
 let _cachedEntryVersion = 0;
 
 /**
- * Populate the llauncher status cache. If a targetProvider is specified,
- * only queries that specific node (matched by provider name → llauncher node).
- * Otherwise queries all discovered nodes and takes the first with valid data.
+ * Populate context cache by querying llama-server directly via provider baseUrl.
  */
 async function populateCache(
   targetProvider?: string,
   onComplete?: () => void
 ): Promise<void> {
-  let entriesToCheck: Array<{ host: string; port: number }>;
+  const providerName = targetProvider || "inference-host-llamaserver";
 
-  if (targetProvider) {
-    // Resolve provider name to specific llauncher node
-    const targetNode = resolveNodeForProvider(targetProvider);
-    if (!targetNode) {
-      console.warn(`[footer-budget] No llauncher node mapped for provider '${targetProvider}' — falling back to all nodes.`);
-      entriesToCheck = discoverLluncherHosts();
-    } else {
-      entriesToCheck = [targetNode];
-    }
-  } else {
-    // Broad discovery — try all available nodes
-    entriesToCheck = discoverLluncherHosts();
+  // Parse the provider URL from Pi's models.json
+  const parsedUrl = parseProviderUrl(providerName);
+  if (!parsedUrl) {
+    log.warn(`No baseUrl found for provider '${providerName}' — falling back to default.`);
+    return;
   }
 
-  for (const node of entriesToCheck) {
-    const entry = await fetchNodeStatus(node.host, node.port);
-    if (entry && entry.ctxSize > 0) {
-      cachedEntry = entry;
-      _cachedProviderName = targetProvider || null;
-      _cachedEntryVersion++;
-      onComplete?.();
-      return;
-    }
+  const entry = await fetchModelInfo(parsedUrl.url);
+  if (entry && entry.ctxSize > 0) {
+    cachedEntry = entry;
+    _cachedProviderName = targetProvider || null;
+    _cachedEntryVersion++;
+    onComplete?.();
+    return;
   }
 
   // Nothing resolved — cache remains null. Fallback path in render() handles it.
@@ -260,31 +267,27 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) => {
     if (!ctx.hasUI || !ctx.model) return;
 
-    // Use the initial model's provider to query the correct node.
-    // Fire-and-forget cache population — render immediately with current state,
-    // then re-render once fetch completes (no user keypress needed).
+    // Use the initial model's provider to query llama-server.
     const provider = ctx.model.provider;
     populateCache(provider);
     ctx.ui.setFooter(makeFooterRender(ctx));
 
-    // Safety net: retry global discovery if first attempt fails or is slow.
-    const handle = setTimeout(() => {
-      populateCache();  // queries all nodes — no per-provider staleness risk
+    // Safety net: retry after 5s in case of slow startup.
+    setTimeout(() => {
+      populateCache(provider);
     }, 5000);
   });
 
   pi.on("model_select", (event, ctx) => {
     if (!ctx.hasUI) return;
 
-    // Fire-and-forget cache population — render immediately with current state,
-    // then re-render once fetch completes (no user keypress needed).
     const newProvider = event.model.provider;
     populateCache(newProvider);
     ctx.ui.setFooter(makeFooterRender(ctx));
 
-    // Safety net: retry global discovery if first attempt fails or is slow.
-    const handle = setTimeout(() => {
-      populateCache();  // queries all nodes — no per-provider staleness risk
+    // Safety net: retry after 5s.
+    setTimeout(() => {
+      populateCache(newProvider);
     }, 5000);
   });
 
@@ -305,12 +308,12 @@ export default function (pi: ExtensionAPI): void {
       },
 
       render(width: number): string[] {
-        // ── 1. Effective context window (real from llauncher, or Pi default) ─
+        // ── 1. Effective context window (real from llama-server, or Pi default) ─
         let effectiveWindow: number;
         if (cachedEntry && _effectiveWindow(cachedEntry) > 0) {
           effectiveWindow = _effectiveWindow(cachedEntry);
         } else {
-          effectiveWindow = stateModel?.contextWindow ?? 128_000;
+          effectiveWindow = stateModel?.contextWindow ?? DEFAULT_CTX_SIZE;
         }
 
         // ── 2. Cumulative token stats (matches Pi's getEntries() loop) ─────
@@ -438,7 +441,7 @@ export default function (pi: ExtensionAPI): void {
         let statsLeft = statsParts.join(" ");
 
         // ── 6. Model name on the right side ────────────────────────────────
-        // Use llauncher's running model name if available, fallback to Pi's stateModel.id
+        // Use llama-server's running model name if available, fallback to Pi's stateModel.id
         const hasRunningModel = !!(cachedEntry?.runningModel);
         const modelName = hasRunningModel
           ? cachedEntry!.runningModel
