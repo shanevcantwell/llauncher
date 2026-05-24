@@ -66,9 +66,21 @@ def _read_stdin_token() -> str:
 
 
 def _read_token_file(path: Path) -> str | None:
-    """Return the stripped token from ``path``, or None if missing/empty."""
+    """Return the stripped token from ``path``, or None if missing/empty.
+
+    Decoded as ``utf-8-sig`` so that a leading byte-order mark — which
+    Windows PowerShell 5.1 prepends when writing with ``-Encoding utf8``
+    — is consumed at decode time rather than leaking into the token as
+    a ``\\ufeff`` character. ``str.strip()`` does NOT remove ``\\ufeff``
+    (it's classified as zero-width non-breaking space, not whitespace),
+    so a BOM left in the token used to surface downstream as an
+    ``ascii``-codec ``UnicodeEncodeError`` when httpx serialized the
+    token into the ``X-Api-Key`` request header. ``utf-8-sig`` is a
+    strict superset of ``utf-8`` for BOM-less input, so this is a
+    defensive widening with no behavior change for the BOM-free case.
+    """
     try:
-        data = path.read_text(encoding="utf-8").strip()
+        data = path.read_text(encoding="utf-8-sig").strip()
     except FileNotFoundError:
         return None
     return data or None
