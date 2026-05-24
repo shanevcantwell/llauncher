@@ -1,22 +1,29 @@
 # llauncher
 
-An MCP-first launcher and management tool for llama.cpp `llama-server` instances. Designed for both programmatic control via LLMs and human operators via a web UI.
+An MCP-first launcher and management tool for llama.cpp `llama-server` instances. The MCP contract is the product; the HTTP Agent, `llauncher` CLI, and Streamlit UI are co-equal consumers of the same `llauncher/operations/` service layer — three surfaces over one core, designed for both programmatic control (LLM agents, multi-node automation) and human operators.
 
 ## Features
 
+### Core (`llauncher/operations/`)
+The stateless service layer that every surface delegates to (ADR-008). Adding a verb here surfaces it across all four boundaries automatically.
+- **Verbs**: `start`, `stop`, `swap`, `cancel`, `delete_model`, `list_orphans`
+- **Pre-flight seams**: model-health probe and VRAM estimation, attachable as optional callables on `swap()`
+- **ADR-010 port discipline**: every verb takes `port` as a required argument — no auto-allocation, no env-var fallback
+
 ### MCP Server
-Full programmatic control for LLM agents and automation:
-- **List models** with current status (running/stopped)
-- **Start/stop servers** with validation and audit logging
-- **Manage configurations** - add, update, remove model configs
-- **Get server logs** for debugging and monitoring
-- **Validate configurations** before applying changes
+Canonical surface for LLM agents and automation. Stdio transport; full read + mutate coverage of the core verbs.
+- **Discovery**: `list_models`, `get_model_config`
+- **Lifecycle**: `start_server`, `stop_server`, `swap_server`, `cancel_server`, `server_status`, `get_server_logs`, `list_orphans`
+- **Configuration CRUD**: `add_model`, `update_model_config`, `delete_model`, `validate_config`
+
+### HTTP Agent
+Same verbs over REST for multi-node setups (ADR-009 hub-spoke). Port-keyed routes (`/start/{port}`, `/swap/{port}`, `/stop/{port}`, `/cancel/{port}`, `/footer-context/{port}`) plus `/status`, `/models`, `/models/health`. Token-protected when bound off-loopback (ADR-003).
 
 ### Streamlit UI
-Web-based dashboard for human operators:
-- **Dashboard**: Overview of all models with quick Start/Stop buttons
-- **Manager**: Add new models or edit existing configurations
-- **Running**: View live logs from active servers with Stop controls
+Web dashboard for human operators. Four tabs: Dashboard (read-only running view), Models (config CRUD + per-model start/stop/swap with explicit port picker), Nodes (peer registry), Audit (local audit-log tail).
+
+### CLI (`llauncher`)
+Typer command-line surface, co-equal with MCP and UI. Subcommand groups: `model` (list, info), `server` (start, stop, cancel, status), `orphan` (list), `node` (add, list, remove, status), `config` (path, validate). Rich tables for human output and `--json` on every group for scripting.
 
 ### Configuration
 - **Config Persistence**: Store configurations in `~/.llauncher/config.json` (single source of truth)
@@ -128,15 +135,17 @@ Or configure in your MCP client (e.g., Claude Code):
 |------|-------------|
 | `list_models` | List all configured models with current status (running/stopped) |
 | `get_model_config` | Get full configuration details for a specific model |
-| `start_server` | Start a llama-server instance for a model (with validation) |
+| `start_server` | Start a llama-server instance on a given port (`model_name` + `port` required; ADR-010) |
 | `stop_server` | Stop a running server by port number |
-| `swap_server` | Atomically swap models on a port with rollback guarantee |
+| `swap_server` | Atomically swap models on a port with rollback guarantee (ADR-011) |
+| `cancel_server` | Cancel an in-flight start/swap on a port (ADR-014) |
 | `server_status` | Get status summary of all running servers |
 | `get_server_logs` | Fetch recent log lines from a running server |
+| `list_orphans` | List unmanaged `llama-server` processes on the local node (ADR-015) |
 | `update_model_config` | Update an existing model's configuration |
 | `validate_config` | Validate a configuration without applying it |
 | `add_model` | Add a new model configuration to the store |
-| `remove_model` | Remove a model configuration (blocks if running) |
+| `delete_model` | Delete a model configuration (refuses if running; ADR-008 §4.1) |
 
 ### Streamlit UI
 
@@ -151,8 +160,6 @@ Start the UI using the runner script (recommended):
 ```cmd
 run.bat ui
 ```
-
-The UI automatically starts a local agent if one isn't running. You can also start the agent separately with `./run.sh agent` or `run.bat agent`.
 
 > **Bind to loopback (no built-in auth).** Streamlit binds wherever the
 > operator launches it; the default is loopback. The runner scripts
@@ -169,30 +176,49 @@ The UI automatically starts a local agent if one isn't running. You can also sta
 > threat-model rationale.
 
 #### Dashboard Tab
-- Grid view of all configured models with status indicators (🟢 Running / ⚫ Stopped)
-- Quick **Start** and **Stop** buttons for each model
-- **Edit** button redirects to Manager for configuration changes
-- Links to API docs when server is running
+Read-only running view (no mutate verbs live here per M4 Slice 13 / #50). Status indicators (🟢 Running / ⚫ Stopped), uptime, and live log tail for each active server. Use the Models tab to start/stop/swap.
 
-#### Manager Tab
-- **List Models**: View all models with expandable details (port, model path, GPU layers)
-- **Add New Model**: Form to create new configurations with validation
-- **Edit Model**: Pre-populated form to modify existing configurations
-- **Delete Model**: Remove configurations (blocked if server is running)
+#### Models Tab
+Config CRUD plus the per-model verb buttons. Add / edit / delete configurations and drive **Start**, **Stop**, **Swap** against the selected target node. Includes the explicit port picker (`ui/components/port_picker.py`) — ADR-010 requires the operator to choose the port at every call site; there is no auto-allocation or remembered default.
 
-#### Running Tab
-- List of currently running servers with uptime
-- Live log streaming for each server
-- Stop button for each running instance
+#### Nodes Tab
+Peer registry for multi-node setups. Add / list / remove remote agent nodes, test connectivity, and observe status. The sidebar `node_selector` (`ui/components/node_selector.py`) chooses which node the Models tab acts against.
+
+#### Audit Tab
+Tails the local audit log at `LAUNCHER_AUDIT_PATH` (`~/.llauncher/audit.jsonl` by default). Read-only view of commanded vs. observed events. Remote-node audit access is deferred per #64.
 
 ### CLI
 
-llauncher provides an MCP server and Streamlit UI for model management. Use the runner scripts to start services:
+The `llauncher` Typer CLI is a co-equal consumer of `llauncher/operations/` alongside the MCP server, HTTP Agent, and Streamlit UI. Every group supports a `--json` / `-j` flag for machine-readable output; the default is a Rich-rendered color table for human use.
+
+**Subcommand groups:**
 
 ```bash
-./run.sh mcp    # Start MCP server
-./run.sh ui     # Start Streamlit dashboard
+# Model configurations (read-only)
+llauncher model list
+llauncher model info mistral-7b
+
+# Server lifecycle — port is required on start (ADR-010)
+llauncher server start mistral-7b --port 8081
+llauncher server stop 8081
+llauncher server cancel 8081         # ADR-014: signals an in-flight start/swap
+llauncher server status --json
+
+# Orphans — unmanaged llama-server processes (ADR-015, read-only)
+llauncher orphan list
+
+# Remote nodes (ADR-009)
+llauncher node add my-server --host 192.168.1.100 --port 8765
+llauncher node list
+llauncher node status --all
+llauncher node remove my-server
+
+# Configuration store
+llauncher config path                # print path to config.json
+llauncher config validate mistral-7b
 ```
+
+Each group also accepts `--help`. The runner scripts (`./run.sh agent`, `./run.sh ui`) remain the easiest way to launch the agent and dashboard; the CLI subcommands above act against an already-running stack.
 
 ## Configuration
 
@@ -207,7 +233,6 @@ Example config entry:
     "name": "mistral",
     "model_path": "/path/to/model.gguf",
     "mmproj_path": null,
-    "default_port": 8081,
     "n_gpu_layers": 255,
     "ctx_size": 131072,
     "threads": 8,
@@ -232,6 +257,8 @@ Example config entry:
 }
 ```
 
+Per ADR-010, port is supplied at every call site (UI port picker, CLI `--port`, MCP `port` arg, HTTP `/start/{port}` route) and is **not** persisted in the config. Legacy `default_port` entries in `config.json` are silently dropped on load.
+
 ## Change Management
 
 llauncher includes validation rules to prevent problematic actions:
@@ -249,27 +276,52 @@ llauncher/
 ├── llauncher/
 │   ├── __init__.py
 │   ├── __main__.py
-│   ├── agent/             # HTTP agent for multi-node management
+│   ├── cli.py                  # Typer CLI (model/server/orphan/node/config groups)
+│   ├── state.py                # Legacy LauncherState — eviction-compat hook (ADR-008)
+│   ├── operations/             # Stateless service layer; MCP/HTTP/CLI/UI all delegate here (ADR-008)
+│   │   ├── start.py
+│   │   ├── stop.py
+│   │   ├── swap.py             # ADR-011 five-phase swap with rollback
+│   │   ├── delete.py
+│   │   ├── orphan.py           # ADR-015 read-only orphan listing
+│   │   └── preflight.py        # Model-health + VRAM seams
+│   ├── agent/                  # HTTP agent (FastAPI, port-keyed routes per ADR-010)
+│   │   ├── auth.py
 │   │   ├── config.py
+│   │   ├── footer_cache.py     # /footer-context/{port} TTL cache (ADR-012)
+│   │   ├── middleware.py
 │   │   ├── routing.py
-│   │   └── server.py
-│   ├── core/
-│   │   ├── config.py      # Config persistence
-│   │   ├── process.py     # Process management
-│   │   └── settings.py    # Global settings
-│   ├── mcp/
-│   │   ├── server.py      # MCP server
-│   │   └── tools/         # Tool implementations
+│   │   └── server.py           # Lifespan handler reaps managed children on SIGTERM/SIGINT
+│   ├── mcp_server/             # MCP server (stdio transport)
+│   │   ├── server.py
+│   │   └── tools/              # servers / models / config tool groups
+│   ├── core/                   # Primitive substrate (no LauncherState)
+│   │   ├── audit_log.py        # JSON Lines audit (ADR-008)
+│   │   ├── config.py           # ConfigStore — single source of truth
+│   │   ├── gpu.py              # GPU collector (ADR-006)
+│   │   ├── lockfile.py         # Atomic O_EXCL per-port lockfiles
+│   │   ├── log_rotation.py     # ADR-013 append + rotate
+│   │   ├── marker.py           # In-flight swap/start marker (ADR-011/014)
+│   │   ├── model_health.py     # Cache probe (ADR-005)
+│   │   ├── process.py          # Subprocess management
+│   │   └── settings.py         # LAUNCHER_* env-var family
 │   ├── models/
-│   │   └── config.py      # Pydantic models
-│   ├── remote/            # Multi-node support
-│   │   ├── node.py
-│   │   ├── registry.py
-│   │   └── state.py
-│   ├── state.py           # StateManager
-│   └── ui/
-│       ├── app.py         # Streamlit app
-│       └── tabs/          # UI components
+│   │   └── config.py           # Pydantic ModelConfig (no default_port; ADR-010)
+│   ├── remote/                 # Multi-node hub-spoke (ADR-009)
+│   │   ├── node.py             # RemoteNode (port-keyed ops)
+│   │   ├── registry.py         # NodeRegistry
+│   │   └── state.py            # RemoteAggregator (swap_on_node parity)
+│   └── ui/                     # Streamlit dashboard
+│       ├── app.py
+│       ├── utils.py            # render_op_result, OpResultSeverity ladder
+│       ├── components/
+│       │   ├── node_selector.py
+│       │   └── port_picker.py  # Explicit port input — no auto-allocation
+│       └── tabs/
+│           ├── audit.py
+│           ├── dashboard.py    # Read-only running view
+│           ├── models.py       # Config CRUD + start/stop/swap verbs
+│           └── nodes.py
 ```
 
 ## Testing
@@ -379,8 +431,7 @@ run.bat ui
 
 The dashboard will automatically:
 1. Show a loading screen while initializing
-2. Start a local agent if one isn't running
-3. Register itself as the "local" node
+2. Register itself as the "local" node
 
 #### 4. Add Remote Nodes
 
@@ -425,18 +476,12 @@ New-NetFirewallRule -DisplayName "llauncher Agent" -Direction Inbound -LocalPort
 
 ### Usage
 
-#### Dashboard Tab
+The sidebar **Node Selector** (`ui/components/node_selector.py`) picks the target node — `local` plus any registered remotes. A single target is always selected; the "All Nodes" cross-node aggregate view was dropped in M4 Slice 13 (#50).
 
-- **Node Selector** (sidebar): Filter view by specific node or "All Nodes"
-- **Running Servers**: Shows all active servers with node badges
-- **Models**: Lists all configured models grouped by node
-- **Start/Stop**: Control servers on any node
-
-#### Nodes Tab
-
-- **Registered Nodes**: List of all connected nodes with status
-- **Test Connection**: Verify agent connectivity
-- **Remove Node**: Unregister a node from the dashboard
+- **Dashboard Tab**: read-only running view across the selected node.
+- **Models Tab**: config CRUD + per-model Start / Stop / Swap, acting on the selected node.
+- **Nodes Tab**: registered-nodes list with Test Connection and Remove controls.
+- **Audit Tab**: tails the local `LAUNCHER_AUDIT_PATH`. Remote-node audit access is deferred per #64.
 
 ### Troubleshooting
 

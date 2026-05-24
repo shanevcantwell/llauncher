@@ -30,7 +30,6 @@ The repo is in the middle of a v2 architecture rewrite per ADRs 008–011. Curre
 | Implementation roadmap | `docs/plans/v2-implementation-roadmap.md` |
 | Ratified ADRs | `docs/adrs/008-*.md` … `011-*.md` |
 | Orientation spike (live-tree gap analysis) | `docs/reviews/2026-05-02-v2-orientation-spike.md` |
-| Reverse-engineered v1 PRD (partial truth) | `docs/PRODUCT_REQUIREMENTS.md` |
 | Open Issues | `gh issue list` (see "Open Issues" below) |
 | Backend-adapter analysis (vLLM future) | Issue #42 |
 | **Code audit reports** | `docs/_audit_synthesis.md` + 5 domain-specific reports in `docs/_audit_*.md` |
@@ -307,7 +306,7 @@ gh issue list --state open
 
 ## Institutional Knowledge (things not in any single artifact)
 
-1. **The v1 PRD (`docs/PRODUCT_REQUIREMENTS.md`) was reverse-engineered by a Qwen3-class model** reading the live code. It is a snapshot of one prior moment and is stale on at least two points (MCP refresh discipline, audit reset on refresh). The v2 ADRs inherited those staleness points; ADR-008 has explicit Amendment Notes correcting them. **Don't re-derive from the v1 PRD blindly** — the orientation spike §4 has the corrections.
+1. **v1's design intent was reverse-engineered live from running code, not from a written spec.** The v2 ADRs corrected two staleness points carried forward (MCP refresh discipline, audit reset on refresh); ADR-008 has explicit Amendment Notes covering both. Don't re-derive v1 design intent from old code archaeology — the v2 ADRs and this handoff are the canonical statements.
 
 2. **The "four LauncherState instances" framing** in ADR-008 §Context #1 is real but mis-named. It's a symptom of "no shared service layer," not a designed-in cardinality. The v2 stateless-facade reframe (`operations.py`) is the cure.
 

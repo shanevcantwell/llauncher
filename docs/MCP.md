@@ -2,15 +2,17 @@
 
 The llauncher MCP (Model Context Protocol) server provides programmatic control over llama-server instances, enabling LLM agents and automation scripts to manage model deployments.
 
+MCP is llauncher's canonical surface. The HTTP Agent (port 8765 by default) exposes the same verbs over REST for multi-node setups (ADR-009 hub-spoke). The `llauncher` Typer CLI and Streamlit UI are human-facing consumers of the same `operations/` service layer (ADR-008). Adding a verb to `operations/` surfaces it across all four boundaries.
+
 ## Overview
 
-llauncher exposes 11 MCP tools across three categories:
+llauncher exposes 13 MCP tools across three categories:
 
 | Category | Tools |
 |----------|-------|
 | **Model Discovery** | `list_models`, `get_model_config` |
-| **Server Management** | `start_server`, `stop_server`, `swap_server`, `server_status`, `get_server_logs` |
-| **Configuration** | `add_model`, `remove_model`, `update_model_config`, `validate_config` |
+| **Server Management** | `start_server`, `stop_server`, `swap_server`, `cancel_server`, `server_status`, `get_server_logs`, `list_orphans` |
+| **Configuration** | `add_model`, `delete_model`, `update_model_config`, `validate_config` |
 
 ## Installation
 
@@ -102,26 +104,32 @@ List all configured models with their current status.
 {
   "models": [
     {
-      "name": "mistral-7b",
-      "status": "running",
-      "port": 8081,
-      "model_path": "/models/mistral-7b.gguf",
-      "n_gpu_layers": 255,
-      "ctx_size": 131072,
-      "pid": 12345
+      "identification": {
+        "name": "mistral-7b",
+        "model_path": "/models/mistral-7b.gguf"
+      },
+      "status": {
+        "state": "running",
+        "port": 8081,
+        "pid": 12345
+      }
     },
     {
-      "name": "llama-3.1",
-      "status": "stopped",
-      "port": 8082,
-      "model_path": "/models/llama-3.1.gguf",
-      "n_gpu_layers": 255,
-      "ctx_size": 131072
+      "identification": {
+        "name": "llama-3.1",
+        "model_path": "/models/llama-3.1.gguf"
+      },
+      "status": {
+        "state": "stopped",
+        "port": null
+      }
     }
   ],
   "count": 2
 }
 ```
+
+The value to pass as `model_name` to `start_server` / `swap_server` is `identification.name` exactly as returned — do not concatenate it with `status.port` or any other field.
 
 **Use Cases:**
 - Get an overview of all available models
@@ -149,7 +157,6 @@ Get the full configuration for a specific model.
     "name": "mistral-7b",
     "model_path": "/models/mistral-7b.gguf",
     "mmproj_path": null,
-    "default_port": 8081,
     "n_gpu_layers": 255,
     "ctx_size": 131072,
     "threads": null,
@@ -189,29 +196,38 @@ Get the full configuration for a specific model.
 
 #### `start_server`
 
-Start a llama-server instance for a specified model.
+Start a llama-server instance for a specified model on a specified port. Per ADR-010, both `model_name` and `port` are required; there is no auto-allocation, no env-var fallback, and no per-config preferred port. Use `swap_server` if a different model is already running on that port.
 
 **Input:**
 ```json
 {
-  "model_name": "mistral-7b"
+  "model_name": "mistral-7b",
+  "port": 8081
 }
 ```
+
+**Required parameters:**
+- `model_name` (string): exact name from `list_models` (`identification.name`).
+- `port` (integer): port to bind. Required at every API boundary (ADR-010).
 
 **Output (Success):**
 ```json
 {
   "success": true,
-  "message": "Started mistral-7b on port 8081",
+  "action": "started",
+  "port": 8081,
+  "model": "mistral-7b",
   "pid": 12345
 }
 ```
 
-**Output (Error - Port in Use):**
+**Output (Error - Port Occupied by Different Model):**
 ```json
 {
   "success": false,
-  "message": "Port 8081 is already in use by llama-3.1"
+  "action": "rejected_occupied",
+  "port": 8081,
+  "current_model": "llama-3.1"
 }
 ```
 
@@ -219,20 +235,16 @@ Start a llama-server instance for a specified model.
 ```json
 {
   "success": false,
-  "message": "Model not found: unknown-model"
+  "action": "error",
+  "error": "Model not found: unknown-model"
 }
 ```
 
 **Validation:**
-- Checks if port is available (or auto-allocates if not specified)
-- Verifies model path exists
-- Respects blacklisted ports
-- Checks caller permissions
-
-**Port Allocation:**
-- If model has `default_port` set and it's available, uses that port
-- Otherwise, auto-allocates from the available port range (8080-8999)
-- Respects `BLACKLISTED_PORTS` from environment
+- Verifies the port is not occupied by a different model (use `swap_server` for that case)
+- Verifies the model exists in `ConfigStore` and its `model_path` resolves
+- Respects blacklisted ports (`BLACKLISTED_PORTS` env)
+- Checks caller permissions via `ChangeRules`
 
 **Use Cases:**
 - Start a model before making it available to applications
@@ -285,24 +297,21 @@ Stop a running llama-server by port number.
 - Catastrophic failure (`success: false, rolled_back: false, port_state: "unavailable"`): port is dead, manual intervention required
 
 **Pre-flight Requirements:**
-- New model must exist and have a valid path
-- New model must not already be running on a different port
-- If swapping (port has a server), the old model must have a persisted config (not just a discovered script)
+- New model must exist in `ConfigStore` and have a valid `model_path`
 - Old model's path must still exist (for rollback capability)
+- Port must not be empty (use `start_server` for that case — `action='rejected_empty'`)
 
 **Input:**
 ```json
 {
   "port": 8081,
-  "model_name": "summarizer-model",
-  "timeout": 120
+  "model_name": "summarizer-model"
 }
 ```
 
 **Parameters:**
-- `port` (required): Port number to swap the model on
-- `model_name` (required): Name of the new model to start
-- `timeout` (optional, default: 120): Maximum seconds to wait for the new model to become ready
+- `port` (required, integer): port number to swap the model on
+- `model_name` (required, string): name of the new model to start
 
 **Output (Success):**
 ```json
@@ -459,7 +468,6 @@ Add a new model configuration to the store.
   "config": {
     "name": "gemma-2b",
     "model_path": "/models/gemma-2b.gguf",
-    "default_port": 8083,
     "n_gpu_layers": 255,
     "ctx_size": 8192,
     "flash_attn": "on"
@@ -475,7 +483,6 @@ Add a new model configuration to the store.
   "config": {
     "name": "gemma-2b",
     "model_path": "/models/gemma-2b.gguf",
-    "default_port": 8083,
     "n_gpu_layers": 255,
     "ctx_size": 8192,
     "flash_attn": "on",
@@ -506,7 +513,6 @@ Add a new model configuration to the store.
 
 **Optional Fields:**
 - `mmproj_path`: Path to multimodal projector (for vision models)
-- `default_port`: Preferred port (auto-allocates if not specified)
 - `n_gpu_layers`: GPU offload layers (default: 255)
 - `ctx_size`: Context size (default: 131072)
 - `flash_attn`: Flash attention mode ("on", "off", "auto")
@@ -520,9 +526,9 @@ Add a new model configuration to the store.
 
 ---
 
-#### `remove_model`
+#### `delete_model`
 
-Remove a model configuration from the store.
+Delete a model configuration from the store (ADR-008 §4.1). Idempotent on a missing name and refuses to delete a model that is currently running.
 
 **Input:**
 ```json
@@ -535,15 +541,17 @@ Remove a model configuration from the store.
 ```json
 {
   "success": true,
-  "message": "Removed model gemma-2b"
+  "action": "deleted",
+  "model": "gemma-2b"
 }
 ```
 
-**Output (Error - Not Found):**
+**Output (Not Found - Idempotent Success):**
 ```json
 {
-  "success": false,
-  "error": "Model not found: gemma-2b"
+  "success": true,
+  "action": "not_found",
+  "model": "gemma-2b"
 }
 ```
 
@@ -551,11 +559,13 @@ Remove a model configuration from the store.
 ```json
 {
   "success": false,
-  "error": "Cannot remove model: server is running on port 8083"
+  "action": "rejected_in_use",
+  "model": "gemma-2b",
+  "in_use_port": 8083
 }
 ```
 
-**Important:** You must stop any running server for the model before removing its configuration.
+**Important:** You must stop or swap the running server for the model before deleting its configuration.
 
 **Use Cases:**
 - Clean up unused model configurations
@@ -573,7 +583,6 @@ Update an existing model's configuration.
 {
   "name": "mistral-7b",
   "config": {
-    "default_port": 8090,
     "ctx_size": 65536,
     "flash_attn": "auto"
   }
@@ -588,7 +597,6 @@ Update an existing model's configuration.
   "config": {
     "name": "mistral-7b",
     "model_path": "/models/mistral-7b.gguf",
-    "default_port": 8090,
     "ctx_size": 65536,
     "flash_attn": "auto",
     ...
@@ -605,16 +613,17 @@ Update an existing model's configuration.
 ```
 
 **Updateable Fields:**
-- `default_port`: Change the preferred port
 - `n_gpu_layers`: Adjust GPU offloading
 - `ctx_size`: Modify context window size
 - `threads`: Set thread count
 - `flash_attn`: Toggle flash attention
 - `no_mmap`: Enable/disable memory mapping
+- `extra_args`: Additional command-line arguments (subject to the managed-flag deny-list)
+
+Per ADR-010, port is a call-site argument and is not persisted in `ModelConfig` — `default_port` is silently dropped if supplied here.
 
 **Use Cases:**
 - Tune model performance parameters
-- Change port assignments
 - Update context size requirements
 - Adjust GPU memory usage
 
@@ -674,7 +683,7 @@ Validate a model configuration without applying it.
 1. list_models
    → See available models and their status
 
-2. start_server({model_name: "mistral-7b"})
+2. start_server({model_name: "mistral-7b", port: 8081})
    → Returns success with port and PID
 
 3. server_status
@@ -690,13 +699,11 @@ Validate a model configuration without applying it.
 1. server_status
    → Find which model is on port 8081
 
-2. stop_server({port: 8081})
-   → Stop the current model
+2. swap_server({port: 8081, model_name: "llama-3.1"})
+   → Atomic five-phase swap with rollback (ADR-011);
+     no need to stop first
 
-3. start_server({model_name: "llama-3.1"})
-   → Start new model (will use 8081 if configured)
-
-4. get_server_logs({port: 8081})
+3. get_server_logs({port: 8081})
    → Verify new model loaded
 ```
 
@@ -709,8 +716,8 @@ Validate a model configuration without applying it.
 2. add_model({config: {...}})
    → Register the model
 
-3. start_server({model_name: "new-model"})
-   → Start the server
+3. start_server({model_name: "new-model", port: 8084})
+   → Start the server on the chosen port
 
 4. update_model_config({name: "new-model", config: {ctx_size: 65536}})
    → Tune parameters after testing
@@ -719,7 +726,7 @@ Validate a model configuration without applying it.
 ### Example 4: Debug a Failed Startup
 
 ```
-1. start_server({model_name: "problematic-model"})
+1. start_server({model_name: "problematic-model", port: 8085})
    → Returns error message
 
 2. get_model_config({name: "problematic-model"})
@@ -752,8 +759,8 @@ def rotate_model():
     for server in status["running_servers"]:
         client.call_tool("stop_server", {"port": server["port"]})
 
-    # Start new model
-    client.call_tool("start_server", {"model_name": "night-model"})
+    # Start new model on the freed port
+    client.call_tool("start_server", {"model_name": "night-model", "port": 8081})
 
 schedule.every().day.at("22:00").do(rotate_model)
 ```
@@ -778,29 +785,38 @@ def check_health():
 Start models on-demand based on requests:
 
 ```python
-def ensure_model_running(model_name: str):
+def ensure_model_running(model_name: str, port: int):
+    """Caller picks the port (ADR-010); no auto-allocation."""
     models = client.call_tool("list_models", {})
-    status = next((m for m in models["models"] if m["name"] == model_name), None)
+    status = next((m for m in models["models"] if m["identification"]["name"] == model_name), None)
 
-    if not status or status["status"] != "running":
-        result = client.call_tool("start_server", {"model_name": model_name})
+    if not status or status["status"]["state"] != "running":
+        result = client.call_tool("start_server", {"model_name": model_name, "port": port})
         if not result["success"]:
-            raise Exception(f"Failed to start {model_name}: {result['message']}")
+            raise Exception(f"Failed to start {model_name}: {result.get('error') or result.get('action')}")
 
-    return status["port"]
+    return port
 ```
 
 ---
 
 ## Environment Variables
 
+The v2 `LAUNCHER_*` env-var family (per ADR-008 / ADR-013):
+
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LLAMA_SERVER_PATH` | `~/.local/bin/llama-server` | Path to llama-server binary |
-| `SCRIPTS_PATH` | `~/.local/bin` | Directory to scan for launch scripts |
-| `DEFAULT_PORT` | `8080` | Starting port for auto-allocation |
+| `LAUNCHER_RUN_DIR` | `~/.llauncher/run` | Per-port lockfile and in-flight marker directory |
+| `LAUNCHER_AUDIT_PATH` | `~/.llauncher/audit.jsonl` | JSON Lines audit log (commanded vs. observed) |
+| `LAUNCHER_LOG_DIR` | `~/.llauncher/logs` | Per-server log directory (append mode, ADR-013) |
+| `LAUNCHER_LOG_MAX_BYTES` | `52428800` (50 MiB) | Per-log rotation threshold |
+| `LAUNCHER_LOG_KEEP` | `3` | Retained rotated log files per server |
+| `LAUNCHER_FOOTER_CACHE_S` | `1.0` | `/footer-context/{port}` TTL (seconds; `<= 0` disables) |
+| `LAUNCHER_AGENT_HOST` | `127.0.0.1` | HTTP Agent bind host. Non-loopback requires a token. |
+| `LAUNCHER_AGENT_PORT` | `8765` | HTTP Agent listen port |
+| `LAUNCHER_AGENT_NODE_NAME` | hostname | Friendly node identifier |
+| `LAUNCHER_AGENT_TOKEN` | — | Required when binding off-loopback (ADR-003); `-` reads stdin |
 | `BLACKLISTED_PORTS` | `` | Comma-separated list of reserved ports |
-| `LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
 
 ---
 
@@ -815,7 +831,6 @@ Model configurations added via `add_model` are stored in `~/.llauncher/config.js
   "mistral-7b": {
     "name": "mistral-7b",
     "model_path": "/models/mistral-7b.gguf",
-    "default_port": 8081,
     "n_gpu_layers": 255,
     "ctx_size": 131072,
     ...
@@ -823,9 +838,7 @@ Model configurations added via `add_model` are stored in `~/.llauncher/config.js
 }
 ```
 
-### Script Discovery
-
-llauncher also discovers `launch-*.sh` scripts in `SCRIPTS_PATH` and parses them as model configurations. Persisted configs take precedence over discovered scripts.
+`ConfigStore` is the single source of truth for model configurations in v2 — there is no script-based discovery fallback. Legacy `default_port` / `port` / `host` keys in the JSON are silently dropped on load (`ModelConfig.from_dict_unvalidated`).
 
 ---
 
@@ -890,9 +903,9 @@ llauncher enforces validation rules:
 
 ### Models Not Appearing
 
-1. Run discovery: `python -m llauncher discover`
-2. Check SCRIPTS_PATH: Verify scripts exist in configured directory
-3. Check config file: `~/.llauncher/config.json` for persisted configs
+1. Check the config file: `~/.llauncher/config.json` is the single source of truth in v2 (no script-based discovery fallback)
+2. Add the missing entry via `add_model`, `llauncher`-CLI editing of the JSON, or the Streamlit Models tab
+3. If MCP returns stale results, recall that read tools refresh on every call — a stale response means the underlying file has not been updated
 
 ---
 
@@ -900,12 +913,19 @@ llauncher enforces validation rules:
 
 For the HTTP agent API (used in multi-node setups), see the agent documentation at `http://<node>:8765/docs` when an agent is running.
 
-The MCP tools map to these HTTP endpoints:
+The MCP tools map to these HTTP endpoints (all port-keyed per ADR-010; `routing.py`):
 
 | MCP Tool | HTTP Endpoint |
 |----------|---------------|
 | `list_models` | `GET /models` |
-| `start_server` | `POST /start/{model_name}` |
+| `get_model_config` | `GET /models` (filter client-side) |
+| `start_server` | `POST /start/{port}` (body: `{model_name}`) |
 | `stop_server` | `POST /stop/{port}` |
+| `swap_server` | `POST /swap/{port}` (body: `{model_name}`) |
+| `cancel_server` | `POST /cancel/{port}` |
 | `server_status` | `GET /status` |
 | `get_server_logs` | `GET /logs/{port}` |
+| `list_orphans` | `GET /orphans` |
+| `delete_model` | `DELETE /models/{model_name}` |
+| (footer) | `GET /footer-context/{port}` |
+| (health probe) | `GET /models/health`, `GET /models/health/{model_name}` |
