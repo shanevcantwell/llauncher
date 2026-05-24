@@ -122,33 +122,45 @@ class TestTryMpsExceptionPaths:
 
 
 class TestNvidiaDriverVersionSecondarySubprocess:
-    """Driver-version secondary nvidia-smi call (230-235)."""
+    """Driver-version secondary nvidia-smi call (gpu.py L223-235).
+
+    The secondary ``subprocess.run`` (driver_version query) only runs when
+    ``simulated_output`` is falsy (default ``False``) — i.e. the primary
+    query path actually invoked the CLI. Tests below drive ``_query_NVIDIA``
+    with ``simulated_output=False`` and stub ``subprocess.run`` with a
+    side-effect sequence: first call returns valid JSON, second call raises
+    the handled exception, exercising the L232 / L234 except branches.
+    """
+
+    _PRIMARY_JSON = json.dumps({"data": [
+        ["0", "Sim GPU", "8000", "100", "7900", "10.0", "55.0", "", "", "0"],
+    ]})
+
+    def _primary_ok(self):
+        return SimpleNamespace(returncode=0, stdout=self._PRIMARY_JSON, stderr="")
 
     def test_driver_version_filenotfound_swallowed(self):
-        """Primary query yields data; driver_version subprocess raises
-        FileNotFoundError → handled, devices still returned."""
+        """L232 — secondary subprocess FileNotFoundError handled; devices kept."""
         collector = GPUHealthCollector()
-        sim = json.dumps({"data": [
-            ["0", "Sim GPU", "8000", "100", "7900", "10.0", "55.0", "", "", "0"],
-        ]})
-        # First call: primary nvidia-smi query (returns canned via simulated_output).
-        # Second call: driver_version subprocess — force FileNotFoundError.
-        with patch.object(gpu_mod.subprocess, "run", side_effect=FileNotFoundError):
-            data = collector._query_NVIDIA(simulated_output=sim)
+        with patch.object(
+            gpu_mod.subprocess, "run",
+            side_effect=[self._primary_ok(), FileNotFoundError()],
+        ):
+            data = collector._query_NVIDIA(simulated_output=False)
         assert len(data["devices"]) == 1
-        # driver_version unresolved → None or falls back to parsed dict value (None here).
         assert data["driver_version"] is None
 
     def test_driver_version_timeout_swallowed(self):
+        """L234 — secondary subprocess TimeoutExpired handled; devices kept."""
         collector = GPUHealthCollector()
-        sim = json.dumps({"data": [
-            ["0", "Sim GPU", "8000", "100", "7900", "10.0", "55.0", "", "", "0"],
-        ]})
         with patch.object(
             gpu_mod.subprocess, "run",
-            side_effect=subprocess.TimeoutExpired(cmd="nvidia-smi", timeout=5),
+            side_effect=[
+                self._primary_ok(),
+                subprocess.TimeoutExpired(cmd="nvidia-smi", timeout=5),
+            ],
         ):
-            data = collector._query_NVIDIA(simulated_output=sim)
+            data = collector._query_NVIDIA(simulated_output=False)
         assert len(data["devices"]) == 1
 
 
