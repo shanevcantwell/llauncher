@@ -271,8 +271,8 @@ Each phase tightens a contract — exception scope, audit shape, dispatch path, 
 
 ## References
 
-- ADRs 008–011 (`docs/adrs/`) — Tier 1, foundation
-- ADR-013 (`docs/adrs/013-logs-lifecycle.md`) — accepted 2026-05-08
+- ADRs 008–011 (`docs/adrs/{accepted,completed}/`) — Tier 1, foundation (008 in `accepted/` — eviction-compat retained; 009–011 in `completed/`)
+- ADR-013 (`docs/adrs/accepted/013-logs-lifecycle.md`) — accepted 2026-05-08
 - ADR-008 amendment notes (2026-05-02)
 - ADR-002 (Superseded by ADR-011)
 - Orientation spike (`docs/reviews/2026-05-02-v2-orientation-spike.md`)

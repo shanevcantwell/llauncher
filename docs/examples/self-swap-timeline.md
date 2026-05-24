@@ -1,6 +1,6 @@
 # Self-Swap: Prose Timeline of a Canonical Swap
 
-**Companion to:** [ADR-016 — Canonical Self-Swap](../adrs/016-canonical-self-swap.md).
+**Companion to:** [ADR-016 — Canonical Self-Swap](../adrs/completed/016-canonical-self-swap.md).
 **Executable proof:** [`tests/integration/test_self_swap.py`](../../tests/integration/test_self_swap.py).
 
 This is the long-form walkthrough of the worked example summarized in ADR-016's T0–T4 table. Read it once when you are writing a harness on top of llauncher; refer back to ADR-016 §3 for the response-shape contract.
@@ -118,7 +118,7 @@ SwapResult(
 
 …and returns it. `servers_tools.swap_server` calls `.to_dict()` on it and returns to `_dispatch_tool`. `call_tool_handler` wraps the dict in a `TextContent(type="text", text=json.dumps(result))` and the MCP server framework writes one JSON-RPC response frame to stdout.
 
-The harness reads the frame off its end of the MCP child's stdout. Its `await` on the MCP SDK returns the dict. It branches on `success`, `action`, and `port_state` (per [ADR-016 §3](../adrs/016-canonical-self-swap.md#3-response-shape-contract--swapresult-fields-the-harness-observes)):
+The harness reads the frame off its end of the MCP child's stdout. Its `await` on the MCP SDK returns the dict. It branches on `success`, `action`, and `port_state` (per [ADR-016 §3](../adrs/completed/016-canonical-self-swap.md#3-response-shape-contract--swapresult-fields-the-harness-observes)):
 
 - `success=True` and `action="swapped"` → swap completed, beta is now serving.
 - `port_state="serving"` → the port has a healthy model; safe to send inference requests.
@@ -161,7 +161,7 @@ The next tick of the readiness poll inside the original `swap_server` call sees 
 
 Worst-case wall time from the harness issuing `cancel_server` to seeing the original `swap_server` return: one `check_interval` (default 1 s) plus the time to respawn alpha (~5–10 s). The harness is *never* stuck — at every wall-clock moment between T0 and T4 it has a working MCP session and a deterministic way to abandon a hung swap.
 
-See [ADR-014](../adrs/014-cancellation.md) for the cancellation mechanism and `tests/integration/test_mcp_flows.py::test_cancel_post_commit_during_swap_is_advisory` for the executable proof of the cancel path.
+See [ADR-014](../adrs/completed/014-cancellation.md) for the cancellation mechanism and `tests/integration/test_mcp_flows.py::test_cancel_post_commit_during_swap_is_advisory` for the executable proof of the cancel path.
 
 ## Why this works — structural reasons
 

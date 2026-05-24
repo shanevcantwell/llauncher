@@ -67,22 +67,6 @@ A review document (`docs/reviews/2026-04-25-enhancement-no-auth-agent-api.md`) w
 - Immediate security improvement for multi-user or network-accessible setups
 - Backward compatible — existing deployments unaffected unless they opt in
 - Foundation for future per-user scoping (Phase 2)
-
-**Negative:**
-- Adds first non-trivial dependency chain: settings → middleware → all write endpoints
-- Client-side changes needed: pi TypeScript extension must read api_key from node config and inject header
-- Session management (login/logout/rotation) deferred to Phase 2 — simpler initial implementation but may leave gaps for shared environments
-
-**Open Questions:**
-1. Should default binding change from `0.0.0.0` to `127.0.0.1` when api_key is configured? (Conservative: keep current behavior, require explicit bind config)
-2. How to handle key rotation without downtime? (Defer to Phase 2 — supports multiple concurrent keys)
-
-## Consequences
-
-**Positive:**
-- Immediate security improvement for multi-user or network-accessible setups
-- Backward compatible — existing deployments unaffected unless they opt in
-- Foundation for future per-user scoping (Phase 2)
 - pi-footer-extension can use authenticated requests when `LAUNCHER_AGENT_TOKEN` is set
 
 **Negative:**
@@ -91,8 +75,27 @@ A review document (`docs/reviews/2026-04-25-enhancement-no-auth-agent-api.md`) w
 - Session management (login/logout/rotation) deferred to Phase 2 — simpler initial implementation but may leave gaps for shared environments
 
 **Open Questions:**
-1. Should default binding change from `0.0.0.0` to `127.0.0.1` when api_key is configured? (Conservative: keep current behavior, require explicit bind config)
+1. ~~Should default binding change from `0.0.0.0` to `127.0.0.1` when api_key is configured?~~ **Resolved 2026-05-24** by PR #75: default bind is `127.0.0.1`; binding off-loopback now *requires* `LAUNCHER_AGENT_TOKEN` and the agent refuses to start without it.
 2. How to handle key rotation without downtime? (Defer to Phase 2 — supports multiple concurrent keys)
+
+## Amendment Notes
+
+**2026-05-24:** Implementation complete per the security hardening
+cohort. Token requirement was tightened beyond the original opt-in
+design:
+
+- PR #75 — non-loopback bind requires `LAUNCHER_AGENT_TOKEN`; agent
+  refuses to start without it. Default bind is loopback.
+- PR #87 / C1 — `create_app` requires a non-empty `auth_token`; the
+  unauthenticated-by-default posture is closed.
+- `llauncher/agent/auth.py` resolves `LAUNCHER_AGENT_TOKEN`; the
+  special value `-` reads from stdin. On loopback first-run with no
+  token configured, a fresh token is auto-generated to
+  `~/.llauncher/agent.token` (mode 0600).
+- `llauncher/agent/middleware.py` uses `hmac.compare_digest` for the
+  `X-Api-Key` check.
+- Exempt endpoints (`/health`, `/status`, `/models`, `/docs`,
+  `/openapi.json`, `/redoc`) match the Implementation Notes.
 
 ## Implementation Notes
 

@@ -1,7 +1,8 @@
 # ADR-006: GPU Resource Monitoring and VRAM Tracking
 
-**Status:** Draft  
+**Status:** Accepted — partial implementation  
 **Date:** 2026-04-26  
+**Amended:** 2026-05-24  
 
 ## Context
 
@@ -103,5 +104,33 @@ New elements on the Streamlit dashboard's running tab:
 - Apple MPS approach is experimental — memory mapping may change across macOS versions
 
 **Open Questions:**
-1. Should VRAM estimates come from SMI queries or from parsing llama-server's own startup output? (Recommendation: SMI for current usage, model-size heuristics for pre-flight estimates)
-2. How often to refresh GPU metrics in /status — every request, or cached with configurable TTL? (Recommendation: cache per-request via memoize, 5s default, to avoid SMI overhead on high-frequency polling)
+1. ~~SMI queries vs parsing llama-server startup output for VRAM estimates~~ **Resolved**: SMI for current usage (`core/gpu.py`); model-size heuristics for pre-flight (`operations/preflight.py::estimate_vram_mb()`).
+2. How often to refresh GPU metrics in /status — every request, or cached with configurable TTL? (Recommendation: cache per-request via memoize, 5s default, to avoid SMI overhead on high-frequency polling) **Status:** unresolved; current implementation refreshes per request.
+
+## Amendment Notes
+
+**2026-05-24:** Accepted with partial implementation.
+
+Shipped:
+
+- `GPUHealthCollector` in `llauncher/core/gpu.py` with the NVIDIA
+  backend via `nvidia-smi` CLI parsing (`_try_NVIDIA`).
+- `/status` integrates GPU data with a degraded-error envelope when
+  the backend is unavailable (`agent/routing.py:175–193`).
+- VRAM pre-flight check via `operations/preflight.py::estimate_vram_mb()`
+  and `default_vram_check()`, wired as an optional seam on
+  `operations.swap()` (ADR-011). Picks the max-free across devices.
+
+Deferred from original Decision block:
+
+- `/status?full=true` query-parameter filter for per-GPU detail —
+  `/status` currently returns the full payload unconditionally; there
+  is no compact/full split.
+- AMD ROCm (`_try_ROCM`) and Apple MPS (`_try_MPS`) backends — stubbed
+  in `core/gpu.py`; only the NVIDIA path is live.
+- VRAM heuristic refinement — see issue #44 (`TYPICAL_MAX_LAYERS`).
+
+Endpoint-shape drift from original Decision: the example
+`POST /start-with-eviction/{model}?port={p}` was replaced by the
+port-keyed `POST /swap/{port}` per ADR-010 / ADR-011. The VRAM
+pre-flight check is wired into the latter.

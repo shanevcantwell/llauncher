@@ -1,0 +1,51 @@
+# Architecture Decision Records (ADRs)
+
+ADRs are filed in status subfolders. Status reflects the **implementation
+state of the decision**, not the maturity of the ADR document itself.
+
+| Folder | Meaning | Count |
+|--------|---------|-------|
+| [`completed/`](./completed/) | Accepted; implementation done; no open issues tracking gaps against the ADR | 10 |
+| [`accepted/`](./accepted/) | Accepted; known partial implementation tracked as open issues, or scope explicitly deferred in the ADR's own §Deferred Work | 5 |
+| [`superseded/`](./superseded/) | Replaced by a later ADR; preserved as historical record | 1 |
+| `draft/` | Not yet ratified | (currently empty) |
+
+ADR statuses inside the documents themselves follow the canon laid out
+in `docs/v2-handoff.md` §Conventions:
+`Draft` → `Accepted` → optionally `Superseded by ADR-NNN`.
+Folder placement and in-document Status are kept in sync.
+
+## Index
+
+### Completed
+
+- [ADR-001 — TypeScript Extension for Pi to Control llauncher Agents](./completed/001-ts-extension-for-pi.md)
+- [ADR-003 — Authentication for Agent API (Port 8765)](./completed/003-agent-api-authentication.md)
+- [ADR-005 — Model Cache Health Validation in Start/Stop Flow](./completed/005-model-cache-health.md)
+- [ADR-007 — Repeat-Penalty Tuning](./completed/007-repeat-penalty-tuning.md)
+- [ADR-009 — Symmetric Hub/Spoke Topology](./completed/009-symmetric-hub-spoke-topology.md)
+- [ADR-010 — Port Ownership at the Call Site](./completed/010-port-ownership-at-call-site.md)
+- [ADR-011 — Swap Semantics v2](./completed/011-swap-semantics-v2.md)
+- [ADR-012 — Footer Context Endpoint — Minimal Payload, Short TTL Cache](./completed/012-footer-context-endpoint.md)
+- [ADR-014 — Cancellation of In-Flight Start/Swap](./completed/014-cancellation.md)
+- [ADR-016 — Canonical Self-Swap — Worked Example and Integration Test](./completed/016-canonical-self-swap.md)
+
+### Accepted (with known partial implementation)
+
+- [ADR-004 — CLI Subcommand Interface](./accepted/004-cli-subcommand-interface.md) — `swap`, `logs` subcommands deferred
+- [ADR-006 — GPU Resource Monitoring and VRAM Tracking](./accepted/006-gpu-resource-monitoring.md) — `?full=true` filter + ROCm/MPS backends deferred; tracking #44
+- [ADR-008 — LauncherState as Stateless Facade](./accepted/008-launcher-state-stateless-facade.md) — `state._start_with_eviction_impl` retained for eviction-API smoke contract; M5/M6 cleanup pending
+- [ADR-013 — Per-Server Log Lifecycle (Append, Rotate, Bounded Tail)](./accepted/013-logs-lifecycle.md) — log filename sanitization tracked in #63
+- [ADR-015 — Orphan Policy (Annotation and Listing)](./accepted/015-orphan-policy.md) — `adopt` verb deferred per §Deferred Work
+
+### Superseded
+
+- [ADR-002 — Unified Swap-with-Eviction Semantics](./superseded/002-swap-eviction-consistency.md) — superseded by ADR-011
+
+## Moving an ADR between folders
+
+When implementation work closes the last open gap against an `accepted/`
+ADR, `git mv` it to `completed/` and update the row in the table above.
+When an ADR is superseded, set its Status field to
+`Superseded by ADR-NNN`, `git mv` it to `superseded/`, and add a
+Supersession section to the new ADR pointing back.

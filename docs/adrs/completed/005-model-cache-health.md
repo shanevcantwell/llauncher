@@ -1,7 +1,8 @@
 # ADR-005: Model Cache Health Validation in Start/Stop Flow
 
-**Status:** Draft  
+**Status:** Accepted  
 **Date:** 2026-04-26  
+**Amended:** 2026-05-24  
 
 ## Context
 

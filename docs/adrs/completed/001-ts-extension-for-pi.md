@@ -1,8 +1,7 @@
 # ADR-001: TypeScript Extension for Pi to Control llauncher Agents
 
-**Status:** Approved  
+**Status:** Accepted  
 **Date:** 2026-04-24  
-**Approved by:** Code owner review + subagent planner validation  
 
 ## Context
 

@@ -28,7 +28,8 @@ The repo is in the middle of a v2 architecture rewrite per ADRs 008–011. Curre
 | Artifact | Path |
 |----------|------|
 | Implementation roadmap | `docs/plans/v2-implementation-roadmap.md` |
-| Ratified ADRs | `docs/adrs/008-*.md` … `011-*.md` |
+| Ratified ADRs (foundation) | `docs/adrs/completed/{008,009,010,011}-*.md` (008 in `accepted/` — eviction-compat retained) |
+| All ADRs by status | `docs/adrs/{completed,accepted,superseded}/` — see `docs/adrs/README.md` |
 | Orientation spike (live-tree gap analysis) | `docs/reviews/2026-05-02-v2-orientation-spike.md` |
 | Open Issues | `gh issue list` (see "Open Issues" below) |
 | Backend-adapter analysis (vLLM future) | Issue #42 |
@@ -272,7 +273,8 @@ The phasing is set by *coupling direction*: each phase tightens a contract — e
 
 ## Conventions
 
-- **ADR template:** see `docs/adrs/008-*.md`. Sections: Status, Date, (Amended:), Context, Decision, Consequences (Positive / Negative / Open Questions), Supersession (if applicable), Relationship to Other ADRs.
+- **ADR template:** see `docs/adrs/accepted/008-launcher-state-stateless-facade.md` or any ADR under `docs/adrs/completed/`. Sections: Status, Date, (Amended:), Context, Decision, Consequences (Positive / Negative / Open Questions), Supersession (if applicable), Relationship to Other ADRs.
+- **ADR filing convention:** ADRs live in status subfolders under `docs/adrs/` — `completed/` (accepted, no open implementation gaps), `accepted/` (accepted with known partial gaps tracked as issues), `superseded/` (replaced by a later ADR), `draft/` (not yet ratified — currently empty).
 - **ADR statuses:** `Draft` → `Accepted` → optionally `Superseded by ADR-NNN`.
 - **Commit style:** Conventional Commits — `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`. Multi-paragraph body is fine. Reference issues with `Refs: #N` (links without closing) or `Closes #N` (auto-closes on push).
 - **Test layout:** `tests/unit/test_*.py`; pytest auto-discovery; markers `integration` and `live` defined in `pytest.ini`.
