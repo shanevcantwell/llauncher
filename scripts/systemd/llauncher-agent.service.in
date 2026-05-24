@@ -1,0 +1,49 @@
+; llauncher remote management agent — systemd *user* unit template.
+;
+; Do not install this file directly. Run `scripts/systemd/install.sh`,
+; which substitutes the @TOKENS@ below and drops the rendered unit at
+; ~/.config/systemd/user/llauncher-agent.service.
+;
+; Rationale for user-mode instead of system-mode:
+;   - State already lives under $HOME (see LAUNCHER_RUN_DIR in
+;     llauncher/core/settings.py); a system unit would either fight
+;     that or force a /var/lib/llauncher migration.
+;   - ADR-009 treats the local agent as a peer started deliberately
+;     by the user, not a privileged daemon. systemd --user matches
+;     that posture.
+;
+; To autostart at boot without an active login session, run once:
+;   sudo loginctl enable-linger "$USER"
+
+[Unit]
+Description=llauncher remote management agent
+Documentation=https://github.com/shanevcantwell/llauncher
+After=network-online.target
+Wants=network-online.target
+; Crash-loop guard: restart aggressively, but if the unit fails 10
+; times inside a minute treat it as a config problem and give up.
+; (StartLimit* live in [Unit] since systemd 230; [Service] is deprecated.)
+StartLimitBurst=10
+StartLimitIntervalSec=60
+
+[Service]
+Type=simple
+; EnvironmentFile is read with 0600 perms enforced by install.sh.
+; LAUNCHER_AGENT_TOKEN, _HOST, _PORT, _NODE_NAME live there so
+; `systemctl --user cat llauncher-agent` does not leak the token.
+EnvironmentFile=@ENV_FILE@
+ExecStart=@VENV_BIN@/llauncher-agent
+WorkingDirectory=@PROJECT_DIR@
+
+; Graceful: uvicorn (llauncher/agent/server.py:136) handles SIGTERM
+; with an in-flight-request drain. Default KillSignal=SIGTERM is fine.
+TimeoutStopSec=30
+
+Restart=on-failure
+RestartSec=5
+
+; journald captures stdout/stderr by default — view with
+;   journalctl --user -u llauncher-agent -f
+
+[Install]
+WantedBy=default.target

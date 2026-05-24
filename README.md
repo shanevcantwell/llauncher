@@ -81,6 +81,14 @@ run.bat agent-bg     :: Start agent detached (logs to agent.log)
 run.bat discover     :: List discovered launch scripts
 ```
 
+### Running the agent as a service
+
+For a persistent install that survives reboots and restarts on crash,
+the agent ships with installers for systemd (Linux, user-mode) and NSSM
+(Windows). See [`docs/operations/run-as-a-service.md`](docs/operations/run-as-a-service.md).
+The UI is not service-managed by design — it's interactive and you
+launch it on demand.
+
 ## Usage
 
 ### MCP Server
