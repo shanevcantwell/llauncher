@@ -30,6 +30,7 @@ $VenvExe     = Join-Path $ProjectDir '.venv\Scripts\llauncher-agent.exe'
 $VenvPython  = Join-Path $ProjectDir '.venv\Scripts\python.exe'
 $EnvDir      = Join-Path $env:USERPROFILE '.llauncher'
 $EnvFile     = Join-Path $EnvDir 'agent.env'
+$TokenFile   = Join-Path $EnvDir 'agent.token'
 $LogDir      = Join-Path $env:USERPROFILE '.llauncher\logs'
 $EnvExample  = Join-Path $ScriptDir 'llauncher-agent.env.example'
 
@@ -93,16 +94,38 @@ if (-not (Test-Path $EnvFile)) {
 }
 
 # Lock the env file: remove inheritance, grant current user only.
-$acl = Get-Acl $EnvFile
-$acl.SetAccessRuleProtection($true, $false)
 $me = "$env:USERDOMAIN\$env:USERNAME"
-$rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-    $me, 'FullControl', 'Allow')
-# Strip any inherited rules left over from the protection flip
-$acl.Access | ForEach-Object { [void]$acl.RemoveAccessRule($_) }
-$acl.AddAccessRule($rule)
-Set-Acl -Path $EnvFile -AclObject $acl
+function Set-OwnerOnlyAcl($path) {
+    $acl = Get-Acl $path
+    $acl.SetAccessRuleProtection($true, $false)
+    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+        $me, 'FullControl', 'Allow')
+    # Strip any inherited rules left over from the protection flip
+    $acl.Access | ForEach-Object { [void]$acl.RemoveAccessRule($_) }
+    $acl.AddAccessRule($rule)
+    Set-Acl -Path $path -AclObject $acl
+}
+Set-OwnerOnlyAcl $EnvFile
 Say "Locked ACL on $EnvFile (current user only)."
+
+# Mirror the token to ~/.llauncher/agent.token so the UI process
+# (separate from the NSSM service) can authenticate against the local
+# agent via llauncher.agent.auth.resolve_agent_token(). The UI does
+# not inherit LAUNCHER_AGENT_TOKEN from the service's environment, so
+# without this file the UI sees 401 on every non-exempt endpoint
+# (/node-info, etc.). Issue #125 (self-loop short-circuit for
+# /node-info) would obviate the auth path for the local node entirely,
+# but the auth source still needs to be discoverable for other reads
+# /writes and for the remote-node case.
+$tokenLine = (Get-Content $EnvFile) | Where-Object { $_ -match '^LAUNCHER_AGENT_TOKEN=' } | Select-Object -First 1
+if ($tokenLine) {
+    $tokenValue = ($tokenLine -replace '^LAUNCHER_AGENT_TOKEN=', '').Trim()
+    Set-Content -Path $TokenFile -Value $tokenValue -NoNewline -Encoding utf8
+    Set-OwnerOnlyAcl $TokenFile
+    Say "Mirrored token to $TokenFile (ACL: current user only) so the UI can authenticate."
+} else {
+    Info "No LAUNCHER_AGENT_TOKEN line found in ${EnvFile}; skipping token file mirror."
+}
 
 # --- Parse env file into NSSM AppEnvironmentExtra format --------------
 # NSSM accepts multiple "KEY=VALUE" arguments after AppEnvironmentExtra.

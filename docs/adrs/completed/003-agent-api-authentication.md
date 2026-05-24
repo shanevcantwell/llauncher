@@ -94,12 +94,31 @@ design:
   `~/.llauncher/agent.token` (mode 0600).
 - `llauncher/agent/middleware.py` uses `hmac.compare_digest` for the
   `X-Api-Key` check.
-- Exempt endpoints (`/health`, `/status`, `/models`, `/docs`,
-  `/openapi.json`, `/redoc`) match the Implementation Notes.
+- **Exempt-paths drift:** the original Decision §3 and the
+  Implementation Notes below list `/health`, `/status`, `/models`,
+  `/docs`, `/openapi.json`, `/redoc` as auth-exempt. The live code in
+  `agent/middleware.py:20` exempts a narrower set:
+  `{/health, /docs, /redoc, /openapi.json}`. `/status`, `/models`,
+  and `/node-info` all require the token. This is consistent with the
+  security-cohort posture (every read leaks something — running
+  models, OS/IP/process info from `/node-info`) but the ADR was never
+  updated to match. Tracked as issue #126 for resolution (narrow the
+  docs to match the code, or widen the code to match the docs).
+- **Local-node UI auth fix (2026-05-24 follow-up commit):** the UI
+  process is separate from the agent and does not inherit
+  `LAUNCHER_AGENT_TOKEN`, so the `local` registry entry sourced no
+  token and bounced off non-exempt endpoints (notably `/node-info`)
+  with 401. Resolved by adding `NodeRegistry._resolve_local_token()`
+  (sources via `resolve_agent_token(allow_generate=False)`),
+  self-healing the `local` entry on every `_load`, and mirroring the
+  token to `~/.llauncher/agent.token` from
+  `scripts/windows/install.ps1`. Tests in
+  `tests/unit/test_registry_extended.py::TestLocalNodeTokenResolution`.
+  See also #125 (self-loop short-circuit for `/node-info`).
 
 ## Implementation Notes
 
 - **Middleware**: `llauncher/agent/middleware.py` implements `X-Api-Key` header validation
 - **Settings**: `llauncher/core/settings.py` defines `AGENT_API_KEY` from `LAUNCHER_AGENT_TOKEN` env var
-- **Exemptions**: `/health`, `/status`, `/models`, `/docs`, `/openapi.json`, `/redoc` are unauthenticated
+- **Exemptions** (per live code at `agent/middleware.py:20`): `/health`, `/docs`, `/openapi.json`, `/redoc`. Note this is narrower than the original Decision §3 listed; see Amendment Notes for the drift. `/status`, `/models`, `/node-info` all require the token.
 - **pi-footer-extension**: Currently unauthenticated (token pass-through deferred to future)

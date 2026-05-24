@@ -70,14 +70,20 @@ class TestIsLocalAgentReady:
 
         monkeypatch.setattr("socket.socket", mock_socket_class)
 
-        # Mock add_node to track calls
+        # Mock add_node to track calls. Accepts api_key as a kwarg
+        # because is_local_agent_ready() now sources a token via
+        # _resolve_local_token() when synthesizing the local entry
+        # (issue #125).
         added = []
 
-        def mock_add_node(name, host, port, overwrite=False):
-            added.append((name, host, port))
+        def mock_add_node(name, host, port, api_key=None, overwrite=False):
+            added.append((name, host, port, api_key))
             return True, "Added"
 
         monkeypatch.setattr(registry, "add_node", mock_add_node)
+        # No token file in the test env → resolver returns None → the
+        # synthesized entry has api_key=None, matching pre-#125 behavior.
+        monkeypatch.setattr(registry, "_resolve_local_token", lambda: None)
 
         # Mock get_node to return None (node not in registry yet)
         def mock_get_node(name):
@@ -414,3 +420,113 @@ class TestGetOnlineNodes:
         assert "online1" in [node.name for node in online_nodes]
         assert "online2" in [node.name for node in online_nodes]
         assert "offline1" not in [node.name for node in online_nodes]
+
+
+class TestLocalNodeTokenResolution:
+    """Tests for the issue #125 fix: local node auto-sources auth token.
+
+    The persisted ``nodes.json`` deliberately does not store ``api_key``
+    (security control C10 / #83). Without the self-heal in ``_load``,
+    the ``local`` entry would always reload with ``api_key=None`` and
+    the UI would 401 on every non-exempt endpoint.
+    """
+
+    def test_load_self_heals_local_node_api_key_from_token_file(self, tmp_path, monkeypatch):
+        """_load() stamps the resolved token onto a loaded ``local`` entry."""
+        # Persist a nodes.json with a local entry, has_api_key=False
+        # (the post-#83 shape; api_key is intentionally not on disk).
+        nodes_file = tmp_path / "nodes.json"
+        nodes_file.write_text(json.dumps({
+            "local": {
+                "name": "local", "host": "localhost",
+                "port": 8765, "timeout": 5.0, "has_api_key": False,
+            }
+        }))
+        monkeypatch.setattr("llauncher.remote.registry.NODES_FILE", nodes_file)
+        # Token file the resolver will read.
+        token_path = tmp_path / "agent.token"
+        token_path.write_text("test-token-abc123")
+        monkeypatch.setattr(
+            "llauncher.agent.auth.default_token_path", lambda: token_path
+        )
+        monkeypatch.delenv("LAUNCHER_AGENT_TOKEN", raising=False)
+
+        registry = NodeRegistry()
+        local = registry.get_node("local")
+
+        assert local is not None
+        assert local.api_key == "test-token-abc123"
+
+    def test_load_leaves_local_api_key_none_when_no_token(self, tmp_path, monkeypatch):
+        """Self-heal is opt-in: no token available → api_key stays None."""
+        nodes_file = tmp_path / "nodes.json"
+        nodes_file.write_text(json.dumps({
+            "local": {
+                "name": "local", "host": "localhost",
+                "port": 8765, "timeout": 5.0, "has_api_key": False,
+            }
+        }))
+        monkeypatch.setattr("llauncher.remote.registry.NODES_FILE", nodes_file)
+        # No token file, no env var → resolver returns None.
+        token_path = tmp_path / "nonexistent.token"
+        monkeypatch.setattr(
+            "llauncher.agent.auth.default_token_path", lambda: token_path
+        )
+        monkeypatch.delenv("LAUNCHER_AGENT_TOKEN", raising=False)
+
+        registry = NodeRegistry()
+        local = registry.get_node("local")
+
+        assert local is not None
+        assert local.api_key is None
+
+    def test_load_does_not_touch_remote_node_api_keys(self, tmp_path, monkeypatch):
+        """Only the entry literally named ``local`` is self-healed.
+
+        Remote nodes carry operator-supplied tokens the UI cannot
+        derive from ``agent.auth``; self-healing them with the *local*
+        agent's token would be a credential-confusion bug.
+        """
+        nodes_file = tmp_path / "nodes.json"
+        nodes_file.write_text(json.dumps({
+            "local": {
+                "name": "local", "host": "localhost",
+                "port": 8765, "timeout": 5.0, "has_api_key": False,
+            },
+            "remote-1": {
+                "name": "remote-1", "host": "192.168.1.50",
+                "port": 8765, "timeout": 5.0, "has_api_key": False,
+            },
+        }))
+        monkeypatch.setattr("llauncher.remote.registry.NODES_FILE", nodes_file)
+        token_path = tmp_path / "agent.token"
+        token_path.write_text("local-token-only")
+        monkeypatch.setattr(
+            "llauncher.agent.auth.default_token_path", lambda: token_path
+        )
+        monkeypatch.delenv("LAUNCHER_AGENT_TOKEN", raising=False)
+
+        registry = NodeRegistry()
+
+        assert registry.get_node("local").api_key == "local-token-only"
+        # Remote node MUST NOT receive the local token.
+        assert registry.get_node("remote-1").api_key is None
+
+    def test_resolver_swallows_exceptions(self, tmp_path, monkeypatch):
+        """If resolve_agent_token raises, _resolve_local_token returns None.
+
+        Token resolution must never break registry load — the registry
+        is on the critical path for the UI process startup.
+        """
+        nodes_file = tmp_path / "nodes.json"
+        # Empty registry — exercises the no-local-entry path too.
+        monkeypatch.setattr("llauncher.remote.registry.NODES_FILE", nodes_file)
+
+        def boom(**kwargs):
+            raise RuntimeError("filesystem on fire")
+
+        monkeypatch.setattr("llauncher.agent.auth.resolve_agent_token", boom)
+
+        registry = NodeRegistry()
+        # No exception bubbles up; resolver returns None defensively.
+        assert registry._resolve_local_token() is None

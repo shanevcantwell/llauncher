@@ -33,6 +33,7 @@ class NodeRegistry:
     def _load(self) -> None:
         """Load nodes from the persistent file."""
         if not NODES_FILE.exists():
+            self._populate_local_token()
             return
 
         try:
@@ -50,6 +51,58 @@ class NodeRegistry:
         except (json.JSONDecodeError, KeyError):
             # Corrupted file, start fresh
             self._nodes.clear()
+
+        self._populate_local_token()
+
+    def _resolve_local_token(self) -> str | None:
+        """Resolve the local agent's auth token, or return ``None``.
+
+        The UI process is separate from the agent process (Streamlit vs.
+        ``llauncher-agent`` under systemd / NSSM / foreground), so it
+        does *not* inherit ``LAUNCHER_AGENT_TOKEN`` from the agent's
+        environment. We source via
+        :func:`llauncher.agent.auth.resolve_agent_token` with
+        ``allow_generate=False`` — that reads the env var first, then
+        the on-disk ``~/.llauncher/agent.token``. ``allow_generate=False``
+        because only the agent itself should ever materialize a fresh
+        token; the UI must be a pure consumer.
+
+        Returns ``None`` if no token can be resolved; callers should
+        leave ``api_key=None`` in that case, which matches the
+        pre-token behavior for unauthenticated agents (loopback,
+        token-less first run).
+        """
+        try:
+            from llauncher.agent.auth import resolve_agent_token
+            return resolve_agent_token(allow_generate=False)
+        except Exception:
+            # Token resolution must never break registry load. If the
+            # helper fails for any reason (filesystem error, import
+            # cycle in a constrained test env, etc.), fall through to
+            # the unauthenticated case rather than propagating.
+            return None
+
+    def _populate_local_token(self) -> None:
+        """Self-heal: stamp the resolved token onto the ``local`` node.
+
+        The persisted ``nodes.json`` deliberately does not store
+        ``api_key`` (security control C10 / issue #83). So every
+        ``_load`` re-instantiates the ``local`` entry with
+        ``api_key=None``. Without this self-heal, the UI would send
+        no ``X-Api-Key`` header to the local agent and bounce off
+        every non-exempt endpoint with 401 — see issue #126 for the
+        ADR-003 exempt-paths drift that makes this acute.
+
+        Only the entry literally named ``local`` is touched — remote
+        nodes use their own tokens (operator-supplied via the Nodes
+        tab) which the UI cannot derive from agent.auth.
+        """
+        local = self._nodes.get("local")
+        if local is None or local.api_key is not None:
+            return
+        token = self._resolve_local_token()
+        if token:
+            local.api_key = token
 
     def _save(self) -> None:
         """Save nodes to the persistent file.
@@ -204,9 +257,16 @@ class NodeRegistry:
             s.settimeout(1)
             try:
                 s.connect(("127.0.0.1", AGENT_PORT))
-                # Something is running - add to registry if not present
+                # Something is running - add to registry if not present.
+                # Source the token so the synthesized entry can
+                # authenticate; falls back to None for unauth'd loopback
+                # agents (matches pre-token-resolver behavior).
                 if not local_node:
-                    self.add_node("local", "localhost", AGENT_PORT, overwrite=True)
+                    token = self._resolve_local_token()
+                    self.add_node(
+                        "local", "localhost", AGENT_PORT,
+                        api_key=token, overwrite=True,
+                    )
                 return True
             except (ConnectionRefusedError, TimeoutError, OSError):
                 pass
