@@ -71,9 +71,15 @@ def show_agent_down_banner() -> None:
     agent_port = int(os.getenv("LAUNCHER_AGENT_PORT", "8765"))
     st.error(
         "**Local agent is not running.**\n\n"
-        "Start it with:\n\n"
+        "Start it in a separate terminal with the installed console "
+        "script:\n\n"
         "```bash\n"
         "llauncher-agent\n"
+        "```\n\n"
+        "Or, if you came in via the runner scripts:\n\n"
+        "```bash\n"
+        "./run.sh agent     # Linux / macOS\n"
+        "run.bat agent      :: Windows\n"
         "```\n\n"
         f"Then refresh this page. The agent listens on port "
         f"``{agent_port}`` (override via ``LAUNCHER_AGENT_PORT``) and "

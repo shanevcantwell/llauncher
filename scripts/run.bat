@@ -64,10 +64,11 @@ goto :help
     echo.
     echo Commands available:
     echo   run.bat mcp       - Start MCP server
-    echo   run.bat ui        - Start Streamlit UI (auto-starts agent)
     echo   run.bat agent     - Start remote management agent (foreground)
+    echo   run.bat agent-bg  - Start remote management agent (background)
+    echo   run.bat ui        - Start Streamlit UI (requires agent; start it first)
     echo   run.bat stop      - Stop running agent
-    echo   run.bat discover  - List discovered models
+    echo   run.bat discover  - List discovered launch scripts
     goto :end
 
 :mcp
@@ -89,19 +90,21 @@ goto :help
     echo [INFO] Starting remote management agent...
     echo [INFO] Agent will listen on 0.0.0.0:8765
     echo [INFO] Set LAUNCHER_AGENT_PORT and LAUNCHER_AGENT_NODE_NAME to customize
-    "%PYTHON_EXECUTABLE%" -m llauncher.agent
+    REM Use the console-script entry point (pyproject.toml [project.scripts])
+    REM for parity with run.sh; .venv\Scripts is already on PATH.
+    llauncher-agent
     goto :end
 
 :agent-bg
     echo [INFO] Starting remote management agent in background...
-    start /B "%PYTHON_EXECUTABLE%" -m llauncher.agent > "%PROJECT_DIR%\agent.log" 2>&1
+    start /B "" llauncher-agent > "%PROJECT_DIR%\agent.log" 2>&1
     echo [OK] Agent started in background
     echo Logs: %PROJECT_DIR%\agent.log
     goto :end
 
 :stop
     echo [INFO] Stopping remote management agent...
-    "%PYTHON_EXECUTABLE%" -m llauncher.agent --stop
+    llauncher-agent --stop
     goto :end
 
 :discover
@@ -117,9 +120,9 @@ goto :help
     echo Commands:
     echo   install    Install llauncher and dependencies
     echo   mcp        Start MCP server (for LLM clients)
-    echo   ui         Start Streamlit UI (auto-starts agent)
     echo   agent      Start remote management agent (foreground)
     echo   agent-bg   Start remote management agent (background)
+    echo   ui         Start Streamlit UI (requires agent; start it first)
     echo   stop       Stop running agent
     echo   discover   List discovered launch scripts
     echo.

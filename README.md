@@ -53,20 +53,32 @@ pip install -e ".[ui]"
 
 Use the runner scripts for easiest setup:
 
+The dashboard requires the local agent to be running. Start the agent
+first (in its own terminal), then the dashboard in a second terminal.
+The UI deliberately does not auto-spawn the agent — see ADR-009 and the
+"Why doesn't the UI start the agent for me?" expander rendered on the
+dashboard when the agent is down.
+
 **Linux/macOS:**
 ```bash
-./run.sh install   # Set up virtual environment and install
-./run.sh ui        # Start dashboard (auto-starts agent)
-./run.sh agent     # Start agent in foreground
-./run.sh stop      # Stop running agent
+./run.sh install     # Set up virtual environment and install
+./run.sh agent       # Terminal 1: start agent in foreground
+./run.sh ui          # Terminal 2: start dashboard (requires agent)
+./run.sh stop        # Stop running agent
+# Optional:
+./run.sh agent-bg    # Start agent detached (logs to agent.log)
+./run.sh discover    # List discovered launch scripts
 ```
 
 **Windows:**
 ```cmd
-run.bat install    # Set up virtual environment and install
-run.bat ui         # Start dashboard (auto-starts agent)
-run.bat agent      # Start agent in foreground
-run.bat stop       # Stop running agent
+run.bat install      :: Set up virtual environment and install
+run.bat agent        :: Terminal 1: start agent in foreground
+run.bat ui           :: Terminal 2: start dashboard (requires agent)
+run.bat stop         :: Stop running agent
+:: Optional:
+run.bat agent-bg     :: Start agent detached (logs to agent.log)
+run.bat discover     :: List discovered launch scripts
 ```
 
 ## Usage
