@@ -161,7 +161,7 @@ Next steps:
   Get-Service $ServiceName
   Get-Content "$LogDir\agent.out.log" -Tail 20 -Wait
 
-To refresh after editing $EnvFile:
+To refresh after editing ${EnvFile}:
   .\scripts\windows\install.ps1
 
 To uninstall:
