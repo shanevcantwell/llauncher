@@ -1,9 +1,23 @@
-# v2 Handoff — Pick Up Cold
+# v2 Handoff — Historical (Pick Up Cold)
 
-**Last updated:** 2026-05-17 (end of session — Phase 3 complete at reduced scope: ADR-015 annotation + list landed)
-**Current state:** M1+M2+M3+M4 complete. Pre-M4 cleanup phase done (#57/#58/#59 closed). M4 done end-to-end (#47/#48/#49/#50/#51 closed). M5 progress: ADR-013 (logs), ADR-012 (footer), ADR-014 (cancellation), and ADR-015 (orphan policy — annotation + list only; adopt deferred) shipped. **Phase 1 + Phase 2 + Phase 3 of the post-M4 phased plan complete:** #61/#60/#62/#65 closed in earlier sessions; #54 closed previous session; **#55 (orphan annotation + `orphan list` across CLI/HTTP/MCP) closed this session at reduced scope per ADR-015 §Deferred Work — adopt verb intentionally not implemented**. Remaining work follows the phased plan in [`docs/plans/v2-implementation-roadmap.md`](plans/v2-implementation-roadmap.md): Phase 4 = #56/#67/#64. Test count: 775 passed / 10 skipped.
+**Status:** historical. v2 architecture is complete; v2-final milestone is closing out as of 2026-05-24.
+**Last updated:** 2026-05-24 — frozen as v2's permanent record. Per-session capsules going forward live in `docs/handoffs/`.
 
-A self-contained guide for picking up the v2 architecture work in a fresh context. Read this end-to-end before touching anything.
+**v2-final closeout snapshot (2026-05-24):**
+
+- M1–M5 complete; Phase 4 closed via `2b81f9d` (ADR-016 #56), `2748d79` (audit-tab remote #64), `9b39610` (systemd/NSSM #67).
+- Security hardening cohort merged (Waves 1+2 + XS follow-up) — `b7a8d80` and dependents. C1–C7, C10–C12 landed; C8 (#82) and C9 (#86) user-punted to later milestones.
+- Test coverage: non-UI floor at `--cov-fail-under=93`; UI deferred to dedicated harness work (#69, now v3-alpha).
+- V1-era carryover triaged: #20/#22/#23/#24/#45/#104/#105/#106 closed in XS batches; remainder migrated to v3-alpha / v4-alpha.
+- **v2-final still open:** #117 (external-repo doc link, blocked on sibling repo) and #122 (Streamlit `use_container_width` deprecation migration, filed 2026-05-24). Neither blocks v2 architectural correctness.
+
+**Successor tracks** — read these instead of re-reading this doc:
+
+- Active milestones: `gh issue list --milestone v3-alpha` and `--milestone v4-alpha`.
+- Per-session dossiers: `ls docs/handoffs/` — chronological, point-in-time, never updated after written.
+- Active plans: `ls docs/plans/` — design intent for active tracks.
+
+The body below preserves the v2 institutional record for archaeological purposes — what was built, why, and what NOT to do. Truly durable cross-cutting knowledge (Conventions, What NOT To Do, Institutional Knowledge sections) should migrate to a repo-root `CLAUDE.md` when one is established; until then, this doc remains the canonical reference for those entries.
 
 ## Quick Orient
 
