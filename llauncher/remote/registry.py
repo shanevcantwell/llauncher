@@ -9,6 +9,14 @@ from typing import Iterator
 from llauncher.remote.node import RemoteNode, NodeStatus
 
 NODES_FILE = Path.home() / ".llauncher" / "nodes.json"
+# Sibling secrets file for remote-node API tokens (issue #132). Kept
+# separate from ``nodes.json`` so the C10 invariant — "credentials never
+# live in the registry file" — stays crisp. Different secret classes
+# (per-node tokens, future TLS keys per #86) intentionally live in their
+# own files: blast-radius per-concern, corruption degrades gracefully,
+# and the filename itself telegraphs "this is the credential, treat
+# accordingly". Do NOT ratchet tokens back into nodes.json.
+NODE_TOKENS_FILE = Path.home() / ".llauncher" / "node_tokens.json"
 logger = logging.getLogger(__name__)
 
 
@@ -53,6 +61,7 @@ class NodeRegistry:
             self._nodes.clear()
 
         self._populate_local_token()
+        self._populate_remote_tokens()
 
     def _resolve_local_token(self) -> str | None:
         """Resolve the local agent's auth token, or return ``None``.
@@ -81,6 +90,103 @@ class NodeRegistry:
             # cycle in a constrained test env, etc.), fall through to
             # the unauthenticated case rather than propagating.
             return None
+
+    def _load_node_tokens(self) -> dict[str, str]:
+        """Read ``~/.llauncher/node_tokens.json`` into a ``{name: token}`` dict.
+
+        Returns ``{}`` on missing-or-corrupt; never raises. Token
+        resolution must not break registry load (the registry is on the
+        critical path for UI startup).
+        """
+        if not NODE_TOKENS_FILE.exists():
+            return {}
+        try:
+            data = json.loads(NODE_TOKENS_FILE.read_text())
+            if isinstance(data, dict):
+                # Defensive: filter out non-string values; an attacker
+                # who can write the file shouldn't be able to inject a
+                # non-string into an api_key slot, but cheap to guard.
+                return {k: v for k, v in data.items() if isinstance(v, str)}
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Could not read {NODE_TOKENS_FILE}: {e}")
+        return {}
+
+    def _populate_remote_tokens(self) -> None:
+        """Stamp resolved remote-node tokens onto loaded ``RemoteNode`` instances.
+
+        The persisted ``nodes.json`` deliberately does NOT carry api_key
+        (security control C10 / #83). The sibling ``node_tokens.json``
+        carries the operator-supplied tokens. On load, walk it and stamp
+        each match onto the corresponding ``RemoteNode.api_key``.
+
+        Missing entries leave ``api_key=None`` — we do NOT synthesize
+        from ``agent.token`` (which is the local agent's token);
+        cross-pollinating a local token onto a remote node would be a
+        credential-confusion bug, symmetric to
+        :meth:`_populate_local_token`'s "only touches ``local``" guard.
+
+        The ``local`` entry is also skipped here even if it happens to
+        appear in ``node_tokens.json``: its canonical source is
+        ``agent.token`` via ``_populate_local_token``, and trusting
+        ``node_tokens.json`` for ``local`` would create a drift
+        opportunity.
+        """
+        tokens = self._load_node_tokens()
+        for name, token in tokens.items():
+            if name == "local":
+                continue
+            node = self._nodes.get(name)
+            if node is not None and not node.api_key:
+                node.api_key = token
+
+    def _save_node_tokens(self) -> None:
+        """Write the remote-node tokens sidecar file.
+
+        Full rewrite each call: any node that was removed from
+        ``self._nodes`` or whose ``api_key`` was cleared automatically
+        falls out of the file. The ``local`` entry is excluded
+        unconditionally — its token lives in ``agent.token``;
+        duplicating it here would create drift.
+
+        Mode 0600 on the file, 0700 on the parent dir — matching the
+        ``nodes.json`` and ``agent.token`` conventions.
+        """
+        data = {
+            name: node.api_key
+            for name, node in self._nodes.items()
+            if name != "local" and node.api_key
+        }
+
+        NODE_TOKENS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            NODE_TOKENS_FILE.parent.chmod(0o700)
+        except OSError:
+            # Best-effort; chmod is a no-op on some filesystems (e.g.
+            # WSL-on-NTFS). The 0600 on the file itself is the
+            # load-bearing protection.
+            pass
+
+        if not data:
+            # No remote tokens to persist. If a file exists from a
+            # previous save, rewrite it to an empty object so removed
+            # tokens don't linger on disk.
+            if NODE_TOKENS_FILE.exists():
+                NODE_TOKENS_FILE.write_text("{}")
+                try:
+                    os.chmod(NODE_TOKENS_FILE, 0o600)
+                except OSError as e:
+                    logger.warning(
+                        f"Could not set restrictive permissions on {NODE_TOKENS_FILE}: {e}"
+                    )
+            return
+
+        NODE_TOKENS_FILE.write_text(json.dumps(data, indent=2))
+        try:
+            os.chmod(NODE_TOKENS_FILE, 0o600)
+        except OSError as e:
+            logger.warning(
+                f"Could not set restrictive permissions on {NODE_TOKENS_FILE}: {e}"
+            )
 
     def _populate_local_token(self) -> None:
         """Self-heal: stamp the resolved token onto the ``local`` node.
@@ -140,6 +246,14 @@ class NodeRegistry:
             os.chmod(NODES_FILE, 0o600)
         except OSError as e:
             logger.warning(f"Could not set restrictive permissions on {NODES_FILE}: {e}")
+
+        # Sidecar tokens file (issue #132). Wrapped so a token-write
+        # failure does not corrupt the nodes.json write that just
+        # succeeded — the two files are independent on purpose.
+        try:
+            self._save_node_tokens()
+        except Exception as e:  # noqa: BLE001 — defensive isolation
+            logger.warning(f"Could not write {NODE_TOKENS_FILE}: {e}")
 
     def add_node(
         self,

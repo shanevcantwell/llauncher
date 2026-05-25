@@ -103,6 +103,44 @@ def render_node_list(registry: NodeRegistry, aggregator) -> None:
 
             st.divider()
 
+            # Rotate API key (remote nodes only — the ``local`` entry
+            # sources its token from ``~/.llauncher/agent.token`` via
+            # NodeRegistry._populate_local_token; manually setting one
+            # here would only create drift).
+            if node.name != "local":
+                with st.expander("🔑 Edit API key", expanded=False):
+                    new_key = st.text_input(
+                        "New API Key",
+                        type="password",
+                        key=f"edit_key_{node.name}",
+                        help=(
+                            "Replace this node's stored token. Persisted to "
+                            "~/.llauncher/node_tokens.json (mode 0600). "
+                            "Leave blank and save to clear."
+                        ),
+                    )
+                    if st.button(
+                        "💾 Save token",
+                        use_container_width=True,
+                        key=f"save_key_{node.name}",
+                    ):
+                        # overwrite=True with all existing fields preserved.
+                        ok, msg = registry.add_node(
+                            name=node.name,
+                            host=node.host,
+                            port=node.port,
+                            timeout=node.timeout,
+                            api_key=new_key or None,
+                            overwrite=True,
+                        )
+                        if ok:
+                            st.success(
+                                "Token cleared" if not new_key else "Token updated"
+                            )
+                        else:
+                            st.error(msg)
+                        st.rerun()
+
             # Actions
             action_col1, action_col2 = st.columns(2)
 
@@ -176,6 +214,16 @@ def render_add_node_form(registry: NodeRegistry) -> None:
                 help="Connection timeout in seconds",
             )
 
+        api_key = st.text_input(
+            "API Key",
+            type="password",
+            help=(
+                "Token from the remote agent's LAUNCHER_AGENT_TOKEN / "
+                "agent.token. Required for non-loopback agents (per ADR-003). "
+                "Leave blank for unauthenticated loopback agents."
+            ),
+        )
+
         # Test connection button
         test_col, submit_col = st.columns(2)
         with test_col:
@@ -197,7 +245,13 @@ def render_add_node_form(registry: NodeRegistry) -> None:
             else:
                 from llauncher.remote.node import RemoteNode
 
-                test_node = RemoteNode(node_name, node_host, node_port, timeout)
+                test_node = RemoteNode(
+                    node_name,
+                    node_host,
+                    node_port,
+                    timeout,
+                    api_key=api_key or None,
+                )
                 result = test_node.ping()
                 if result:
                     st.success(
@@ -225,6 +279,7 @@ def render_add_node_form(registry: NodeRegistry) -> None:
                 host=node_host,
                 port=node_port,
                 timeout=timeout,
+                api_key=api_key or None,
                 overwrite=True,
             )
 
