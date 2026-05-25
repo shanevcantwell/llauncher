@@ -22,28 +22,39 @@ import * as _path from "node:path";
 const { join, dirname } = _path;
 import * as _os from "node:os";
 const { homedir } = _os;
-import * as _http from "node:http";
+import * as _child from "node:child_process";
 
 /**
- * Lightweight JSON fetch that works in jiti (no global `fetch`).
+ * Lightweight JSON fetch via curl (avoids Docker ENETUNREACH on internal IPs).
+ *
+curl respects HTTP_PROXY env vars and routes through squid, which has a path to
+192.168.137.x hosts that raw Node.js sockets cannot reach.
  */
 function jsonFetch(urlStr: string, timeoutMs = 3000): Promise<any> {
   return new Promise((resolve, reject) => {
-    const url = new URL(urlStr);
-    const req = _http.get(
-      { hostname: url.hostname, port: Number(url.port), path: url.pathname + url.search, protocol: url.protocol },
-      (res) => {
-        let body = "";
-        res.on("data", (chunk: string) => { body += chunk; });
-        res.on("end", () => {
-          if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
-          try { resolve(JSON.parse(body)); }
-          catch { reject(new Error("Invalid JSON")); }
-        });
-      },
-    );
-    req.on("error", reject);
-    req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error("timeout")); });
+    const child = _child.spawn("curl", [
+      "-s",
+      "--connect-timeout", String(Math.ceil(timeoutMs / 1000)),
+      "-L", urlStr,
+    ]);
+
+    let stdoutBuf = "";
+    let stderrBuf = "";
+
+    child.stdout.on("data", (chunk: Buffer) => { stdoutBuf += chunk.toString(); });
+    child.stderr.on("data", (chunk: Buffer) => { stderrBuf += chunk.toString(); });
+
+    child.on("close", (code: number | null) => {
+      if (!stdoutBuf || !stdoutBuf.trim()) {
+        return reject(new Error(`Empty response${stderrBuf ? ": " + stderrBuf : ""}`));
+      }
+      try { resolve(JSON.parse(stdoutBuf)); }
+      catch { reject(new Error("Invalid JSON")); }
+    });
+
+    child.on("error", (err: Error) => {
+      reject(err);
+    });
   });
 }
 
