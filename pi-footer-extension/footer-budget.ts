@@ -240,7 +240,11 @@ async function populateCache(
   targetProvider?: string,
   onComplete?: () => void
 ): Promise<void> {
-  const providerName = targetProvider || "inference-host-llamaserver";
+  if (!targetProvider) {
+    log.warn("populateCache called without targetProvider — defensive early return");
+    return;
+  }
+  const providerName = targetProvider;
 
   // Parse the provider URL from Pi's models.json
   const parsedUrl = parseProviderUrl(providerName);
@@ -309,6 +313,14 @@ export default function (pi: ExtensionAPI): void {
 
       render(width: number): string[] {
         // ── 1. Effective context window (real from llama-server, or Pi default) ─
+
+        // Invalidate cache from wrong provider — prevents stale bleed when switching providers.
+        if (_cachedProviderName !== stateModel.provider) {
+          log.debug(`Cache mismatch: ${_cachedProviderName} != ${stateModel.provider}, invalidating`);
+          cachedEntry = null;
+          _cachedProviderName = null;
+        }
+
         let effectiveWindow: number;
         if (cachedEntry && _effectiveWindow(cachedEntry) > 0) {
           effectiveWindow = _effectiveWindow(cachedEntry);
@@ -416,7 +428,7 @@ export default function (pi: ExtensionAPI): void {
           ? Math.min((currentTokens / effectiveWindow) * 100, 999)
           : NaN;
 
-        const autoIndicator = " (auto)"; // Pi's default: auto-compaction enabled.
+        const autoIndicator = agentSession?.autoCompactionEnabled ? " (auto)" : "";
 
         let contextPercentDisplay: string;
         if (isNaN(contextPercentValue)) {
