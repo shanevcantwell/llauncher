@@ -530,3 +530,212 @@ class TestLocalNodeTokenResolution:
         registry = NodeRegistry()
         # No exception bubbles up; resolver returns None defensively.
         assert registry._resolve_local_token() is None
+
+
+class TestRemoteNodeTokenPersistence:
+    """Tests for the issue #132 fix: remote node tokens survive UI restart.
+
+    The persisted ``nodes.json`` deliberately does NOT carry api_key
+    (security control C10 / #83). The sibling ``~/.llauncher/node_tokens.json``
+    carries the operator-supplied tokens. These tests cover the
+    load/save round-trip, the C10 file-boundary invariant, and the
+    no-credential-confusion guard between local and remote token paths.
+    """
+
+    @staticmethod
+    def _patch_paths(monkeypatch, tmp_path):
+        """Common monkeypatch fixture: point both files at tmp_path."""
+        from llauncher.remote import registry as registry_mod
+
+        nodes_file = tmp_path / "nodes.json"
+        tokens_file = tmp_path / "node_tokens.json"
+        monkeypatch.setattr(registry_mod, "NODES_FILE", nodes_file)
+        monkeypatch.setattr(registry_mod, "NODE_TOKENS_FILE", tokens_file)
+        # Local-token resolver: no env, no on-disk agent.token in tmp.
+        # Prevents the resolver from picking up the real user's token.
+        agent_token_path = tmp_path / "agent.token-absent"
+        monkeypatch.setattr(
+            "llauncher.agent.auth.default_token_path", lambda: agent_token_path
+        )
+        monkeypatch.delenv("LAUNCHER_AGENT_TOKEN", raising=False)
+        return nodes_file, tokens_file
+
+    def test_round_trip_remote_token_persists_across_reload(self, tmp_path, monkeypatch):
+        """add_node(api_key=...) → new NodeRegistry → token still on the node."""
+        nodes_file, tokens_file = self._patch_paths(monkeypatch, tmp_path)
+
+        reg = NodeRegistry()
+        reg._nodes.clear()
+        ok, _ = reg.add_node("remote-a", "192.168.1.50", 8765, api_key="tok-A")
+        assert ok
+
+        # Fresh registry — simulates UI restart.
+        reg2 = NodeRegistry()
+        node = reg2.get_node("remote-a")
+
+        assert node is not None
+        assert node.api_key == "tok-A"
+
+    @pytest.mark.skipif(
+        sys.platform == "win32", reason="POSIX permission semantics required"
+    )
+    def test_node_tokens_file_is_mode_0600(self, tmp_path, monkeypatch):
+        """The sidecar file is created at 0600 (C10-parity for the secret file)."""
+        _, tokens_file = self._patch_paths(monkeypatch, tmp_path)
+
+        reg = NodeRegistry()
+        reg._nodes.clear()
+        reg.add_node("remote-b", "192.168.1.51", 8765, api_key="tok-B")
+
+        assert tokens_file.exists()
+        mode = os.stat(tokens_file).st_mode & 0o777
+        assert mode == 0o600, f"expected 0600, got 0o{mode:o}"
+
+    def test_node_tokens_file_contains_only_tokens(self, tmp_path, monkeypatch):
+        """The sidecar file is {name: token} only — no name/host/port leaks.
+
+        Positive assertion on the C10 file boundary: the secret file
+        carries strictly the secret, not a duplicate of the registry
+        metadata. A future reader tempted to "consolidate" must see that
+        this is by design.
+        """
+        _, tokens_file = self._patch_paths(monkeypatch, tmp_path)
+
+        reg = NodeRegistry()
+        reg._nodes.clear()
+        reg.add_node("remote-c", "192.168.1.52", 8765, api_key="tok-C")
+
+        payload = json.loads(tokens_file.read_text())
+        assert payload == {"remote-c": "tok-C"}
+
+    def test_nodes_json_never_contains_api_key(self, tmp_path, monkeypatch):
+        """Regression guard: even with api_key supplied, nodes.json
+        retains the post-#83 ``has_api_key`` discipline and never
+        materializes the literal token.
+        """
+        nodes_file, _ = self._patch_paths(monkeypatch, tmp_path)
+
+        reg = NodeRegistry()
+        reg._nodes.clear()
+        reg.add_node("remote-d", "192.168.1.53", 8765, api_key="tok-D")
+
+        on_disk = json.loads(nodes_file.read_text())
+        assert "remote-d" in on_disk
+        assert on_disk["remote-d"].get("has_api_key") is True
+        assert "api_key" not in on_disk["remote-d"]
+
+    def test_local_node_excluded_from_tokens_file(self, tmp_path, monkeypatch):
+        """The ``local`` entry's token belongs in ``agent.token``, NOT
+        the sidecar — duplicating it here would create drift.
+        """
+        nodes_file, tokens_file = self._patch_paths(monkeypatch, tmp_path)
+        # Pre-seed an agent.token so _populate_local_token has a value.
+        agent_token = tmp_path / "agent.token"
+        agent_token.write_text("local-secret")
+        monkeypatch.setattr(
+            "llauncher.agent.auth.default_token_path", lambda: agent_token
+        )
+
+        reg = NodeRegistry()
+        reg._nodes.clear()
+        reg.add_node("local", "localhost", 8765)
+        # Self-heal will stamp local-secret onto the local node.
+        # When we add a remote, the save must EXCLUDE local from the
+        # sidecar even though local.api_key is now non-None.
+        reg.add_node("remote-e", "192.168.1.54", 8765, api_key="tok-E")
+
+        payload = json.loads(tokens_file.read_text())
+        assert "local" not in payload
+        assert payload == {"remote-e": "tok-E"}
+
+    def test_remove_node_drops_token_entry(self, tmp_path, monkeypatch):
+        """``remove_node`` triggers _save → _save_node_tokens full-
+        rewrite → removed node's token entry falls out automatically.
+        """
+        _, tokens_file = self._patch_paths(monkeypatch, tmp_path)
+
+        reg = NodeRegistry()
+        reg._nodes.clear()
+        reg.add_node("remote-f", "192.168.1.55", 8765, api_key="tok-F")
+        reg.add_node("remote-g", "192.168.1.56", 8765, api_key="tok-G")
+
+        ok, _ = reg.remove_node("remote-f")
+        assert ok
+
+        payload = json.loads(tokens_file.read_text())
+        assert "remote-f" not in payload
+        assert payload.get("remote-g") == "tok-G"
+
+    def test_missing_tokens_file_leaves_api_keys_none(self, tmp_path, monkeypatch):
+        """nodes.json says has_api_key=True but the sidecar is missing
+        → load succeeds, that remote's api_key is None. No synthesis
+        from the local agent.token (credential-confusion guard).
+        """
+        nodes_file, tokens_file = self._patch_paths(monkeypatch, tmp_path)
+        # nodes.json claims a token for remote-h.
+        nodes_file.write_text(json.dumps({
+            "remote-h": {
+                "name": "remote-h", "host": "192.168.1.57",
+                "port": 8765, "timeout": 5.0, "has_api_key": True,
+            }
+        }))
+        # And a local agent.token exists — but it must NOT bleed through.
+        agent_token = tmp_path / "agent.token"
+        agent_token.write_text("would-be-credential-confusion")
+        monkeypatch.setattr(
+            "llauncher.agent.auth.default_token_path", lambda: agent_token
+        )
+        assert not tokens_file.exists()
+
+        reg = NodeRegistry()
+        node = reg.get_node("remote-h")
+
+        assert node is not None
+        assert node.api_key is None, (
+            "remote node must not be auto-stamped with the local agent's "
+            "token — credential-confusion guard"
+        )
+
+    def test_corrupt_tokens_file_does_not_break_load(self, tmp_path, monkeypatch):
+        """Malformed JSON in node_tokens.json must degrade gracefully:
+        registry loads, remote api_keys are None, no exception.
+        """
+        nodes_file, tokens_file = self._patch_paths(monkeypatch, tmp_path)
+        nodes_file.write_text(json.dumps({
+            "remote-i": {
+                "name": "remote-i", "host": "192.168.1.58",
+                "port": 8765, "timeout": 5.0, "has_api_key": True,
+            }
+        }))
+        tokens_file.write_text("{not valid json")
+
+        # No exception:
+        reg = NodeRegistry()
+        node = reg.get_node("remote-i")
+        assert node is not None
+        assert node.api_key is None
+
+    def test_save_tokens_chmod_failure_logs_but_does_not_raise(self, tmp_path, monkeypatch):
+        """OSError from os.chmod on the sidecar is logged-and-swallowed,
+        matching the existing nodes.json chmod failure posture.
+        """
+        from llauncher.remote import registry as registry_mod
+
+        self._patch_paths(monkeypatch, tmp_path)
+        real_chmod = os.chmod
+
+        def failing_chmod(path, mode, **kwargs):
+            # Only fail for the sidecar file write; let dir chmod pass.
+            # **kwargs absorbs follow_symlinks=True from Path.chmod →
+            # os.chmod (Python 3.12+).
+            if str(path).endswith("node_tokens.json"):
+                raise OSError("simulated permission denied")
+            real_chmod(path, mode, **kwargs)
+
+        monkeypatch.setattr("os.chmod", failing_chmod)
+
+        reg = registry_mod.NodeRegistry()
+        reg._nodes.clear()
+        # Should not raise:
+        ok, _ = reg.add_node("remote-j", "192.168.1.59", 8765, api_key="tok-J")
+        assert ok

@@ -120,7 +120,18 @@ Say "Locked ACL on $EnvFile (current user only)."
 $tokenLine = (Get-Content $EnvFile) | Where-Object { $_ -match '^LAUNCHER_AGENT_TOKEN=' } | Select-Object -First 1
 if ($tokenLine) {
     $tokenValue = ($tokenLine -replace '^LAUNCHER_AGENT_TOKEN=', '').Trim()
-    Set-Content -Path $TokenFile -Value $tokenValue -NoNewline -Encoding utf8
+    # IMPORTANT: write WITHOUT a UTF-8 BOM. Windows PowerShell 5.1's
+    # `Set-Content -Encoding utf8` prepends EF BB BF, which decodes to
+    # U+FEFF and (since str.strip() doesn't strip it) leaks into the
+    # X-Api-Key header on the UI side, blowing up httpx's ascii-only
+    # header encoder. The reader in llauncher/agent/auth.py is also
+    # being widened to utf-8-sig as belt-and-braces, but the file
+    # should not contain a BOM in the first place — the token is pure
+    # ASCII (secrets.token_urlsafe), so a no-BOM UTF-8 (== ASCII)
+    # write is the right shape. Using .NET WriteAllText with an
+    # explicit UTF8Encoding($false) works across both PS 5.1 and 7+.
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($TokenFile, $tokenValue, $utf8NoBom)
     Set-OwnerOnlyAcl $TokenFile
     Say "Mirrored token to $TokenFile (ACL: current user only) so the UI can authenticate."
 } else {
