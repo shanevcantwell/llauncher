@@ -146,3 +146,4 @@ agent.pid
 agentdb.rvf
 agentdb.rvf.lock
 ruvector.db
+scripts/windows/agent.env
