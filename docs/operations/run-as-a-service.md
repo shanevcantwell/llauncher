@@ -29,7 +29,7 @@ touches the unit template.
 ## Security note up front
 
 The agent's only auth layer is the bearer token in
-`LAUNCHER_AGENT_TOKEN`. Both installers default the bind to `0.0.0.0`
+`LLAUNCHER_AGENT_TOKEN`. Both installers default the bind to `0.0.0.0`
 in the generated env file — that's the right answer for the
 multi-workstation case the service install implies, but **only** if the
 network between those workstations is trusted (LAN, Tailscale, VPN). If
@@ -168,7 +168,7 @@ service config, not by re-reading the file. The installer re-applies it.)
 From any machine that can reach the agent's host:port:
 
 ```bash
-curl -sS -H "Authorization: Bearer $LAUNCHER_AGENT_TOKEN" \
+curl -sS -H "Authorization: Bearer $LLAUNCHER_AGENT_TOKEN" \
     http://<host>:8765/health
 ```
 

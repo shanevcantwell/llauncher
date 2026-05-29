@@ -68,7 +68,7 @@ class NodeRegistry:
 
         The UI process is separate from the agent process (Streamlit vs.
         ``llauncher-agent`` under systemd / NSSM / foreground), so it
-        does *not* inherit ``LAUNCHER_AGENT_TOKEN`` from the agent's
+        does *not* inherit ``LLAUNCHER_AGENT_TOKEN`` from the agent's
         environment. We source via
         :func:`llauncher.agent.auth.resolve_agent_token` with
         ``allow_generate=False`` — that reads the env var first, then
@@ -359,7 +359,7 @@ class NodeRegistry:
         import os
         import socket
 
-        AGENT_PORT = int(os.getenv("LAUNCHER_AGENT_PORT", "8765"))
+        AGENT_PORT = int(os.getenv("LLAUNCHER_AGENT_PORT", "8765"))
 
         # Check if local node exists and is online
         local_node = self.get_node("local")

@@ -71,13 +71,13 @@ def start(model: str, port: int, *, caller: str, target: str | None = None) -> S
 
 This parity was discovered during Slice 7; it should be documented in ADR-011 or v2-handoff.md.
 
-`_resolves_to_local(target)` returns True when `target is None` or `target == LAUNCHER_AGENT_NODE_NAME` (defaulting to `socket.gethostname()`). Per ADR-009 §"Self-Loop Dispatch."
+`_resolves_to_local(target)` returns True when `target is None` or `target == LLAUNCHER_AGENT_NODE_NAME` (defaulting to `socket.gethostname()`). Per ADR-009 §"Self-Loop Dispatch."
 
 The local branch keeps the current `ops.start` signature; the remote branch adapts the existing `RemoteAggregator.swap_on_node` call. Net result: callers (UI, CLI, MCP) take a `target` arg and the dispatch picks the transport.
 
 **Decision to defer:** whether `target` lives on the verb signatures or in a thread-local context. Pin to **explicit verb argument** for now — it's the simplest correctness story and matches ADR-009's "tool-layer signature carries `target`" wording.
 
-**Auth pass-through (ADR-003):** when dispatching remote, attach `X-Api-Key` from `LAUNCHER_AGENT_TOKEN`. The HTTP Agent already validates it; `RemoteNode._headers` already produces the header. Verify the call chain end-to-end and add a unit test against a recorded transport.
+**Auth pass-through (ADR-003):** when dispatching remote, attach `X-Api-Key` from `LLAUNCHER_AGENT_TOKEN`. The HTTP Agent already validates it; `RemoteNode._headers` already produces the header. Verify the call chain end-to-end and add a unit test against a recorded transport.
 
 ### Slice 9 — `state.py` reduction
 
@@ -132,7 +132,7 @@ Then delete the eleven slice-6-skipped tests. They reference removed methods; th
 - [ ] No grep hit for `state.start_server`, `state.stop_server`, `start_with_eviction` in `llauncher/` or `tests/` (excluding doc references).
 - [ ] All 11 v1-skipped tests deleted; 0 skips on `pytest tests/`.
 - [ ] `ops.start/stop/swap/delete_model` accept `target: str | None`; UI/CLI/MCP all carry it through.
-- [ ] `LAUNCHER_AGENT_TOKEN` set → remote calls include `X-Api-Key`; unset → no header. Verified by transport-level test.
+- [ ] `LLAUNCHER_AGENT_TOKEN` set → remote calls include `X-Api-Key`; unset → no header. Verified by transport-level test.
 - [ ] `state.py` is < 200 lines; only read-side methods remain.
 - [ ] Manual smoke: UI starts/stops/swaps a real model on the local node; the harness footer continues to render correctly.
 

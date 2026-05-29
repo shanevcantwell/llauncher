@@ -729,7 +729,7 @@ class TestUtilityFunctions:
 
         # Provide a deterministic token so the loopback start path
         # does not auto-generate a file under the real ~/.llauncher.
-        monkeypatch.setenv("LAUNCHER_AGENT_TOKEN", "test-token")
+        monkeypatch.setenv("LLAUNCHER_AGENT_TOKEN", "test-token")
 
         # Create a config
         config = AgentConfig(host="127.0.0.1", port=9000, node_name="test-node")
@@ -755,7 +755,7 @@ class TestUtilityFunctions:
         monkeypatch.setattr("uvicorn.run", lambda *a, **kw: uvicorn_called.append((a, kw)))
 
         # No token anywhere.
-        monkeypatch.delenv("LAUNCHER_AGENT_TOKEN", raising=False)
+        monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
         # Force the on-disk token file lookup to a missing path so the
         # refuse-to-start branch is exercised even if the operator's real
         # home has a file present.
@@ -784,7 +784,7 @@ class TestUtilityFunctions:
         assert not uvicorn_called, "uvicorn.run must not be invoked on refuse-to-start"
         err = buf.getvalue()
         assert "non-loopback" in err
-        assert "LAUNCHER_AGENT_TOKEN" in err
+        assert "LLAUNCHER_AGENT_TOKEN" in err
 
     def test_main_stop_flag(self, monkeypatch):
         """Test main with --stop flag."""
@@ -912,9 +912,9 @@ class TestAgentConfig:
         from llauncher.agent.config import AgentConfig
 
         # Set environment variables
-        monkeypatch.setenv("LAUNCHER_AGENT_HOST", "127.0.0.1")
-        monkeypatch.setenv("LAUNCHER_AGENT_PORT", "9000")
-        monkeypatch.setenv("LAUNCHER_AGENT_NODE_NAME", "test-node")
+        monkeypatch.setenv("LLAUNCHER_AGENT_HOST", "127.0.0.1")
+        monkeypatch.setenv("LLAUNCHER_AGENT_PORT", "9000")
+        monkeypatch.setenv("LLAUNCHER_AGENT_NODE_NAME", "test-node")
 
         # Create config from environment
         config = AgentConfig.from_env()
@@ -929,9 +929,9 @@ class TestAgentConfig:
         from llauncher.agent.config import AgentConfig
 
         # Set only host and port, leave node_name unset
-        monkeypatch.setenv("LAUNCHER_AGENT_HOST", "0.0.0.0")
-        monkeypatch.setenv("LAUNCHER_AGENT_PORT", "8080")
-        # LAUNCHER_AGENT_NODE_NAME is not set
+        monkeypatch.setenv("LLAUNCHER_AGENT_HOST", "0.0.0.0")
+        monkeypatch.setenv("LLAUNCHER_AGENT_PORT", "8080")
+        # LLAUNCHER_AGENT_NODE_NAME is not set
 
         # Create config from environment
         config = AgentConfig.from_env()
@@ -946,9 +946,9 @@ class TestAgentConfig:
         from llauncher.agent.config import AgentConfig
 
         # Ensure environment variables are not set
-        monkeypatch.delenv("LAUNCHER_AGENT_HOST", raising=False)
-        monkeypatch.delenv("LAUNCHER_AGENT_PORT", raising=False)
-        monkeypatch.delenv("LAUNCHER_AGENT_NODE_NAME", raising=False)
+        monkeypatch.delenv("LLAUNCHER_AGENT_HOST", raising=False)
+        monkeypatch.delenv("LLAUNCHER_AGENT_PORT", raising=False)
+        monkeypatch.delenv("LLAUNCHER_AGENT_NODE_NAME", raising=False)
 
         # Create config from environment
         config = AgentConfig.from_env()
@@ -965,7 +965,7 @@ class TestAgentConfig:
         from llauncher.agent.config import AgentConfig
 
         # Set invalid port value
-        monkeypatch.setenv("LAUNCHER_AGENT_PORT", "not-a-number")
+        monkeypatch.setenv("LLAUNCHER_AGENT_PORT", "not-a-number")
 
         # Should raise ValueError when trying to convert to int
         try:
@@ -1390,7 +1390,7 @@ class TestAgentServerFunctions:
 
         # Provide an explicit token so the loopback start path does not
         # auto-generate a token file under the real ~/.llauncher.
-        monkeypatch.setenv("LAUNCHER_AGENT_TOKEN", "test-token")
+        monkeypatch.setenv("LLAUNCHER_AGENT_TOKEN", "test-token")
 
         config = AgentConfig(host="127.0.0.1", port=9000, node_name="test-node")
         run_agent(config)
@@ -1423,7 +1423,7 @@ class TestAgentServerFunctions:
         monkeypatch.setattr(llauncher.agent.server.logger, "warning", lambda *a, **kw: None)
 
         monkeypatch.setattr("socket.gethostname", lambda: "test-host")
-        monkeypatch.setenv("LAUNCHER_AGENT_TOKEN", "lan-token")
+        monkeypatch.setenv("LLAUNCHER_AGENT_TOKEN", "lan-token")
 
         config = AgentConfig(host="0.0.0.0", port=9000, node_name="test-node")
         run_agent(config)

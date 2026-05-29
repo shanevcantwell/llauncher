@@ -47,7 +47,7 @@ This matches how `~/.ssh/known_hosts` works: each host maintains its own view of
 
 ### Self-Loop Dispatch: Short-Circuit to Local Infra
 
-When the tool layer's `target` resolves to "this node" (matches `LAUNCHER_AGENT_NODE_NAME`, defaulting to `socket.gethostname()`), the call routes **directly** to the local infrastructure layer. It does **not** make an HTTP round-trip through this node's own HTTP Agent.
+When the tool layer's `target` resolves to "this node" (matches `LLAUNCHER_AGENT_NODE_NAME`, defaulting to `socket.gethostname()`), the call routes **directly** to the local infrastructure layer. It does **not** make an HTTP round-trip through this node's own HTTP Agent.
 
 Reasons:
 
@@ -58,7 +58,7 @@ The trade-off — one extra dispatch path — is worth it. The short-circuit and
 
 ### Identity Resolution
 
-A node identifies itself via `LAUNCHER_AGENT_NODE_NAME` (env), defaulting to `socket.gethostname()`. The tool layer compares `target` against this name to decide local vs. remote dispatch. No global directory; no DNS-style lookup beyond what's in `nodes.json`.
+A node identifies itself via `LLAUNCHER_AGENT_NODE_NAME` (env), defaulting to `socket.gethostname()`. The tool layer compares `target` against this name to decide local vs. remote dispatch. No global directory; no DNS-style lookup beyond what's in `nodes.json`.
 
 ## Consequences
 

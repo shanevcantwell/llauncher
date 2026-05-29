@@ -23,7 +23,7 @@ class TestAuthAndHealthCombined:
 
 LLAMA_SERVER_PATH = os.getenv("LLAMA_SERVER_BIN", "/usr/bin/llama-server")
 DEFAULT_PORT = int(os.getenv("LAUNCHER_DEFAULT_PORT", "8081"))
-AGENT_API_KEY = os.getenv("LAUNCHER_AGENT_TOKEN", None)
+AGENT_API_KEY = os.getenv("LLAUNCHER_AGENT_TOKEN", None)
 if AGENT_API_KEY == "":
     AGENT_API_KEY = None
 ''')
@@ -39,7 +39,7 @@ if AGENT_API_KEY == "":
         from llauncher.agent.middleware import AuthenticationMiddleware
         
         # Set up token for this test
-        os.environ["LAUNCHER_AGENT_TOKEN"] = "test-auth-token-12345"
+        os.environ["LLAUNCHER_AGENT_TOKEN"] = "test-auth-token-12345"
         
         app = FastAPI()
         app.add_middleware(AuthenticationMiddleware, expected_token="test-auth-token-12345")

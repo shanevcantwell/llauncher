@@ -812,10 +812,10 @@ The v2 `LAUNCHER_*` env-var family (per ADR-008 / ADR-013):
 | `LAUNCHER_LOG_MAX_BYTES` | `52428800` (50 MiB) | Per-log rotation threshold |
 | `LAUNCHER_LOG_KEEP` | `3` | Retained rotated log files per server |
 | `LAUNCHER_FOOTER_CACHE_S` | `1.0` | `/footer-context/{port}` TTL (seconds; `<= 0` disables) |
-| `LAUNCHER_AGENT_HOST` | `127.0.0.1` | HTTP Agent bind host. Non-loopback requires a token. |
-| `LAUNCHER_AGENT_PORT` | `8765` | HTTP Agent listen port |
-| `LAUNCHER_AGENT_NODE_NAME` | hostname | Friendly node identifier |
-| `LAUNCHER_AGENT_TOKEN` | — | Required when binding off-loopback (ADR-003); `-` reads stdin |
+| `LLAUNCHER_AGENT_HOST` | `127.0.0.1` | HTTP Agent bind host. Non-loopback requires a token. |
+| `LLAUNCHER_AGENT_PORT` | `8765` | HTTP Agent listen port |
+| `LLAUNCHER_AGENT_NODE_NAME` | hostname | Friendly node identifier |
+| `LLAUNCHER_AGENT_TOKEN` | — | Required when binding off-loopback (ADR-003); `-` reads stdin |
 | `BLACKLISTED_PORTS` | `` | Comma-separated list of reserved ports |
 
 ---

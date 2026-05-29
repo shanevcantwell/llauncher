@@ -40,7 +40,7 @@ def _local_host_names() -> frozenset[str]:
 
 def _local_agent_port() -> int:
     """The agent port the local node is configured to bind."""
-    return int(os.getenv("LAUNCHER_AGENT_PORT", "8765"))
+    return int(os.getenv("LLAUNCHER_AGENT_PORT", "8765"))
 
 
 class NodeStatus(Enum):

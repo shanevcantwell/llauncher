@@ -59,8 +59,8 @@ else:
 # Log level
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
-# API key for agent authentication (env: LAUNCHER_AGENT_TOKEN)
-AGENT_API_KEY: str | None = os.getenv("LAUNCHER_AGENT_TOKEN")
+# API key for agent authentication (env: LLAUNCHER_AGENT_TOKEN)
+AGENT_API_KEY: str | None = os.getenv("LLAUNCHER_AGENT_TOKEN")
 if AGENT_API_KEY == "":
     AGENT_API_KEY = None
 

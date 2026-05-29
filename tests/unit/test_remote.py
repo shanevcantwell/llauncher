@@ -1077,7 +1077,7 @@ class TestSelfLoopShortCircuit:
         assert result["success"] is True
 
     def test_self_loop_skips_auth_header_check(self):
-        """In-process path is not subject to LAUNCHER_AGENT_TOKEN — auth is a
+        """In-process path is not subject to LLAUNCHER_AGENT_TOKEN — auth is a
         network-boundary concern only."""
         node = RemoteNode("local", "localhost", port=8765, api_key=None)
         canned = MagicMock()

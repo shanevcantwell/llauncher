@@ -6,7 +6,7 @@ allowing a head dashboard to manage this node remotely.
 Usage:
     llauncher-agent
     # or with custom config
-    LAUNCHER_AGENT_PORT=9000 LAUNCHER_AGENT_NODE_NAME="my-node" llauncher-agent
+    LLAUNCHER_AGENT_PORT=9000 LLAUNCHER_AGENT_NODE_NAME="my-node" llauncher-agent
     # stop running agent
     llauncher-agent --stop
 """
@@ -216,7 +216,7 @@ def create_app(auth_token: str) -> FastAPI:
     Raises:
         ValueError: If ``auth_token`` is ``None``, empty, or whitespace
             only. A whitespace-only value indicates a malformed env-var
-            assignment (e.g., ``LAUNCHER_AGENT_TOKEN=" "``) that would
+            assignment (e.g., ``LLAUNCHER_AGENT_TOKEN=" "``) that would
             otherwise construct an app whose auth middleware compared
             ``X-Api-Key`` against a whitespace string — see issue #111.
     """
@@ -307,10 +307,10 @@ def run_agent(config: AgentConfig) -> None:
     Raises:
         SystemExit: With code 2 when binding non-loopback without an
             available authentication token. The error message names
-            both remediation paths (set ``LAUNCHER_AGENT_TOKEN`` or
+            both remediation paths (set ``LLAUNCHER_AGENT_TOKEN`` or
             bind loopback).
     """
-    env_token = os.environ.get("LAUNCHER_AGENT_TOKEN")
+    env_token = os.environ.get("LLAUNCHER_AGENT_TOKEN")
     loopback = is_loopback(config.host)
 
     if not loopback:
@@ -324,8 +324,8 @@ def run_agent(config: AgentConfig) -> None:
             sys.stderr.write(
                 "[llauncher-agent] ERROR: refusing to bind to non-loopback host "
                 f"{config.host!r} without an authentication token.\n"
-                "[llauncher-agent] Set LAUNCHER_AGENT_TOKEN (or use "
-                "LAUNCHER_AGENT_TOKEN=- to pipe a token on stdin), or bind "
+                "[llauncher-agent] Set LLAUNCHER_AGENT_TOKEN (or use "
+                "LLAUNCHER_AGENT_TOKEN=- to pipe a token on stdin), or bind "
                 "to 127.0.0.1 to allow auto-generation of a local token.\n"
             )
             raise SystemExit(2)

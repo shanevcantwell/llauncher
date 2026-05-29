@@ -24,7 +24,7 @@ ENV_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/llauncher"
 ENV_FILE="$ENV_DIR/agent.env"
 
 # The UI process (Streamlit) is separate from the systemd service and
-# does NOT inherit LAUNCHER_AGENT_TOKEN from the unit's environment, so
+# does NOT inherit LLAUNCHER_AGENT_TOKEN from the unit's environment, so
 # it can only authenticate against the local agent by reading the token
 # from this file. See issue #131 + the Windows counterpart in
 # scripts/windows/install.ps1.
@@ -84,26 +84,26 @@ if [ ! -f "$ENV_FILE" ]; then
     sed "s|replace-me-with-a-random-token|$TOKEN|" "$ENV_EXAMPLE" > "$ENV_FILE"
     chmod 600 "$ENV_FILE"
     say "Wrote $ENV_FILE (mode 0600) with a generated 32-byte token."
-    info "Edit it to set LAUNCHER_AGENT_NODE_NAME / HOST / PORT as needed."
+    info "Edit it to set LLAUNCHER_AGENT_NODE_NAME / HOST / PORT as needed."
 else
     chmod 600 "$ENV_FILE"  # repair perms if they drifted
     say "Env file already exists at $ENV_FILE — leaving it untouched."
 fi
 
 # --- Token mirror (issue #131) -----------------------------------------
-# Mirror LAUNCHER_AGENT_TOKEN from the env file into ~/.llauncher/agent.token
+# Mirror LLAUNCHER_AGENT_TOKEN from the env file into ~/.llauncher/agent.token
 # so the UI process — which does NOT share the systemd service env — can
 # authenticate against the local agent. Symmetric with the Windows
 # install.ps1 mirror block.
 #
 # `tail -n1` (not `head -n1`) matches systemd's EnvironmentFile parser
 # semantics ("last wins"); the value the agent actually runs with is the
-# last LAUNCHER_AGENT_TOKEN= line, so the mirror must reflect that.
+# last LLAUNCHER_AGENT_TOKEN= line, so the mirror must reflect that.
 # `tr -d '[:space:]'` defends against trailing whitespace or stray CRs
 # from hand-edited env files.
 mkdir -p "$LLAUNCHER_DIR"
 chmod 700 "$LLAUNCHER_DIR"
-TOKEN_VALUE="$(grep -E '^LAUNCHER_AGENT_TOKEN=' "$ENV_FILE" | tail -n1 | cut -d= -f2- | tr -d '[:space:]')"
+TOKEN_VALUE="$(grep -E '^LLAUNCHER_AGENT_TOKEN=' "$ENV_FILE" | tail -n1 | cut -d= -f2- | tr -d '[:space:]')"
 if [ -n "$TOKEN_VALUE" ]; then
     # printf '%s' (no trailing newline) matches the byte-shape of
     # llauncher/agent/auth.py:_generate_and_persist_token after strip.
@@ -111,7 +111,7 @@ if [ -n "$TOKEN_VALUE" ]; then
     chmod 600 "$TOKEN_FILE"
     say "Mirrored token to $TOKEN_FILE (mode 0600) so the UI can authenticate."
 else
-    info "No LAUNCHER_AGENT_TOKEN line found in $ENV_FILE; skipping token file mirror."
+    info "No LLAUNCHER_AGENT_TOKEN line found in $ENV_FILE; skipping token file mirror."
 fi
 
 # --- Unit file ---------------------------------------------------------

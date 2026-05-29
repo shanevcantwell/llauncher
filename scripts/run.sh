@@ -66,7 +66,7 @@ case "${1:-}" in
     agent)
         print_info "Starting remote management agent..."
         print_info "Agent will listen on 0.0.0.0:8765"
-        print_info "Set LAUNCHER_AGENT_PORT and LAUNCHER_AGENT_NODE_NAME to customize"
+        print_info "Set LLAUNCHER_AGENT_PORT and LLAUNCHER_AGENT_NODE_NAME to customize"
         llauncher-agent
         ;;
     agent-bg)
@@ -100,9 +100,9 @@ case "${1:-}" in
         echo "  discover  List discovered launch scripts"
         echo ""
         echo "Environment variables for agent:"
-        echo "  LAUNCHER_AGENT_HOST     Host to bind to (default: 0.0.0.0)"
-        echo "  LAUNCHER_AGENT_PORT     Port to listen on (default: 8765)"
-        echo "  LAUNCHER_AGENT_NODE_NAME Friendly name for this node"
+        echo "  LLAUNCHER_AGENT_HOST     Host to bind to (default: 0.0.0.0)"
+        echo "  LLAUNCHER_AGENT_PORT     Port to listen on (default: 8765)"
+        echo "  LLAUNCHER_AGENT_NODE_NAME Friendly name for this node"
         echo ""
         echo "First time setup:"
         echo "  $0 install"
