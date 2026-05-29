@@ -415,19 +415,19 @@ run.bat stop       # Stop agent
 **With custom configuration:**
 ```bash
 # Linux/macOS
-LAUNCHER_AGENT_PORT=9000 LAUNCHER_AGENT_NODE_NAME="my-server" ./run.sh agent
+LLAUNCHER_AGENT_PORT=9000 LLAUNCHER_AGENT_NODE_NAME="my-server" ./run.sh agent
 
 # Windows (PowerShell)
-$env:LAUNCHER_AGENT_PORT="9000"
-$env:LAUNCHER_AGENT_NODE_NAME="my-server"
+$env:LLAUNCHER_AGENT_PORT="9000"
+$env:LLAUNCHER_AGENT_NODE_NAME="my-server"
 run.bat agent
 ```
 
 **Environment Variables:**
-- `LAUNCHER_AGENT_HOST`: Host to bind to (default: `127.0.0.1`). Set to `0.0.0.0` or a specific LAN IP to expose the agent to other hosts — see "Security Notes" below.
-- `LAUNCHER_AGENT_PORT`: Port to listen on (default: `8765`)
-- `LAUNCHER_AGENT_NODE_NAME`: Friendly name for the node
-- `LAUNCHER_AGENT_TOKEN`: Required when binding to anything other than loopback. The agent refuses to start on a non-loopback host without it. Special value `-` reads the token from stdin (one line). On a loopback start with no value set, a fresh token is auto-generated and written to `~/.llauncher/agent.token` (mode 0600).
+- `LLAUNCHER_AGENT_HOST`: Host to bind to (default: `127.0.0.1`). Set to `0.0.0.0` or a specific LAN IP to expose the agent to other hosts — see "Security Notes" below.
+- `LLAUNCHER_AGENT_PORT`: Port to listen on (default: `8765`)
+- `LLAUNCHER_AGENT_NODE_NAME`: Friendly name for the node
+- `LLAUNCHER_AGENT_TOKEN`: Required when binding to anything other than loopback. The agent refuses to start on a non-loopback host without it. Special value `-` reads the token from stdin (one line). On a loopback start with no value set, a fresh token is auto-generated and written to `~/.llauncher/agent.token` (mode 0600).
 
 #### 3. Start the Dashboard on the Head Machine
 
@@ -481,8 +481,8 @@ New-NetFirewallRule -DisplayName "llauncher Agent" -Direction Inbound -LocalPort
 
 #### Security Notes
 
-- **Loopback by default**: The agent binds to `127.0.0.1` unless `LAUNCHER_AGENT_HOST` is set explicitly. Set it to a LAN IP (or `0.0.0.0`) to expose the agent to other hosts on the network.
-- **Token required for non-loopback binds**: Binding to anything other than `127.0.0.1` / `::1` / `localhost` requires `LAUNCHER_AGENT_TOKEN` to be set. The agent refuses to start otherwise. On loopback first-run with no token configured, a fresh token is generated at `~/.llauncher/agent.token` (mode 0600) and printed once to stderr.
+- **Loopback by default**: The agent binds to `127.0.0.1` unless `LLAUNCHER_AGENT_HOST` is set explicitly. Set it to a LAN IP (or `0.0.0.0`) to expose the agent to other hosts on the network.
+- **Token required for non-loopback binds**: Binding to anything other than `127.0.0.1` / `::1` / `localhost` requires `LLAUNCHER_AGENT_TOKEN` to be set. The agent refuses to start otherwise. On loopback first-run with no token configured, a fresh token is generated at `~/.llauncher/agent.token` (mode 0600) and printed once to stderr.
 - **Trusted LAN Only**: Even with a token, only expose the agent on networks you trust — the transport is plain HTTP (no TLS). Tailscale is the recommended option for cross-host trust.
 - **Firewall**: Restrict port 8765 to your LAN subnet.
 
@@ -509,7 +509,7 @@ The sidebar **Node Selector** (`ui/components/node_selector.py`) picks the targe
 3. Verify the agent is binding to the correct interface:
    ```bash
    # Default is 127.0.0.1:8765 (loopback). For LAN access you must
-   # have set LAUNCHER_AGENT_HOST and LAUNCHER_AGENT_TOKEN.
+   # have set LLAUNCHER_AGENT_HOST and LLAUNCHER_AGENT_TOKEN.
    netstat -tlnp | grep 8765
    ```
 
@@ -524,7 +524,7 @@ The sidebar **Node Selector** (`ui/components/node_selector.py`) picks the targe
 
 2. Use a different port:
    ```bash
-   LAUNCHER_AGENT_PORT=9000 llauncher-agent
+   LLAUNCHER_AGENT_PORT=9000 llauncher-agent
    ```
 
 #### Can't connect from Windows to Linux (or vice versa)
@@ -536,8 +536,8 @@ The sidebar **Node Selector** (`ui/components/node_selector.py`) picks the targe
 
 2. Check that the agent is not binding to loopback only:
    - The default is `127.0.0.1:8765`. For cross-host access set
-     `LAUNCHER_AGENT_HOST=0.0.0.0` (or a specific LAN IP) **and**
-     `LAUNCHER_AGENT_TOKEN` — the agent refuses to start on a
+     `LLAUNCHER_AGENT_HOST=0.0.0.0` (or a specific LAN IP) **and**
+     `LLAUNCHER_AGENT_TOKEN` — the agent refuses to start on a
      non-loopback host without a token.
 
 ### API Documentation

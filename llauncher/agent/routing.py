@@ -38,7 +38,7 @@ def get_node_name() -> str:
     """Get the node name from environment or hostname."""
     import os
 
-    return os.getenv("LAUNCHER_AGENT_NODE_NAME", socket.gethostname())
+    return os.getenv("LLAUNCHER_AGENT_NODE_NAME", socket.gethostname())
 
 
 # ─────────── Request body schemas ────────────────────────────────

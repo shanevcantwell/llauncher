@@ -15,18 +15,18 @@ class AgentConfig(BaseModel):
         """Create config from environment variables.
 
         Supports:
-        - LAUNCHER_AGENT_HOST: Host to bind to (default: 127.0.0.1)
-        - LAUNCHER_AGENT_PORT: Port to bind to (default: 8765)
-        - LAUNCHER_AGENT_NODE_NAME: Friendly name for this node
+        - LLAUNCHER_AGENT_HOST: Host to bind to (default: 127.0.0.1)
+        - LLAUNCHER_AGENT_PORT: Port to bind to (default: 8765)
+        - LLAUNCHER_AGENT_NODE_NAME: Friendly name for this node
 
         Per security hardening §3 C2, default bind is loopback. Operators
-        opt into LAN exposure explicitly by setting ``LAUNCHER_AGENT_HOST``
+        opt into LAN exposure explicitly by setting ``LLAUNCHER_AGENT_HOST``
         (``0.0.0.0`` remains a valid value).
         """
         import os
 
         return cls(
-            host=os.getenv("LAUNCHER_AGENT_HOST", "127.0.0.1"),
-            port=int(os.getenv("LAUNCHER_AGENT_PORT", "8765")),
-            node_name=os.getenv("LAUNCHER_AGENT_NODE_NAME"),
+            host=os.getenv("LLAUNCHER_AGENT_HOST", "127.0.0.1"),
+            port=int(os.getenv("LLAUNCHER_AGENT_PORT", "8765")),
+            node_name=os.getenv("LLAUNCHER_AGENT_NODE_NAME"),
         )

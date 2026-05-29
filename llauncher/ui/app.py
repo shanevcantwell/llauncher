@@ -68,7 +68,7 @@ def show_agent_down_banner() -> None:
     *before* this and to ``st.stop()`` *after* it, so the rest of the
     dashboard does not render against a missing agent.
     """
-    agent_port = int(os.getenv("LAUNCHER_AGENT_PORT", "8765"))
+    agent_port = int(os.getenv("LLAUNCHER_AGENT_PORT", "8765"))
     st.error(
         "**Local agent is not running.**\n\n"
         "Start it in a separate terminal with the installed console "
@@ -82,7 +82,7 @@ def show_agent_down_banner() -> None:
         "run.bat agent      :: Windows\n"
         "```\n\n"
         f"Then refresh this page. The agent listens on port "
-        f"``{agent_port}`` (override via ``LAUNCHER_AGENT_PORT``) and "
+        f"``{agent_port}`` (override via ``LLAUNCHER_AGENT_PORT``) and "
         f"reads/writes state under ``{settings.LAUNCHER_RUN_DIR.parent}``.",
         icon="🛑",
     )

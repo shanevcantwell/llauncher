@@ -218,7 +218,7 @@ def render_add_node_form(registry: NodeRegistry) -> None:
             "API Key",
             type="password",
             help=(
-                "Token from the remote agent's LAUNCHER_AGENT_TOKEN / "
+                "Token from the remote agent's LLAUNCHER_AGENT_TOKEN / "
                 "agent.token. Required for non-loopback agents (per ADR-003). "
                 "Leave blank for unauthenticated loopback agents."
             ),

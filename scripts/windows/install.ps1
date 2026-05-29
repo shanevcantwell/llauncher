@@ -88,7 +88,7 @@ if (-not (Test-Path $EnvFile)) {
         -replace 'replace-me-with-a-random-token', $token.Trim() `
         | Set-Content -Path $EnvFile -Encoding utf8
     Say "Wrote $EnvFile with a generated 32-byte token."
-    Info "Edit it to set LAUNCHER_AGENT_NODE_NAME / HOST / PORT as needed."
+    Info "Edit it to set LLAUNCHER_AGENT_NODE_NAME / HOST / PORT as needed."
 } else {
     Say "Env file already exists at $EnvFile - leaving it untouched."
 }
@@ -111,15 +111,15 @@ Say "Locked ACL on $EnvFile (current user only)."
 # Mirror the token to ~/.llauncher/agent.token so the UI process
 # (separate from the NSSM service) can authenticate against the local
 # agent via llauncher.agent.auth.resolve_agent_token(). The UI does
-# not inherit LAUNCHER_AGENT_TOKEN from the service's environment, so
+# not inherit LLAUNCHER_AGENT_TOKEN from the service's environment, so
 # without this file the UI sees 401 on every non-exempt endpoint
 # (/node-info, etc.). Issue #125 (self-loop short-circuit for
 # /node-info) would obviate the auth path for the local node entirely,
 # but the auth source still needs to be discoverable for other reads
 # /writes and for the remote-node case.
-$tokenLine = (Get-Content $EnvFile) | Where-Object { $_ -match '^LAUNCHER_AGENT_TOKEN=' } | Select-Object -First 1
+$tokenLine = (Get-Content $EnvFile) | Where-Object { $_ -match '^LLAUNCHER_AGENT_TOKEN=' } | Select-Object -First 1
 if ($tokenLine) {
-    $tokenValue = ($tokenLine -replace '^LAUNCHER_AGENT_TOKEN=', '').Trim()
+    $tokenValue = ($tokenLine -replace '^LLAUNCHER_AGENT_TOKEN=', '').Trim()
     # IMPORTANT: write WITHOUT a UTF-8 BOM. Windows PowerShell 5.1's
     # `Set-Content -Encoding utf8` prepends EF BB BF, which decodes to
     # U+FEFF and (since str.strip() doesn't strip it) leaks into the
@@ -135,7 +135,7 @@ if ($tokenLine) {
     Set-OwnerOnlyAcl $TokenFile
     Say "Mirrored token to $TokenFile (ACL: current user only) so the UI can authenticate."
 } else {
-    Info "No LAUNCHER_AGENT_TOKEN line found in ${EnvFile}; skipping token file mirror."
+    Info "No LLAUNCHER_AGENT_TOKEN line found in ${EnvFile}; skipping token file mirror."
 }
 
 # --- Parse env file into NSSM AppEnvironmentExtra format --------------

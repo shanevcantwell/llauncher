@@ -3,9 +3,9 @@
 This module implements the token-resolution policy for the agent's
 HTTP API authentication. The policy in precedence order:
 
-1. ``LAUNCHER_AGENT_TOKEN`` env var, when set to a non-empty value
+1. ``LLAUNCHER_AGENT_TOKEN`` env var, when set to a non-empty value
    that is *not* the literal ``"-"``. Used directly.
-2. ``LAUNCHER_AGENT_TOKEN=-`` is the explicit opt-in trigger to read
+2. ``LLAUNCHER_AGENT_TOKEN=-`` is the explicit opt-in trigger to read
    the token from standard input (one line, stripped). Lets operators
    pipe a token from a secret manager without leaving it in the
    environment.
@@ -53,14 +53,14 @@ def _read_stdin_token() -> str:
 
     Raises ``RuntimeError`` if stdin is closed or yields an empty
     value — the operator explicitly requested the stdin path with
-    ``LAUNCHER_AGENT_TOKEN=-``, so a missing token is a fatal config
+    ``LLAUNCHER_AGENT_TOKEN=-``, so a missing token is a fatal config
     error, not a fallback trigger.
     """
     line = sys.stdin.readline()
     token = line.strip()
     if not token:
         raise RuntimeError(
-            "LAUNCHER_AGENT_TOKEN=- requested but no token was provided on stdin"
+            "LLAUNCHER_AGENT_TOKEN=- requested but no token was provided on stdin"
         )
     return token
 
@@ -117,7 +117,7 @@ def _generate_and_persist_token(path: Path) -> str:
     print(
         f"[llauncher-agent] Generated new auth token at {path} (mode 0600).\n"
         f"[llauncher-agent] Token: {token}\n"
-        f"[llauncher-agent] Set LAUNCHER_AGENT_TOKEN or use this token in your client.",
+        f"[llauncher-agent] Set LLAUNCHER_AGENT_TOKEN or use this token in your client.",
         file=sys.stderr,
     )
     return token
@@ -134,7 +134,7 @@ def resolve_agent_token(
     Parameters
     ----------
     env_value:
-        Raw value of ``LAUNCHER_AGENT_TOKEN`` (or ``None`` if unset).
+        Raw value of ``LLAUNCHER_AGENT_TOKEN`` (or ``None`` if unset).
         When ``None`` (the default kwarg), the env is read at call
         time. Pass an explicit value (including ``""``/``None``) to
         bypass the env read — used by tests.
@@ -154,7 +154,7 @@ def resolve_agent_token(
     and ``allow_generate=False``.
     """
     if env_value is None:
-        env_value = os.environ.get("LAUNCHER_AGENT_TOKEN")
+        env_value = os.environ.get("LLAUNCHER_AGENT_TOKEN")
 
     if env_value == "-":
         return _read_stdin_token()

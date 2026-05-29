@@ -47,7 +47,7 @@ def test_create_app_rejects_empty_string() -> None:
 def test_create_app_rejects_whitespace_only_token(ws_token: str) -> None:
     """C1 (#111): whitespace-only tokens must be rejected.
 
-    A typo like ``LAUNCHER_AGENT_TOKEN=" "`` (or a trailing newline from
+    A typo like ``LLAUNCHER_AGENT_TOKEN=" "`` (or a trailing newline from
     a misread token file) is non-falsy but semantically empty. Without
     a ``strip()`` check, ``create_app`` would build an app whose auth
     middleware compares incoming ``X-Api-Key`` against the whitespace

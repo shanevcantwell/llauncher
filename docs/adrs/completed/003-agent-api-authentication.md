@@ -67,7 +67,7 @@ A review document (`docs/reviews/2026-04-25-enhancement-no-auth-agent-api.md`) w
 - Immediate security improvement for multi-user or network-accessible setups
 - Backward compatible — existing deployments unaffected unless they opt in
 - Foundation for future per-user scoping (Phase 2)
-- pi-footer-extension can use authenticated requests when `LAUNCHER_AGENT_TOKEN` is set
+- pi-footer-extension can use authenticated requests when `LLAUNCHER_AGENT_TOKEN` is set
 
 **Negative:**
 - Adds first non-trivial dependency chain: settings → middleware → all write endpoints
@@ -75,7 +75,7 @@ A review document (`docs/reviews/2026-04-25-enhancement-no-auth-agent-api.md`) w
 - Session management (login/logout/rotation) deferred to Phase 2 — simpler initial implementation but may leave gaps for shared environments
 
 **Open Questions:**
-1. ~~Should default binding change from `0.0.0.0` to `127.0.0.1` when api_key is configured?~~ **Resolved 2026-05-24** by PR #75: default bind is `127.0.0.1`; binding off-loopback now *requires* `LAUNCHER_AGENT_TOKEN` and the agent refuses to start without it.
+1. ~~Should default binding change from `0.0.0.0` to `127.0.0.1` when api_key is configured?~~ **Resolved 2026-05-24** by PR #75: default bind is `127.0.0.1`; binding off-loopback now *requires* `LLAUNCHER_AGENT_TOKEN` and the agent refuses to start without it.
 2. How to handle key rotation without downtime? (Defer to Phase 2 — supports multiple concurrent keys)
 
 ## Amendment Notes
@@ -84,11 +84,11 @@ A review document (`docs/reviews/2026-04-25-enhancement-no-auth-agent-api.md`) w
 cohort. Token requirement was tightened beyond the original opt-in
 design:
 
-- PR #75 — non-loopback bind requires `LAUNCHER_AGENT_TOKEN`; agent
+- PR #75 — non-loopback bind requires `LLAUNCHER_AGENT_TOKEN`; agent
   refuses to start without it. Default bind is loopback.
 - PR #87 / C1 — `create_app` requires a non-empty `auth_token`; the
   unauthenticated-by-default posture is closed.
-- `llauncher/agent/auth.py` resolves `LAUNCHER_AGENT_TOKEN`; the
+- `llauncher/agent/auth.py` resolves `LLAUNCHER_AGENT_TOKEN`; the
   special value `-` reads from stdin. On loopback first-run with no
   token configured, a fresh token is auto-generated to
   `~/.llauncher/agent.token` (mode 0600).
@@ -106,7 +106,7 @@ design:
   docs to match the code, or widen the code to match the docs).
 - **Local-node UI auth fix (2026-05-24 follow-up commit):** the UI
   process is separate from the agent and does not inherit
-  `LAUNCHER_AGENT_TOKEN`, so the `local` registry entry sourced no
+  `LLAUNCHER_AGENT_TOKEN`, so the `local` registry entry sourced no
   token and bounced off non-exempt endpoints (notably `/node-info`)
   with 401. Resolved by adding `NodeRegistry._resolve_local_token()`
   (sources via `resolve_agent_token(allow_generate=False)`),
@@ -119,6 +119,6 @@ design:
 ## Implementation Notes
 
 - **Middleware**: `llauncher/agent/middleware.py` implements `X-Api-Key` header validation
-- **Settings**: `llauncher/core/settings.py` defines `AGENT_API_KEY` from `LAUNCHER_AGENT_TOKEN` env var
+- **Settings**: `llauncher/core/settings.py` defines `AGENT_API_KEY` from `LLAUNCHER_AGENT_TOKEN` env var
 - **Exemptions** (per live code at `agent/middleware.py:20`): `/health`, `/docs`, `/openapi.json`, `/redoc`. Note this is narrower than the original Decision §3 listed; see Amendment Notes for the drift. `/status`, `/models`, `/node-info` all require the token.
 - **pi-footer-extension**: Currently unauthenticated (token pass-through deferred to future)

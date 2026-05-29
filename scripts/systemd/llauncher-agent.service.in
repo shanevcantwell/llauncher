@@ -29,7 +29,7 @@ StartLimitIntervalSec=60
 [Service]
 Type=simple
 ; EnvironmentFile is read with 0600 perms enforced by install.sh.
-; LAUNCHER_AGENT_TOKEN, _HOST, _PORT, _NODE_NAME live there so
+; LLAUNCHER_AGENT_TOKEN, _HOST, _PORT, _NODE_NAME live there so
 ; `systemctl --user cat llauncher-agent` does not leak the token.
 EnvironmentFile=@ENV_FILE@
 ExecStart=@VENV_BIN@/llauncher-agent

@@ -449,7 +449,7 @@ class TestLocalNodeTokenResolution:
         monkeypatch.setattr(
             "llauncher.agent.auth.default_token_path", lambda: token_path
         )
-        monkeypatch.delenv("LAUNCHER_AGENT_TOKEN", raising=False)
+        monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
 
         registry = NodeRegistry()
         local = registry.get_node("local")
@@ -472,7 +472,7 @@ class TestLocalNodeTokenResolution:
         monkeypatch.setattr(
             "llauncher.agent.auth.default_token_path", lambda: token_path
         )
-        monkeypatch.delenv("LAUNCHER_AGENT_TOKEN", raising=False)
+        monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
 
         registry = NodeRegistry()
         local = registry.get_node("local")
@@ -504,7 +504,7 @@ class TestLocalNodeTokenResolution:
         monkeypatch.setattr(
             "llauncher.agent.auth.default_token_path", lambda: token_path
         )
-        monkeypatch.delenv("LAUNCHER_AGENT_TOKEN", raising=False)
+        monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
 
         registry = NodeRegistry()
 
@@ -557,7 +557,7 @@ class TestRemoteNodeTokenPersistence:
         monkeypatch.setattr(
             "llauncher.agent.auth.default_token_path", lambda: agent_token_path
         )
-        monkeypatch.delenv("LAUNCHER_AGENT_TOKEN", raising=False)
+        monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
         return nodes_file, tokens_file
 
     def test_round_trip_remote_token_persists_across_reload(self, tmp_path, monkeypatch):

@@ -57,7 +57,7 @@ The cache is intentionally **not** invalidated by `start`/`stop`/`swap` operatio
 
 ### 3. Auth: matches `/status` exactly
 
-The endpoint is registered on the same router as `/status` and is subject to the same `AuthenticationMiddleware`: if `LAUNCHER_AGENT_TOKEN` is set, `X-Api-Key` is required. `/footer-context/{port}` is **not** added to `_AUTH_EXEMPT_PATHS`. The footer extension must send the token when auth is configured, identically to how it would for `/status`.
+The endpoint is registered on the same router as `/status` and is subject to the same `AuthenticationMiddleware`: if `LLAUNCHER_AGENT_TOKEN` is set, `X-Api-Key` is required. `/footer-context/{port}` is **not** added to `_AUTH_EXEMPT_PATHS`. The footer extension must send the token when auth is configured, identically to how it would for `/status`.
 
 We rejected the alternative of exempting the endpoint. The lockfile path on disk is local-only, but the HTTP endpoint is network-reachable; exempting it would create an unauthenticated information channel that lists every model currently loaded on the node. The cost of injecting a token into the TS extension's fetch call is a single header.
 

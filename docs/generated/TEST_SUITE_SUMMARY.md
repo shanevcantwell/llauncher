@@ -16,10 +16,10 @@
 
 | Category | Files | Tests |
 |----------|-------|-------|
-| Unit | 51 | 881 |
+| Unit | 52 | 899 |
 | Integration | 10 | 78 |
 | Other | 4 | 24 |
-| **Total** | **65** | **983** |
+| **Total** | **66** | **1001** |
 
 ## Tests carrying special markers
 
@@ -398,6 +398,19 @@ ad-hoc markers used in the suite without declaration.
 - **`test_cancel_when_no_marker_returns_200_marker_existed_false`**
   - *ADR-014 §5: 'nothing to cancel' is a successful no-op, not a 404.*
 
+#### `tests/unit/test_agent_auth_token_file.py` (5 tests)
+
+- **`test_read_token_file_strips_utf8_bom`**
+  - *A token file with a UTF-8 BOM yields the bare token (no ``\ufeff``).*
+- **`test_read_token_file_strips_bom_and_trailing_newline`**
+  - *The two stripping behaviors compose — BOM at head, ``\n`` at tail.*
+- **`test_read_token_file_no_bom_still_works`**
+  - *``utf-8-sig`` is a strict superset of ``utf-8`` for BOM-less input.*
+- **`test_read_token_file_bom_only_returns_none`**
+  - *A file containing only a BOM is treated as empty — returns ``None``.*
+- **`test_read_token_file_missing_returns_none`**
+  - *Pre-existing behavior: a missing file returns ``None`` (not raises).*
+
 #### `tests/unit/test_agent_create_app_auth_required.py` (8 tests)
 
 - **`test_create_app_rejects_none_token`**
@@ -580,11 +593,11 @@ ad-hoc markers used in the suite without declaration.
 #### `tests/unit/test_core_settings_auth.py` (3 tests)
 
 - **`test_default_api_key_is_none`**
-  - *When LAUNCHER_AGENT_TOKEN is not set, AGENT_API_KEY should be None.*
+  - *When LLAUNCHER_AGENT_TOKEN is not set, AGENT_API_KEY should be None.*
 - **`test_api_key_from_env`**
-  - *When LAUNCHER_AGENT_TOKEN is set, AGENT_API_KEY should carry its value.*
+  - *When LLAUNCHER_AGENT_TOKEN is set, AGENT_API_KEY should carry its value.*
 - **`test_empty_token_rejected`**
-  - *An empty LAUNCHER_AGENT_TOKEN should be normalised to None.*
+  - *An empty LLAUNCHER_AGENT_TOKEN should be normalised to None.*
 
 #### `tests/unit/test_dashboard.py` (15 tests)
 
@@ -1240,7 +1253,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_rotates_when_existing_log_exceeds_max_bytes`**
   - *An oversized log triggers rotation before the new run appends.*
 
-#### `tests/unit/test_registry_extended.py` (14 tests)
+#### `tests/unit/test_registry_extended.py` (27 tests)
 
 - **`test_is_local_agent_ready_with_existing_online_node`**
   - *Test when local node exists and is online.*
@@ -1270,6 +1283,32 @@ ad-hoc markers used in the suite without declaration.
   - *``remove_node`` also calls ``_save``; the file must stay 0600*
 - **`test_get_online_nodes`**
   - *Test getting online nodes.*
+- **`test_load_self_heals_local_node_api_key_from_token_file`**
+  - *_load() stamps the resolved token onto a loaded ``local`` entry.*
+- **`test_load_leaves_local_api_key_none_when_no_token`**
+  - *Self-heal is opt-in: no token available → api_key stays None.*
+- **`test_load_does_not_touch_remote_node_api_keys`**
+  - *Only the entry literally named ``local`` is self-healed.*
+- **`test_resolver_swallows_exceptions`**
+  - *If resolve_agent_token raises, _resolve_local_token returns None.*
+- **`test_round_trip_remote_token_persists_across_reload`**
+  - *add_node(api_key=...) → new NodeRegistry → token still on the node.*
+- **`test_node_tokens_file_is_mode_0600`**
+  - *The sidecar file is created at 0600 (C10-parity for the secret file).*
+- **`test_node_tokens_file_contains_only_tokens`**
+  - *The sidecar file is {name: token} only — no name/host/port leaks.*
+- **`test_nodes_json_never_contains_api_key`**
+  - *Regression guard: even with api_key supplied, nodes.json*
+- **`test_local_node_excluded_from_tokens_file`**
+  - *The ``local`` entry's token belongs in ``agent.token``, NOT*
+- **`test_remove_node_drops_token_entry`**
+  - *``remove_node`` triggers _save → _save_node_tokens full-*
+- **`test_missing_tokens_file_leaves_api_keys_none`**
+  - *nodes.json says has_api_key=True but the sidecar is missing*
+- **`test_corrupt_tokens_file_does_not_break_load`**
+  - *Malformed JSON in node_tokens.json must degrade gracefully:*
+- **`test_save_tokens_chmod_failure_logs_but_does_not_raise`**
+  - *OSError from os.chmod on the sidecar is logged-and-swallowed,*
 
 #### `tests/unit/test_regression.py` (10 tests)
 
@@ -1408,7 +1447,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_swap_server_self_loop_calls_ops_directly`**
 - **`test_delete_model_self_loop_calls_ops_directly`**
 - **`test_self_loop_skips_auth_header_check`**
-  - *In-process path is not subject to LAUNCHER_AGENT_TOKEN — auth is a*
+  - *In-process path is not subject to LLAUNCHER_AGENT_TOKEN — auth is a*
 - **`test_remote_node_still_uses_http`**
   - *Regression guard: a genuinely remote node still goes over HTTP.*
 
@@ -1765,7 +1804,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_loopback_second_run_reuses_existing_token`**
   - *C1-reuse: an existing agent.token is honored rather than rewritten.*
 - **`test_stdin_token_trigger`**
-  - *C1-stdin: ``LAUNCHER_AGENT_TOKEN=-`` reads the token from stdin.*
+  - *C1-stdin: ``LLAUNCHER_AGENT_TOKEN=-`` reads the token from stdin.*
 - **`test_stdin_token_empty_raises`**
   - *C1-stdin: empty stdin with the trigger set is a fatal config error.*
 - **`test_autogenerated_token_authenticates_app`**
