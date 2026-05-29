@@ -25,10 +25,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 
   **Operator migration:**
 
-  - **Linux / systemd** — edit `~/.config/llauncher/agent.env`:
+  - **Linux / systemd** — edit `${XDG_CONFIG_HOME:-$HOME/.config}/llauncher/agent.env`
+    (typically `~/.config/llauncher/agent.env`; run `echo "${XDG_CONFIG_HOME:-$HOME/.config}/llauncher/agent.env"`
+    to confirm the path on hosts with a non-default `$XDG_CONFIG_HOME`):
 
     ```sh
-    sed -i 's/^LAUNCHER_AGENT_/LLAUNCHER_AGENT_/' ~/.config/llauncher/agent.env
+    sed -i 's/^LAUNCHER_AGENT_/LLAUNCHER_AGENT_/' "${XDG_CONFIG_HOME:-$HOME/.config}/llauncher/agent.env"
     sudo systemctl restart llauncher-agent
     ```
 
