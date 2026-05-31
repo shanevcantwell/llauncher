@@ -139,7 +139,8 @@ cython_debug/
 *.log
 ~/.llauncher/
 llauncher-config.json
-.claude/
+.claude/*
+!.claude/architecture.md
 .mcp.json
 docs/scratchpad/
 agent.pid
