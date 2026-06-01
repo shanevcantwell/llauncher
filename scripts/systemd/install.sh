@@ -103,7 +103,12 @@ fi
 # from hand-edited env files.
 mkdir -p "$LLAUNCHER_DIR"
 chmod 700 "$LLAUNCHER_DIR"
-TOKEN_VALUE="$(grep -E '^LLAUNCHER_AGENT_TOKEN=' "$ENV_FILE" | tail -n1 | cut -d= -f2- | tr -d '[:space:]')"
+# `|| true` keeps a grep miss (no matching line) from tripping `set -e`
+# via the failing command-substitution — an empty TOKEN_VALUE then routes
+# to the informative else-branch below instead of a silent exit 1. This
+# is the failure mode when a pre-rename env file still uses the old
+# single-L LAUNCHER_AGENT_TOKEN key (see #138/#139).
+TOKEN_VALUE="$(grep -E '^LLAUNCHER_AGENT_TOKEN=' "$ENV_FILE" | tail -n1 | cut -d= -f2- | tr -d '[:space:]' || true)"
 if [ -n "$TOKEN_VALUE" ]; then
     # printf '%s' (no trailing newline) matches the byte-shape of
     # llauncher/agent/auth.py:_generate_and_persist_token after strip.
