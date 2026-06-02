@@ -119,7 +119,7 @@ async def health_check() -> dict:
 
 
 @router.get("/node-info")
-async def node_info() -> dict:
+def node_info() -> dict:
     """Get information about this node."""
     import platform
 
@@ -142,7 +142,7 @@ async def node_info() -> dict:
 
 
 @router.get("/status")
-async def get_status() -> dict:
+def get_status() -> dict:
     """Get current status of running servers on this node.
 
     Returns GPU health data (ADR-006) when a GPU backend is available.
@@ -194,7 +194,7 @@ async def get_status() -> dict:
 
 
 @router.get("/orphans")
-async def list_orphans_endpoint() -> dict:
+def list_orphans_endpoint() -> dict:
     """List unmanaged ``llama-server`` processes on this node (ADR-015).
 
     An orphan is a live ``llama-server`` whose ``(port, pid)`` does not
@@ -220,7 +220,7 @@ async def list_orphans_endpoint() -> dict:
 
 
 @router.get("/footer-context/{port}")
-async def get_footer_context(port: int) -> dict:
+def get_footer_context(port: int) -> dict:
     """Minimal footer payload for ``port`` (ADR-012).
 
     Response shape is **pinned** by ADR-012; do not extend without
@@ -236,7 +236,7 @@ async def get_footer_context(port: int) -> dict:
 
 
 @router.get("/models")
-async def list_models() -> list[dict]:
+def list_models() -> list[dict]:
     """List all configured models on this node."""
     state = get_state()
     state.refresh()
@@ -270,7 +270,7 @@ async def list_models() -> list[dict]:
 
 
 @router.get("/models/health")
-async def models_health() -> list[dict]:
+def models_health() -> list[dict]:
     """Health status for *all* configured models (ADR-005)."""
     from llauncher.core.model_health import check_model_health
 
@@ -290,7 +290,7 @@ async def models_health() -> list[dict]:
 
 
 @router.get("/models/health/{model_name}")
-async def model_health_detail(model_name: str) -> dict:
+def model_health_detail(model_name: str) -> dict:
     """Health status for a single model (ADR-005)."""
     from llauncher.core.model_health import check_model_health
 
@@ -313,10 +313,24 @@ async def model_health_detail(model_name: str) -> dict:
 
 
 # ───────────────────── Verb endpoints (ADR-010) ──────────────────
+#
+# CONCURRENCY (issue #143): these handlers — and the blocking read
+# endpoints above — are deliberately plain ``def``, NOT ``async def``.
+# The underlying ops (``ops.start`` / ``ops.swap`` / ``ops.stop``) are
+# synchronous and spend most of their wall-clock time in
+# ``proc.wait_for_server_ready``'s ``time.sleep`` poll loop while a
+# llama-server loads a model into GPU memory. Starlette runs sync path
+# operations in a worker threadpool, so the event loop stays free to
+# serve ``/health`` and ``/status`` concurrently. If any of these are
+# changed back to ``async def``, the blocking op will run directly on the
+# single event loop and stall every other request (including health
+# checks) for the whole GPU load — the exact regression #143 fixed.
+# ``health_check`` stays ``async def`` so it is always answered on the
+# event loop without waiting for a threadpool slot.
 
 
 @router.post("/start/{port}")
-async def start_server(port: int, body: StartRequest) -> dict:
+def start_server(port: int, body: StartRequest) -> dict:
     """Start ``body.model`` on ``port``.
 
     Per ADR-010, port is at the call site; the model name is the body.
@@ -334,7 +348,7 @@ async def start_server(port: int, body: StartRequest) -> dict:
 
 
 @router.post("/swap/{port}")
-async def swap_server(port: int, body: SwapRequest) -> dict:
+def swap_server(port: int, body: SwapRequest) -> dict:
     """Swap the model on ``port`` to ``body.model`` per ADR-011.
 
     Performs the 5-phase swap (pre-flight → marker → stop → start →
@@ -353,7 +367,7 @@ async def swap_server(port: int, body: SwapRequest) -> dict:
 
 
 @router.post("/stop/{port}")
-async def stop_server(port: int) -> dict:
+def stop_server(port: int) -> dict:
     """Stop whatever is running on ``port`` per ADR-010.
 
     Idempotent: returns 200 with ``action="already_empty"`` if the port
@@ -369,7 +383,7 @@ async def stop_server(port: int) -> dict:
 
 
 @router.post("/cancel/{port}")
-async def cancel_op(port: int) -> dict:
+def cancel_op(port: int) -> dict:
     """Signal cancellation of an in-flight start/swap on ``port`` (ADR-014).
 
     Sets ``cancelled=True`` on the in-flight marker. The actual abandonment
@@ -393,7 +407,7 @@ async def cancel_op(port: int) -> dict:
 
 
 @router.delete("/models/{model_name}")
-async def delete_model(model_name: str) -> dict:
+def delete_model(model_name: str) -> dict:
     """Remove ``model_name`` from the config per ADR-008 §4.1.
 
     Refuses with 409 when the model is currently running on any port.
@@ -412,7 +426,7 @@ async def delete_model(model_name: str) -> dict:
 
 
 @router.get("/logs/{port}")
-async def get_logs(port: int, lines: Annotated[int, None] = None) -> dict:
+def get_logs(port: int, lines: Annotated[int, None] = None) -> dict:
     """Get recent log lines for a server."""
     from llauncher.core.process import stream_logs
 
@@ -440,7 +454,7 @@ async def get_logs(port: int, lines: Annotated[int, None] = None) -> dict:
 
 
 @router.get("/audit")
-async def get_audit(
+def get_audit(
     limit: Annotated[int, None] = None,
     action: Annotated[str, None] = None,
     result: Annotated[str, None] = None,
