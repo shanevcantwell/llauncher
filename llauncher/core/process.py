@@ -174,6 +174,47 @@ def build_command(
     return cmd
 
 
+def log_path_for(config_name: str, port: int) -> Path:
+    """Return the canonical per-server log path for ``(config_name, port)``.
+
+    Single source of truth for the log filename so that the readiness check
+    (:func:`wait_for_server_ready`) reads exactly the file that
+    :func:`start_server` writes — see issue #145, where a swap left two
+    ``*-{port}.log`` files and a port-only glob could read the stopped
+    occupant's log instead of the new one.
+
+    NOTE: the sanitization is *lossy* — ``re.sub`` collapses every non
+    ``[\\w-]`` character to ``_``, so distinct config names that differ
+    only in those characters (e.g. ``LFM2-350M-Pro.f16`` vs
+    ``LFM2-350M-Pro_f16``) map to the same file. That name-collision hazard
+    is tracked as a separate issue; it is safe *here* only because the
+    identical transform is applied on both the write side and the read side.
+    """
+    sanitized_name = re.sub(r"[^\w\-]", "_", config_name)
+    return (LOG_DIR / f"{sanitized_name}-{port}.log").resolve()
+
+
+def _newest_log(paths) -> Path | None:
+    """Return the most-recently-modified path from ``paths`` (or ``None``).
+
+    Disambiguates when several log files match a port/name pattern: the
+    freshest file belongs to the current occupant. Robust to a file
+    vanishing mid-scan — a stat failure sorts the path last rather than
+    raising. Replaces the previous "return the first glob hit" behavior,
+    whose ordering was arbitrary (issue #145).
+    """
+    def _mtime(p: Path) -> float:
+        try:
+            return p.stat().st_mtime
+        except OSError:
+            return float("-inf")
+
+    candidates = list(paths)
+    if not candidates:
+        return None
+    return max(candidates, key=_mtime)
+
+
 def start_server(
     config: ModelConfig,
     port: int,
@@ -205,11 +246,10 @@ def start_server(
     # Create logs directory
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Sanitize config name to prevent path traversal and invalid characters
-    sanitized_name = re.sub(r'[^\w\-]', '_', config.name)
-    log_file = LOG_DIR / f"{sanitized_name}-{port}.log"
-    # Resolve to ensure we stay within LOG_DIR
-    log_file = log_file.resolve()
+    # Canonical per-server log path. Shared with wait_for_server_ready via
+    # log_path_for() so readiness reads exactly the file we write here, and
+    # resolved to stay within LOG_DIR (path-traversal guard). See #145.
+    log_file = log_path_for(config.name, port)
 
     # Rotate before opening, per ADR-013. Prevents an unbounded log from
     # absorbing yet another run on top of however much it already has.
@@ -441,15 +481,26 @@ def stream_logs(pid: int | None = None, model_name: str | None = None, lines: in
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
 
-    # If model name provided, search for matching log files
+    # If model name provided, search for matching log files. Sanitize the
+    # name with the SAME transform start_server uses (log_path_for): the
+    # files on disk are stored sanitized, and an un-sanitized glob would
+    # both miss the real file (``LFM2-350M-Pro.f16`` vs the stored
+    # ``LFM2-350M-Pro_f16``) and risk interpreting name characters like
+    # ``[`` as glob metacharacters. When several match (a name reused
+    # across runs), prefer the most recently written — glob order is
+    # otherwise arbitrary (issue #145).
     if model_name is not None and port is None:
-        for log_file in LOG_DIR.glob(f"{model_name}-*.log"):
-            return _tail_file(log_file, lines)
+        safe_name = re.sub(r"[^\w\-]", "_", model_name)
+        match = _newest_log(LOG_DIR.glob(f"{safe_name}-*.log"))
+        if match is not None:
+            return _tail_file(match, lines)
 
     if port:
-        # Find matching log file
-        for log_file in LOG_DIR.glob(f"*-{port}.log"):
-            return _tail_file(log_file, lines)
+        # Multiple models can leave a ``*-{port}.log`` behind across a swap;
+        # the freshest belongs to the current occupant (issue #145).
+        match = _newest_log(LOG_DIR.glob(f"*-{port}.log"))
+        if match is not None:
+            return _tail_file(match, lines)
 
     return []
 
@@ -500,6 +551,7 @@ def wait_for_server_ready(
     timeout: int = 120,
     check_interval: float = 1.0,
     cancel_check=None,
+    model_name: str | None = None,
 ) -> tuple[bool, list[str]]:
     """Wait for a llama-server to become ready to accept requests.
 
@@ -515,6 +567,15 @@ def wait_for_server_ready(
             ``(False, last_logs)`` immediately. Per ADR-014 — used by
             ``operations.swap``/``start`` to react to a cancel request
             without spinning a separate thread.
+        model_name: Config name of the server being launched. When given,
+            readiness reads that model's **exact** log file
+            (:func:`log_path_for`) instead of resolving by port. This is
+            the fix for issue #145: across a swap two ``*-{port}.log``
+            files coexist (stopped + new occupant), and a port-only lookup
+            could read the stopped model's log — whose tail lacks the
+            "listening" line — making a perfectly healthy new server look
+            like it never came up and timing the swap out. Callers that
+            don't name a model fall back to the legacy port-based lookup.
 
     Returns:
         Tuple of (is_ready, recent_log_lines).
@@ -524,15 +585,29 @@ def wait_for_server_ready(
     import socket
     import time
 
+    def _attempt_logs(n: int) -> list[str]:
+        # Prefer the exact log for the model we're waiting on so a stale
+        # ``*-{port}.log`` from a prior occupant cannot shadow it (#145).
+        if model_name is not None:
+            return _tail_file(log_path_for(model_name, port), n)
+        found = find_server_by_port(port)
+        return stream_logs(pid=found.pid, lines=n) if found else []
+
+    # Check for various ready indicators (hoisted: constant per call).
+    ready_indicators = (
+        "listening",
+        "server started",
+        "ready to serve",
+        "rest api listening",
+    )
+
     start_time = time.time()
-    last_logs = []
+    last_logs: list[str] = []
 
     while time.time() - start_time < timeout:
         # ADR-014: check cancel at the natural poll cadence — no new threads.
         if cancel_check is not None and cancel_check():
-            proc = find_server_by_port(port)
-            if proc:
-                last_logs = stream_logs(pid=proc.pid, lines=50)
+            last_logs = _attempt_logs(50) or last_logs
             return False, last_logs
 
         # Check if port is listening
@@ -547,31 +622,18 @@ def wait_for_server_ready(
             pass
 
         if port_ready:
-            # Port is listening, now check logs for "listening" or "ready"
-            proc = find_server_by_port(port)
-            if proc:
-                logs = stream_logs(pid=proc.pid, lines=20)
+            # Port is listening, now check the server's log for a ready line.
+            logs = _attempt_logs(20)
+            if logs:
                 last_logs = logs
-                log_text = "\n".join(logs).lower()
-
-                # Check for various ready indicators
-                ready_indicators = [
-                    "listening",
-                    "server started",
-                    "ready to serve",
-                    "rest api listening",
-                ]
-
-                if any(indicator in log_text for indicator in ready_indicators):
-                    return True, logs
+            log_text = "\n".join(logs).lower()
+            if any(indicator in log_text for indicator in ready_indicators):
+                return True, logs
 
         time.sleep(check_interval)
 
     # Timeout - return whatever logs we have
-    proc = find_server_by_port(port)
-    if proc:
-        last_logs = stream_logs(pid=proc.pid, lines=50)
-
+    last_logs = _attempt_logs(50) or last_logs
     return False, last_logs
 
 

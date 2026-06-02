@@ -122,7 +122,13 @@ def _launch_and_await_ready(
         return False, popen.pid, [], "lockfile race: another writer claimed the port"
 
     ready, logs = proc.wait_for_server_ready(
-        port, timeout=readiness_timeout, cancel_check=cancel_check
+        port,
+        timeout=readiness_timeout,
+        cancel_check=cancel_check,
+        # Read THIS model's exact log, not whatever ``*-{port}.log`` glob
+        # order returns — a stale stopped-occupant log would otherwise
+        # shadow the new server's "listening" line (issue #145).
+        model_name=config.name,
     )
     if not ready:
         # Distinguish cancel from genuine timeout (ADR-014).

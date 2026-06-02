@@ -1,0 +1,155 @@
+"""Regression tests for issue #145 — per-server log resolution.
+
+`wait_for_server_ready` confirms a server is up by scanning its log for a
+"listening" line. The bug: it resolved the log by **port alone**
+(`glob("*-{port}.log")`, first match), but across a swap two such files
+coexist — the stopped occupant's and the new one's — so it could read the
+stopped model's log (whose tail is shutdown noise, no "listening") and time
+the swap out even though the new server was healthy.
+
+The fix threads the model name through `wait_for_server_ready` so it reads
+that model's *exact* log via `log_path_for`, and hardens `stream_logs` to
+sanitize the model name and prefer the most-recently-written match.
+"""
+
+from __future__ import annotations
+
+import socket
+from contextlib import closing
+
+import pytest
+
+from llauncher.core import process as proc
+
+
+@pytest.fixture
+def log_dir(tmp_path, monkeypatch):
+    """Point process.LOG_DIR at an isolated, resolved tmp dir."""
+    d = (tmp_path / "logs").resolve()
+    d.mkdir()
+    monkeypatch.setattr(proc, "LOG_DIR", d)
+    return d
+
+
+def _write(path, *lines):
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+# ─────────────────────── log_path_for ────────────────────────────
+
+
+def test_log_path_for_sanitizes_dot_to_underscore(log_dir):
+    """The on-disk name matches what start_server writes (dots → underscores)."""
+    p = proc.log_path_for("LFM2-350M-Pro.f16", 8082)
+    assert p.name == "LFM2-350M-Pro_f16-8082.log"
+    assert p.parent == log_dir
+
+
+def test_log_path_for_is_lossy_collision_is_characterized(log_dir):
+    """Characterization of the KNOWN lossy-sanitization collision (filed
+    separately): names differing only in non-[\\w-] chars collapse to the
+    same file. Pinned so the follow-up fix has a guard to flip."""
+    assert proc.log_path_for("a.b", 9000) == proc.log_path_for("a_b", 9000)
+
+
+# ─────────────────────── stream_logs ─────────────────────────────
+
+
+def test_newest_log_prefers_freshest_match(log_dir):
+    """The port/name glob disambiguator returns the freshest file, not an
+    arbitrary first glob hit — the heart of the #145 fix. Two models left a
+    ``*-{port}.log`` behind across a swap; the new occupant's is newer."""
+    import os
+    import time
+
+    old = log_dir / "OldModel-8082.log"
+    new = log_dir / "NewModel-8082.log"
+    _write(old, "cleaning up before exit")
+    _write(new, "server is listening on http://0.0.0.0:8082")
+    now = time.time()
+    os.utime(old, (now - 100, now - 100))
+    os.utime(new, (now, now))
+
+    chosen = proc._newest_log(log_dir.glob("*-8082.log"))
+    assert chosen == new
+
+
+def test_newest_log_empty_is_none(log_dir):
+    """No matches → None (callers fall through to an empty log list)."""
+    assert proc._newest_log(log_dir.glob("*-9999.log")) is None
+
+
+def test_stream_logs_by_model_name_sanitizes(log_dir):
+    """A raw model name with a dot resolves to the sanitized file on disk."""
+    f = log_dir / "LFM2-350M-Pro_f16-8083.log"
+    _write(f, "server is listening on http://0.0.0.0:8083")
+    # Caller passes the UN-sanitized config name.
+    lines = proc.stream_logs(model_name="LFM2-350M-Pro.f16", lines=20)
+    assert any("listening" in ln for ln in lines)
+
+
+def test_stream_logs_by_model_name_handles_glob_metachars(log_dir):
+    """A name containing glob metachars (``[``) must not be treated as a
+    pattern; sanitization renders it literal so the lookup is well-defined."""
+    # "Llama[5B]" sanitizes to "Llama_5B_"
+    f = log_dir / "Llama_5B_-8080.log"
+    _write(f, "rest api listening")
+    lines = proc.stream_logs(model_name="Llama[5B]", lines=20)
+    assert any("listening" in ln for ln in lines)
+
+
+# ─────────────────── wait_for_server_ready (#145 core) ────────────
+
+
+@pytest.fixture
+def listening_port():
+    """Bind+listen a real socket so the port-open precheck passes; yield port."""
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
+        s.bind(("127.0.0.1", 0))
+        s.listen(1)
+        yield s.getsockname()[1]
+
+
+def test_ready_reads_model_specific_log_not_stale_sibling(log_dir, listening_port):
+    """#145: with a stale ``*-{port}.log`` (no indicator) AND the new model's
+    log (has 'listening'), readiness keyed by model_name must succeed."""
+    port = listening_port
+    # Stale stopped-occupant log: shutdown noise, NO ready indicator.
+    _write(
+        proc.log_path_for("OldModel", port),
+        "=== started ===",
+        "cleaning up before exit",
+    )
+    # New occupant's log: contains the ready indicator.
+    _write(
+        proc.log_path_for("NewModel", port),
+        "=== started ===",
+        "loading model",
+        f"server is listening on http://0.0.0.0:{port}",
+    )
+
+    ready, logs = proc.wait_for_server_ready(
+        port, timeout=3, check_interval=0.02, model_name="NewModel"
+    )
+    assert ready is True
+    assert any("listening" in ln.lower() for ln in logs)
+
+
+def test_ready_keys_on_named_model_only(log_dir, listening_port):
+    """Negative side of the asymmetry: pointed at a model whose own log has
+    no indicator, readiness times out — it must NOT fall through to a
+    sibling's 'listening' line on the same port."""
+    port = listening_port
+    _write(
+        proc.log_path_for("OldModel", port),
+        "cleaning up before exit",  # no indicator
+    )
+    _write(
+        proc.log_path_for("NewModel", port),
+        f"server is listening on http://0.0.0.0:{port}",
+    )
+
+    ready, _ = proc.wait_for_server_ready(
+        port, timeout=0.3, check_interval=0.02, model_name="OldModel"
+    )
+    assert ready is False
