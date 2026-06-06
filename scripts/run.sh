@@ -38,17 +38,13 @@ source "$PROJECT_DIR/.venv/bin/activate"
 
 case "${1:-}" in
     install)
-        print_info "Installing llauncher and dependencies..."
-        pip install -e ".[ui]" --quiet
-        print_status "Installation complete"
-        echo ""
-        echo "Commands available:"
-        echo "  ./run.sh mcp       - Start MCP server"
-        echo "  ./run.sh agent     - Start remote management agent (foreground)"
-        echo "  ./run.sh agent-bg  - Start remote management agent (background)"
-        echo "  ./run.sh ui        - Start Streamlit UI (requires agent; start it first)"
-        echo "  ./run.sh stop      - Stop running agent"
-        echo "  ./run.sh discover  - List discovered launch scripts"
+        # Disabled: this installed into the repo-local .venv (activated above),
+        # disconnected from the operator's global commands — the "complete"
+        # banner implied a global readiness it never delivered. See issue #154.
+        print_error "run.sh install is disabled: it installed into a repo-local .venv,"
+        print_error "disconnected from your global commands. For a global install:"
+        echo "    pip install --user -e \".[ui]\"   # from this repo, with no venv active"
+        exit 1
         ;;
     mcp)
         print_info "Starting MCP server..."
@@ -69,14 +65,6 @@ case "${1:-}" in
         print_info "Set LLAUNCHER_AGENT_PORT and LLAUNCHER_AGENT_NODE_NAME to customize"
         llauncher-agent
         ;;
-    agent-bg)
-        print_info "Starting remote management agent in background..."
-        nohup llauncher-agent > "$PROJECT_DIR/agent.log" 2>&1 &
-        echo $! > "$PROJECT_DIR/agent.pid"
-        print_status "Agent started (PID: $!)"
-        echo "Logs: $PROJECT_DIR/agent.log"
-        echo "Stop with: kill \$(cat $PROJECT_DIR/agent.pid)"
-        ;;
     stop)
         print_info "Stopping remote management agent..."
         llauncher-agent --stop
@@ -91,10 +79,8 @@ case "${1:-}" in
         echo "Usage: $0 [command]"
         echo ""
         echo "Commands:"
-        echo "  install   Install llauncher and dependencies"
         echo "  mcp       Start MCP server (for LLM clients)"
         echo "  agent     Start remote management agent (foreground)"
-        echo "  agent-bg  Start remote management agent (background)"
         echo "  ui        Start Streamlit UI (requires agent; start it first)"
         echo "  stop      Stop running agent"
         echo "  discover  List discovered launch scripts"

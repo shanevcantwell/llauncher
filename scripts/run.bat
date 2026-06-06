@@ -25,7 +25,6 @@ REM Now parse and execute command
 if /i "%~1"=="mcp" goto :mcp
 if /i "%~1"=="ui" goto :ui
 if /i "%~1"=="agent" goto :agent
-if /i "%~1"=="agent-bg" goto :agent-bg
 if /i "%~1"=="stop" goto :stop
 if /i "%~1"=="discover" goto :discover
 
@@ -65,7 +64,6 @@ goto :help
     echo Commands available:
     echo   run.bat mcp       - Start MCP server
     echo   run.bat agent     - Start remote management agent (foreground)
-    echo   run.bat agent-bg  - Start remote management agent (background)
     echo   run.bat ui        - Start Streamlit UI (requires agent; start it first)
     echo   run.bat stop      - Stop running agent
     echo   run.bat discover  - List discovered launch scripts
@@ -95,13 +93,6 @@ goto :help
     llauncher-agent
     goto :end
 
-:agent-bg
-    echo [INFO] Starting remote management agent in background...
-    start /B "" llauncher-agent > "%PROJECT_DIR%\agent.log" 2>&1
-    echo [OK] Agent started in background
-    echo Logs: %PROJECT_DIR%\agent.log
-    goto :end
-
 :stop
     echo [INFO] Stopping remote management agent...
     llauncher-agent --stop
@@ -121,7 +112,6 @@ goto :help
     echo   install    Install llauncher and dependencies
     echo   mcp        Start MCP server (for LLM clients)
     echo   agent      Start remote management agent (foreground)
-    echo   agent-bg   Start remote management agent (background)
     echo   ui         Start Streamlit UI (requires agent; start it first)
     echo   stop       Stop running agent
     echo   discover   List discovered launch scripts
