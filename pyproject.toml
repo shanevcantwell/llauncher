@@ -30,6 +30,7 @@ test = [
 llauncher = "llauncher.cli:app"
 llauncher-mcp = "llauncher.mcp_server.server:main"
 llauncher-agent = "llauncher.agent:main"
+llauncher-ui = "llauncher.ui.launch:main"
 
 [build-system]
 requires = ["hatchling"]
