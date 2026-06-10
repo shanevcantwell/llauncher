@@ -222,6 +222,98 @@ class TestBuildCommand:
         assert "1.5" in cmd
 
 
+def _alias_value(cmd: list[str]) -> str:
+    """Return the argv token immediately following ``--alias``."""
+    idx = cmd.index("--alias")
+    assert idx + 1 < len(cmd), "--alias present but missing its value"
+    return cmd[idx + 1]
+
+
+class TestBuildCommandAlias:
+    """Issue #120 (EMIT-CANONICAL): ``build_command`` must pass
+    ``--alias <ModelConfig.name>`` so ``GET /v1/models`` reports the
+    canonical minted name, byte-for-byte — no transformation, no
+    sanitization. Ecosystem routers (local-inference-pool) match servers
+    against this id.
+    """
+
+    @staticmethod
+    def _config_named(name: str, **overrides) -> ModelConfig:
+        data = {
+            "name": name,
+            "model_path": "/fake/path/model.gguf",
+            **overrides,
+        }
+        return ModelConfig.from_dict_unvalidated(data)
+
+    def test_alias_present_with_exact_name(self, minimal_config):
+        """The spawn argv contains ``--alias`` immediately followed by
+        the exact model name.
+        """
+        cmd = build_command(minimal_config, port=8080)
+        assert "--alias" in cmd
+        assert _alias_value(cmd) == "test-model"
+
+    def test_alias_present_in_full_config(self, full_config):
+        """Alias is emitted regardless of which optional fields are set."""
+        cmd = build_command(full_config, port=8080)
+        assert _alias_value(cmd) == "full-model"
+
+    def test_alias_name_with_spaces_untransformed(self):
+        """A name containing spaces survives as a single argv token —
+        list-form argv needs no quoting and must not introduce any.
+        """
+        cfg = self._config_named("My Local Model 7B")
+        cmd = build_command(cfg, port=8080)
+        assert _alias_value(cmd) == "My Local Model 7B"
+
+    def test_alias_name_with_unicode_untransformed(self):
+        """Unicode names are emitted byte-for-byte."""
+        name = "qwen3-中文-モデル-β"
+        cfg = self._config_named(name)
+        cmd = build_command(cfg, port=8080)
+        assert _alias_value(cmd) == name
+
+    def test_alias_not_sanitized_like_log_names(self):
+        """The lossy ``[^\\w-] -> _`` transform used for log *filenames*
+        (``log_path_for``) must NOT touch the alias: a name with dots
+        and pluses is emitted verbatim, not collapsed to underscores.
+        """
+        name = "LFM2-350M-Pro.f16+test"
+        cfg = self._config_named(name)
+        cmd = build_command(cfg, port=8080)
+        assert _alias_value(cmd) == name
+        assert "LFM2-350M-Pro_f16_test" not in cmd
+
+    def test_alias_emitted_exactly_once_with_extra_args(self):
+        """Benign ``extra_args`` must not produce a second ``--alias``;
+        the launcher's emission is the only one in argv.
+        """
+        cfg = self._config_named(
+            "extra-args-model", extra_args="--log-disable --verbose"
+        )
+        cmd = build_command(cfg, port=8080)
+        assert cmd.count("--alias") == 1
+        assert _alias_value(cmd) == "extra-args-model"
+        # extra_args still land after the managed flags
+        assert "--log-disable" in cmd
+        assert "--verbose" in cmd
+
+    def test_alias_cannot_be_overridden_via_extra_args(self, minimal_config):
+        """Launcher-owned flag stays launcher-owned: ``extra_args``
+        carrying ``--alias`` is rejected by the C7 deny-list before
+        ``build_command`` ever sees it (both bare and equals forms).
+        """
+        with pytest.raises(ValueError, match="--alias"):
+            minimal_config.extra_args = "--alias impostor"
+        with pytest.raises(ValueError, match="--alias"):
+            minimal_config.extra_args = "--alias=impostor"
+        # Config unchanged; argv still carries only the minted name.
+        cmd = build_command(minimal_config, port=8080)
+        assert cmd.count("--alias") == 1
+        assert _alias_value(cmd) == "test-model"
+
+
 class TestStartServer:
     """Tests for start_server function."""
 
@@ -251,6 +343,10 @@ class TestStartServer:
             mock_popen.assert_called_once()
             call_kwargs = mock_popen.call_args[1]
             assert call_kwargs.get("start_new_session") is True
+            # Issue #120 (EMIT-CANONICAL): the spawned argv carries the
+            # canonical minted name via --alias, byte-for-byte.
+            spawned_argv = mock_popen.call_args[0][0]
+            assert _alias_value(spawned_argv) == minimal_config.name
 
     def test_binary_not_found(self, minimal_config):
         """Server binary not found raises FileNotFoundError."""
