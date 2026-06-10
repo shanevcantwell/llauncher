@@ -3,7 +3,7 @@
 Two entry points share the same reconcile/terminate machinery:
 
 - :func:`stop` — synchronous. Blocks through the full SIGTERM grace
-  (worst case ``LAUNCHER_STOP_CHILD_GRACE_S + LAUNCHER_STOP_GRACE_S``,
+  (worst case ``LLAUNCHER_STOP_CHILD_GRACE_S + LLAUNCHER_STOP_GRACE_S``,
   ~8 s by default) and returns the definitive outcome. Correct for
   in-process callers (CLI, MCP server, the remote self-loop, the agent's
   shutdown reaper) where no transport timeout exists and a short-lived
@@ -222,6 +222,16 @@ def stop_in_background(port: int, *, caller: str = "unknown") -> StopResult:
                 logger.error(
                     "Background stop for port %d failed: %s", port, exc
                 )
+            finally:
+                # Reap this thread's registry entry so a long-lived
+                # agent doesn't accumulate dead Thread objects, one per
+                # completed stop. Only reap if the registered entry is
+                # still *this* thread — a successor stop for the same
+                # port may already have replaced it, and its entry must
+                # survive.
+                with _inflight_lock:
+                    if _inflight.get(port) is threading.current_thread():
+                        del _inflight[port]
 
         thread = threading.Thread(
             target=_run, name=f"llauncher-stop-{port}", daemon=True
@@ -251,5 +261,36 @@ def wait_for_stop(port: int, timeout: float | None = None) -> bool:
         thread = _inflight.get(port)
     if thread is None:
         return True
+    thread.join(timeout)
+    return not thread.is_alive()
+
+
+def join_inflight_stop(port: int, timeout: float | None = None) -> bool:
+    """Join the in-flight background stop for ``port``, if one exists.
+
+    Distinct from :func:`wait_for_stop`, which answers "is anything
+    still in flight?": this answers "did an in-flight stop exist *and*
+    complete?" — the coalescing question the agent's shutdown reaper
+    asks before driving its own blocking :func:`stop` (so reaper and
+    background thread don't both run SIGTERM/SIGKILL against the same
+    port).
+
+    Returns ``True`` only when an in-flight stop was registered and
+    finished within ``timeout`` — the caller's own stop is then
+    redundant and should be skipped. Returns ``False`` when nothing was
+    in flight (the caller must drive its own stop) or when the in-flight
+    stop was still running at timeout (the caller falls back to the
+    blocking path; the overlap is tolerated, see below).
+
+    Remaining tolerance: a background stop that registers *after* this
+    join, or one driven from another process entirely, can still overlap
+    the caller's blocking stop. That worst case is a re-termination of
+    an already-dying pid, which ``proc.stop_server_by_pid`` absorbs
+    (``NoSuchProcess`` → ``False``) — wasteful, never incorrect.
+    """
+    with _inflight_lock:
+        thread = _inflight.get(port)
+    if thread is None:
+        return False
     thread.join(timeout)
     return not thread.is_alive()

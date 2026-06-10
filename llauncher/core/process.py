@@ -322,7 +322,7 @@ def stop_server_by_pid(
     period — children included (issue #140: the previous implementation
     only escalated the main process, so a child that ignored SIGTERM
     leaked past the stop). Grace periods default from settings *at call
-    time* (``LAUNCHER_STOP_CHILD_GRACE_S`` / ``LAUNCHER_STOP_GRACE_S``)
+    time* (``LLAUNCHER_STOP_CHILD_GRACE_S`` / ``LLAUNCHER_STOP_GRACE_S``)
     so env-configured profiles and test patches both take effect — the
     settings module is referenced as an attribute, not imported as a
     bound name, for exactly the import-time-capture reason documented
@@ -331,17 +331,17 @@ def stop_server_by_pid(
     Args:
         pid: Process ID to stop.
         child_grace_s: Seconds to wait for children after SIGTERM before
-            SIGKILL. ``None`` → ``settings.LAUNCHER_STOP_CHILD_GRACE_S``.
+            SIGKILL. ``None`` → ``settings.LLAUNCHER_STOP_CHILD_GRACE_S``.
         grace_s: Seconds to wait for the main process after SIGTERM
-            before SIGKILL. ``None`` → ``settings.LAUNCHER_STOP_GRACE_S``.
+            before SIGKILL. ``None`` → ``settings.LLAUNCHER_STOP_GRACE_S``.
 
     Returns:
         True if process was stopped, False if not found.
     """
     if child_grace_s is None:
-        child_grace_s = settings.LAUNCHER_STOP_CHILD_GRACE_S
+        child_grace_s = settings.LLAUNCHER_STOP_CHILD_GRACE_S
     if grace_s is None:
-        grace_s = settings.LAUNCHER_STOP_GRACE_S
+        grace_s = settings.LLAUNCHER_STOP_GRACE_S
 
     try:
         process = psutil.Process(pid)

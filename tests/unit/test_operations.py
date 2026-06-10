@@ -509,6 +509,94 @@ def test_stop_in_background_termination_failure_audited(
     assert entries[0].result == AuditResult.ERROR
 
 
+def test_stop_in_background_reaps_inflight_registry_on_completion(
+    run_dir: Path, audit_path: Path
+) -> None:
+    """Completed background stops leave no registry entry (PR #161 review).
+
+    Without the reap, a long-lived agent accumulates one dead Thread
+    object per completed stop, unbounded. The entry must exist while the
+    stop is in flight (that's the dedupe key) and be gone once the
+    thread finishes.
+    """
+    import importlib
+    import os
+    import threading
+
+    # ``operations.stop`` the *attribute* is the verb function (the
+    # package re-exports it), so reach the module via importlib.
+    stop_mod = importlib.import_module("llauncher.operations.stop")
+
+    lf.write_lockfile(8081, "mistral-7b", os.getpid(), run_dir=run_dir)
+
+    release = threading.Event()
+
+    def slow_terminate(port, **kwargs):
+        release.wait(timeout=10)
+        return True
+
+    with patch("llauncher.operations.proc.stop_server_by_port", slow_terminate):
+        result = ops.stop_in_background(8081, caller="test")
+        assert result.action == "stopping"
+
+        # In flight: the registry entry is live (it's the dedupe key).
+        with stop_mod._inflight_lock:
+            assert 8081 in stop_mod._inflight
+
+        release.set()
+        # wait_for_stop joins the thread; the reap runs in the thread's
+        # ``finally`` *before* termination, so post-join it has landed.
+        assert ops.wait_for_stop(8081, timeout=10) is True
+
+    with stop_mod._inflight_lock:
+        assert 8081 not in stop_mod._inflight
+
+
+# ---------------------------------------------------------------------------
+# join_inflight_stop (PR #161 review: reaper coalesce)
+# ---------------------------------------------------------------------------
+
+
+def test_join_inflight_stop_returns_false_when_nothing_in_flight(
+    run_dir: Path, audit_path: Path
+) -> None:
+    """No in-flight stop → ``False``: the caller must drive its own stop.
+
+    Contrast ``wait_for_stop``, which answers ``True`` here ("nothing
+    remains in flight"). The coalescing caller needs the distinction —
+    a bare ``True`` would make the reaper skip a port nobody stopped.
+    """
+    assert ops.join_inflight_stop(8081, timeout=0) is False
+
+
+def test_join_inflight_stop_running_then_completed(
+    run_dir: Path, audit_path: Path
+) -> None:
+    """Still-running stop → ``False`` (fall back); completed → ``True`` (skip)."""
+    import os
+    import threading
+
+    lf.write_lockfile(8081, "mistral-7b", os.getpid(), run_dir=run_dir)
+
+    release = threading.Event()
+
+    def slow_terminate(port, **kwargs):
+        release.wait(timeout=10)
+        return True
+
+    with patch("llauncher.operations.proc.stop_server_by_port", slow_terminate):
+        assert ops.stop_in_background(8081, caller="test").action == "stopping"
+
+        # Gate still held: the join times out → caller would fall back
+        # to the blocking stop.
+        assert ops.join_inflight_stop(8081, timeout=0) is False
+
+        release.set()
+        # Gate released: the in-flight stop completes within the budget
+        # → caller skips its own stop.
+        assert ops.join_inflight_stop(8081, timeout=10) is True
+
+
 # ---------------------------------------------------------------------------
 # Result serialization
 # ---------------------------------------------------------------------------

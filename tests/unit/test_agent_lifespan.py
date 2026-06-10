@@ -95,6 +95,54 @@ def test_lifespan_shutdown_reaps_each_lockfile(
     assert all(caller == "agent-shutdown" for _, caller in stop_calls)
 
 
+def test_lifespan_shutdown_coalesces_with_inflight_stop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A port whose in-flight background stop completed is skipped (PR #161).
+
+    The reaper joins any in-flight ``stop_in_background`` thread first
+    (bounded by the full grace budget) and only drives the blocking
+    ``ops.stop`` for ports with no in-flight stop — otherwise two
+    threads race SIGTERM/SIGKILL on the same process.
+    """
+    monkeypatch.setattr(
+        agent_server.lf,
+        "list_lockfiles",
+        lambda: [
+            _FakeLockfile(port=8081, model="mistral-7b"),
+            _FakeLockfile(port=8082, model="qwen-2.5-coder"),
+        ],
+    )
+    # Pin the grace settings so the joined timeout is assertable.
+    monkeypatch.setattr(
+        agent_server.settings, "LLAUNCHER_STOP_CHILD_GRACE_S", 0.25
+    )
+    monkeypatch.setattr(agent_server.settings, "LLAUNCHER_STOP_GRACE_S", 0.5)
+
+    join_calls: list[tuple[int, float]] = []
+
+    def _fake_join(port: int, timeout: float | None = None) -> bool:
+        join_calls.append((port, timeout))
+        return port == 8081  # 8081's in-flight stop completed; 8082 has none
+
+    monkeypatch.setattr(agent_server.ops, "join_inflight_stop", _fake_join)
+
+    stop_calls: list[int] = []
+
+    def _fake_stop(port: int, *, caller: str = "unknown") -> StopResult:
+        stop_calls.append(port)
+        return StopResult(success=True, action="stopped", port=port)
+
+    monkeypatch.setattr(agent_server.ops, "stop", _fake_stop)
+
+    _drive_lifespan(monkeypatch)
+
+    # Every port was offered the coalesce, bounded by the grace budget sum.
+    assert join_calls == [(8081, 0.75), (8082, 0.75)]
+    # Only the non-coalesced port fell through to the blocking stop.
+    assert stop_calls == [8082]
+
+
 def test_lifespan_shutdown_tolerates_per_port_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

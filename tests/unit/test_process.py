@@ -359,9 +359,9 @@ class TestStopServer:
             "llauncher.core.process.psutil.wait_procs",
             return_value=([], []),
         ) as mock_wait, patch(
-            "llauncher.core.process.settings.LAUNCHER_STOP_CHILD_GRACE_S", 0.25
+            "llauncher.core.process.settings.LLAUNCHER_STOP_CHILD_GRACE_S", 0.25
         ), patch(
-            "llauncher.core.process.settings.LAUNCHER_STOP_GRACE_S", 0.5
+            "llauncher.core.process.settings.LLAUNCHER_STOP_GRACE_S", 0.5
         ):
             result = stop_server_by_pid(12345)
 
