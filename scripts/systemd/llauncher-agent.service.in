@@ -5,7 +5,7 @@
 ; ~/.config/systemd/user/llauncher-agent.service.
 ;
 ; Rationale for user-mode instead of system-mode:
-;   - State already lives under $HOME (see LAUNCHER_RUN_DIR in
+;   - State already lives under $HOME (see LLAUNCHER_RUN_DIR in
 ;     llauncher/core/settings.py); a system unit would either fight
 ;     that or force a /var/lib/llauncher migration.
 ;   - ADR-009 treats the local agent as a peer started deliberately

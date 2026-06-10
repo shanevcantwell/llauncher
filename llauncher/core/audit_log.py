@@ -12,7 +12,7 @@ The log is plain JSON Lines, append-only, never truncated by llauncher.
 Rotation and retention are out-of-scope for ADR-008 and tracked separately
 (Tier 2).
 
-Path is configurable via the ``LAUNCHER_AUDIT_PATH`` env var so container
+Path is configurable via the ``LLAUNCHER_AUDIT_PATH`` env var so container
 deployments can mount a host directory and let in-container agents read
 the log produced on the host.
 """
@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 
-from llauncher.core.settings import LAUNCHER_AUDIT_PATH
+from llauncher.core.settings import LLAUNCHER_AUDIT_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +96,7 @@ class AuditEntry:
 
 
 def _resolve_path(path: Path | None) -> Path:
-    return path if path is not None else LAUNCHER_AUDIT_PATH
+    return path if path is not None else LLAUNCHER_AUDIT_PATH
 
 
 def append_entry(entry: AuditEntry, *, path: Path | None = None) -> None:

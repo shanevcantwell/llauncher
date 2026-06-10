@@ -28,14 +28,14 @@ def run_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Redirect lockfile writes to a tmp dir and inject the path into reads.
 
     Also redirects marker reads/writes (the marker module's module-level
-    ``LAUNCHER_RUN_DIR`` constant is bound at import time). ADR-014 added
+    ``LLAUNCHER_RUN_DIR`` constant is bound at import time). ADR-014 added
     a marker take/release to ``operations.start`` so this is needed for
     every test that exercises ``start``.
     """
     target = tmp_path / "run"
-    monkeypatch.setattr("llauncher.core.lockfile.LAUNCHER_RUN_DIR", target)
-    monkeypatch.setattr("llauncher.core.marker.LAUNCHER_RUN_DIR", target)
-    monkeypatch.setattr("llauncher.core.settings.LAUNCHER_RUN_DIR", target)
+    monkeypatch.setattr("llauncher.core.lockfile.LLAUNCHER_RUN_DIR", target)
+    monkeypatch.setattr("llauncher.core.marker.LLAUNCHER_RUN_DIR", target)
+    monkeypatch.setattr("llauncher.core.settings.LLAUNCHER_RUN_DIR", target)
     return target
 
 
@@ -43,8 +43,8 @@ def run_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def audit_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Redirect audit-log writes to a tmp file."""
     target = tmp_path / "audit.jsonl"
-    monkeypatch.setattr("llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", target)
-    monkeypatch.setattr("llauncher.core.settings.LAUNCHER_AUDIT_PATH", target)
+    monkeypatch.setattr("llauncher.core.audit_log.LLAUNCHER_AUDIT_PATH", target)
+    monkeypatch.setattr("llauncher.core.settings.LLAUNCHER_AUDIT_PATH", target)
     return target
 
 
@@ -642,7 +642,7 @@ def test_stop_result_to_dict_envelope() -> None:
 @pytest.fixture
 def marker_run_dir(run_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Redirect marker reads/writes to the same tmp run dir as lockfiles."""
-    monkeypatch.setattr("llauncher.core.marker.LAUNCHER_RUN_DIR", run_dir)
+    monkeypatch.setattr("llauncher.core.marker.LLAUNCHER_RUN_DIR", run_dir)
     return run_dir
 
 

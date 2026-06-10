@@ -1935,11 +1935,11 @@ ad-hoc markers used in the suite without declaration.
 #### `tests/regression/test_logs_lifecycle_regression.py` (5 tests)
 
 - **`test_launcher_log_dir_env_honored_on_settings_import`**
-  - *``LAUNCHER_LOG_DIR`` env var is read by ``settings`` at import time.*
+  - *``LLAUNCHER_LOG_DIR`` env var is read by ``settings`` at import time.*
 - **`test_launcher_log_max_bytes_env_honored_on_settings_import`**
-  - *``LAUNCHER_LOG_MAX_BYTES`` env var is parsed as int at import time.*
+  - *``LLAUNCHER_LOG_MAX_BYTES`` env var is parsed as int at import time.*
 - **`test_launcher_log_keep_env_honored_on_settings_import`**
-  - *``LAUNCHER_LOG_KEEP`` env var is parsed as int at import time.*
+  - *``LLAUNCHER_LOG_KEEP`` env var is parsed as int at import time.*
 - **`test_banner_flushed_before_subprocess_spawn`**
   - *``log.flush()`` MUST be called before ``Popen`` inherits the fd.*
 - **`test_rotation_runs_before_banner_write`**

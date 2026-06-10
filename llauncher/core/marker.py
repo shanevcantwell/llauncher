@@ -1,7 +1,7 @@
 """Per-port in-flight swap marker.
 
 Per ADR-011 (Swap Semantics v2). The marker is a sentinel file at
-``{LAUNCHER_RUN_DIR}/{port}.swap`` created atomically (``O_EXCL``) at the
+``{LLAUNCHER_RUN_DIR}/{port}.swap`` created atomically (``O_EXCL``) at the
 start of Phase 2 of a swap and removed when the swap reaches any terminal
 phase (success, rollback, or failure).
 
@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from llauncher.core.lockfile import is_pid_alive
-from llauncher.core.settings import LAUNCHER_RUN_DIR
+from llauncher.core.settings import LLAUNCHER_RUN_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,7 @@ class MarkerReconcileResult:
 
 
 def _resolve_run_dir(run_dir: Path | None) -> Path:
-    return run_dir if run_dir is not None else LAUNCHER_RUN_DIR
+    return run_dir if run_dir is not None else LLAUNCHER_RUN_DIR
 
 
 def marker_path(port: int, run_dir: Path | None = None) -> Path:

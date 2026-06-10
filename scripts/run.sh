@@ -54,10 +54,10 @@ case "${1:-}" in
         print_info "Starting Streamlit UI..."
         # Bind to loopback by default. The dashboard has no built-in auth;
         # see README "Streamlit UI" + docs/plans/security-hardening-plan.md
-        # §2.8 (C12). Override with LAUNCHER_UI_HOST only behind a gateway
+        # §2.8 (C12). Override with LLAUNCHER_UI_HOST only behind a gateway
         # (Tailscale / SSH tunnel / reverse proxy with auth).
         streamlit run "$PROJECT_DIR/llauncher/ui/app.py" \
-            --server.address "${LAUNCHER_UI_HOST:-127.0.0.1}"
+            --server.address "${LLAUNCHER_UI_HOST:-127.0.0.1}"
         ;;
     agent)
         print_info "Starting remote management agent..."
@@ -89,6 +89,11 @@ case "${1:-}" in
         echo "  LLAUNCHER_AGENT_HOST     Host to bind to (default: 0.0.0.0)"
         echo "  LLAUNCHER_AGENT_PORT     Port to listen on (default: 8765)"
         echo "  LLAUNCHER_AGENT_NODE_NAME Friendly name for this node"
+        echo ""
+        echo "Environment variables for ui:"
+        echo "  LLAUNCHER_UI_HOST        UI bind address (default: 127.0.0.1;"
+        echo "                           expose beyond loopback only behind an"
+        echo "                           authenticating gateway)"
         echo ""
         echo "First time setup:"
         echo "  $0 install"

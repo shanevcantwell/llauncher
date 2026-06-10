@@ -4,7 +4,7 @@ These pin down the specific behaviors the feature introduced — and which
 would silently break if someone refactored the rotation/banner ordering
 or stopped reading the configured log directory at process boot:
 
-* ``LAUNCHER_LOG_DIR`` environment variable is honored when the settings
+* ``LLAUNCHER_LOG_DIR`` environment variable is honored when the settings
   module is (re)imported. Historical bug shape: a hard-coded ``LOG_DIR``
   ignored the env, so volume-mounted container deployments wrote inside
   the container instead of onto the host mount.
@@ -47,61 +47,61 @@ def minimal_config() -> ModelConfig:
 
 
 # ---------------------------------------------------------------------------
-# LAUNCHER_LOG_DIR env honored
+# LLAUNCHER_LOG_DIR env honored
 # ---------------------------------------------------------------------------
 
 
 def test_launcher_log_dir_env_honored_on_settings_import(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``LAUNCHER_LOG_DIR`` env var is read by ``settings`` at import time.
+    """``LLAUNCHER_LOG_DIR`` env var is read by ``settings`` at import time.
 
     Regression: a hard-coded default would silently override an
     operator-supplied env on a container with a volume mount.
     """
     custom = tmp_path / "container-mounted-logs"
-    monkeypatch.setenv("LAUNCHER_LOG_DIR", str(custom))
+    monkeypatch.setenv("LLAUNCHER_LOG_DIR", str(custom))
 
     import llauncher.core.settings as settings_mod
 
     reloaded = importlib.reload(settings_mod)
     try:
-        assert reloaded.LAUNCHER_LOG_DIR == custom
+        assert reloaded.LLAUNCHER_LOG_DIR == custom
     finally:
         # Restore the un-monkey-patched module state for subsequent tests.
-        monkeypatch.delenv("LAUNCHER_LOG_DIR", raising=False)
+        monkeypatch.delenv("LLAUNCHER_LOG_DIR", raising=False)
         importlib.reload(settings_mod)
 
 
 def test_launcher_log_max_bytes_env_honored_on_settings_import(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``LAUNCHER_LOG_MAX_BYTES`` env var is parsed as int at import time."""
-    monkeypatch.setenv("LAUNCHER_LOG_MAX_BYTES", "12345")
+    """``LLAUNCHER_LOG_MAX_BYTES`` env var is parsed as int at import time."""
+    monkeypatch.setenv("LLAUNCHER_LOG_MAX_BYTES", "12345")
 
     import llauncher.core.settings as settings_mod
 
     reloaded = importlib.reload(settings_mod)
     try:
-        assert reloaded.LAUNCHER_LOG_MAX_BYTES == 12345
+        assert reloaded.LLAUNCHER_LOG_MAX_BYTES == 12345
     finally:
-        monkeypatch.delenv("LAUNCHER_LOG_MAX_BYTES", raising=False)
+        monkeypatch.delenv("LLAUNCHER_LOG_MAX_BYTES", raising=False)
         importlib.reload(settings_mod)
 
 
 def test_launcher_log_keep_env_honored_on_settings_import(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``LAUNCHER_LOG_KEEP`` env var is parsed as int at import time."""
-    monkeypatch.setenv("LAUNCHER_LOG_KEEP", "7")
+    """``LLAUNCHER_LOG_KEEP`` env var is parsed as int at import time."""
+    monkeypatch.setenv("LLAUNCHER_LOG_KEEP", "7")
 
     import llauncher.core.settings as settings_mod
 
     reloaded = importlib.reload(settings_mod)
     try:
-        assert reloaded.LAUNCHER_LOG_KEEP == 7
+        assert reloaded.LLAUNCHER_LOG_KEEP == 7
     finally:
-        monkeypatch.delenv("LAUNCHER_LOG_KEEP", raising=False)
+        monkeypatch.delenv("LLAUNCHER_LOG_KEEP", raising=False)
         importlib.reload(settings_mod)
 
 
@@ -205,8 +205,8 @@ def test_rotation_runs_before_banner_write(
 
     with patch("llauncher.core.process.DEFAULT_SERVER_BINARY", mock_bin), \
          patch("llauncher.core.process.LOG_DIR", log_dir), \
-         patch("llauncher.core.process.settings.LAUNCHER_LOG_MAX_BYTES", 100), \
-         patch("llauncher.core.process.settings.LAUNCHER_LOG_KEEP", 3), \
+         patch("llauncher.core.process.settings.LLAUNCHER_LOG_MAX_BYTES", 100), \
+         patch("llauncher.core.process.settings.LLAUNCHER_LOG_KEEP", 3), \
          patch("llauncher.core.process.log_rotation.rotate_if_needed",
                side_effect=tracking_rotate), \
          patch("builtins.open", side_effect=tracking_open), \

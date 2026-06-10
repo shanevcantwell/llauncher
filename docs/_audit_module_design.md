@@ -99,7 +99,7 @@
 | File | Gap | Design Doc |
 |------|-----|------------|
 | `core/process.py` | Log files opened in `"w"` mode (truncate) instead of `"a"` (append) | M5 Item 2: "Logs survive restarts" |
-| `core/lockfile.py` | No env-var sentinel (`LAUNCHER_OWNED_PID`) yet - still argv-based | ADR-012 Amendment Notes for ADR-008 |
+| `core/lockfile.py` | No env-var sentinel (`LLAUNCHER_OWNED_PID`) yet - still argv-based | ADR-012 Amendment Notes for ADR-008 |
 
 #### Roadmap Alignment Notes
 

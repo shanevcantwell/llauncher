@@ -86,8 +86,8 @@ Persisted as JSON Lines at a configurable path (default `~/.llauncher/audit.json
 
 Both the lockfile dir and the audit log path are configurable via env:
 
-- `LAUNCHER_RUN_DIR` (default `~/.llauncher/run`)
-- `LAUNCHER_AUDIT_PATH` (default `~/.llauncher/audit.jsonl`)
+- `LLAUNCHER_RUN_DIR` (default `~/.llauncher/run`)
+- `LLAUNCHER_AUDIT_PATH` (default `~/.llauncher/audit.jsonl`)
 
 so that container deployments can mount them as volumes, enabling in-container agents to introspect the state of llauncher running on the host.
 

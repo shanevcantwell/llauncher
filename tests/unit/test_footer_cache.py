@@ -122,7 +122,7 @@ class TestReadThrough:
 
 class TestCaching:
     def test_second_hit_within_ttl_does_not_touch_disk(self, monkeypatch, patch_disk):
-        monkeypatch.setattr(footer_cache.settings, "LAUNCHER_FOOTER_CACHE_S", 5.0)
+        monkeypatch.setattr(footer_cache.settings, "LLAUNCHER_FOOTER_CACHE_S", 5.0)
         lf, cfg = patch_disk(
             lockfile=_FakeLockfile(port=8081, model="qwen"),
             config=_FakeModelConfig(),
@@ -134,7 +134,7 @@ class TestCaching:
         assert cfg.calls == 1
 
     def test_hit_after_ttl_expiry_rereads(self, monkeypatch, patch_disk):
-        monkeypatch.setattr(footer_cache.settings, "LAUNCHER_FOOTER_CACHE_S", 0.05)
+        monkeypatch.setattr(footer_cache.settings, "LLAUNCHER_FOOTER_CACHE_S", 0.05)
         lf, _ = patch_disk(
             lockfile=_FakeLockfile(port=8081, model="qwen"),
             config=_FakeModelConfig(),
@@ -145,7 +145,7 @@ class TestCaching:
         assert lf.calls == 2
 
     def test_ttl_zero_disables_cache(self, monkeypatch, patch_disk):
-        monkeypatch.setattr(footer_cache.settings, "LAUNCHER_FOOTER_CACHE_S", 0.0)
+        monkeypatch.setattr(footer_cache.settings, "LLAUNCHER_FOOTER_CACHE_S", 0.0)
         lf, _ = patch_disk(
             lockfile=_FakeLockfile(port=8081, model="qwen"),
             config=_FakeModelConfig(),
@@ -156,7 +156,7 @@ class TestCaching:
 
     def test_absence_is_not_cached(self, monkeypatch, patch_disk):
         """A subsequent appearance of a lockfile must not be hidden by a cached None."""
-        monkeypatch.setattr(footer_cache.settings, "LAUNCHER_FOOTER_CACHE_S", 5.0)
+        monkeypatch.setattr(footer_cache.settings, "LLAUNCHER_FOOTER_CACHE_S", 5.0)
 
         # First two calls: no lockfile. Switch the return mid-test by
         # mutating the counter's return_value.
@@ -175,7 +175,7 @@ class TestCaching:
         assert ctx.model == "qwen"
 
     def test_per_port_isolation(self, monkeypatch, patch_disk):
-        monkeypatch.setattr(footer_cache.settings, "LAUNCHER_FOOTER_CACHE_S", 5.0)
+        monkeypatch.setattr(footer_cache.settings, "LLAUNCHER_FOOTER_CACHE_S", 5.0)
 
         def by_port(port: int, **_):
             return _FakeLockfile(port=port, model=f"m{port}")
@@ -194,7 +194,7 @@ class TestCaching:
         assert lf.calls == 2
 
     def test_clear_cache_forces_reread(self, monkeypatch, patch_disk):
-        monkeypatch.setattr(footer_cache.settings, "LAUNCHER_FOOTER_CACHE_S", 5.0)
+        monkeypatch.setattr(footer_cache.settings, "LLAUNCHER_FOOTER_CACHE_S", 5.0)
         lf, _ = patch_disk(
             lockfile=_FakeLockfile(port=8081, model="qwen"),
             config=_FakeModelConfig(),

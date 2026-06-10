@@ -33,7 +33,7 @@ The footer cares about three fields: `ctx_size`, `parallel`, and the active `mod
 
 ### Decision Sketch
 
-Add `GET /footer-context/{port}` returning a minimal `{model, ctx_size, parallel, port}` JSON object. Cache the payload for `LAUNCHER_FOOTER_CACHE_S` seconds (default 1s) per port — at footer redraw cadence (multiple per second) this collapses N redraws into one process-table scan.
+Add `GET /footer-context/{port}` returning a minimal `{model, ctx_size, parallel, port}` JSON object. Cache the payload for `LLAUNCHER_FOOTER_CACHE_S` seconds (default 1s) per port — at footer redraw cadence (multiple per second) this collapses N redraws into one process-table scan.
 
 The legacy `/status` stays for the dashboard and other introspection consumers; this is purely a footer-optimized side endpoint.
 
@@ -56,15 +56,15 @@ Logs are at `~/.llauncher/logs/{name}-{port}.log`, opened in `"w"` mode — **tr
 ### Decision Sketch
 
 - Open new logs in `"a"` mode (append) plus a startup banner line (`=== started at <iso> pid=<n> ===`).
-- Roll on size: when a log file exceeds `LAUNCHER_LOG_MAX_BYTES` (default 50MB), rotate to `{name}-{port}.log.1`. Keep at most `LAUNCHER_LOG_KEEP` rotated files (default 3).
+- Roll on size: when a log file exceeds `LLAUNCHER_LOG_MAX_BYTES` (default 50MB), rotate to `{name}-{port}.log.1`. Keep at most `LLAUNCHER_LOG_KEEP` rotated files (default 3).
 - `stream_logs` switches to a bounded tail: seek `min(size, lines * AVG_LINE_BYTES * 2)` from the end, then read forward.
-- Add `LAUNCHER_LOG_DIR` env override (paired with the existing `LAUNCHER_RUN_DIR` and `LAUNCHER_AUDIT_PATH` per ADR-008).
+- Add `LLAUNCHER_LOG_DIR` env override (paired with the existing `LLAUNCHER_RUN_DIR` and `LLAUNCHER_AUDIT_PATH` per ADR-008).
 
 ### Touch Points
 
 - `llauncher/core/process.py` — open mode + banner; bounded tail in `stream_logs`.
 - `llauncher/core/log_rotation.py` — **new**, size-rotate-on-write helper.
-- `llauncher/core/settings.py` — `LAUNCHER_LOG_DIR`, `LAUNCHER_LOG_MAX_BYTES`, `LAUNCHER_LOG_KEEP`.
+- `llauncher/core/settings.py` — `LLAUNCHER_LOG_DIR`, `LLAUNCHER_LOG_MAX_BYTES`, `LLAUNCHER_LOG_KEEP`.
 
 ### Slice Scope
 

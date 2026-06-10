@@ -115,10 +115,10 @@ class TestListOrphans:
         lf.write_lockfile(8081, "model-a", 2001, run_dir=run_dir)
 
         monkeypatch.setattr(
-            "llauncher.core.lockfile.LAUNCHER_RUN_DIR", run_dir
+            "llauncher.core.lockfile.LLAUNCHER_RUN_DIR", run_dir
         )
         monkeypatch.setattr(
-            "llauncher.core.settings.LAUNCHER_RUN_DIR", run_dir
+            "llauncher.core.settings.LLAUNCHER_RUN_DIR", run_dir
         )
 
         fake = _fake_proc(2001)
@@ -136,7 +136,7 @@ class TestListOrphans:
         run_dir = tmp_path / "run"
         run_dir.mkdir()
         monkeypatch.setattr(
-            "llauncher.core.lockfile.LAUNCHER_RUN_DIR", run_dir
+            "llauncher.core.lockfile.LLAUNCHER_RUN_DIR", run_dir
         )
 
         fake = _fake_proc(2002)
@@ -154,7 +154,7 @@ class TestListOrphans:
         run_dir.mkdir()
         lf.write_lockfile(8083, "model-b", 9999, run_dir=run_dir)
         monkeypatch.setattr(
-            "llauncher.core.lockfile.LAUNCHER_RUN_DIR", run_dir
+            "llauncher.core.lockfile.LLAUNCHER_RUN_DIR", run_dir
         )
 
         fake = _fake_proc(2003)
@@ -174,7 +174,7 @@ class TestListOrphans:
         run_dir.mkdir()
         lf.write_lockfile(8084, "model-c", 4000, run_dir=run_dir)
         monkeypatch.setattr(
-            "llauncher.core.lockfile.LAUNCHER_RUN_DIR", run_dir
+            "llauncher.core.lockfile.LLAUNCHER_RUN_DIR", run_dir
         )
 
         fake = _fake_proc(2004)
@@ -192,7 +192,7 @@ class TestListOrphans:
         run_dir = tmp_path / "run"
         run_dir.mkdir()
         monkeypatch.setattr(
-            "llauncher.core.lockfile.LAUNCHER_RUN_DIR", run_dir
+            "llauncher.core.lockfile.LLAUNCHER_RUN_DIR", run_dir
         )
 
         fake = _fake_proc(2005)
@@ -210,7 +210,7 @@ class TestListOrphans:
         run_dir = tmp_path / "run"
         run_dir.mkdir()
         monkeypatch.setattr(
-            "llauncher.core.lockfile.LAUNCHER_RUN_DIR", run_dir
+            "llauncher.core.lockfile.LLAUNCHER_RUN_DIR", run_dir
         )
 
         procs = [

@@ -1066,8 +1066,8 @@ class TestStartServerLogsLifecycle:
 
         with patch("llauncher.core.process.DEFAULT_SERVER_BINARY", mock_bin), \
              patch("llauncher.core.process.LOG_DIR", log_dir), \
-             patch("llauncher.core.process.settings.LAUNCHER_LOG_MAX_BYTES", 100), \
-             patch("llauncher.core.process.settings.LAUNCHER_LOG_KEEP", 3), \
+             patch("llauncher.core.process.settings.LLAUNCHER_LOG_MAX_BYTES", 100), \
+             patch("llauncher.core.process.settings.LLAUNCHER_LOG_KEEP", 3), \
              patch("subprocess.Popen") as mock_popen:
             mock_popen.return_value = MagicMock()
             start_server(minimal_config, port=8081)

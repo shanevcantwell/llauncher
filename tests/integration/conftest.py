@@ -78,15 +78,15 @@ def mcp_env(tmp_path: Path, stub_binary: Path, monkeypatch: pytest.MonkeyPatch):
 
     # Settings module constants are captured at import time. Patch every
     # alias that downstream modules captured.
-    monkeypatch.setattr("llauncher.core.settings.LAUNCHER_RUN_DIR", run_dir)
-    monkeypatch.setattr("llauncher.core.lockfile.LAUNCHER_RUN_DIR", run_dir)
-    monkeypatch.setattr("llauncher.core.marker.LAUNCHER_RUN_DIR", run_dir)
+    monkeypatch.setattr("llauncher.core.settings.LLAUNCHER_RUN_DIR", run_dir)
+    monkeypatch.setattr("llauncher.core.lockfile.LLAUNCHER_RUN_DIR", run_dir)
+    monkeypatch.setattr("llauncher.core.marker.LLAUNCHER_RUN_DIR", run_dir)
 
-    monkeypatch.setattr("llauncher.core.settings.LAUNCHER_LOG_DIR", log_dir)
+    monkeypatch.setattr("llauncher.core.settings.LLAUNCHER_LOG_DIR", log_dir)
     monkeypatch.setattr("llauncher.core.process.LOG_DIR", log_dir)
 
-    monkeypatch.setattr("llauncher.core.settings.LAUNCHER_AUDIT_PATH", audit_path)
-    monkeypatch.setattr("llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path)
+    monkeypatch.setattr("llauncher.core.settings.LLAUNCHER_AUDIT_PATH", audit_path)
+    monkeypatch.setattr("llauncher.core.audit_log.LLAUNCHER_AUDIT_PATH", audit_path)
 
     monkeypatch.setattr("llauncher.core.config.CONFIG_DIR", config_dir)
     monkeypatch.setattr("llauncher.core.config.CONFIG_PATH", config_path)
@@ -229,13 +229,13 @@ def real_binary_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     log_dir.mkdir()
     config_dir.mkdir()
 
-    monkeypatch.setattr("llauncher.core.settings.LAUNCHER_RUN_DIR", run_dir)
-    monkeypatch.setattr("llauncher.core.lockfile.LAUNCHER_RUN_DIR", run_dir)
-    monkeypatch.setattr("llauncher.core.marker.LAUNCHER_RUN_DIR", run_dir)
-    monkeypatch.setattr("llauncher.core.settings.LAUNCHER_LOG_DIR", log_dir)
+    monkeypatch.setattr("llauncher.core.settings.LLAUNCHER_RUN_DIR", run_dir)
+    monkeypatch.setattr("llauncher.core.lockfile.LLAUNCHER_RUN_DIR", run_dir)
+    monkeypatch.setattr("llauncher.core.marker.LLAUNCHER_RUN_DIR", run_dir)
+    monkeypatch.setattr("llauncher.core.settings.LLAUNCHER_LOG_DIR", log_dir)
     monkeypatch.setattr("llauncher.core.process.LOG_DIR", log_dir)
-    monkeypatch.setattr("llauncher.core.settings.LAUNCHER_AUDIT_PATH", audit_path)
-    monkeypatch.setattr("llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path)
+    monkeypatch.setattr("llauncher.core.settings.LLAUNCHER_AUDIT_PATH", audit_path)
+    monkeypatch.setattr("llauncher.core.audit_log.LLAUNCHER_AUDIT_PATH", audit_path)
     monkeypatch.setattr("llauncher.core.config.CONFIG_DIR", config_dir)
     monkeypatch.setattr("llauncher.core.config.CONFIG_PATH", config_dir / "config.json")
     monkeypatch.setattr("llauncher.core.settings.LLAMA_SERVER_PATH", real_bin)

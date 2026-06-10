@@ -185,7 +185,7 @@ Config CRUD plus the per-model verb buttons. Add / edit / delete configurations 
 Peer registry for multi-node setups. Add / list / remove remote agent nodes, test connectivity, and observe status. The sidebar `node_selector` (`ui/components/node_selector.py`) chooses which node the Models tab acts against.
 
 #### Audit Tab
-Tails the local audit log at `LAUNCHER_AUDIT_PATH` (`~/.llauncher/audit.jsonl` by default). Read-only view of commanded vs. observed events. Remote-node audit access is deferred per #64.
+Tails the local audit log at `LLAUNCHER_AUDIT_PATH` (`~/.llauncher/audit.jsonl` by default). Read-only view of commanded vs. observed events. Remote-node audit access is deferred per #64.
 
 ### CLI
 
@@ -304,7 +304,7 @@ llauncher/
 │   │   ├── marker.py           # In-flight swap/start marker (ADR-011/014)
 │   │   ├── model_health.py     # Cache probe (ADR-005)
 │   │   ├── process.py          # Subprocess management
-│   │   └── settings.py         # LAUNCHER_* env-var family
+│   │   └── settings.py         # LLAUNCHER_* env-var family
 │   ├── models/
 │   │   └── config.py           # Pydantic ModelConfig (no default_port; ADR-010)
 │   ├── remote/                 # Multi-node hub-spoke (ADR-009)
@@ -493,7 +493,7 @@ The sidebar **Node Selector** (`ui/components/node_selector.py`) picks the targe
 - **Dashboard Tab**: read-only running view across the selected node.
 - **Models Tab**: config CRUD + per-model Start / Stop / Swap, acting on the selected node.
 - **Nodes Tab**: registered-nodes list with Test Connection and Remove controls.
-- **Audit Tab**: tails the local `LAUNCHER_AUDIT_PATH`. Remote-node audit access is deferred per #64.
+- **Audit Tab**: tails the local `LLAUNCHER_AUDIT_PATH`. Remote-node audit access is deferred per #64.
 
 ### Troubleshooting
 

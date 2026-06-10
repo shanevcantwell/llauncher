@@ -47,7 +47,7 @@ A tiny in-process cache keyed by `port`, with per-entry expiry:
 def get_footer_context(port: int) -> FooterContext | None: ...
 ```
 
-- **TTL:** `LAUNCHER_FOOTER_CACHE_S` seconds (default `1.0`). Set to `0` to disable the cache (every request hits disk).
+- **TTL:** `LLAUNCHER_FOOTER_CACHE_S` seconds (default `1.0`). Set to `0` to disable the cache (every request hits disk).
 - **Cache value:** the fully-resolved tuple `(model, ctx_size, parallel, port, expires_at_monotonic)`.
 - **Cache miss:** read lockfile, then `ConfigStore.get_model(lockfile.model)`. Both calls are cheap and synchronous; no process scan, no GPU probe.
 - **Cache eviction:** lazy. Expired entries are recomputed on the next request for that port. There is no background sweep; the cache size is bounded by the number of ports the agent host has served, which is small (≤ tens for the project's hobby scope).
@@ -88,7 +88,7 @@ If a future deployment surfaces N-port-per-node footers as a real cost, file a s
 
 ### Negative
 
-- The footer can show up to `LAUNCHER_FOOTER_CACHE_S` of staleness after a swap. At the default 1 s this is invisible to a human; at higher values (set deliberately to reduce probe traffic) it becomes the user's choice.
+- The footer can show up to `LLAUNCHER_FOOTER_CACHE_S` of staleness after a swap. At the default 1 s this is invisible to a human; at higher values (set deliberately to reduce probe traffic) it becomes the user's choice.
 - A footer reading from a lockfile whose owning process has died will show ghost data until the next operation on that port reconciles the lockfile. We accept this; the inference channel will fail on the same port and the user will know.
 - Pinning the response shape adds a small change-management cost: future maintainers must amend this ADR rather than expanding the response ad-hoc. This is the intended cost.
 
@@ -103,7 +103,7 @@ Touch points (see `git log --grep "closes #53"` for the landing commit):
 
 - `llauncher/agent/footer_cache.py` — new. `FooterContext` dataclass, `get_footer_context(port)` entry point, module-level dict + lock.
 - `llauncher/agent/routing.py` — new `GET /footer-context/{port}` handler.
-- `llauncher/core/settings.py` — new `LAUNCHER_FOOTER_CACHE_S` env var (float, default 1.0).
+- `llauncher/core/settings.py` — new `LLAUNCHER_FOOTER_CACHE_S` env var (float, default 1.0).
 - `tests/unit/test_footer_cache.py` — new. Cache hit/miss/expiry, missing-lockfile, missing-config, lock contention.
 - `tests/unit/test_agent.py` — new `TestFooterContextEndpoint` class. Happy path, port-empty 404, missing-config-graceful-null, auth-required-when-configured.
 - `pi-footer-extension/footer-budget.ts` — separate slice. Switch URL with a 404→`/status` fallback for one release cycle, then drop the fallback.

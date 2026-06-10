@@ -312,9 +312,9 @@ class TestStopServerEndpoint:
         from llauncher.core import lockfile as lf
 
         run_dir = tmp_path / "run"
-        monkeypatch.setattr("llauncher.core.lockfile.LAUNCHER_RUN_DIR", run_dir)
+        monkeypatch.setattr("llauncher.core.lockfile.LLAUNCHER_RUN_DIR", run_dir)
         monkeypatch.setattr(
-            "llauncher.core.audit_log.LAUNCHER_AUDIT_PATH",
+            "llauncher.core.audit_log.LLAUNCHER_AUDIT_PATH",
             tmp_path / "audit.jsonl",
         )
         lf.write_lockfile(8081, "slow-model", os.getpid(), run_dir=run_dir)
@@ -384,7 +384,7 @@ class TestAuditEndpoint:
         """Empty/missing audit log returns 200 with an empty list."""
         audit_path = tmp_path / "audit.jsonl"
         monkeypatch.setattr(
-            "llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path
+            "llauncher.core.audit_log.LLAUNCHER_AUDIT_PATH", audit_path
         )
 
         response = client.get("/audit")
@@ -397,7 +397,7 @@ class TestAuditEndpoint:
 
         audit_path = tmp_path / "audit.jsonl"
         monkeypatch.setattr(
-            "llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path
+            "llauncher.core.audit_log.LLAUNCHER_AUDIT_PATH", audit_path
         )
 
         audit_log.record(
@@ -436,7 +436,7 @@ class TestAuditEndpoint:
 
         audit_path = tmp_path / "audit.jsonl"
         monkeypatch.setattr(
-            "llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path
+            "llauncher.core.audit_log.LLAUNCHER_AUDIT_PATH", audit_path
         )
 
         audit_log.record(
@@ -458,7 +458,7 @@ class TestAuditEndpoint:
 
         audit_path = tmp_path / "audit.jsonl"
         monkeypatch.setattr(
-            "llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path
+            "llauncher.core.audit_log.LLAUNCHER_AUDIT_PATH", audit_path
         )
 
         audit_log.record(
@@ -480,7 +480,7 @@ class TestAuditEndpoint:
 
         audit_path = tmp_path / "audit.jsonl"
         monkeypatch.setattr(
-            "llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path
+            "llauncher.core.audit_log.LLAUNCHER_AUDIT_PATH", audit_path
         )
 
         for i in range(5):

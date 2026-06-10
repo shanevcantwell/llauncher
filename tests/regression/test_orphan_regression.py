@@ -65,16 +65,16 @@ from llauncher.operations.orphan import OrphanInfo
 def run_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     target = tmp_path / "run"
     target.mkdir()
-    monkeypatch.setattr("llauncher.core.lockfile.LAUNCHER_RUN_DIR", target)
-    monkeypatch.setattr("llauncher.core.settings.LAUNCHER_RUN_DIR", target)
+    monkeypatch.setattr("llauncher.core.lockfile.LLAUNCHER_RUN_DIR", target)
+    monkeypatch.setattr("llauncher.core.settings.LLAUNCHER_RUN_DIR", target)
     return target
 
 
 @pytest.fixture
 def audit_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     target = tmp_path / "audit.jsonl"
-    monkeypatch.setattr("llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", target)
-    monkeypatch.setattr("llauncher.core.settings.LAUNCHER_AUDIT_PATH", target)
+    monkeypatch.setattr("llauncher.core.audit_log.LLAUNCHER_AUDIT_PATH", target)
+    monkeypatch.setattr("llauncher.core.settings.LLAUNCHER_AUDIT_PATH", target)
     return target
 
 

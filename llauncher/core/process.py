@@ -24,13 +24,13 @@ DEFAULT_SERVER_BINARY = LLAMA_SERVER_PATH
 # ``LOG_DIR`` from this module, and tests use
 # ``patch("llauncher.core.process.LOG_DIR", ...)``. ADR-013 made the
 # directory env-configurable; new code should read
-# ``settings.LAUNCHER_LOG_DIR`` directly.
+# ``settings.LLAUNCHER_LOG_DIR`` directly.
 #
 # IMPORTANT: this alias is captured at *import* time. Patching
-# ``os.environ["LAUNCHER_LOG_DIR"]`` after import does NOT update this
+# ``os.environ["LLAUNCHER_LOG_DIR"]`` after import does NOT update this
 # symbol — the supported test seam is ``patch(..."LOG_DIR", ...)`` on
 # this module. Don't expect env mutations to propagate here.
-LOG_DIR = settings.LAUNCHER_LOG_DIR
+LOG_DIR = settings.LLAUNCHER_LOG_DIR
 
 # Heuristic for the bounded tail in :func:`_tail_file`: assume each line
 # averages ~160 bytes (timestamp + message; llama-server logs trend
@@ -294,8 +294,8 @@ def start_server(
     # absorbing yet another run on top of however much it already has.
     log_rotation.rotate_if_needed(
         log_file,
-        max_bytes=settings.LAUNCHER_LOG_MAX_BYTES,
-        keep=settings.LAUNCHER_LOG_KEEP,
+        max_bytes=settings.LLAUNCHER_LOG_MAX_BYTES,
+        keep=settings.LLAUNCHER_LOG_KEEP,
     )
 
     # Append-mode (ADR-013) preserves the previous run's logs across

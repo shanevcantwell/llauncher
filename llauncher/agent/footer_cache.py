@@ -12,7 +12,7 @@ The cache is deliberately small and obvious:
 * Keyed by ``port``. No cross-port aggregation, no sweep thread.
 * Lazy eviction — expired entries are recomputed on the next request
   for that port.
-* TTL is read from ``settings.LAUNCHER_FOOTER_CACHE_S`` at call time so
+* TTL is read from ``settings.LLAUNCHER_FOOTER_CACHE_S`` at call time so
   tests can override via monkeypatch. ``<= 0`` disables caching.
 * No invalidation hook from ``operations.start``/``swap``/``stop``: a
   bounded staleness window is acceptable per ADR-012, and wiring
@@ -94,7 +94,7 @@ def get_footer_context(port: int) -> FooterContext | None:
 
     Returns ``None`` if the port has no lockfile.
     """
-    ttl = settings.LAUNCHER_FOOTER_CACHE_S
+    ttl = settings.LLAUNCHER_FOOTER_CACHE_S
     if ttl <= 0:
         return _read_through(port)
 

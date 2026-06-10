@@ -83,7 +83,7 @@ def show_agent_down_banner() -> None:
         "```\n\n"
         f"Then refresh this page. The agent listens on port "
         f"``{agent_port}`` (override via ``LLAUNCHER_AGENT_PORT``) and "
-        f"reads/writes state under ``{settings.LAUNCHER_RUN_DIR.parent}``.",
+        f"reads/writes state under ``{settings.LLAUNCHER_RUN_DIR.parent}``.",
         icon="🛑",
     )
     with st.expander("Why doesn't the UI start the agent for me?"):

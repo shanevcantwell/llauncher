@@ -4,7 +4,7 @@ An *orphan* is a live ``llama-server`` process that llauncher did not
 launch (or whose claim it has since lost). Concretely, a process found
 by :func:`llauncher.core.process.find_all_llama_servers_annotated` whose
 ``(port, pid)`` does not match a live, parseable lockfile in
-``LAUNCHER_RUN_DIR``.
+``LLAUNCHER_RUN_DIR``.
 
 ADR-015 deliberately scopes M1 of this work to **annotation and listing
 only** — there is no ``adopt`` verb in this module. A future revision

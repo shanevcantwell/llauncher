@@ -2,7 +2,7 @@
 
 Per ADR-008 (LauncherState as Stateless Facade). Each lockfile is the
 authoritative claim that llauncher launched a specific model on a specific
-port. Stored at ``{LAUNCHER_RUN_DIR}/{port}.lock`` as JSON.
+port. Stored at ``{LLAUNCHER_RUN_DIR}/{port}.lock`` as JSON.
 
 The lockfile is paired with an argv (or env-var, future) sentinel for
 process identity validation; see :func:`reconcile_lockfile`.
@@ -24,7 +24,7 @@ from pathlib import Path
 
 import psutil
 
-from llauncher.core.settings import LAUNCHER_RUN_DIR
+from llauncher.core.settings import LLAUNCHER_RUN_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ class ReconcileResult:
 
 
 def _resolve_run_dir(run_dir: Path | None) -> Path:
-    return run_dir if run_dir is not None else LAUNCHER_RUN_DIR
+    return run_dir if run_dir is not None else LLAUNCHER_RUN_DIR
 
 
 def lockfile_path(port: int, run_dir: Path | None = None) -> Path:

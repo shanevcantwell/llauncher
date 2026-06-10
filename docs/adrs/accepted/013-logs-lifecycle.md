@@ -2,17 +2,17 @@
 
 **Status:** Accepted
 **Date:** 2026-05-08
-**Relationship to other ADRs:** ADR-008 (configurable on-disk paths) extends here with `LAUNCHER_LOG_DIR`. ADR-005 (model health) is unaffected. The log-name sanitization collision risk flagged in `docs/m5-design.md` is filed separately ([#63](https://github.com/shanevcantwell/llauncher/issues/63)) and **out of scope** for this ADR.
+**Relationship to other ADRs:** ADR-008 (configurable on-disk paths) extends here with `LLAUNCHER_LOG_DIR`. ADR-005 (model health) is unaffected. The log-name sanitization collision risk flagged in `docs/m5-design.md` is filed separately ([#63](https://github.com/shanevcantwell/llauncher/issues/63)) and **out of scope** for this ADR.
 
 **Supersedes:** No prior ADR — the previous behaviors (log files opened in `"w"` mode; `_tail_file` slurping the whole file via `f.readlines()`) were undocumented defaults rather than ratified decisions. Replacing them here for the record so a future reader does not assume those choices were intentional.
 
 ## Context
 
-Each `llama-server` child process writes its stdout+stderr to `${LAUNCHER_LOG_DIR}/{name}-{port}.log`. Three problems with the pre-ADR behavior surfaced as M4 work approached:
+Each `llama-server` child process writes its stdout+stderr to `${LLAUNCHER_LOG_DIR}/{name}-{port}.log`. Three problems with the pre-ADR behavior surfaced as M4 work approached:
 
 1. **Truncation on every start.** `start_server` opened the log in `"w"` mode, destroying the previous run's output the moment the user hit "restart" — which is exactly when the previous run's tail was the most useful debugging artifact. The orientation spike (`docs/reviews/2026-05-02-v2-orientation-spike.md` §5) called this out as a Tier 2 deferred item.
 2. **Unbounded growth.** With no rotation, a long-running server's log grew to the disk's limit. The single-user / single-host scope of this project doesn't make this an outage risk in practice, but it does make `_tail_file` — which used `f.readlines()` — slurp the entire file into memory on every call.
-3. **No env override for the log directory.** `LAUNCHER_RUN_DIR` and `LAUNCHER_AUDIT_PATH` (ADR-008) are env-configurable for volume-mounted container deployments; logs are not. An in-container agent that wants to surface host-side logs has no way to point at the host's log directory.
+3. **No env override for the log directory.** `LLAUNCHER_RUN_DIR` and `LLAUNCHER_AUDIT_PATH` (ADR-008) are env-configurable for volume-mounted container deployments; logs are not. An in-container agent that wants to surface host-side logs has no way to point at the host's log directory.
 
 This ADR addresses all three together because they share the same touch point (`core/process.py::start_server` and `_tail_file`) and have no useful intermediate state.
 
@@ -47,7 +47,7 @@ Called from `start_server` *before* the open, the helper checks the live log's s
 
 Rotation is **deliberately** at process-start time, not on every write. We don't own the file descriptor at write time (the child does); a `logging.Handler`-style rotation would have to either fork-and-exec a helper or interrupt the child. Process-start rotation has neither problem and is sufficient for the cadence this project sees (a server is rarely restarted more often than once per minute).
 
-Defaults: `LAUNCHER_LOG_MAX_BYTES = 50 * 1024 * 1024` (50 MiB), `LAUNCHER_LOG_KEEP = 3`. `max_bytes <= 0` disables rotation.
+Defaults: `LLAUNCHER_LOG_MAX_BYTES = 50 * 1024 * 1024` (50 MiB), `LLAUNCHER_LOG_KEEP = 3`. `max_bytes <= 0` disables rotation.
 
 ### 3. Bounded tail in `_tail_file`
 
@@ -57,13 +57,13 @@ For the common 100-line tail of a multi-MB log, this changes the read budget fro
 
 ### 4. Configurable log directory
 
-A new env var `LAUNCHER_LOG_DIR` joins the ADR-008 family:
+A new env var `LLAUNCHER_LOG_DIR` joins the ADR-008 family:
 
 | Env var | Default | Used for |
 |---------|---------|----------|
-| `LAUNCHER_RUN_DIR` | `~/.llauncher/run` | Lockfiles |
-| `LAUNCHER_AUDIT_PATH` | `~/.llauncher/audit.jsonl` | Audit log |
-| `LAUNCHER_LOG_DIR` | `~/.llauncher/logs` | Per-server logs (this ADR) |
+| `LLAUNCHER_RUN_DIR` | `~/.llauncher/run` | Lockfiles |
+| `LLAUNCHER_AUDIT_PATH` | `~/.llauncher/audit.jsonl` | Audit log |
+| `LLAUNCHER_LOG_DIR` | `~/.llauncher/logs` | Per-server logs (this ADR) |
 
 `core/process.py` continues to expose a module-level `LOG_DIR` initialized from the setting, both for backward-compat with existing `patch("llauncher.core.process.LOG_DIR")` test calls and as a single canonical reference inside the module.
 
@@ -78,7 +78,7 @@ A new env var `LAUNCHER_LOG_DIR` joins the ADR-008 family:
 
 ### Negative
 
-- Append mode means the log file grows across runs until the size cap fires. With small per-run output and a low `LAUNCHER_LOG_MAX_BYTES`, rotation can fire on what feels like a "fresh" file. Mitigated by the 50 MiB default — cadence-of-rotation is likely "weeks" for typical use.
+- Append mode means the log file grows across runs until the size cap fires. With small per-run output and a low `LLAUNCHER_LOG_MAX_BYTES`, rotation can fire on what feels like a "fresh" file. Mitigated by the 50 MiB default — cadence-of-rotation is likely "weeks" for typical use.
 - The `_tail_file` heuristic (160 bytes/line × 2) can produce fewer lines than requested if individual log lines are dramatically longer than that. Acceptable: returning a slightly-short tail is better than slurping a multi-GiB file. Callers that need exact line counts can read the rotated archives directly.
 - Rotation is process-start-only: a server that runs for months without restart accumulates one giant live file regardless of `max_bytes`. This is a known acceptable limitation given the project's restart cadence (per ADR-009 hub-spoke topology, restarts are common via swap).
 

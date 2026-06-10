@@ -67,15 +67,15 @@ if AGENT_API_KEY == "":
 # Lockfile directory for running servers (per ADR-008).
 # Configurable via env so container deployments can volume-mount it,
 # enabling in-container agents to read host-side llauncher state.
-LAUNCHER_RUN_DIR = Path(os.getenv(
-    "LAUNCHER_RUN_DIR",
+LLAUNCHER_RUN_DIR = Path(os.getenv(
+    "LLAUNCHER_RUN_DIR",
     str(Path.home() / ".llauncher" / "run"),
 ))
 
 # Audit log path (per ADR-008). JSON Lines, append-only.
-# Same volume-mount story as LAUNCHER_RUN_DIR.
-LAUNCHER_AUDIT_PATH = Path(os.getenv(
-    "LAUNCHER_AUDIT_PATH",
+# Same volume-mount story as LLAUNCHER_RUN_DIR.
+LLAUNCHER_AUDIT_PATH = Path(os.getenv(
+    "LLAUNCHER_AUDIT_PATH",
     str(Path.home() / ".llauncher" / "audit.jsonl"),
 ))
 
@@ -83,23 +83,23 @@ LAUNCHER_AUDIT_PATH = Path(os.getenv(
 # ``{stem}-{port}.log`` plus rotated siblings ``{stem}-{port}.log.{N}``,
 # where ``stem`` is minted by ``core.process.log_stem_for`` (#63/#146).
 # Configurable via env so container deployments can volume-mount it the
-# same way as ``LAUNCHER_RUN_DIR`` and ``LAUNCHER_AUDIT_PATH``.
-LAUNCHER_LOG_DIR = Path(os.getenv(
-    "LAUNCHER_LOG_DIR",
+# same way as ``LLAUNCHER_RUN_DIR`` and ``LLAUNCHER_AUDIT_PATH``.
+LLAUNCHER_LOG_DIR = Path(os.getenv(
+    "LLAUNCHER_LOG_DIR",
     str(Path.home() / ".llauncher" / "logs"),
 ))
 
 # Size cap for a single live log file before rotation kicks in (ADR-013).
 # Default 50 MiB; ``<= 0`` disables rotation entirely.
-LAUNCHER_LOG_MAX_BYTES = int(os.getenv(
-    "LAUNCHER_LOG_MAX_BYTES",
+LLAUNCHER_LOG_MAX_BYTES = int(os.getenv(
+    "LLAUNCHER_LOG_MAX_BYTES",
     str(50 * 1024 * 1024),
 ))
 
 # How many rotated log files to retain alongside the live file
 # (ADR-013). With the default 3, the on-disk set is
 # ``foo-8081.log`` plus ``foo-8081.log.{1,2,3}``.
-LAUNCHER_LOG_KEEP = int(os.getenv("LAUNCHER_LOG_KEEP", "3"))
+LLAUNCHER_LOG_KEEP = int(os.getenv("LLAUNCHER_LOG_KEEP", "3"))
 
 # Graceful-shutdown grace periods for terminating a llama-server
 # (issue #140). ``core.process.stop_server_by_pid`` sends SIGTERM and
@@ -118,4 +118,4 @@ LLAUNCHER_STOP_GRACE_S = float(os.getenv("LLAUNCHER_STOP_GRACE_S", "5.0"))
 # (ADR-012). Default 1.0 absorbs footer poll cadence (multiple
 # redraws per second collapse into one lockfile + ConfigStore read).
 # ``<= 0`` disables caching — every request hits disk.
-LAUNCHER_FOOTER_CACHE_S = float(os.getenv("LAUNCHER_FOOTER_CACHE_S", "1.0"))
+LLAUNCHER_FOOTER_CACHE_S = float(os.getenv("LLAUNCHER_FOOTER_CACHE_S", "1.0"))

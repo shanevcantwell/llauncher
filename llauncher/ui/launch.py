@@ -26,9 +26,8 @@ from pathlib import Path
 # (Tailscale / SSH tunnel / authenticating reverse proxy).
 DEFAULT_UI_HOST = "127.0.0.1"
 
-# NB: deliberately the two-L spelling. scripts/run.sh still reads the
-# legacy single-L LAUNCHER_UI_HOST; that drift is tracked for rename so
-# both converge on LLAUNCHER_UI_HOST.
+# Two-L spelling per the project name; scripts/run.sh and run.bat read
+# the same name (#151), so all UI entrances agree.
 UI_HOST_ENV = "LLAUNCHER_UI_HOST"
 
 

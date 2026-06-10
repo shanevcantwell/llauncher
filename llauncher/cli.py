@@ -262,7 +262,7 @@ def list_orphans_cmd(
     """List unmanaged llama-server processes on the local node.
 
     An orphan is a live ``llama-server`` whose ``(port, pid)`` does not
-    match a live lockfile in ``LAUNCHER_RUN_DIR``. Per ADR-015 this
+    match a live lockfile in ``LLAUNCHER_RUN_DIR``. Per ADR-015 this
     revision is read-only; no ``adopt`` verb is exposed.
     """
     from llauncher import operations as ops

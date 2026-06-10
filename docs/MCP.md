@@ -802,16 +802,16 @@ def ensure_model_running(model_name: str, port: int):
 
 ## Environment Variables
 
-The v2 `LAUNCHER_*` env-var family (per ADR-008 / ADR-013):
+The v2 `LLAUNCHER_*` env-var family (per ADR-008 / ADR-013):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LAUNCHER_RUN_DIR` | `~/.llauncher/run` | Per-port lockfile and in-flight marker directory |
-| `LAUNCHER_AUDIT_PATH` | `~/.llauncher/audit.jsonl` | JSON Lines audit log (commanded vs. observed) |
-| `LAUNCHER_LOG_DIR` | `~/.llauncher/logs` | Per-server log directory (append mode, ADR-013) |
-| `LAUNCHER_LOG_MAX_BYTES` | `52428800` (50 MiB) | Per-log rotation threshold |
-| `LAUNCHER_LOG_KEEP` | `3` | Retained rotated log files per server |
-| `LAUNCHER_FOOTER_CACHE_S` | `1.0` | `/footer-context/{port}` TTL (seconds; `<= 0` disables) |
+| `LLAUNCHER_RUN_DIR` | `~/.llauncher/run` | Per-port lockfile and in-flight marker directory |
+| `LLAUNCHER_AUDIT_PATH` | `~/.llauncher/audit.jsonl` | JSON Lines audit log (commanded vs. observed) |
+| `LLAUNCHER_LOG_DIR` | `~/.llauncher/logs` | Per-server log directory (append mode, ADR-013) |
+| `LLAUNCHER_LOG_MAX_BYTES` | `52428800` (50 MiB) | Per-log rotation threshold |
+| `LLAUNCHER_LOG_KEEP` | `3` | Retained rotated log files per server |
+| `LLAUNCHER_FOOTER_CACHE_S` | `1.0` | `/footer-context/{port}` TTL (seconds; `<= 0` disables) |
 | `LLAUNCHER_AGENT_HOST` | `127.0.0.1` | HTTP Agent bind host. Non-loopback requires a token. |
 | `LLAUNCHER_AGENT_PORT` | `8765` | HTTP Agent listen port |
 | `LLAUNCHER_AGENT_NODE_NAME` | hostname | Friendly node identifier |

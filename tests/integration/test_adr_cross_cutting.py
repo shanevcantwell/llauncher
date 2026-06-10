@@ -22,7 +22,7 @@ class TestAuthAndHealthCombined:
             f.write('''import os
 
 LLAMA_SERVER_PATH = os.getenv("LLAMA_SERVER_BIN", "/usr/bin/llama-server")
-DEFAULT_PORT = int(os.getenv("LAUNCHER_DEFAULT_PORT", "8081"))
+DEFAULT_PORT = int(os.getenv("LLAUNCHER_DEFAULT_PORT", "8081"))
 AGENT_API_KEY = os.getenv("LLAUNCHER_AGENT_TOKEN", None)
 if AGENT_API_KEY == "":
     AGENT_API_KEY = None

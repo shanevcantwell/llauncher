@@ -41,7 +41,7 @@ All four reach the same tool-layer `swap` function, which calls into the statele
 
 If any check fails: `success=false, port_state=unchanged, action=rejected_preflight`. Old model untouched.
 
-**Phase 2 — Take the in-flight marker.** Atomically create `{LAUNCHER_RUN_DIR}/{port}.swap` (open with `O_EXCL`). If creation fails because the file exists, return `rejected_in_progress` immediately. The marker contains caller, timestamp, llauncher pid, and from/to model names — enough for stale-marker reconciliation later.
+**Phase 2 — Take the in-flight marker.** Atomically create `{LLAUNCHER_RUN_DIR}/{port}.swap` (open with `O_EXCL`). If creation fails because the file exists, return `rejected_in_progress` immediately. The marker contains caller, timestamp, llauncher pid, and from/to model names — enough for stale-marker reconciliation later.
 
 **Phase 3 — Stop the old model.** SIGTERM, brief grace period, escalate to SIGKILL if needed. Remove the old lockfile. Audit-log `stopped` (commanded). If stop fails (process refuses to die): release the marker, return `success=false, port_state=unchanged, action=rejected_stop_failed`. Old model is still running; nothing else has changed.
 
@@ -91,7 +91,7 @@ When an LLM agent on model A emits a tool call to swap port P (which A occupies)
 
 ### In-Flight Marker
 
-Per-port marker file at `{LAUNCHER_RUN_DIR}/{port}.swap`, written atomically at the start of Phase 2 and removed at the end of any terminal phase (success, rollback, or failure).
+Per-port marker file at `{LLAUNCHER_RUN_DIR}/{port}.swap`, written atomically at the start of Phase 2 and removed at the end of any terminal phase (success, rollback, or failure).
 
 Contents:
 

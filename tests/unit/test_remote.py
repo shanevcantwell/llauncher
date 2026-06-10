@@ -484,7 +484,7 @@ class TestRemoteNodeReadAudit:
         # Redirect audit-log writes to a tmp file.
         audit_path = tmp_path / "audit.jsonl"
         monkeypatch.setattr(
-            "llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path
+            "llauncher.core.audit_log.LLAUNCHER_AUDIT_PATH", audit_path
         )
 
         audit_log.record(
@@ -516,7 +516,7 @@ class TestRemoteNodeReadAudit:
 
         audit_path = tmp_path / "audit.jsonl"
         monkeypatch.setattr(
-            "llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path
+            "llauncher.core.audit_log.LLAUNCHER_AUDIT_PATH", audit_path
         )
 
         audit_log.record(

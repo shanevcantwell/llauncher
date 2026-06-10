@@ -8,7 +8,7 @@
 
 ## Context
 
-llauncher claims each model it launches by writing a per-port JSON lockfile in `LAUNCHER_RUN_DIR`. The agent shutdown path (#65) and the reconciliation guarantees of ADR-008 both treat the lockfile registry as the source of truth: anything in it is *managed* and must be reaped on graceful shutdown; anything not in it is invisible.
+llauncher claims each model it launches by writing a per-port JSON lockfile in `LLAUNCHER_RUN_DIR`. The agent shutdown path (#65) and the reconciliation guarantees of ADR-008 both treat the lockfile registry as the source of truth: anything in it is *managed* and must be reaped on graceful shutdown; anything not in it is invisible.
 
 That invisibility is wrong for two recurring operator scenarios:
 

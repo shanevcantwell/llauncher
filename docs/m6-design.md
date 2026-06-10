@@ -87,7 +87,7 @@ This is the breaking-shape change. Update the UI form (see slice 21) and the MCP
 - `validate_model_path`: vLLM accepts HuggingFace IDs or local snapshots. Validation: if path looks like a local dir, check `config.json` + `tokenizer*` files; if it looks like an HF ID (`org/model`), defer (no offline validation).
 - `estimate_vram_mb`: vLLM has its own VRAM math (KV-cache budget × `gpu_memory_utilization`). Probably pull from a published heuristic or vLLM's own estimator.
 - `readiness_endpoint`: vLLM's `/health` differs from llama-server's `/health`; abstract via the adapter.
-- `sentinel_kwargs`: env-var sentinel (per ADR-008 amendment) with `LAUNCHER_OWNED_MODEL=<name>` and `LAUNCHER_OWNED_PID=<self_pid>`. Used by `find_all_llama_servers`'s generalized successor.
+- `sentinel_kwargs`: env-var sentinel (per ADR-008 amendment) with `LLAUNCHER_OWNED_MODEL=<name>` and `LLAUNCHER_OWNED_PID=<self_pid>`. Used by `find_all_llama_servers`'s generalized successor.
 
 ### Slice 21 — UI + MCP surface
 
@@ -99,7 +99,7 @@ This is the breaking-shape change. Update the UI form (see slice 21) and the MCP
 ### Slice 22 — Process discovery + sentinel
 
 - Rename `find_all_llama_servers` → `find_all_owned_processes` (or similar).
-- The function now reads `/proc/<pid>/environ` for `LAUNCHER_OWNED_*` instead of grepping argv. Cross-platform caveat: on Windows there's no `/proc`; we wrap behind a `read_process_env(pid)` abstraction.
+- The function now reads `/proc/<pid>/environ` for `LLAUNCHER_OWNED_*` instead of grepping argv. Cross-platform caveat: on Windows there's no `/proc`; we wrap behind a `read_process_env(pid)` abstraction.
 - Lockfile remains the authoritative claim per ADR-008; the sentinel is for cross-validation and orphan detection (M5 item 4).
 
 ### Slice 23 — Amend ADRs 005, 006, 008
