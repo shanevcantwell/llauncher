@@ -1,5 +1,6 @@
 """Process management for llama-server instances."""
 
+import hashlib
 import re
 import shlex
 import subprocess
@@ -174,24 +175,52 @@ def build_command(
     return cmd
 
 
+# Hex chars of SHA-256 kept in the log filename stem. 8 chars = 32 bits:
+# more than enough to separate the handful of model configs a single
+# launcher manages, while staying short enough to keep filenames readable.
+_NAME_HASH_LEN = 8
+
+
+def log_stem_for(config_name: str) -> str:
+    """Return the filename stem for ``config_name``: ``{sanitized}-{hash}``.
+
+    The **single mint** for the model-name → log-filename mapping (issues
+    #63 / #146). Every path that writes, reads, or globs a per-server log
+    file derives the name through here — :func:`log_path_for` (writer +
+    readiness reader) and :func:`stream_logs` (name-keyed glob). Do not
+    re-implement this transform elsewhere.
+
+    The mapping is **injective in practice**: the sanitized prefix keeps
+    the filename human-readable/greppable, and the suffix — the first
+    ``_NAME_HASH_LEN`` hex chars of the SHA-256 of the *exact* canonical
+    name — separates names the lossy sanitizer would otherwise collapse
+    (``model.a`` vs ``model_a`` both sanitize to ``model_a`` but hash
+    apart). The canonical name itself (``ModelConfig.name``) is never
+    constrained or altered; only this envelope-side mapping disambiguates.
+
+    The result contains only ``[A-Za-z0-9_-]`` characters, so it is safe
+    to embed literally in a glob pattern (no metacharacters survive the
+    sanitizer, and the hex digest has none).
+    """
+    sanitized = re.sub(r"[^\w\-]", "_", config_name)
+    digest = hashlib.sha256(config_name.encode("utf-8")).hexdigest()
+    return f"{sanitized}-{digest[:_NAME_HASH_LEN]}"
+
+
 def log_path_for(config_name: str, port: int) -> Path:
     """Return the canonical per-server log path for ``(config_name, port)``.
 
-    Single source of truth for the log filename so that the readiness check
+    Single source of truth for the log *path* so that the readiness check
     (:func:`wait_for_server_ready`) reads exactly the file that
     :func:`start_server` writes — see issue #145, where a swap left two
     ``*-{port}.log`` files and a port-only glob could read the stopped
     occupant's log instead of the new one.
 
-    NOTE: the sanitization is *lossy* — ``re.sub`` collapses every non
-    ``[\\w-]`` character to ``_``, so distinct config names that differ
-    only in those characters (e.g. ``LFM2-350M-Pro.f16`` vs
-    ``LFM2-350M-Pro_f16``) map to the same file. That name-collision hazard
-    is tracked as a separate issue; it is safe *here* only because the
-    identical transform is applied on both the write side and the read side.
+    The filename stem comes from :func:`log_stem_for`, which is injective
+    over config names — distinct models never share a log file even when
+    their sanitized names collide (issues #63 / #146).
     """
-    sanitized_name = re.sub(r"[^\w\-]", "_", config_name)
-    return (LOG_DIR / f"{sanitized_name}-{port}.log").resolve()
+    return (LOG_DIR / f"{log_stem_for(config_name)}-{port}.log").resolve()
 
 
 def _newest_log(paths) -> Path | None:
@@ -481,17 +510,17 @@ def stream_logs(pid: int | None = None, model_name: str | None = None, lines: in
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
 
-    # If model name provided, search for matching log files. Sanitize the
-    # name with the SAME transform start_server uses (log_path_for): the
-    # files on disk are stored sanitized, and an un-sanitized glob would
-    # both miss the real file (``LFM2-350M-Pro.f16`` vs the stored
-    # ``LFM2-350M-Pro_f16``) and risk interpreting name characters like
-    # ``[`` as glob metacharacters. When several match (a name reused
-    # across runs), prefer the most recently written — glob order is
+    # If model name provided, search for matching log files. Derive the
+    # stem with the SAME mint start_server uses (log_stem_for): the files
+    # on disk are stored under the sanitized-plus-hash stem, and a raw
+    # glob would both miss the real file (``LFM2-350M-Pro.f16`` vs the
+    # stored ``LFM2-350M-Pro_f16-<hash>``) and risk interpreting name
+    # characters like ``[`` as glob metacharacters — the stem is
+    # metachar-free by construction. When several match (a name reused
+    # across ports), prefer the most recently written — glob order is
     # otherwise arbitrary (issue #145).
     if model_name is not None and port is None:
-        safe_name = re.sub(r"[^\w\-]", "_", model_name)
-        match = _newest_log(LOG_DIR.glob(f"{safe_name}-*.log"))
+        match = _newest_log(LOG_DIR.glob(f"{log_stem_for(model_name)}-*.log"))
         if match is not None:
             return _tail_file(match, lines)
 

@@ -1,6 +1,8 @@
 """Size-based rotation for llauncher per-server log files (ADR-013).
 
-Each `llama-server` process writes to ``{LOG_DIR}/{name}-{port}.log``.
+Each `llama-server` process writes to ``{LOG_DIR}/{stem}-{port}.log``,
+where ``stem`` comes from :func:`llauncher.core.process.log_stem_for`
+(sanitized model name plus a short hash — issues #63/#146).
 Logs are now opened in append mode (so a restart does not destroy the
 previous run's output), which means files grow unboundedly without
 intervention. This module provides a simple size-cap rotation:

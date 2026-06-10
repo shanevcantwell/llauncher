@@ -31,7 +31,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from llauncher.core.process import start_server
+from llauncher.core.process import log_stem_for, start_server
 from llauncher.models.config import ModelConfig
 
 
@@ -182,7 +182,7 @@ def test_rotation_runs_before_banner_write(
     mock_bin.exists.return_value = True
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
-    log_file = log_dir / "test-model-8081.log"
+    log_file = log_dir / f"{log_stem_for('test-model')}-8081.log"
     # Pre-existing oversized content.
     log_file.write_text("X" * 500)
 
@@ -218,4 +218,4 @@ def test_rotation_runs_before_banner_write(
         f"rotation must precede banner write; order={call_order}"
     )
     # Rotation actually happened (file is .log.1 now).
-    assert (log_dir / "test-model-8081.log.1").exists()
+    assert (log_dir / f"{log_stem_for('test-model')}-8081.log.1").exists()
