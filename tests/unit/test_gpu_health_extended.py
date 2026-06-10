@@ -2,8 +2,8 @@
 
 Targets uncovered branches identified in the Phase B coverage baseline:
 
-- ``_query_NVIDIA`` CSV (list) entry parsing, including pid/process attribution.
-- ``_query_NVIDIA`` falls through ``json.JSONDecodeError`` from subprocess output.
+- ``_query_NVIDIA`` two-query CSV parsing (devices + compute-apps), including
+  uuid-keyed pid/process attribution and the #148 valid-field regression pin.
 - ``_try_NVIDIA``/``_try_ROCM``/``_try_MPS`` short-circuit when binaries absent.
 - ``_query_ROCM`` parse heuristic (single GPU line) and non-zero returncode.
 - ``_query_MPS`` returns empty when ``is_apple_mps_available`` is False.
@@ -16,7 +16,6 @@ Targets uncovered branches identified in the Phase B coverage baseline:
 
 from __future__ import annotations
 
-import json
 import subprocess
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
@@ -71,42 +70,151 @@ class TestToFloatCoercion:
 
 
 # ---------------------------------------------------------------------------
-# NVIDIA CSV path + pid attribution
+# NVIDIA CSV path: two-query shape, parsing, pid attribution (issue #148)
 # ---------------------------------------------------------------------------
 
+_UUID_0 = "GPU-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+_UUID_1 = "GPU-11111111-2222-3333-4444-555555555555"
+
+_DEVICE_CSV_TWO_GPUS = (
+    f"0, Quadro RTX 8000, {_UUID_0}, 550.00, 46080, 4200, 41880, 12.5, 42\n"
+    f"1, Quadro RTX 8000, {_UUID_1}, 550.00, 46080, 8100, 37980, 45.0, 55\n"
+)
+
+_PROCESS_CSV = (
+    f"{_UUID_1}, 1234, /usr/local/bin/llama-server, 2048\n"
+)
+
+
+def _fake_smi_run(device_csv: str, process_csv: str):
+    """Return a subprocess.run stand-in serving the two nvidia-smi queries."""
+
+    def _run(cmd, **kwargs):
+        query_arg = cmd[1]
+        if query_arg.startswith("--query-gpu="):
+            return SimpleNamespace(returncode=0, stdout=device_csv, stderr="")
+        if query_arg.startswith("--query-compute-apps="):
+            return SimpleNamespace(returncode=0, stdout=process_csv, stderr="")
+        raise AssertionError(f"unexpected nvidia-smi query: {cmd}")
+
+    return _run
+
+
 class TestNVIDIACSVPath:
-    def test_query_nvidia_csv_list_entry_attaches_process(self):
-        """When entry is a list (CSV form), pid/pname become a process record."""
-        sim = json.dumps({
-            "driver_version": "550.00",
-            "data": [
-                ["0", "RTX 4090", "24564", "4200", "20364", "12.5", "42",
-                 "1234", "llama-server", "2048"],
-            ],
-        })
+    def test_query_nvidia_valid_output_populates_devices(self):
+        """Real-shaped CSV from both queries → devices + uuid-mapped process."""
         collector = GPUHealthCollector()
-        out = collector._query_NVIDIA(simulated_output=sim)
-        assert len(out["devices"]) == 1
-        dev = out["devices"][0]
-        assert dev.index == 0
-        assert dev.processes == [
-            {"pid": 1234, "name": "llama-server", "used_memory_mb": 2048},
+        with patch.object(
+            gpu_mod.subprocess, "run",
+            side_effect=_fake_smi_run(_DEVICE_CSV_TWO_GPUS, _PROCESS_CSV),
+        ):
+            out = collector._query_NVIDIA(simulated_output=False)
+
+        assert out["driver_version"] == "550.00"
+        assert len(out["devices"]) == 2
+        dev0, dev1 = out["devices"]
+        assert (dev0.index, dev0.name) == (0, "Quadro RTX 8000")
+        assert dev0.total_vram_mb == 46080
+        assert dev0.free_vram_mb == 41880
+        assert dev0.utilization_pct == 12.5
+        assert dev0.temperature_c == 42
+        # Process attributed to device 1 via gpu_uuid, not device 0.
+        assert dev0.processes == []
+        assert dev1.processes == [
+            {"pid": 1234, "name": "/usr/local/bin/llama-server",
+             "used_memory_mb": 2048},
         ]
 
-    def test_query_nvidia_csv_no_pid_no_process_list(self):
-        sim = json.dumps({
-            "data": [
-                ["1", "GPU-1", "8192", "1024", "7168", "0", "-",
-                 "", "", "0"],
-            ],
-        })
+    def test_query_nvidia_uses_valid_fields_only(self):
+        """Pin the #148 bug shape: no per-process fields or json token in
+        the device query; per-process fields go to --query-compute-apps."""
         collector = GPUHealthCollector()
-        out = collector._query_NVIDIA(simulated_output=sim)
+        calls: list[list[str]] = []
+
+        def _capture(cmd, **kwargs):
+            calls.append(cmd)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch.object(gpu_mod.subprocess, "run", side_effect=_capture):
+            collector._query_NVIDIA(simulated_output=False)
+
+        assert len(calls) == 2
+        device_cmd, process_cmd = calls
+        assert device_cmd[0] == "nvidia-smi"
+        # Format token: CSV only — "json" is not a valid nvidia-smi format.
+        assert device_cmd[2] == "--format=csv,noheader,nounits"
+        assert process_cmd[2] == "--format=csv,noheader,nounits"
+        # Device query carries no per-process fields.
+        device_fields = device_cmd[1].removeprefix("--query-gpu=").split(",")
+        for bogus in ("pid", "process_name", "used_memory_gpu", "used_gpu_memory"):
+            assert bogus not in device_fields
+        # Per-process fields live on the compute-apps query.
+        assert process_cmd[1] == (
+            "--query-compute-apps=gpu_uuid,pid,process_name,used_gpu_memory"
+        )
+
+    def test_query_nvidia_empty_output_yields_no_devices(self):
+        collector = GPUHealthCollector()
+        with patch.object(
+            gpu_mod.subprocess, "run", side_effect=_fake_smi_run("", ""),
+        ):
+            out = collector._query_NVIDIA(simulated_output=False)
+        assert out == {"driver_version": None, "devices": []}
+
+    def test_query_nvidia_malformed_rows_skipped(self):
+        """Short rows, non-numeric index, and unattributable processes are
+        skipped without crashing; valid rows still parse."""
+        device_csv = (
+            "garbage line without enough fields\n"
+            f"NaN, Bad Index GPU, {_UUID_1}, 550.00, 1, 1, 1, 0, 0\n"
+            f"1, Good GPU, {_UUID_0}, 550.00, 8192, 1024, 7168, 0, [N/A]\n"
+        )
+        process_csv = (
+            "too, few\n"
+            f"{_UUID_1}, 99, ghost-device-process, 10\n"   # uuid not in devices
+            f"{_UUID_0}, , no-pid, 10\n"                    # missing pid
+        )
+        collector = GPUHealthCollector()
+        with patch.object(
+            gpu_mod.subprocess, "run",
+            side_effect=_fake_smi_run(device_csv, process_csv),
+        ):
+            out = collector._query_NVIDIA(simulated_output=False)
+
+        assert len(out["devices"]) == 1
         dev = out["devices"][0]
         assert dev.index == 1
-        assert dev.processes == []
-        # temperature.gpu was "-" → coerced to None
+        assert dev.free_vram_mb == 7168
+        # temperature.gpu "[N/A]" → coerced to None
         assert dev.temperature_c is None
+        assert dev.processes == []
+
+    def test_query_nvidia_device_query_failure_returns_empty(self):
+        """Non-zero returncode on the device query → clean empty result,
+        and the compute-apps query is not attempted."""
+        collector = GPUHealthCollector()
+        fake_run = MagicMock(return_value=SimpleNamespace(
+            returncode=6, stdout="", stderr='Field "pid" is not a valid field to query.',
+        ))
+        with patch.object(gpu_mod.subprocess, "run", fake_run):
+            out = collector._query_NVIDIA(simulated_output=False)
+        assert out == {"driver_version": None, "devices": []}
+        assert fake_run.call_count == 1
+
+    def test_query_nvidia_process_query_failure_keeps_devices(self):
+        """Compute-apps query failing must not discard device data."""
+
+        def _run(cmd, **kwargs):
+            if cmd[1].startswith("--query-gpu="):
+                return SimpleNamespace(
+                    returncode=0, stdout=_DEVICE_CSV_TWO_GPUS, stderr="")
+            return SimpleNamespace(returncode=1, stdout="", stderr="boom")
+
+        collector = GPUHealthCollector()
+        with patch.object(gpu_mod.subprocess, "run", side_effect=_run):
+            out = collector._query_NVIDIA(simulated_output=False)
+        assert len(out["devices"]) == 2
+        assert all(d.processes == [] for d in out["devices"])
 
 
 # ---------------------------------------------------------------------------
