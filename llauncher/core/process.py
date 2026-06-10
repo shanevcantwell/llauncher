@@ -100,6 +100,16 @@ def build_command(
     # Model path
     cmd.extend(["-m", config.model_path])
 
+    # Canonical served-model identity (issue #120, EMIT-CANONICAL):
+    # ``GET /v1/models`` must report the name llauncher minted for this
+    # config — byte-for-byte, no transformation, no sanitization — so
+    # ecosystem routers (local-inference-pool) can match the server
+    # against llauncher's registry. Without ``--alias`` llama-server
+    # reports the GGUF filename/metadata instead. This flag is
+    # launcher-owned: ``DENIED_EXTRA_ARG_FLAGS`` keeps it out of
+    # ``extra_args`` so a config cannot override the minted identity.
+    cmd.extend(["--alias", config.name])
+
     # Multimodal projector (optional)
     if config.mmproj_path:
         cmd.extend(["--mmproj", config.mmproj_path])

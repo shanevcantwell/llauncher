@@ -22,8 +22,11 @@ from llauncher.core.settings import BLACKLISTED_PORTS as _ENV_BLACKLISTED_PORTS
 # in :attr:`ModelConfig.extra_args` because:
 #
 # * ``--api-key`` / ``--alias`` — security-sensitive identity that
-#   llauncher will own once #87/#10 land. A malicious config slipping
-#   one of these in would silently override llauncher's intent.
+#   llauncher owns (#87/#10 landed; ``--alias`` is emitted by
+#   ``build_command`` from :attr:`ModelConfig.name` per issue #120 /
+#   EMIT-CANONICAL). A config slipping one of these in would silently
+#   override llauncher's minted identity — launcher-owned flags stay
+#   launcher-owned.
 # * ``-m`` / ``--model`` — set by ``build_command`` from
 #   :attr:`ModelConfig.model_path` (``core/process.py``). Duplication
 #   bypasses the path validator on ``model_path``.
