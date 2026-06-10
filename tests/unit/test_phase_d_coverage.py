@@ -77,16 +77,6 @@ class TestTryNvidiaExceptionPaths:
              ):
             assert collector._try_NVIDIA(result) is False
 
-    def test_json_decode_error_returns_false(self):
-        collector, result = self._setup()
-        with patch.object(gpu_mod, "shutil_which", return_value="/usr/bin/nvidia-smi"), \
-             patch.object(
-                 collector, "_query_NVIDIA",
-                 side_effect=json.JSONDecodeError("boom", "doc", 0),
-             ):
-            assert collector._try_NVIDIA(result) is False
-
-
 class TestTryRocmExceptionPaths:
     """_try_ROCM exception handlers (158-170)."""
 
@@ -121,47 +111,37 @@ class TestTryMpsExceptionPaths:
             assert collector._try_MPS(result) is False
 
 
-class TestNvidiaDriverVersionSecondarySubprocess:
-    """Driver-version secondary nvidia-smi call (gpu.py L223-235).
+class TestNvidiaComputeAppsSecondarySubprocess:
+    """Secondary nvidia-smi call (``--query-compute-apps``, issue #148).
 
-    The secondary ``subprocess.run`` (driver_version query) only runs when
-    ``simulated_output`` is falsy (default ``False``) — i.e. the primary
-    query path actually invoked the CLI. Tests below drive ``_query_NVIDIA``
-    with ``simulated_output=False`` and stub ``subprocess.run`` with a
-    side-effect sequence: first call returns valid JSON, second call raises
-    the handled exception, exercising the L232 / L234 except branches.
+    The compute-apps query only runs when ``simulated_output`` is falsy
+    (default ``False``) — i.e. the device query actually invoked the CLI
+    and succeeded. A secondary failure must degrade to "no process
+    attribution", never discard the already-collected devices.
     """
 
-    _PRIMARY_JSON = json.dumps({"data": [
-        ["0", "Sim GPU", "8000", "100", "7900", "10.0", "55.0", "", "", "0"],
-    ]})
+    _PRIMARY_CSV = (
+        "0, Sim GPU, GPU-00000000-0000-0000-0000-000000000000, "
+        "550.00, 8000, 100, 7900, 10.0, 55.0\n"
+    )
 
     def _primary_ok(self):
-        return SimpleNamespace(returncode=0, stdout=self._PRIMARY_JSON, stderr="")
+        return SimpleNamespace(returncode=0, stdout=self._PRIMARY_CSV, stderr="")
 
-    def test_driver_version_filenotfound_swallowed(self):
-        """L232 — secondary subprocess FileNotFoundError handled; devices kept."""
-        collector = GPUHealthCollector()
-        with patch.object(
-            gpu_mod.subprocess, "run",
-            side_effect=[self._primary_ok(), FileNotFoundError()],
-        ):
-            data = collector._query_NVIDIA(simulated_output=False)
-        assert len(data["devices"]) == 1
-        assert data["driver_version"] is None
-
-    def test_driver_version_timeout_swallowed(self):
-        """L234 — secondary subprocess TimeoutExpired handled; devices kept."""
+    def test_compute_apps_timeout_swallowed(self):
+        """Secondary subprocess TimeoutExpired handled; devices kept."""
         collector = GPUHealthCollector()
         with patch.object(
             gpu_mod.subprocess, "run",
             side_effect=[
                 self._primary_ok(),
-                subprocess.TimeoutExpired(cmd="nvidia-smi", timeout=5),
+                subprocess.TimeoutExpired(cmd="nvidia-smi", timeout=10),
             ],
         ):
             data = collector._query_NVIDIA(simulated_output=False)
         assert len(data["devices"]) == 1
+        assert data["devices"][0].processes == []
+        assert data["driver_version"] == "550.00"
 
 
 class TestGPUDeviceToDict:

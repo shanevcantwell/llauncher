@@ -25,6 +25,21 @@ from llauncher.core.process import find_all_llama_servers
 
 
 # ------------------------------------------------------------------
+# NVIDIA query field lists (issue #148)
+#
+# Device fields must all be valid ``--query-gpu`` fields; per-process
+# fields belong to ``--query-compute-apps``. Mixing them (or appending a
+# ``json`` format token) makes nvidia-smi reject the whole query.
+# ------------------------------------------------------------------
+
+_NVIDIA_DEVICE_FIELDS = (
+    "index,name,uuid,driver_version,memory.total,memory.used,memory.free,"
+    "utilization.gpu,temperature.gpu"
+)
+_NVIDIA_PROCESS_FIELDS = "gpu_uuid,pid,process_name,used_gpu_memory"
+
+
+# ------------------------------------------------------------------
 # Data structures
 # ------------------------------------------------------------------
 
@@ -147,9 +162,6 @@ class GPUHealthCollector:
         except subprocess.TimeoutExpired as e:
             logging.debug("NVIDIA query timed out: %s", e)
             return False
-        except json.JSONDecodeError as e:
-            logging.debug("NVIDIA response parse error: %s", e)
-            return False
 
     def _try_ROCM(self, result: GPUHealthResult) -> bool:
         """Attempt to query via rocm-smi."""
@@ -190,11 +202,21 @@ class GPUHealthCollector:
     # ── NVIDIA SMI queries ────────────────────────────────────────
 
     def _query_NVIDIA(self, simulated_output: bool | str = False) -> dict[str, Any]:
-        """Parse ``nvidia-smi --query-gpu=… --format=json`` output.
+        """Query device and per-process VRAM data via two nvidia-smi calls.
 
-        When *simulated_output* is a string, use it directly instead of
-        invoking the CLI (useful for tests).  If ``True``, fall back to
-        built-in test fixtures below.
+        Devices come from ``--query-gpu``; per-process attribution comes
+        from ``--query-compute-apps`` — its fields (``pid``,
+        ``process_name``, ``used_gpu_memory``) are **not** valid device
+        fields, and mixing them into one ``--query-gpu`` call makes
+        nvidia-smi reject the whole query (issue #148). Both calls use
+        ``--format=csv,noheader,nounits``; there is no JSON format token.
+
+        Processes are attributed to devices via GPU UUID (``uuid`` on the
+        device query, ``gpu_uuid`` on the compute-apps query).
+
+        When *simulated_output* is a string it is used as the device-query
+        CSV (no CLI invocation, no process attribution). ``True`` selects
+        the built-in fixture below.
         """
         if simulated_output is True:
             simulated_output = _NVIDIA_DEFAULT_SIMULATED
@@ -202,85 +224,95 @@ class GPUHealthCollector:
         data: dict[str, Any] = {"driver_version": None, "devices": []}
 
         if isinstance(simulated_output, str):
-            parsed = json.loads(simulated_output)
+            device_csv = simulated_output
+            process_csv = ""
         else:
-            try:
-                out = subprocess.run(
-                    [
-                        "nvidia-smi",
-                        "--query-gpu=index,name,memory.total,memory.used,memory.free,"
-                        "utilization.gpu,temperature.gpu,pid,process_name,used_memory_gpu",
-                        "--format=csv,noheader,nounits,json",
-                    ],
-                    capture_output=True, text=True, timeout=10,
-                )
-                parsed = json.loads(out.stdout) if out.returncode == 0 else {"data": []}
-            except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError):
-                return data
-
-        driver_version = None
-        # Also try the text-based nvidia-smi for driver version.
-        if simulated_output is True or not isinstance(simulated_output, str):
-            try:
-                out2 = subprocess.run(
-                    ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
-                    capture_output=True, text=True, timeout=5,
-                )
-                if out2.returncode == 0:
-                    lines = [l.strip() for l in out2.stdout.splitlines()]
-                    driver_version = lines[0] if lines else None
-            except (PermissionError, FileNotFoundError) as e:
-                logging.debug("NVIDIA driver_version query failed: %s", e)
-            except subprocess.TimeoutExpired as e:
-                logging.debug("NVIDIA driver_version query timed out: %s", e)
-
-        data["driver_version"] = driver_version or (parsed.get("driver_version") if isinstance(parsed, dict) else None)
-        devices_data = parsed.get("data", []) if isinstance(parsed, dict) else parsed
-
-        for entry in devices_data:
-            # CSV format uses positional list; JSON format uses dict keys.
-            if isinstance(entry, list):
-                idx, name, total_mb, used_mb, free_mb, util, temp, pid, pname, gpu_used = (
-                    str(entry[0]),  # index
-                    str(entry[1]),  # name
-                    _to_int(entry[2]) or 0,   # memory.total
-                    _to_int(entry[3]) or 0,   # memory.used
-                    _to_int(entry[4]) or 0,   # memory.free
-                    _to_float(entry[5]) or 0.0, # utilization.gpu
-                    _to_float(entry[6]),       # temperature.gpu (may be None)
-                    str(entry[7]) if entry[7] else "",  # pid
-                    str(entry[8]) if entry[8] else "",  # process_name
-                    _to_int(entry[9]) or 0,   # used_memory_gpu (optional)
-                )
-            elif isinstance(entry, dict):
-                idx = str(entry.get("index", "0"))
-                name = entry.get("name", "Unknown")
-                total_mb = _to_int(entry.get("memory.total")) or 0
-                used_mb = _to_int(entry.get("memory.used")) or 0
-                free_mb = _to_int(entry.get("memory.free")) or 0
-                util = _to_float(entry.get("utilization.gpu")) or 0.0
-                temp = _to_float(entry.get("temperature.gpu"))
-                pid = str(entry.get("pid", ""))
-                pname = entry.get("process_name", "") or ""
-                gpu_used = _to_int(entry.get("used_memory_gpu")) or 0
-
-            dev = GPUDevice(
-                index=int(idx), name=name, total_vram_mb=total_mb,
-                used_vram_mb=used_mb, free_vram_mb=max(free_mb, 0),
-                utilization_pct=util, temperature_c=temp if temp else None,
+            device_csv = self._run_nvidia_smi_csv(
+                "--query-gpu=" + _NVIDIA_DEVICE_FIELDS
             )
-            # Process info: nvidia-smi returns per-device process lists.
-            # When using CSV with PIDs we build a simple list below.
-            if pid and pname:
-                dev.processes.append({
-                    "pid": int(pid),
-                    "name": pname,
-                    "used_memory_mb": gpu_used or used_mb,
-                })
+            if device_csv is None:
+                return data
+            # A compute-apps failure must not discard device data: the
+            # device query already succeeded, so degrade to "no process
+            # attribution" instead of losing the backend.
+            try:
+                process_csv = self._run_nvidia_smi_csv(
+                    "--query-compute-apps=" + _NVIDIA_PROCESS_FIELDS
+                ) or ""
+            except subprocess.TimeoutExpired as e:
+                logging.debug("nvidia-smi compute-apps query timed out: %s", e)
+                process_csv = ""
+            except (FileNotFoundError, PermissionError) as e:
+                logging.debug("nvidia-smi compute-apps query failed: %s", e)
+                process_csv = ""
 
+        devices_by_uuid: dict[str, GPUDevice] = {}
+        for row in _csv_rows(device_csv):
+            # index, name, uuid, driver_version, memory.total, memory.used,
+            # memory.free, utilization.gpu, temperature.gpu
+            if len(row) != 9:
+                logging.debug(
+                    "nvidia-smi device row malformed (want 9 fields, got %d): %r",
+                    len(row), row,
+                )
+                continue
+            idx = _to_int(row[0])
+            if idx is None:
+                logging.debug("nvidia-smi device row has non-numeric index: %r", row)
+                continue
+            dev = GPUDevice(
+                index=idx,
+                name=row[1],
+                total_vram_mb=_to_int(row[4]) or 0,
+                used_vram_mb=_to_int(row[5]) or 0,
+                free_vram_mb=max(_to_int(row[6]) or 0, 0),
+                utilization_pct=_to_float(row[7]) or 0.0,
+                temperature_c=_to_float(row[8]),
+            )
+            if data["driver_version"] is None and row[3]:
+                data["driver_version"] = row[3]
+            devices_by_uuid[row[2]] = dev
             data["devices"].append(dev)
 
+        for row in _csv_rows(process_csv):
+            # gpu_uuid, pid, process_name, used_gpu_memory
+            if len(row) != 4:
+                logging.debug(
+                    "nvidia-smi compute-apps row malformed (want 4 fields, got %d): %r",
+                    len(row), row,
+                )
+                continue
+            dev = devices_by_uuid.get(row[0])
+            pid = _to_int(row[1])
+            pname = row[2]
+            if dev is None or pid is None or not pname:
+                logging.debug("nvidia-smi compute-apps row unattributable: %r", row)
+                continue
+            dev.processes.append({
+                "pid": pid,
+                "name": pname,
+                "used_memory_mb": _to_int(row[3]) or 0,
+            })
+
         return data
+
+    def _run_nvidia_smi_csv(self, query_arg: str) -> str | None:
+        """Run one nvidia-smi CSV query; return stdout, or None on failure.
+
+        ``FileNotFoundError`` / ``TimeoutExpired`` propagate to
+        ``_try_NVIDIA``, which treats the backend as unavailable.
+        """
+        out = subprocess.run(
+            ["nvidia-smi", query_arg, "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if out.returncode != 0:
+            logging.debug(
+                "nvidia-smi %s failed (rc=%d): %s",
+                query_arg, out.returncode, (out.stderr or "").strip(),
+            )
+            return None
+        return out.stdout
 
     def _query_ROCM(self) -> dict[str, Any]:
         """Parse ``rocm-smi --showmeminfo=volatile`` output."""
@@ -423,6 +455,17 @@ def _estimate_apple_unified_mem() -> int:
     return 8192
 
 
+def _csv_rows(text: str) -> list[list[str]]:
+    """Split nvidia-smi CSV output into stripped cell rows, skipping blanks."""
+    rows: list[list[str]] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        rows.append([cell.strip() for cell in line.split(",")])
+    return rows
+
+
 def _to_int(v) -> int | None:
     try:
         if v is None or v == "":
@@ -442,45 +485,19 @@ def _to_float(v) -> float | None:
 
 
 # ── Simulated NVIDIA output for tests ─────────────────────────
+# Device-query CSV in _NVIDIA_DEVICE_FIELDS order:
+# index, name, uuid, driver_version, memory.total, memory.used,
+# memory.free, utilization.gpu, temperature.gpu
 
-_NVIDIA_DEFAULT_SIMULATED = json.dumps({
-    "driver_version": "535.129.03",
-    "data": [
-        {
-            "index": "0",
-            "name": "NVIDIA GeForce RTX 4090",
-            "memory.total": "24564",
-            "memory.used": "4200",
-            "memory.free": "20364",
-            "utilization.gpu": "12.5",
-            "temperature.gpu": "42",
-            "pid": "",
-            "process_name": "",
-        }
-    ],
-})
+_NVIDIA_DEFAULT_SIMULATED = (
+    "0, NVIDIA GeForce RTX 4090, GPU-11111111-2222-3333-4444-555555555555, "
+    "535.129.03, 24564, 4200, 20364, 12.5, 42\n"
+)
 
 
-_NVIDIA_MULTI_GPU_SIMULATED = json.dumps({
-    "driver_version": "535.129.03",
-    "data": [
-        {
-            "index": "0",
-            "name": "NVIDIA GeForce RTX 4090",
-            "memory.total": "24564",
-            "memory.used": "4200",
-            "memory.free": "20364",
-            "utilization.gpu": "12.5",
-            "temperature.gpu": "42",
-        },
-        {
-            "index": "1",
-            "name": "NVIDIA GeForce RTX 4090",
-            "memory.total": "24564",
-            "memory.used": "8100",
-            "memory.free": "16464",
-            "utilization.gpu": "45.0",
-            "temperature.gpu": "55",
-        },
-    ],
-})
+_NVIDIA_MULTI_GPU_SIMULATED = (
+    "0, NVIDIA GeForce RTX 4090, GPU-11111111-2222-3333-4444-555555555555, "
+    "535.129.03, 24564, 4200, 20364, 12.5, 42\n"
+    "1, NVIDIA GeForce RTX 4090, GPU-66666666-7777-8888-9999-aaaaaaaaaaaa, "
+    "535.129.03, 24564, 8100, 16464, 45.0, 55\n"
+)
