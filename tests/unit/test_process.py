@@ -372,7 +372,9 @@ class TestStopServer:
                 result = stop_server_by_port(8080)
 
                 assert result is True
-                mock_stop.assert_called_once_with(12345)
+                mock_stop.assert_called_once_with(
+                    12345, child_grace_s=None, grace_s=None
+                )
 
     def test_stop_by_port_not_found(self):
         """Stop server by port when not found."""
@@ -400,6 +402,101 @@ class TestStopServer:
         with patch("psutil.Process", side_effect=psutil.NoSuchProcess(12345, None)):
             result = stop_server_by_pid(12345)
             assert result is False
+
+    def test_stop_by_pid_kills_children_surviving_grace(self):
+        """Issue #140: a child that outlives its SIGTERM grace is SIGKILLed.
+
+        Previously only the main process escalated to ``kill()``; a child
+        ignoring SIGTERM leaked past the stop. ``wait_procs`` is faked so
+        no real grace period elapses.
+        """
+        mock_proc = MagicMock()
+        survivor = MagicMock()
+        deceased = MagicMock()
+        mock_proc.children.return_value = [survivor, deceased]
+
+        with patch("psutil.Process", return_value=mock_proc), patch(
+            "llauncher.core.process.psutil.wait_procs",
+            return_value=([deceased], [survivor]),
+        ) as mock_wait:
+            result = stop_server_by_pid(12345, child_grace_s=0.01, grace_s=0.01)
+
+        assert result is True
+        survivor.terminate.assert_called_once()
+        survivor.kill.assert_called_once()  # grace expired → no leak
+        deceased.kill.assert_not_called()  # exited within grace
+        mock_wait.assert_called_once_with([survivor, deceased], timeout=0.01)
+
+    def test_stop_by_pid_child_gone_before_kill_is_tolerated(self):
+        """A survivor that exits between wait and kill is success, not error."""
+        mock_proc = MagicMock()
+        survivor = MagicMock()
+        survivor.kill.side_effect = psutil.NoSuchProcess(54321, None)
+        mock_proc.children.return_value = [survivor]
+
+        with patch("psutil.Process", return_value=mock_proc), patch(
+            "llauncher.core.process.psutil.wait_procs",
+            return_value=([], [survivor]),
+        ):
+            result = stop_server_by_pid(12345, child_grace_s=0.01, grace_s=0.01)
+
+        assert result is True
+        mock_proc.terminate.assert_called_once()
+
+    def test_stop_by_pid_grace_defaults_read_from_settings_at_call_time(self):
+        """Grace periods come from settings when not passed (issue #140).
+
+        Read at call time — not captured at import — so env-configured
+        profiles and test patches both take effect.
+        """
+        mock_proc = MagicMock()
+        mock_proc.children.return_value = []
+
+        with patch("psutil.Process", return_value=mock_proc), patch(
+            "llauncher.core.process.psutil.wait_procs",
+            return_value=([], []),
+        ) as mock_wait, patch(
+            "llauncher.core.process.settings.LLAUNCHER_STOP_CHILD_GRACE_S", 0.25
+        ), patch(
+            "llauncher.core.process.settings.LLAUNCHER_STOP_GRACE_S", 0.5
+        ):
+            result = stop_server_by_pid(12345)
+
+        assert result is True
+        mock_wait.assert_called_once_with([], timeout=0.25)
+        mock_proc.wait.assert_called_once_with(timeout=0.5)
+
+    def test_stop_by_pid_explicit_grace_overrides_settings(self):
+        """Explicit keyword grace wins over the settings defaults."""
+        mock_proc = MagicMock()
+        mock_proc.children.return_value = []
+
+        with patch("psutil.Process", return_value=mock_proc), patch(
+            "llauncher.core.process.psutil.wait_procs",
+            return_value=([], []),
+        ) as mock_wait:
+            result = stop_server_by_pid(12345, child_grace_s=0.01, grace_s=0.02)
+
+        assert result is True
+        mock_wait.assert_called_once_with([], timeout=0.01)
+        mock_proc.wait.assert_called_once_with(timeout=0.02)
+
+    def test_stop_by_port_forwards_grace_to_stop_by_pid(self):
+        """``stop_server_by_port`` propagates the grace knobs (issue #140)."""
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+
+        with patch(
+            "llauncher.core.process.find_server_by_port", return_value=mock_proc
+        ), patch(
+            "llauncher.core.process.stop_server_by_pid", return_value=True
+        ) as mock_stop:
+            result = stop_server_by_port(8080, child_grace_s=0.01, grace_s=0.02)
+
+        assert result is True
+        mock_stop.assert_called_once_with(
+            12345, child_grace_s=0.01, grace_s=0.02
+        )
 
 
 class TestFindServer:

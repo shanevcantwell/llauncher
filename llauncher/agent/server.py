@@ -33,6 +33,7 @@ from llauncher.agent.middleware import (
 )
 from llauncher.agent.routing import router, get_node_name
 from llauncher.core import lockfile as lf
+from llauncher.core import settings
 from llauncher.core.settings import AGENT_API_KEY
 
 # Configure logging
@@ -147,6 +148,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     is a behavior change from the previous bare ``KeyboardInterrupt`` path,
     which orphaned children silently. See ``docs/v2-handoff.md`` §What NOT
     To Do for context.
+
+    Coalescing with in-flight background stops (issue #140): a
+    ``POST /stop/{port}`` accepted shortly before shutdown runs its
+    termination on a daemon thread. For each port the reaper first joins
+    any such in-flight stop (:func:`operations.join_inflight_stop`,
+    bounded by the full SIGTERM grace budget) and skips its own blocking
+    stop when the in-flight one completed — otherwise two threads would
+    race SIGTERM/SIGKILL against the same process. Remaining tolerance:
+    a background stop registered after the join, or a stop driven from
+    another process, can still overlap the blocking call; that overlap
+    is at worst a re-termination of an already-dying pid, which
+    ``core.process.stop_server_by_pid`` absorbs.
     """
     # Startup — nothing to do.
     yield
@@ -170,7 +183,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         "Lifespan shutdown: reaping %d managed llama-server child(ren)",
         len(lockfiles),
     )
+    # Full SIGTERM→SIGKILL grace budget; read at call time so env
+    # profiles and test patches take effect (same discipline as
+    # core.process.stop_server_by_pid).
+    grace_budget = (
+        settings.LLAUNCHER_STOP_CHILD_GRACE_S + settings.LLAUNCHER_STOP_GRACE_S
+    )
     for entry in lockfiles:
+        if ops.join_inflight_stop(entry.port, timeout=grace_budget):
+            # An in-flight background stop owned this port and finished;
+            # lockfile removal and audit emission already happened on
+            # its thread. Driving the blocking stop too would double-
+            # terminate.
+            logger.info(
+                "Lifespan shutdown: port=%d coalesced with in-flight stop",
+                entry.port,
+            )
+            continue
         try:
             result = ops.stop(entry.port, caller="agent-shutdown")
         except OSError as exc:

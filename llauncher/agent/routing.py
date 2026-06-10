@@ -11,7 +11,7 @@ from __future__ import annotations
 import socket
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 
 from llauncher import operations as ops
@@ -76,6 +76,7 @@ def _stop_status_code(action: str) -> int:
     return {
         "stopped": 200,
         "already_empty": 200,
+        "stopping": 202,  # issue #140: accepted; termination in flight
         "error": 500,
     }.get(action, 500)
 
@@ -367,18 +368,33 @@ def swap_server(port: int, body: SwapRequest) -> dict:
 
 
 @router.post("/stop/{port}")
-def stop_server(port: int) -> dict:
+def stop_server(port: int, response: Response) -> dict:
     """Stop whatever is running on ``port`` per ADR-010.
 
+    Non-blocking per issue #140: a live process is acknowledged with
+    **202** and ``action="stopping"`` immediately, and the actual
+    SIGTERM → grace → SIGKILL sequence runs on a background thread
+    inside the agent. The previous synchronous behavior held the
+    connection for the full grace (~8 s at the defaults), which
+    outlived common 5 s client timeouts — callers saw failures on
+    stops that succeeded. Completion is observable via ``GET /status``
+    (the port empties) and the audit log (``STOPPED`` with ``SUCCESS``
+    or ``ERROR``); this mirrors the ADR-014 ``/cancel/{port}`` pattern
+    of acknowledging an in-flight operation without blocking on it.
+
     Idempotent: returns 200 with ``action="already_empty"`` if the port
-    has no live claim. 500 only when termination is attempted and fails.
+    has no live claim, and 202 with ``action="stopping"`` again if a
+    stop is already in flight. A termination *failure* is no longer
+    reported on this response (it happens after the 202); it lands in
+    the audit log and the port remains visibly occupied in status.
     """
-    result = ops.stop(port, caller="agent")
+    result = ops.stop_in_background(port, caller="agent")
     payload = result.to_dict()
     code = _stop_status_code(result.action)
 
     if code >= 400:
         raise HTTPException(status_code=code, detail=payload)
+    response.status_code = code
     return payload
 
 

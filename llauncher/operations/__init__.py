@@ -45,7 +45,13 @@ from .preflight import (
     estimate_vram_mb,
 )
 from .start import StartResult, start
-from .stop import StopResult, stop
+from .stop import (
+    StopResult,
+    join_inflight_stop,
+    stop,
+    stop_in_background,
+    wait_for_stop,
+)
 from .swap import (
     DEFAULT_READINESS_TIMEOUT_S,
     PreflightCheck,
@@ -58,6 +64,9 @@ __all__ = [
     # Verbs
     "start",
     "stop",
+    "stop_in_background",  # issue #140: async-accept stop for the agent
+    "wait_for_stop",  # issue #140: deterministic join point (tests/diagnostics)
+    "join_inflight_stop",  # issue #140: reaper coalesce with in-flight stop
     "swap",
     "delete_model",
     # Result envelopes

@@ -282,7 +282,7 @@ class TestStopServerEndpoint:
         from llauncher import operations as ops
 
         monkeypatch.setattr(
-            "llauncher.agent.routing.ops.stop",
+            "llauncher.agent.routing.ops.stop_in_background",
             lambda port, caller="agent": ops.StopResult(
                 success=True,
                 action="already_empty",
@@ -293,6 +293,62 @@ class TestStopServerEndpoint:
         response = client.post("/stop/99999")
         assert response.status_code == 200
         assert response.json()["action"] == "already_empty"
+
+    def test_stop_live_port_responds_while_termination_pending(
+        self, client, monkeypatch, tmp_path
+    ):
+        """Issue #140 timing contract, end to end through the endpoint.
+
+        A live claim whose termination is *deliberately held open* must
+        not delay the HTTP response: the caller gets 202/``stopping``
+        while the (simulated slow, would-be ~8 s) shutdown is still in
+        flight. No real sleeps — the slow shutdown is an Event the test
+        releases after asserting the response already came back.
+        """
+        import os
+        import threading
+
+        from llauncher import operations as ops
+        from llauncher.core import lockfile as lf
+
+        run_dir = tmp_path / "run"
+        monkeypatch.setattr("llauncher.core.lockfile.LAUNCHER_RUN_DIR", run_dir)
+        monkeypatch.setattr(
+            "llauncher.core.audit_log.LAUNCHER_AUDIT_PATH",
+            tmp_path / "audit.jsonl",
+        )
+        lf.write_lockfile(8081, "slow-model", os.getpid(), run_dir=run_dir)
+
+        release = threading.Event()
+
+        def slow_terminate(port, **kwargs):
+            # Stands in for the SIGTERM grace; bounded so a regression
+            # cannot hang the suite.
+            release.wait(timeout=10)
+            return True
+
+        monkeypatch.setattr(
+            "llauncher.operations.proc.stop_server_by_port", slow_terminate
+        )
+
+        try:
+            response = client.post("/stop/8081")
+
+            # Response arrived while the termination is still blocked.
+            assert response.status_code == 202
+            data = response.json()
+            assert data["success"] is True
+            assert data["action"] == "stopping"
+            assert data["model"] == "slow-model"
+            # The durable claim is still present — termination pending.
+            assert lf.read_lockfile(8081, run_dir=run_dir) is not None
+        finally:
+            release.set()
+
+        # Once released, the background path completes and removes the
+        # lockfile — the success the caller polls /status for.
+        assert ops.wait_for_stop(8081, timeout=10) is True
+        assert lf.read_lockfile(8081, run_dir=run_dir) is None
 
 
 class TestLogsEndpoint:
@@ -1126,8 +1182,8 @@ class TestAgentRouting:
         assert response.status_code == 500
         assert response.json()["detail"]["action"] == "error"
 
-    def test_stop_server_success(self, client, monkeypatch):
-        """``stopped`` action → 200."""
+    def test_stop_server_stopping_returns_202(self, client, monkeypatch):
+        """``stopping`` action (issue #140 async-accept) → 202."""
         from llauncher import operations as ops
 
         captured: dict = {}
@@ -1136,19 +1192,22 @@ class TestAgentRouting:
             captured["args"] = (port, caller)
             return ops.StopResult(
                 success=True,
-                action="stopped",
+                action="stopping",
                 port=port,
                 model="test-model",
                 pid=1234,
-                message=f"Stopped test-model on port {port}",
+                message=f"Stopping test-model on port {port}",
             )
 
-        monkeypatch.setattr("llauncher.agent.routing.ops.stop", fake_stop)
+        monkeypatch.setattr(
+            "llauncher.agent.routing.ops.stop_in_background", fake_stop
+        )
 
         response = client.post("/stop/8081")
-        assert response.status_code == 200
+        assert response.status_code == 202
         data = response.json()
-        assert data["action"] == "stopped"
+        assert data["success"] is True
+        assert data["action"] == "stopping"
         assert data["port"] == 8081
         assert data["model"] == "test-model"
         assert captured["args"] == (8081, "agent")
@@ -1158,7 +1217,7 @@ class TestAgentRouting:
         from llauncher import operations as ops
 
         monkeypatch.setattr(
-            "llauncher.agent.routing.ops.stop",
+            "llauncher.agent.routing.ops.stop_in_background",
             lambda port, caller="agent": ops.StopResult(
                 success=True,
                 action="already_empty",
@@ -1171,12 +1230,18 @@ class TestAgentRouting:
         assert response.status_code == 200
         assert response.json()["action"] == "already_empty"
 
-    def test_stop_server_termination_failure_returns_500(self, client, monkeypatch):
-        """A live process that won't terminate → 500."""
+    def test_stop_server_error_action_returns_500(self, client, monkeypatch):
+        """Defensive mapping: an ``error`` envelope still maps to 500.
+
+        ``stop_in_background`` reports termination failure via the audit
+        log after the 202 (issue #140), so this path is not normally
+        reachable — but the status-code table must keep failing closed
+        if an error envelope ever surfaces synchronously again.
+        """
         from llauncher import operations as ops
 
         monkeypatch.setattr(
-            "llauncher.agent.routing.ops.stop",
+            "llauncher.agent.routing.ops.stop_in_background",
             lambda port, caller="agent": ops.StopResult(
                 success=False,
                 action="error",

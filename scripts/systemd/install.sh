@@ -107,7 +107,7 @@ chmod 700 "$LLAUNCHER_DIR"
 # via the failing command-substitution — an empty TOKEN_VALUE then routes
 # to the informative else-branch below instead of a silent exit 1. This
 # is the failure mode when a pre-rename env file still uses the old
-# single-L LAUNCHER_AGENT_TOKEN key (see #138/#139).
+# single-L (LAUNCHER, not LLAUNCHER) token key (see #138/#139).
 TOKEN_VALUE="$(grep -E '^LLAUNCHER_AGENT_TOKEN=' "$ENV_FILE" | tail -n1 | cut -d= -f2- | tr -d '[:space:]' || true)"
 if [ -n "$TOKEN_VALUE" ]; then
     # printf '%s' (no trailing newline) matches the byte-shape of

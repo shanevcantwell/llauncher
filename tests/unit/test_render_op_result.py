@@ -46,7 +46,10 @@ class TestClassifyActionInfo:
 
     @pytest.mark.parametrize(
         "action",
-        ["already_running", "already_empty", "not_found"],
+        # ``stopping`` is the issue-#140 async-accept envelope from a
+        # remote agent: acknowledged, completion pending — INFO, not
+        # SUCCESS (the outcome hasn't landed yet) and not ERROR.
+        ["already_running", "already_empty", "not_found", "stopping"],
     )
     def test_info_actions(self, action: str) -> None:
         assert classify_action(action) is OpResultSeverity.INFO

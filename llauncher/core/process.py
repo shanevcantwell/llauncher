@@ -323,30 +323,65 @@ def start_server(
         raise OSError(f"Failed to create log file {log_file}: {e}")
 
 
-def stop_server_by_port(port: int) -> bool:
+def stop_server_by_port(
+    port: int,
+    *,
+    child_grace_s: float | None = None,
+    grace_s: float | None = None,
+) -> bool:
     """Stop a llama-server running on the given port.
 
     Args:
         port: Port number of the server to stop.
+        child_grace_s: SIGTERM grace for children; see
+            :func:`stop_server_by_pid`.
+        grace_s: SIGTERM grace for the main process; see
+            :func:`stop_server_by_pid`.
 
     Returns:
         True if a server was found and stopped, False otherwise.
     """
     process = find_server_by_port(port)
     if process:
-        return stop_server_by_pid(process.pid)
+        return stop_server_by_pid(
+            process.pid, child_grace_s=child_grace_s, grace_s=grace_s
+        )
     return False
 
 
-def stop_server_by_pid(pid: int) -> bool:
+def stop_server_by_pid(
+    pid: int,
+    *,
+    child_grace_s: float | None = None,
+    grace_s: float | None = None,
+) -> bool:
     """Stop a llama-server process by PID.
+
+    SIGTERM first, then SIGKILL for anything that outlives its grace
+    period — children included (issue #140: the previous implementation
+    only escalated the main process, so a child that ignored SIGTERM
+    leaked past the stop). Grace periods default from settings *at call
+    time* (``LLAUNCHER_STOP_CHILD_GRACE_S`` / ``LLAUNCHER_STOP_GRACE_S``)
+    so env-configured profiles and test patches both take effect — the
+    settings module is referenced as an attribute, not imported as a
+    bound name, for exactly the import-time-capture reason documented
+    on ``LOG_DIR`` above.
 
     Args:
         pid: Process ID to stop.
+        child_grace_s: Seconds to wait for children after SIGTERM before
+            SIGKILL. ``None`` → ``settings.LLAUNCHER_STOP_CHILD_GRACE_S``.
+        grace_s: Seconds to wait for the main process after SIGTERM
+            before SIGKILL. ``None`` → ``settings.LLAUNCHER_STOP_GRACE_S``.
 
     Returns:
         True if process was stopped, False if not found.
     """
+    if child_grace_s is None:
+        child_grace_s = settings.LLAUNCHER_STOP_CHILD_GRACE_S
+    if grace_s is None:
+        grace_s = settings.LLAUNCHER_STOP_GRACE_S
+
     try:
         process = psutil.Process(pid)
 
@@ -355,14 +390,22 @@ def stop_server_by_pid(pid: int) -> bool:
             children = process.children(recursive=True)
             for child in children:
                 child.terminate()
-            psutil.wait_procs(children, timeout=3)
+            _, alive = psutil.wait_procs(children, timeout=child_grace_s)
+            # Grace expired — escalate so no child outlives the stop
+            # (issue #140). A child may exit between the wait and the
+            # kill; that's success, not an error.
+            for child in alive:
+                try:
+                    child.kill()
+                except psutil.NoSuchProcess:
+                    pass
         except psutil.NoSuchProcess:
             pass
 
         # Terminate the main process
         process.terminate()
         try:
-            process.wait(timeout=5)
+            process.wait(timeout=grace_s)
         except psutil.TimeoutExpired:
             process.kill()
 
