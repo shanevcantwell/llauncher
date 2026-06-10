@@ -59,7 +59,7 @@ token machinery.
   outright preserves the no-new-attack-surface invariant for upgrades.
 - When non-empty, loopback (`127.0.0.0/8`, `::1/128`) is implicitly appended.
 
-*(Note: #135 predates the #151 env-var rename and uses the `LAUNCHER_AGENT_*`
+*(Note: #135 predates the #151 env-var rename and uses the legacy single-L env-var
 prefix; this ADR uses the post-rename `LLAUNCHER_AGENT_*` family throughout.)*
 
 ### Issuance endpoint — `llauncher/agent/server.py`
