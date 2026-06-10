@@ -216,6 +216,25 @@ class TestNVIDIACSVPath:
         assert len(out["devices"]) == 2
         assert all(d.processes == [] for d in out["devices"])
 
+    @pytest.mark.parametrize("exc", [FileNotFoundError, PermissionError])
+    def test_query_nvidia_process_query_oserror_keeps_devices(self, exc):
+        """PR #159 review: an OS-level error (FileNotFoundError /
+        PermissionError) on the compute-apps query must not bubble up and
+        discard the already-collected device data — attribution degrades
+        to empty instead."""
+
+        def _run(cmd, **kwargs):
+            if cmd[1].startswith("--query-gpu="):
+                return SimpleNamespace(
+                    returncode=0, stdout=_DEVICE_CSV_TWO_GPUS, stderr="")
+            raise exc("nvidia-smi vanished between queries")
+
+        collector = GPUHealthCollector()
+        with patch.object(gpu_mod.subprocess, "run", side_effect=_run):
+            out = collector._query_NVIDIA(simulated_output=False)
+        assert len(out["devices"]) == 2
+        assert all(d.processes == [] for d in out["devices"])
+
 
 # ---------------------------------------------------------------------------
 # Backend probes: short-circuit when CLI absent

@@ -242,6 +242,9 @@ class GPUHealthCollector:
             except subprocess.TimeoutExpired as e:
                 logging.debug("nvidia-smi compute-apps query timed out: %s", e)
                 process_csv = ""
+            except (FileNotFoundError, PermissionError) as e:
+                logging.debug("nvidia-smi compute-apps query failed: %s", e)
+                process_csv = ""
 
         devices_by_uuid: dict[str, GPUDevice] = {}
         for row in _csv_rows(device_csv):
