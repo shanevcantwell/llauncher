@@ -99,3 +99,12 @@ Touch points (see `git log --grep "closes #52"` for the landing commit):
 - `tests/unit/test_process.py` — updated 1 (`test_normal_start` now patches `rotate_if_needed`), replaced 1 (`test_tail_file_unicode_error` → `test_tail_file_invalid_utf8_is_replaced`), added 8 new tests covering bounded tail and append-banner-rotate flow.
 
 No callers of `LOG_DIR` or `_tail_file` outside `core/process.py` and tests; the module-level alias preserves the historical patch target.
+
+## Amendment Notes
+
+**2026-06-10:** The deferred gap — lossy log-filename sanitization
+colliding distinct model names (#63, later re-reported as #146) — closed
+by PR #160: `log_stem_for` is now the single injective name→filename
+mint (sanitized stem + 8-hex SHA-256 of the exact canonical name).
+Old-scheme files orphan and age out; no dual-scheme parsing. ADR moved
+`accepted/` → `completed/`.
