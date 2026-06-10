@@ -22,6 +22,7 @@ import pytest
 from llauncher.core import audit_log as al
 from llauncher.core import lockfile as lf
 from llauncher.core import marker as mk
+from llauncher.core.process import log_stem_for
 
 
 pytestmark = pytest.mark.integration
@@ -48,8 +49,9 @@ async def test_start_server_happy_path_via_mcp(mcp_env, register_model, mcp_disp
         assert claim is not None and claim.model == "alpha"
 
         # Log file appears with the stub's fixture banner. ``start`` does
-        # not wait for readiness, so we poll briefly for the banner.
-        log_files = list(mcp_env["log_dir"].glob(f"alpha-{port}.log"))
+        # not wait for readiness, so we poll briefly for the banner. The
+        # filename comes from the one mint (core.process.log_stem_for).
+        log_files = list(mcp_env["log_dir"].glob(f"{log_stem_for('alpha')}-{port}.log"))
         assert log_files, "log file not created"
         deadline = time.monotonic() + 3.0
         content = ""

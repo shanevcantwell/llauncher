@@ -8,6 +8,7 @@ import psutil
 from llauncher.core.process import (
     find_available_port,
     build_command,
+    log_stem_for,
     start_server,
     stop_server_by_port,
     stop_server_by_pid,
@@ -933,8 +934,8 @@ class TestStartServerLogsLifecycle:
 
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
-        # Sanitized name for "test-model" is "test-model" (kept as-is).
-        existing_log = log_dir / "test-model-8081.log"
+        # Stem derived via the one mint (sanitized name + short hash).
+        existing_log = log_dir / f"{log_stem_for('test-model')}-8081.log"
         existing_log.write_text("previous run line 1\nprevious run line 2\n")
 
         with patch("llauncher.core.process.DEFAULT_SERVER_BINARY", mock_bin), \
@@ -961,7 +962,7 @@ class TestStartServerLogsLifecycle:
 
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
-        log_file = log_dir / "test-model-8081.log"
+        log_file = log_dir / f"{log_stem_for('test-model')}-8081.log"
         # Write 200 bytes of content; we'll cap rotation at 100 below so
         # this file gets rotated.
         log_file.write_text("X" * 200)
@@ -974,7 +975,7 @@ class TestStartServerLogsLifecycle:
             mock_popen.return_value = MagicMock()
             start_server(minimal_config, port=8081)
 
-        rotated = log_dir / "test-model-8081.log.1"
+        rotated = log_dir / f"{log_stem_for('test-model')}-8081.log.1"
         assert rotated.exists(), "rotation did not happen; .log.1 missing"
         assert rotated.read_text() == "X" * 200
         # New live log contains only the banner (no previous content).

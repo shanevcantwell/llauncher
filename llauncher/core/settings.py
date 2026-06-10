@@ -80,7 +80,8 @@ LAUNCHER_AUDIT_PATH = Path(os.getenv(
 ))
 
 # Per-server log directory (ADR-013). Files inside are
-# ``{name}-{port}.log`` plus rotated siblings ``{name}-{port}.log.{N}``.
+# ``{stem}-{port}.log`` plus rotated siblings ``{stem}-{port}.log.{N}``,
+# where ``stem`` is minted by ``core.process.log_stem_for`` (#63/#146).
 # Configurable via env so container deployments can volume-mount it the
 # same way as ``LAUNCHER_RUN_DIR`` and ``LAUNCHER_AUDIT_PATH``.
 LAUNCHER_LOG_DIR = Path(os.getenv(
