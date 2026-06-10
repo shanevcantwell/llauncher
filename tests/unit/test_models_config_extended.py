@@ -6,6 +6,9 @@ path validators.
 
 from __future__ import annotations
 
+import subprocess
+import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -16,6 +19,7 @@ from llauncher.models.config import (
     ChangeRules,
     AuditEntry,
     RunningServer,
+    _path_validation_disabled,
 )
 
 
@@ -26,10 +30,11 @@ from llauncher.models.config import (
 class TestModelConfigPathValidation:
     """Path-existence validator on ``ModelConfig.model_path``.
 
-    Issue #88(a) resolved the prior order-dependency: ``_skip_path_validation``
-    is now a ``ClassVar[bool]`` rather than a Pydantic field, so the validator
-    runs on first construction without requiring a prior call to
-    ``from_dict_unvalidated`` to prime the class attribute.
+    Issue #88 resolved the prior order-dependency: the skip flag is a
+    context-local ``ContextVar`` (entered via ``_path_validation_disabled``)
+    rather than a Pydantic private attr or mutable class attribute, so the
+    validator runs on first construction in a fresh process and concurrent
+    callers cannot observe each other's skip window.
     """
 
     def test_missing_path_raises(self, tmp_path: Path) -> None:
@@ -51,6 +56,80 @@ class TestModelConfigPathValidation:
         missing = tmp_path / "does-not-exist.gguf"  # no ``-of-`` shard marker
         with pytest.raises(ValueError, match="does not exist"):
             ModelConfig(name="m", model_path=str(missing))
+
+    def test_fresh_process_validates_missing_path(self, tmp_path: Path) -> None:
+        """Regression for issue #88(a): on a *fresh* interpreter — no prior
+        ``from_dict_unvalidated`` call in the process — constructing with a
+        missing ``model_path`` must raise.
+
+        Run in a subprocess because the bug was order-dependent: the old
+        PrivateAttr descriptor was truthy at the class level, so the very
+        first construction in a process silently skipped validation. In-suite
+        tests cannot prove the fresh-process behavior.
+        """
+        missing = tmp_path / "no-such-fresh.gguf"
+        script = (
+            "from llauncher.models.config import ModelConfig\n"
+            "try:\n"
+            f"    ModelConfig(name='m', model_path={str(missing)!r})\n"
+            "except ValueError as e:\n"
+            "    assert 'does not exist' in str(e), str(e)\n"
+            "else:\n"
+            "    raise SystemExit('validator silently skipped on fresh process')\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script], capture_output=True, text=True
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+
+    def test_skip_window_is_isolated_across_threads(self, tmp_path: Path) -> None:
+        """Issue #88(b): the skip flag is context-local, so another thread's
+        open skip window must not disable validation here.
+
+        Behavioral (not a stress test): the ``ContextVar`` mechanism makes
+        the old class-attribute race structurally impossible, so it suffices
+        to hold a skip window open in one thread and assert the main thread
+        still validates.
+        """
+        window_open = threading.Event()
+        release = threading.Event()
+        skipped_cfg: list[ModelConfig] = []
+
+        def hold_skip_window() -> None:
+            with _path_validation_disabled():
+                # Inside the window this thread may construct with a
+                # nonexistent path...
+                skipped_cfg.append(
+                    ModelConfig(name="m", model_path="/fake/elsewhere.gguf")
+                )
+                window_open.set()
+                release.wait(timeout=10)
+
+        t = threading.Thread(target=hold_skip_window)
+        t.start()
+        try:
+            assert window_open.wait(timeout=10)
+            # ...while the main thread, concurrently, still validates.
+            missing = tmp_path / "missing-while-window-open.gguf"
+            with pytest.raises(ValueError, match="does not exist"):
+                ModelConfig(name="m", model_path=str(missing))
+        finally:
+            release.set()
+            t.join(timeout=10)
+        assert skipped_cfg and skipped_cfg[0].model_path == "/fake/elsewhere.gguf"
+
+    def test_skip_window_restored_after_exception(self) -> None:
+        """The skip flag resets even when validation fails inside the window
+        (e.g. ``from_dict_unvalidated`` on data failing a *different*
+        validator), so later constructions validate normally."""
+        with pytest.raises(ValueError, match="llauncher-managed flag"):
+            ModelConfig.from_dict_unvalidated({
+                "name": "m",
+                "model_path": "/fake/path.gguf",
+                "extra_args": "--api-key sneaky",
+            })
+        with pytest.raises(ValueError, match="does not exist"):
+            ModelConfig(name="m", model_path="/fake/still-validated.gguf")
 
 
 # ---------------------------------------------------------------------------

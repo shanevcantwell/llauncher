@@ -7,14 +7,50 @@ is implemented in M1, vLLM follows in M6.
 """
 
 import shlex
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import ClassVar, Literal
+from typing import Iterator, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 from llauncher.core.settings import BLACKLISTED_PORTS as _ENV_BLACKLISTED_PORTS
+
+
+# Context-local skip flag for the ``model_path`` existence validator
+# (issue #88). A ``ContextVar`` instead of a class attribute for two
+# reasons:
+#
+# * Pydantic v2 turned the original underscore-prefixed class annotation
+#   into a ``ModelPrivateAttr`` descriptor — truthy at the class level —
+#   which silently no-op'd the validator on a fresh process (#88a).
+# * The replacement ``ClassVar`` toggle in ``from_dict_unvalidated`` was
+#   shared mutable state: one thread's ``finally``-reset could re-enable
+#   validation while another thread was mid-``model_validate`` (#88b).
+#
+# A ``ContextVar`` is local to the calling thread / async task, so the
+# race is structurally impossible: no construction can observe another
+# caller's skip window.
+_SKIP_PATH_VALIDATION: ContextVar[bool] = ContextVar(
+    "llauncher_skip_path_validation", default=False
+)
+
+
+@contextmanager
+def _path_validation_disabled() -> Iterator[None]:
+    """Disable ``ModelConfig.model_path`` existence checks in this context.
+
+    Scoped to the current thread / async task via ``ContextVar``; concurrent
+    callers outside the ``with`` block still validate normally. The token
+    reset in ``finally`` restores the *prior* value, so nesting is safe.
+    """
+    token = _SKIP_PATH_VALIDATION.set(True)
+    try:
+        yield
+    finally:
+        _SKIP_PATH_VALIDATION.reset(token)
 
 
 # Deny-list of llama-server flags llauncher manages at its own boundary
@@ -99,14 +135,6 @@ class ModelConfig(BaseModel):
     mlock: bool = False
     extra_args: str = ""
 
-    # ClassVar (not Pydantic field): underscore-prefixed annotations are
-    # treated as PrivateAttr descriptors by Pydantic v2, which made
-    # ``getattr(cls, "_skip_path_validation", False)`` truthy at the class
-    # level and silently no-op'd the validator on a fresh process. ClassVar
-    # makes this a plain Python class variable so the validator runs as
-    # intended on first construction (see issue #88).
-    _skip_path_validation: ClassVar[bool] = False
-
     @field_validator("extra_args", mode="before")
     @classmethod
     def extra_args_no_managed_flags(cls, v):
@@ -153,8 +181,14 @@ class ModelConfig(BaseModel):
     @field_validator("model_path", mode="before")
     @classmethod
     def model_exists(cls, v: str, info) -> str:
-        """Validate that the model path exists (supports shard patterns)."""
-        if getattr(cls, "_skip_path_validation", False):
+        """Validate that the model path exists (supports shard patterns).
+
+        Skipped inside a :func:`_path_validation_disabled` context (used by
+        :meth:`from_dict_unvalidated` for persisted configs whose files may
+        legitimately be absent on this host). The flag is context-local —
+        see the ``_SKIP_PATH_VALIDATION`` rationale (issue #88).
+        """
+        if _SKIP_PATH_VALIDATION.get():
             return v
 
         path = Path(v)
@@ -187,11 +221,8 @@ class ModelConfig(BaseModel):
         # Migrate extra_args from list[str] to str (legacy v1 shape).
         if "extra_args" in data and isinstance(data["extra_args"], list):
             data["extra_args"] = " ".join(data["extra_args"])
-        cls._skip_path_validation = True
-        try:
+        with _path_validation_disabled():
             return cls.model_validate(data)
-        finally:
-            cls._skip_path_validation = False
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
