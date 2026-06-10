@@ -324,6 +324,39 @@ class TestRemoteNode:
         assert result["success"] is True
 
     @patch("httpx.Client")
+    def test_stop_server_accepts_202_stopping(self, mock_client_class):
+        """Issue #140: the async-accept envelope (202/``stopping``) is success.
+
+        The agent acknowledges a live stop before the SIGTERM grace runs;
+        the client must report acceptance, not a timeout-shaped failure.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 202
+        mock_response.json = MagicMock(
+            return_value={
+                "success": True,
+                "action": "stopping",
+                "port": 8080,
+                "model": "test-model",
+            }
+        )
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.post = MagicMock(return_value=mock_response)
+
+        mock_client_class.return_value = mock_client
+
+        node = RemoteNode("test-node", "192.168.1.100", port=8765)
+        result = node.stop_server(8080)
+
+        assert result is not None
+        assert result["success"] is True
+        assert result["action"] == "stopping"
+        assert node.status == NodeStatus.ONLINE
+
+    @patch("httpx.Client")
     def test_stop_server_not_found(self, mock_client_class):
         """Test stop_server returns 404 error for missing server."""
         mock_response = MagicMock()

@@ -83,6 +83,11 @@ _INFO_ACTIONS: frozenset[str] = frozenset({
     "already_running",
     "already_empty",
     "not_found",
+    # Accepted-in-flight (issue #140): a remote agent acknowledged the
+    # stop with 202 and is terminating asynchronously. Informational —
+    # the tab's next status refresh shows the port emptied. Not SUCCESS:
+    # the ✅ icon would overclaim an outcome that hasn't landed yet.
+    "stopping",
 })
 
 _WARNING_ACTIONS: frozenset[str] = frozenset({

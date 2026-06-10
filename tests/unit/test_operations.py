@@ -365,6 +365,151 @@ def test_stop_when_termination_fails(run_dir: Path, audit_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# stop_in_background (issue #140)
+# ---------------------------------------------------------------------------
+#
+# Timing discipline: no real grace-period sleeps. The "slow shutdown" is a
+# threading.Event the test controls; every wait is bounded so a regression
+# fails fast instead of hanging the suite.
+
+
+def test_stop_in_background_returns_while_termination_pending(
+    run_dir: Path, audit_path: Path
+) -> None:
+    """Caller-side success on a slow-but-successful shutdown (issue #140).
+
+    The call must return ``stopping`` immediately while the (held-open)
+    termination is still in flight, then complete the durable effects —
+    lockfile removal + STOPPED/SUCCESS audit — once the grace resolves.
+    """
+    import os
+    import threading
+
+    lf.write_lockfile(8081, "mistral-7b", os.getpid(), run_dir=run_dir)
+
+    release = threading.Event()
+    calls: list[int] = []
+
+    def slow_terminate(port, **kwargs):
+        calls.append(port)
+        release.wait(timeout=10)  # simulated SIGTERM grace, bounded
+        return True
+
+    with patch("llauncher.operations.proc.stop_server_by_port", slow_terminate):
+        result = ops.stop_in_background(8081, caller="test")
+
+        # Returned before the termination resolved.
+        assert result.success is True
+        assert result.action == "stopping"
+        assert result.model == "mistral-7b"
+        assert result.pid == os.getpid()
+        # Pending: claim still on disk, no audit yet.
+        assert lf.read_lockfile(8081, run_dir=run_dir) is not None
+        assert al.read_entries(path=audit_path) == []
+
+        release.set()
+        assert ops.wait_for_stop(8081, timeout=10) is True
+
+    # Durable effects landed on the background thread.
+    assert calls == [8081]
+    assert lf.read_lockfile(8081, run_dir=run_dir) is None
+    entries = al.read_entries(path=audit_path)
+    assert len(entries) == 1
+    assert entries[0].action == AuditAction.STOPPED
+    assert entries[0].result == AuditResult.SUCCESS
+    assert entries[0].model == "mistral-7b"
+
+
+def test_stop_in_background_repeat_request_is_deduped(
+    run_dir: Path, audit_path: Path
+) -> None:
+    """A second stop while one is in flight: ``stopping``, no second kill."""
+    import os
+    import threading
+
+    lf.write_lockfile(8081, "mistral-7b", os.getpid(), run_dir=run_dir)
+
+    release = threading.Event()
+    calls: list[int] = []
+
+    def slow_terminate(port, **kwargs):
+        calls.append(port)
+        release.wait(timeout=10)
+        return True
+
+    with patch("llauncher.operations.proc.stop_server_by_port", slow_terminate):
+        first = ops.stop_in_background(8081, caller="test")
+        second = ops.stop_in_background(8081, caller="test")
+
+        assert first.action == "stopping"
+        assert second.action == "stopping"
+        assert second.success is True
+        assert "in progress" in second.message
+
+        release.set()
+        assert ops.wait_for_stop(8081, timeout=10) is True
+
+    # Exactly one termination despite two accepted requests.
+    assert calls == [8081]
+
+
+def test_stop_in_background_empty_port_is_synchronous(
+    run_dir: Path, audit_path: Path
+) -> None:
+    """Empty port short-circuits synchronously — identical to ``stop``."""
+    result = ops.stop_in_background(8081, caller="test")
+
+    assert result.success is True
+    assert result.action == "already_empty"
+    assert ops.wait_for_stop(8081, timeout=0) is True  # nothing in flight
+    assert al.read_entries(path=audit_path) == []
+
+
+def test_stop_in_background_stale_lockfile_cleaned_synchronously(
+    run_dir: Path, audit_path: Path
+) -> None:
+    """Stale claim (dead pid) reconciles inline, no thread, no kill."""
+    lf.write_lockfile(8081, "ghost", 2**31 - 1, run_dir=run_dir)
+
+    with patch("llauncher.operations.proc.stop_server_by_port") as stop_proc:
+        result = ops.stop_in_background(8081, caller="test")
+
+    assert result.success is True
+    assert result.action == "already_empty"
+    assert result.model == "ghost"
+    stop_proc.assert_not_called()
+    assert lf.read_lockfile(8081, run_dir=run_dir) is None
+
+    entries = al.read_entries(path=audit_path)
+    assert len(entries) == 1
+    assert entries[0].action == AuditAction.OBSERVED_STOPPED
+
+
+def test_stop_in_background_termination_failure_audited(
+    run_dir: Path, audit_path: Path
+) -> None:
+    """Async failure is observable: STOPPED/ERROR audit, lockfile retained."""
+    import os
+
+    lf.write_lockfile(8081, "mistral-7b", os.getpid(), run_dir=run_dir)
+
+    with patch(
+        "llauncher.operations.proc.stop_server_by_port", return_value=False
+    ):
+        result = ops.stop_in_background(8081, caller="test")
+        # The 202-shaped acceptance happens before the failure is known.
+        assert result.action == "stopping"
+        assert ops.wait_for_stop(8081, timeout=10) is True
+
+    # Lockfile NOT removed on error — operator may need to investigate.
+    assert lf.read_lockfile(8081, run_dir=run_dir) is not None
+    entries = al.read_entries(path=audit_path)
+    assert len(entries) == 1
+    assert entries[0].action == AuditAction.STOPPED
+    assert entries[0].result == AuditResult.ERROR
+
+
+# ---------------------------------------------------------------------------
 # Result serialization
 # ---------------------------------------------------------------------------
 

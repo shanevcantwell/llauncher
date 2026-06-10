@@ -371,6 +371,18 @@ class RemoteNode:
     def stop_server(self, port: int) -> dict | None:
         """Stop a server on this node.
 
+        Issue #140 timeout contract: the agent's ``POST /stop/{port}``
+        acknowledges a live process with **202** and
+        ``action="stopping"`` and terminates it asynchronously, so this
+        call returns well inside ``self.timeout`` even when the
+        llama-server needs the full SIGTERM grace to unload. Callers
+        treat ``stopping`` as accepted-success and observe completion
+        through the next status refresh. The self-loop path keeps the
+        *synchronous* ``ops.stop`` on purpose: there is no transport
+        timeout in-process, the blocking call returns the definitive
+        outcome, and a short-lived caller (CLI) must not exit while a
+        background termination is still mid-grace.
+
         Args:
             port: Port of the server to stop.
 
@@ -389,7 +401,9 @@ class RemoteNode:
                     f"{self.base_url}/stop/{port}",
                     headers=self._get_headers(),
                 )
-                if response.status_code == 200:
+                # 200 (already_empty / legacy stopped) and 202
+                # (stopping, issue #140) are both success envelopes.
+                if response.status_code in (200, 202):
                     self.status = NodeStatus.ONLINE
                     self.last_seen = datetime.now()
                     return response.json()

@@ -100,6 +100,17 @@ LAUNCHER_LOG_MAX_BYTES = int(os.getenv(
 # ``foo-8081.log`` plus ``foo-8081.log.{1,2,3}``.
 LAUNCHER_LOG_KEEP = int(os.getenv("LAUNCHER_LOG_KEEP", "3"))
 
+# Graceful-shutdown grace periods for terminating a llama-server
+# (issue #140). ``core.process.stop_server_by_pid`` sends SIGTERM and
+# waits up to LAUNCHER_STOP_CHILD_GRACE_S for the process's children,
+# then up to LAUNCHER_STOP_GRACE_S for the main process, before
+# escalating to SIGKILL. Worst-case blocking time for a synchronous
+# stop is the sum (~8 s at the defaults). Env-tunable so deployments
+# with slow GPU unloads can lengthen the grace and test profiles can
+# shorten it without real-time sleeps.
+LAUNCHER_STOP_CHILD_GRACE_S = float(os.getenv("LAUNCHER_STOP_CHILD_GRACE_S", "3.0"))
+LAUNCHER_STOP_GRACE_S = float(os.getenv("LAUNCHER_STOP_GRACE_S", "5.0"))
+
 # TTL in seconds for the ``/footer-context/{port}`` per-port cache
 # (ADR-012). Default 1.0 absorbs footer poll cadence (multiple
 # redraws per second collapse into one lockfile + ConfigStore read).
