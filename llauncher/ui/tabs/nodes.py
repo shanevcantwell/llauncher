@@ -187,6 +187,16 @@ def render_add_node_form(registry: NodeRegistry) -> None:
     Args:
         registry: NodeRegistry instance.
     """
+    # Phase 0 provisioning banner (#134): the manual token-copy flow is
+    # the *current* path; trusted-host session-token issuance (ADR-017
+    # draft, #135) is the planned successor in v0.4.0.
+    st.info(
+        "Adding a remote node currently requires copying the remote "
+        "agent's API token by hand — see README § \"Adding a remote "
+        "node\". Trusted-host session-token issuance (ADR-017, #135) "
+        "will eliminate this step in v0.4.0."
+    )
+
     with st.form("add_node_form", clear_on_submit=True):
         node_name = st.text_input(
             "Node Name",
@@ -218,8 +228,10 @@ def render_add_node_form(registry: NodeRegistry) -> None:
             "API Key",
             type="password",
             help=(
-                "Token from the remote agent's LLAUNCHER_AGENT_TOKEN / "
-                "agent.token. Required for non-loopback agents (per ADR-003). "
+                "On the remote box, run `cat ~/.llauncher/agent.token` "
+                "(Linux) or `Get-Content $env:USERPROFILE\\.llauncher"
+                "\\agent.token` (Windows) and paste the value here. "
+                "Required for non-loopback agents (per ADR-003). "
                 "Leave blank for unauthenticated loopback agents."
             ),
         )

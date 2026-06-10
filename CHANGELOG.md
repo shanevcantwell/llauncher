@@ -6,6 +6,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 
 ## [Unreleased]
 
+### Documentation
+
+- **UI auth restored end-to-end after the security-hardening cohort
+  (#131, #132, #134).** Phase 0 of the cross-node auth provisioning
+  roadmap (#137): the manual token-copy pairing flow is now documented
+  — README "Adding a remote node" walkthrough with per-platform token
+  paths, platform-specific Add Node form help text, and an info banner
+  pointing at the planned trusted-host successor (ADR-017 draft, #135).
+  Docs are explicit that the static token is a trusted-LAN convenience,
+  not strong auth.
+
 ### Breaking changes
 
 - **Agent env-var family renamed (#138).** The four service-facing agent

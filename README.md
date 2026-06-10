@@ -447,15 +447,71 @@ The dashboard will automatically:
 
 #### 4. Add Remote Nodes
 
-In the dashboard:
-1. Go to the **Nodes** tab
-2. Click **➕ Add New Node**
-3. Enter:
+Follow the walkthrough in [Adding a remote node](#adding-a-remote-node)
+below — it includes the manual token-copy step that pairing currently
+requires.
+
+### Adding a remote node
+
+Pairing the dashboard with a remote agent currently requires copying the
+remote agent's API token by hand. This is the documented current path
+(Phase 0 of the provisioning roadmap, #137); trusted-host session-token
+issuance (ADR-017, draft at `docs/adrs/draft/017-session-token-issuance.md`,
+issue #135) is the planned successor in v0.4.0 and will eliminate the
+copy step. These docs describe what ships today.
+
+**Where the token lives on the remote box:**
+
+- **Linux**: `~/.llauncher/agent.token` — mirrored from
+  `~/.config/llauncher/agent.env` (`$XDG_CONFIG_HOME/llauncher/agent.env`
+  if set) by `scripts/systemd/install.sh`.
+- **Windows**: `%USERPROFILE%\.llauncher\agent.token` — mirrored from
+  `%USERPROFILE%\.llauncher\agent.env` by `scripts/windows/install.ps1`.
+
+If you start the agent by hand instead of via an installer, the token is
+whatever you set in `LLAUNCHER_AGENT_TOKEN` (required for any
+non-loopback bind — the agent refuses to start without it).
+
+**Step by step:**
+
+1. SSH (Linux) or RDP/PowerShell-remote (Windows) to the remote box and
+   print the token:
+
+   ```bash
+   # Linux
+   cat ~/.llauncher/agent.token
+   ```
+
+   ```powershell
+   # Windows
+   Get-Content $env:USERPROFILE\.llauncher\agent.token
+   ```
+
+2. Copy the printed value.
+3. On the dashboard machine, go to the **Nodes** tab and open
+   **➕ Add New Node**.
+4. Enter:
    - **Node Name**: Friendly name (e.g., `linux-box`, `windows-server`)
    - **Host**: IP address or hostname (e.g., `192.168.1.100`)
    - **Port**: Agent port (default: `8765`)
-4. Click **🔍 Test Connection** to verify
-5. Click **➕ Add Node** to register
+   - **API Key**: paste the token from step 2
+5. Click **🔍 Test Connection** to verify
+6. Click **➕ Add Node** to register
+
+**Rotating a token later:** update it on *both* sides — change
+`LLAUNCHER_AGENT_TOKEN` in the remote's `agent.env`, re-run the installer
+(or re-mirror the token file) and restart the agent, then paste the new
+value into the node's **🔑 Edit API key** expander on the Nodes tab.
+
+**Threat-model honesty (trusted LAN only):** the static token is a shared
+secret sent as an `X-Api-Key` header over plain HTTP — no TLS, no mutual
+authentication. Anyone who can sniff the LAN segment can read it, and
+anyone who has it can do anything the agent can do. It gates accidental
+access on a network where every host is already trusted; it is **not**
+strong auth. Only expose agents on networks you trust end-to-end
+(Tailscale or another WireGuard-class overlay is the recommended way to
+get cross-host trust). TLS/mTLS for hostile networks is tracked
+separately (#86).
 
 ### Network Configuration
 
