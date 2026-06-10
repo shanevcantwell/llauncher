@@ -5,8 +5,8 @@ state of the decision**, not the maturity of the ADR document itself.
 
 | Folder | Meaning | Count |
 |--------|---------|-------|
-| [`completed/`](./completed/) | Accepted; implementation done; no open issues tracking gaps against the ADR | 10 |
-| [`accepted/`](./accepted/) | Accepted; known partial implementation tracked as open issues, or scope explicitly deferred in the ADR's own §Deferred Work | 5 |
+| [`completed/`](./completed/) | Accepted; implementation done; no open issues tracking gaps against the ADR | 11 |
+| [`accepted/`](./accepted/) | Accepted; known partial implementation tracked as open issues, or scope explicitly deferred in the ADR's own §Deferred Work | 4 |
 | [`superseded/`](./superseded/) | Replaced by a later ADR; preserved as historical record | 1 |
 | [`draft/`](./draft/) | Not yet ratified | 1 |
 
@@ -27,6 +27,7 @@ Folder placement and in-document Status are kept in sync.
 - [ADR-010 — Port Ownership at the Call Site](./completed/010-port-ownership-at-call-site.md)
 - [ADR-011 — Swap Semantics v2](./completed/011-swap-semantics-v2.md)
 - [ADR-012 — Footer Context Endpoint — Minimal Payload, Short TTL Cache](./completed/012-footer-context-endpoint.md)
+- [ADR-013 — Per-Server Log Lifecycle (Append, Rotate, Bounded Tail)](./completed/013-logs-lifecycle.md)
 - [ADR-014 — Cancellation of In-Flight Start/Swap](./completed/014-cancellation.md)
 - [ADR-016 — Canonical Self-Swap — Worked Example and Integration Test](./completed/016-canonical-self-swap.md)
 
@@ -35,7 +36,6 @@ Folder placement and in-document Status are kept in sync.
 - [ADR-004 — CLI Subcommand Interface](./accepted/004-cli-subcommand-interface.md) — `swap`, `logs` subcommands deferred
 - [ADR-006 — GPU Resource Monitoring and VRAM Tracking](./accepted/006-gpu-resource-monitoring.md) — `?full=true` filter + ROCm/MPS backends deferred; tracking #44
 - [ADR-008 — LauncherState as Stateless Facade](./accepted/008-launcher-state-stateless-facade.md) — `state._start_with_eviction_impl` retained for eviction-API smoke contract; M5/M6 cleanup pending
-- [ADR-013 — Per-Server Log Lifecycle (Append, Rotate, Bounded Tail)](./accepted/013-logs-lifecycle.md) — log filename sanitization tracked in #63
 - [ADR-015 — Orphan Policy (Annotation and Listing)](./accepted/015-orphan-policy.md) — `adopt` verb deferred per §Deferred Work
 
 ### Draft
