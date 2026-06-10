@@ -1,0 +1,63 @@
+# llauncher — agent instructions
+
+**Constitutions, by reference** (read before structural work; cite handles in
+PRs and commits):
+
+- `~/github/shanevcantwell/design-docs/ecosystem-ground-physics/CODE_CONSTITUTION.md`
+  — ecosystem rules. The *why* is in `GROUND_PHYSICS.md` beside it; the
+  alignment plan in `ALIGNMENT_ROADMAP.md`.
+- `.claude/architecture.md` — layer map and forbidden import edges.
+
+## llauncher's position in the ecosystem physics
+
+- **llauncher is the mint** (`ONE-MINT`): `ModelConfig.name` is the single
+  authority for local-model identity across the ecosystem. Everything else —
+  port, adapter, log filename, process title, sanitized string — is an
+  *envelope*. Envelope defects (e.g. log-filename sanitization collisions,
+  #146/#63) are fixed in envelope space, never by bending the name.
+- **Keystone obligation** (`EMIT-CANONICAL`): the wire must report the
+  canonical name — `--alias = <ModelConfig.name>` at server start so
+  `/v1/models` emits it (#120; parked in `DENIED_EXTRA_ARG_FLAGS` pending
+  #87/#10). Until this lands, every downstream re-stringification dialect in
+  the ecosystem is llauncher's externalized debt
+  (`ALIGNMENT_ROADMAP.md` Phase 1 — the single highest-leverage fix).
+
+## Local rule: no backwards-compatibility shims
+
+Pre-1.0, single operator, every consumer in-ecosystem. When a persisted shape
+changes, **migrate deterministically at the door, once** (rewrite in place),
+or **fail loud**. Never dual-parse two shapes of the same artifact; never
+trust-and-degrade on an unrecognized one (`PARSE-AT-THE-DOOR`).
+
+- Observed anchors (no invariant without a violation): ADR-003's original
+  opt-in-auth compat posture, removed by the security cohort (PR #75/#87);
+  ADR-017 first draft's bare-string `node_tokens.json` dual-parse, caught in
+  review 2026-06-10.
+- Enforcement surface: PR review — a diff that parses two shapes of one
+  artifact, or justifies itself as "backcompat" for a persisted format, fails
+  review. Prose-backed until a CI gate exists; treat as provisional per
+  `CODE_CONSTITUTION.md` §Use.
+- Not a shim, unaffected: default-off / opt-in *feature* posture
+  (security stance, ADR-003 / ADR-017).
+
+## Autonomy contract (operator-ratified 2026-06-10)
+
+- **Tier labels** are the standing dispatch contract:
+  `auto:fix` — agent end-to-end: branch → fix + tests profiled against the
+  changed behavior → gates → PR → merge on green after a dispatched review.
+  `auto:draft` — agent produces the artifact (ADR, design, schema); operator
+  ratifies before implementation begins.
+  `user:gate` — operator hands or hardware required.
+- **Gates before any merge:** full pytest; non-UI coverage ≥93%
+  (`--cov-fail-under=93`); coverage profile maximized over changed paths;
+  dispatched code review.
+- **Runtime verification:** the live GPU runtime may be driven freely
+  (start/stop/swap real servers), including alongside the resident
+  :8081/:8082 services.
+- **Issue hygiene:** full agent authority — label, milestone, acceptance
+  criteria, follow-up filing, close-on-merge.
+- **The bounce rule:** an `auto:fix` that uncovers a design decision mid-fix
+  surfaces it as a named signal and bounces to `auto:draft` — never absorbs
+  it silently.
+- **Parked:** Windows-deployment quartet (#127/#128/#130/#132) until the
+  operator next touches the Windows box.
