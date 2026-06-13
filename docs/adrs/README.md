@@ -8,7 +8,7 @@ state of the decision**, not the maturity of the ADR document itself.
 | [`completed/`](./completed/) | Accepted; implementation done; no open issues tracking gaps against the ADR | 11 |
 | [`accepted/`](./accepted/) | Accepted; known partial implementation tracked as open issues, or scope explicitly deferred in the ADR's own §Deferred Work | 4 |
 | [`superseded/`](./superseded/) | Replaced by a later ADR; preserved as historical record | 1 |
-| [`draft/`](./draft/) | Not yet ratified | 1 |
+| [`draft/`](./draft/) | Not yet ratified | 2 |
 
 ADR statuses inside the documents themselves follow the canon laid out
 in `docs/v2-handoff.md` §Conventions:
@@ -41,6 +41,7 @@ Folder placement and in-document Status are kept in sync.
 ### Draft
 
 - [ADR-017 — Trusted-Host Session-Token Issuance (Design B)](./draft/017-session-token-issuance.md) — Phase 1 of the provisioning roadmap (#135 / #137); supersedes the static-token-only framing of ADR-003 on ratification
+- [ADR-018 — Coverage Governance — Exercised Code with an Audited Deferral Ledger](./draft/018-coverage-governance.md) — realizes `CHANGED-PATH-COVERED` (`docs/conformance.md`, #156); `branch`+`fail_under=100` with strict-`xfail` deferral and `AppTest`-exercised UI; supersedes the 93%-floor decision on ratification
 
 ### Superseded
 
