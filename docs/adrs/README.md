@@ -6,7 +6,7 @@ state of the decision**, not the maturity of the ADR document itself.
 | Folder | Meaning | Count |
 |--------|---------|-------|
 | [`completed/`](./completed/) | Accepted; implementation done; no open issues tracking gaps against the ADR | 11 |
-| [`accepted/`](./accepted/) | Accepted; known partial implementation tracked as open issues, or scope explicitly deferred in the ADR's own §Deferred Work | 4 |
+| [`accepted/`](./accepted/) | Accepted; known partial implementation tracked as open issues, or scope explicitly deferred in the ADR's own §Deferred Work | 5 |
 | [`superseded/`](./superseded/) | Replaced by a later ADR; preserved as historical record | 1 |
 | [`draft/`](./draft/) | Not yet ratified | 1 |
 
@@ -37,6 +37,7 @@ Folder placement and in-document Status are kept in sync.
 - [ADR-006 — GPU Resource Monitoring and VRAM Tracking](./accepted/006-gpu-resource-monitoring.md) — `?full=true` filter + ROCm/MPS backends deferred; tracking #44
 - [ADR-008 — LauncherState as Stateless Facade](./accepted/008-launcher-state-stateless-facade.md) — `state._start_with_eviction_impl` retained for eviction-API smoke contract; M5/M6 cleanup pending
 - [ADR-015 — Orphan Policy (Annotation and Listing)](./accepted/015-orphan-policy.md) — `adopt` verb deferred per §Deferred Work
+- [ADR-019 — Server-Metrics Surface (Live In-Server Inference Telemetry)](./accepted/019-server-metrics-surface.md) — ratified; implementation not yet begun; deferred scope tracked #174/#175/#176
 
 ### Draft
 
