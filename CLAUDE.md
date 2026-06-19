@@ -15,12 +15,16 @@ PRs and commits):
   port, adapter, log filename, process title, sanitized string — is an
   *envelope*. Envelope defects (e.g. log-filename sanitization collisions,
   #146/#63) are fixed in envelope space, never by bending the name.
-- **Keystone obligation** (`EMIT-CANONICAL`): the wire must report the
-  canonical name — `--alias = <ModelConfig.name>` at server start so
-  `/v1/models` emits it (#120; parked in `DENIED_EXTRA_ARG_FLAGS` pending
-  #87/#10). Until this lands, every downstream re-stringification dialect in
-  the ecosystem is llauncher's externalized debt
-  (`ALIGNMENT_ROADMAP.md` Phase 1 — the single highest-leverage fix).
+- **Keystone obligation** (`EMIT-CANONICAL`) — **satisfied**: the wire reports
+  the canonical name. llauncher starts every server with
+  `--alias = <ModelConfig.name>` (`core/process.py::build_command`) and keeps
+  `--alias` on `DENIED_EXTRA_ARG_FLAGS` so no config can override the minted
+  identity (#120/#87/#10, all closed). Verified live 2026-06-19: the resident
+  embedding server reports `embeddinggemma-300M-F32-pooled` on `/v1/models` —
+  a canonical name, not a path/port-derived string. This was the ecosystem's
+  highest-leverage fix (`ALIGNMENT_ROADMAP.md` Phase 1); with it landed,
+  downstream re-stringification dialects no longer have llauncher debt as their
+  excuse. Audited conformance: `docs/ARCHITECTURE.md` rule 5.
 
 ## Local rule: no backwards-compatibility shims
 
