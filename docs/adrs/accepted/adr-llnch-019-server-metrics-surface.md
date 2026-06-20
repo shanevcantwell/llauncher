@@ -1,9 +1,9 @@
-# ADR-019: Server-Metrics Surface — Live In-Server Inference Telemetry
+# ADR-LLNCH-019: Server-Metrics Surface — Live In-Server Inference Telemetry
 
 **Status:** Accepted (ratified 2026-06-19; implementation not yet begun)
 **Date:** 2026-06-19
 **Relationship to other ADRs:**
-- **ADR-012 (Footer Context Endpoint)** is the *static* sibling: it serves model/ctx_size/parallel from the lockfile + ConfigStore and **deliberately never contacts the live server**. ADR-019 supplies the *live* telemetry ADR-012 explicitly excludes. They **compose** — static context + live activity = the full footer view. ADR-019 does not modify ADR-012's pinned `/footer-context/{port}` contract.
+- **ADR-012 (Footer Context Endpoint)** is the *static* sibling: it serves model/ctx_size/parallel from the lockfile + ConfigStore and **deliberately never contacts the live server**. ADR-LLNCH-019 supplies the *live* telemetry ADR-012 explicitly excludes. They **compose** — static context + live activity = the full footer view. ADR-LLNCH-019 does not modify ADR-012's pinned `/footer-context/{port}` contract.
 - **ADR-006 (GPU Resource Monitoring)** is the collector-pattern precedent: `core/server_metrics.py` is a peer to `core/gpu.py` (stateless collector, short TTL cache, degraded envelope, injectable backend seam).
 - **ADR-003 (Agent API Authentication)** governs the sensitive endpoint's auth (matches `/status`, no exemption).
 - **ADR-009 (Hub/Spoke)** — fleet aggregation is the `remote`/UI path, not MCP. **ADR-010** — endpoints are port-keyed.
@@ -73,7 +73,7 @@ Each snapshot is stamped with the canonical `ModelConfig.name` (EMIT-CANONICAL �
 
 ### 8. Composition with ADR-012
 
-The footer's full view = ADR-012 `/footer-context/{port}` (model, ctx_size, parallel — static) **+** ADR-019 `/server-metrics/{port}` (phase, tok/s — live). Two cheap, pinned, port-keyed endpoints on the same agent; the consumer composes them.
+The footer's full view = ADR-012 `/footer-context/{port}` (model, ctx_size, parallel — static) **+** ADR-LLNCH-019 `/server-metrics/{port}` (phase, tok/s — live). Two cheap, pinned, port-keyed endpoints on the same agent; the consumer composes them.
 
 ## What this ADR does NOT cover (scope)
 
@@ -123,7 +123,7 @@ Each shortcut ships the simple path, stubs the extensible shape, carries an in-c
 
 | ADR / decision | Relationship |
 |---|---|
-| ADR-012 footer-context | static sibling; ADR-019 adds the live telemetry it excludes; composes; does not alter its pinned contract |
+| ADR-012 footer-context | static sibling; ADR-LLNCH-019 adds the live telemetry it excludes; composes; does not alter its pinned contract |
 | ADR-006 gpu monitoring | collector pattern (`core/server_metrics.py` ⟷ `core/gpu.py`) |
 | ADR-003 agent auth | governs the sensitive slot endpoint |
 | ADR-009 hub/spoke | fleet path is remote/UI, not MCP |

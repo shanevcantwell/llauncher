@@ -37,11 +37,15 @@ Folder placement and in-document Status are kept in sync.
 - [ADR-006 — GPU Resource Monitoring and VRAM Tracking](./accepted/006-gpu-resource-monitoring.md) — `?full=true` filter + ROCm/MPS backends deferred; tracking #44
 - [ADR-008 — LauncherState as Stateless Facade](./accepted/008-launcher-state-stateless-facade.md) — `state._start_with_eviction_impl` retained for eviction-API smoke contract; M5/M6 cleanup pending
 - [ADR-015 — Orphan Policy (Annotation and Listing)](./accepted/015-orphan-policy.md) — `adopt` verb deferred per §Deferred Work
-- [ADR-019 — Server-Metrics Surface (Live In-Server Inference Telemetry)](./accepted/019-server-metrics-surface.md) — ratified; implementation not yet begun; deferred scope tracked #174/#175/#176
+- [ADR-LLNCH-019 — Server-Metrics Surface (Live In-Server Inference Telemetry)](./accepted/adr-llnch-019-server-metrics-surface.md) — ratified; implementation not yet begun; deferred scope tracked #174/#175/#176
 
 ### Draft
 
 - [ADR-017 — Trusted-Host Session-Token Issuance (Design B)](./draft/017-session-token-issuance.md) — Phase 1 of the provisioning roadmap (#135 / #137); supersedes the static-token-only framing of ADR-003 on ratification
+
+### Pending (unmerged branch)
+
+- **ADR-LLNCH-021 — Progress-Snapshot Operation** — drafted on branch `docs/adr-019-progress-snapshot` as `019`; **renumbered to `021`** to resolve the `019` collision with the accepted Server-Metrics Surface ADR (a distinct decision, not subsumed). `020` is earmarked for the deferred Streamlit monitor (#176). Apply the rename when the branch lands.
 
 ### Superseded
 
