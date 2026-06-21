@@ -184,4 +184,4 @@ def render_audit_tab(
     import pandas as pd
 
     df = pd.DataFrame(rows, columns=_DISPLAY_COLUMNS)
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(df, width='stretch', hide_index=True)
