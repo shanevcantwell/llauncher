@@ -43,7 +43,7 @@ def render_node_list(registry: NodeRegistry, aggregator) -> None:
     # Refresh button
     col1, col2 = st.columns([1, 3])
     with col1:
-        if st.button("🔄 Refresh All", use_container_width=True, key="refresh_all_nodes"):
+        if st.button("🔄 Refresh All", width='stretch', key="refresh_all_nodes"):
             registry.refresh_all()
             st.toast("Refreshed all nodes", icon="🔄")
             st.rerun()
@@ -121,7 +121,7 @@ def render_node_list(registry: NodeRegistry, aggregator) -> None:
                     )
                     if st.button(
                         "💾 Save token",
-                        use_container_width=True,
+                        width='stretch',
                         key=f"save_key_{node.name}",
                     ):
                         # overwrite=True with all existing fields preserved.
@@ -147,7 +147,7 @@ def render_node_list(registry: NodeRegistry, aggregator) -> None:
             with action_col1:
                 if st.button(
                     "🔍 Test Connection",
-                    use_container_width=True,
+                    width='stretch',
                     key=f"test_{node.name}",
                 ):
                     result = node.ping()
@@ -170,7 +170,7 @@ def render_node_list(registry: NodeRegistry, aggregator) -> None:
                 else:
                     if st.button(
                         "🗑️ Remove Node",
-                        use_container_width=True,
+                        width='stretch',
                         key=f"remove_{node.name}",
                     ):
                         success, message = registry.remove_node(node.name)
@@ -229,13 +229,13 @@ def render_add_node_form(registry: NodeRegistry) -> None:
         with test_col:
             test_clicked = st.form_submit_button(
                 "🔍 Test Connection",
-                use_container_width=True,
+                width='stretch',
                 type="secondary",
             )
         with submit_col:
             submit_clicked = st.form_submit_button(
                 "➕ Add Node",
-                use_container_width=True,
+                width='stretch',
                 type="primary",
             )
 

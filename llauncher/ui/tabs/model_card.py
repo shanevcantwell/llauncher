@@ -49,7 +49,7 @@ def render_model_card(
                 status_icon,
                 key=f"toggle_stop_{node_name}_{model_name}",
                 help=f"Stop {model_name}",
-                use_container_width=True,
+                width='stretch',
             ):
                 _handle_stop(state, aggregator, node_name, running_server.port)
         else:
@@ -93,7 +93,7 @@ def _render_start_button(
                 status_icon,
                 key=f"toggle_start_{node_name}_{model_name}",
                 help="Model config not found",
-                use_container_width=True,
+                width='stretch',
                 disabled=True,
             )
             return
@@ -111,7 +111,7 @@ def _render_start_button(
         status_icon,
         key=f"toggle_start_{node_name}_{model_name}",
         help=f"Start {model_name}",
-        use_container_width=True,
+        width='stretch',
         disabled=chosen_port is None,
     ):
         if chosen_port is None:
@@ -154,14 +154,14 @@ def _render_eviction_dialog(
         if st.button(
             "Cancel",
             key=f"evict_cancel_{node_name}_{port}_{model_name}",
-            use_container_width=True,
+            width='stretch',
         ):
             st.rerun()
     with col2:
         if st.button(
             "Confirm Eviction",
             key=f"evict_confirm_{node_name}_{port}_{model_name}",
-            use_container_width=True,
+            width='stretch',
             type="primary",
         ):
             # v2 ops migration (issue #57): route eviction through
@@ -264,11 +264,11 @@ def _render_model_details(
     # Edit button (only for stopped models on local)
     st.divider()
     if not running_server and node_name == "local":
-        if st.button("✏️ Edit", use_container_width=True, key=f"edit_{node_name}_{model_name}_enabled"):
+        if st.button("✏️ Edit", width='stretch', key=f"edit_{node_name}_{model_name}_enabled"):
             st.session_state[f"editing_{model_name}"] = True
             st.rerun()
     elif not running_server:
-        st.button("✏️ Edit", use_container_width=True, key=f"edit_{node_name}_{model_name}_disabled", disabled=True)
+        st.button("✏️ Edit", width='stretch', key=f"edit_{node_name}_{model_name}_disabled", disabled=True)
         st.caption("Remote model editing not yet supported")
 
 

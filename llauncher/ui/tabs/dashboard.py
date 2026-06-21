@@ -142,7 +142,7 @@ def render_dashboard(
         # (Streamlit ships pandas, so this is belt-and-suspenders.)
         import pandas as pd
 
-        st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width='stretch')
 
     # ── Configured-but-stopped models ───────────────────────────
     running_names = {s.config_name for s in servers}
@@ -165,4 +165,4 @@ def render_dashboard(
     ]
     import pandas as pd
 
-    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width='stretch')

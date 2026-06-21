@@ -109,7 +109,7 @@ def render_add_model(state: LauncherState) -> None:
                 help="Additional command-line arguments (e.g., '--mcp-config /path/to/file.json')",
             )
 
-        submitted = st.form_submit_button("Add Model", use_container_width=True)
+        submitted = st.form_submit_button("Add Model", width='stretch')
 
         if submitted:
             _process_add_model(state, name, model_path, mmproj_path,
@@ -338,9 +338,9 @@ def render_edit_model(state: LauncherState, model_name: str | None = None) -> No
 
         col_submit, col_cancel = st.columns(2)
         with col_submit:
-            submitted = st.form_submit_button("Save Changes", use_container_width=True)
+            submitted = st.form_submit_button("Save Changes", width='stretch')
         with col_cancel:
-            cancel_clicked = st.form_submit_button("Cancel", use_container_width=True)
+            cancel_clicked = st.form_submit_button("Cancel", width='stretch')
 
         if cancel_clicked:
             del st.session_state[f"editing_{model_name}"]
