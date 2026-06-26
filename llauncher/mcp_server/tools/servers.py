@@ -17,8 +17,30 @@ from __future__ import annotations
 from mcp import Tool
 
 from llauncher import operations as ops
+from llauncher.core import delegation
 from llauncher.core.process import stream_logs
+from llauncher.remote.node import local_agent_node
 from llauncher.state import LauncherState
+
+
+def _delegated_or_error(result: dict | None, verb: str, port: int) -> dict:
+    """Normalize a delegated verb result, guarding the ``dict | None`` seam.
+
+    ``RemoteNode`` verb methods are typed ``dict | None``: a 200 with a
+    JSON-null body yields Python ``None``. The MCP framework expects a
+    dict, so map that one case to a coherent error envelope. A genuine
+    agent error (transport failure, non-2xx) already arrives as
+    ``{"success": False, "error": ...}`` and is passed through unchanged —
+    we do NOT swallow it.
+    """
+    if result is None:
+        return {
+            "success": False,
+            "action": "error",
+            "port": port,
+            "error": f"Local agent returned an empty response for {verb}",
+        }
+    return result
 
 
 def get_tools() -> list[Tool]:
@@ -193,6 +215,14 @@ async def start_server(args: dict) -> dict:
             "error": "Missing required argument: port",
         }
 
+    # Delegation gate (#200): with a healthy local agent present (or an
+    # explicit override), POST the launch to the agent over HTTP so the
+    # ``llama-server`` is a child of the systemd-managed agent. With no
+    # agent reachable, fall back to the in-process op (dev/standalone).
+    if delegation.should_delegate():
+        res = local_agent_node().start_server(model_name, port)
+        return _delegated_or_error(res, "start", port)
+
     result = ops.start(model_name, port, caller="mcp")
     return result.to_dict()
 
@@ -210,6 +240,11 @@ async def stop_server(args: dict) -> dict:
             "action": "error",
             "error": "Missing required argument: port",
         }
+
+    # Delegation gate (#200): see ``start_server``.
+    if delegation.should_delegate():
+        res = local_agent_node().stop_server(port)
+        return _delegated_or_error(res, "stop", port)
 
     result = ops.stop(port, caller="mcp")
     return result.to_dict()
@@ -237,6 +272,11 @@ async def swap_server(args: dict) -> dict:
             "action": "error",
             "error": "Missing required argument: model_name",
         }
+
+    # Delegation gate (#200): see ``start_server``.
+    if delegation.should_delegate():
+        res = local_agent_node().swap_server(model_name, port)
+        return _delegated_or_error(res, "swap", port)
 
     result = ops.swap(model_name, port, caller="mcp")
     return result.to_dict()

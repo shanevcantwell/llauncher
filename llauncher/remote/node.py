@@ -13,13 +13,13 @@ intentionally skips it.
 """
 
 import logging
-import os
 import socket
 from datetime import datetime
 from enum import Enum
-from typing import Literal
 
 import httpx
+
+from llauncher.core.delegation import is_agent_process
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +39,17 @@ def _local_host_names() -> frozenset[str]:
 
 
 def _local_agent_port() -> int:
-    """The agent port the local node is configured to bind."""
-    return int(os.getenv("LLAUNCHER_AGENT_PORT", "8765"))
+    """The agent port the local node is configured to bind.
+
+    Sourced from :data:`llauncher.core.settings.AGENT_PORT` (issue #200,
+    SP-2) rather than re-reading ``LLAUNCHER_AGENT_PORT`` inline, so the
+    agent port has a single source of truth shared with the delegation
+    gate. Read at call time (via attribute access on the settings module)
+    so test patches / reloaded settings take effect.
+    """
+    from llauncher.core import settings
+
+    return settings.AGENT_PORT
 
 
 class NodeStatus(Enum):
@@ -136,13 +145,10 @@ class RemoteNode:
         """Create an HTTP client configured for this node."""
         return httpx.Client(timeout=self.timeout)
 
-    def _is_self_loop(self) -> bool:
-        """Return True if this node points back at the local agent.
+    def _targets_local_node(self) -> bool:
+        """Return True if this node points at the *local* node/agent.
 
-        The detection is conservative — over-reporting "self" would
-        route remote calls in-process and silently lose multi-node
-        isolation, which is much worse than the cost of one extra
-        loopback HTTP call. Two independent signals are accepted:
+        The original (#62) self-loop predicate. Two independent signals:
 
         * ``self.name == "local"`` — the registry convention from
           :mod:`llauncher.remote.registry`.
@@ -150,8 +156,9 @@ class RemoteNode:
           machine's hostname}`` AND ``self.port`` matches the local
           agent's bind port.
 
-        The host+port conjunction guards against the case where a
-        user has renamed the local node away from ``"local"``.
+        Conservative on purpose: over-reporting "local" would route
+        genuinely-remote calls in-process and silently lose multi-node
+        isolation, which is worse than one extra loopback HTTP call.
         """
         if self.name == "local":
             return True
@@ -159,6 +166,29 @@ class RemoteNode:
             self.host in _local_host_names()
             and self.port == _local_agent_port()
         )
+
+    def _is_self_loop(self) -> bool:
+        """Return True only when the agent is calling its *own* local node.
+
+        This is the #62 self-loop optimization, narrowed per issue #200.
+        Pre-#200 the predicate was just :meth:`_targets_local_node` — which
+        correctly captured the agent talking to itself but *also* captured
+        operator front-ends (MCP, UI) pointing a ``RemoteNode`` at the
+        local agent. Those front-ends are NOT the agent and, under the
+        system-mode deployment (#194), must defer launches *to* the agent
+        over HTTP rather than spawning in-process.
+
+        The narrowing ANDs in
+        :func:`llauncher.core.delegation.is_agent_process`: the short-
+        circuit fires only when *this* process is the agent AND the target
+        is the local node. So:
+
+        * agent → local node  → in-process (the preserved #62 optimization);
+        * agent → remote peer → HTTP (multi-node isolation intact);
+        * front-end → anything → HTTP (where the delegation gate decides,
+          before a ``RemoteNode`` is even built).
+        """
+        return is_agent_process() and self._targets_local_node()
 
     def ping(self) -> bool:
         """Check if the node's agent is reachable.
@@ -505,3 +535,28 @@ class RemoteNode:
             "last_seen": self.last_seen.isoformat() if self.last_seen else None,
             "error_message": self._error_message,
         }
+
+
+def local_agent_node() -> RemoteNode:
+    """Construct a ``RemoteNode`` aimed at the local agent (#200 delegation).
+
+    Single construction point for the delegation target — host, port, and
+    token live here rather than being copy-pasted into each front-end. The
+    node is named ``"local"`` and carries the resolved ``X-Api-Key``;
+    because a front-end is not the agent process, its :meth:`_is_self_loop`
+    is False, so verb calls go over HTTP to ``127.0.0.1:AGENT_PORT``.
+
+    This factory lives in the ``remote`` layer rather than
+    :mod:`llauncher.core.delegation` (issue #200 follow-up): it constructs a
+    ``RemoteNode``, so its natural home is alongside that class. ``core``
+    owns only the *decision* (``should_delegate``); ``remote`` owns *building
+    the target*, keeping ``core`` free of any edge to ``remote`` or
+    ``agent``. ``settings``/``agent_token`` are imported at call time —
+    downward (``remote → core``) edges, read late so test patches and
+    reloaded settings take effect.
+    """
+    from llauncher.core import settings
+    from llauncher.core.agent_token import resolve_agent_token
+
+    token = resolve_agent_token(allow_generate=False)
+    return RemoteNode("local", "127.0.0.1", port=settings.AGENT_PORT, api_key=token)

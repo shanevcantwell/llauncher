@@ -4,9 +4,10 @@ import streamlit as st
 
 from llauncher import operations as ops
 from llauncher.state import LauncherState
+from llauncher.core import delegation
 from llauncher.core.process import stream_logs
 from llauncher.remote.state import RemoteAggregator
-from llauncher.remote.node import RemoteServerInfo
+from llauncher.remote.node import RemoteServerInfo, local_agent_node
 from llauncher.ui.components.port_picker import render_port_picker
 from llauncher.ui.utils import format_uptime
 
@@ -168,25 +169,40 @@ def _render_eviction_dialog(
             # ``operations.swap`` instead of the legacy
             # ``state.start_with_eviction_compat`` path. The M4 tab
             # restructure (#50) must preserve this call.
-            result = ops.swap(model_name, port, caller="ui")
-            if result.success and result.action == "swapped":
-                st.toast(f"{model_name} now running on port {port}", icon="✅")
-            elif result.success and result.action == "already_running":
-                st.toast(f"{model_name} already running on port {port}", icon="ℹ️")
-            elif result.action == "rolled_back":
-                st.toast(
-                    f"Swap failed — rolled back to {result.previous_model} "
-                    f"({result.message})",
-                    icon="⚠️",
-                )
-            elif result.action in ("failed", "rejected_stop_failed"):
-                st.toast(
-                    f"Port {port} unavailable — manual intervention required "
-                    f"({result.message})",
-                    icon="❌",
-                )
+            #
+            # Delegation gate (#200): the evict-and-start branch of a
+            # local-node launch is itself a spawn, so it routes to the
+            # agent over HTTP when one is present (or an override forces
+            # it). With no agent reachable it falls back to the in-process
+            # swap (dev/standalone), preserving the toast taxonomy below.
+            if delegation.should_delegate():
+                # ``or {}`` guards the ``dict | None`` seam (see _handle_start).
+                res = local_agent_node().swap_server(model_name, port) or {}
+                if res.get("success"):
+                    st.toast(f"{model_name} now running on port {port}", icon="✅")
+                else:
+                    msg = res.get("message") or res.get("error") or "Eviction failed"
+                    st.toast(msg, icon="❌")
             else:
-                st.toast(f"Eviction failed: {result.message}", icon="❌")
+                result = ops.swap(model_name, port, caller="ui")
+                if result.success and result.action == "swapped":
+                    st.toast(f"{model_name} now running on port {port}", icon="✅")
+                elif result.success and result.action == "already_running":
+                    st.toast(f"{model_name} already running on port {port}", icon="ℹ️")
+                elif result.action == "rolled_back":
+                    st.toast(
+                        f"Swap failed — rolled back to {result.previous_model} "
+                        f"({result.message})",
+                        icon="⚠️",
+                    )
+                elif result.action in ("failed", "rejected_stop_failed"):
+                    st.toast(
+                        f"Port {port} unavailable — manual intervention required "
+                        f"({result.message})",
+                        icon="❌",
+                    )
+                else:
+                    st.toast(f"Eviction failed: {result.message}", icon="❌")
             st.rerun()
 
 
@@ -341,18 +357,43 @@ def _handle_start(
             resolved_port = target_port
             valid, msg = state.can_start(config, caller="ui", port=resolved_port)
             if valid:
-                # v2 ops migration (issue #57): route plain start through
-                # ``operations.start`` (which now runs ADR-005 model-health
-                # pre-flight via the same seam as ``operations.swap``). The
-                # M4 tab restructure (#50) must preserve this call.
-                result = ops.start(model_name, resolved_port, caller="ui")
-                if result.success:
-                    st.toast(result.message, icon="✅")
+                # Delegation gate (#200): with a healthy local agent present
+                # (or an explicit override), POST the launch to the agent so
+                # the ``llama-server`` is a child of the systemd-managed
+                # agent and the operator needs no exec rights on the binary.
+                # With no agent reachable, fall back to the in-process op
+                # (dev/standalone) — v2 ops migration (issue #57): plain
+                # start routes through ``operations.start`` (ADR-005
+                # model-health pre-flight via the same seam as
+                # ``operations.swap``); the M4 tab restructure (#50)
+                # preserves this call.
+                if delegation.should_delegate():
+                    # ``RemoteNode.start_server`` is ``dict | None`` (a 200
+                    # with a null body yields None); ``or {}`` makes the
+                    # ``.get`` calls None-safe without masking a real error
+                    # dict (transport/non-2xx arrives as a dict already).
+                    res = local_agent_node().start_server(
+                        model_name, resolved_port
+                    ) or {}
+                    if res.get("success"):
+                        st.toast(res.get("message") or f"Starting {model_name}", icon="✅")
+                    else:
+                        err = (
+                            res.get("message")
+                            or res.get("error")
+                            or "Local agent returned no result"
+                        )
+                        st.error(err)
+                        st.toast(err, icon="❌")
                 else:
-                    # Errors must be sticky — toasts disappear too quickly
-                    # to read on a near-instant validation failure.
-                    st.error(result.message)
-                    st.toast(result.message, icon="❌")
+                    result = ops.start(model_name, resolved_port, caller="ui")
+                    if result.success:
+                        st.toast(result.message, icon="✅")
+                    else:
+                        # Errors must be sticky — toasts disappear too quickly
+                        # to read on a near-instant validation failure.
+                        st.error(result.message)
+                        st.toast(result.message, icon="❌")
             else:
                 st.error(f"Cannot start: {msg}")
                 st.toast(f"Cannot start: {msg}", icon="❌")

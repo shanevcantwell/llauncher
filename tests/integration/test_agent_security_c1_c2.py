@@ -69,13 +69,14 @@ def test_run_agent_refuses_non_loopback_without_token(monkeypatch, tmp_path):
     to a non-loopback host without ``LLAUNCHER_AGENT_TOKEN``."""
     from llauncher.agent.config import AgentConfig
     from llauncher.agent import server as agent_srv
-    from llauncher.agent import auth as agent_auth
 
     monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
     # Force token-file lookup at a missing path so the operator's real
     # ~/.llauncher/agent.token cannot accidentally satisfy the guard.
+    # Token resolution was hoisted to core.agent_token (#171); patch the
+    # canonical home so the implementation's internal lookup is affected.
     monkeypatch.setattr(
-        agent_auth, "default_token_path",
+        "llauncher.core.agent_token.default_token_path",
         lambda: tmp_path / "definitely-missing.token",
     )
 
@@ -114,9 +115,9 @@ def _isolate_home(monkeypatch, tmp_path):
     # Cover non-POSIX call sites that read USERPROFILE.
     monkeypatch.setenv("USERPROFILE", str(home))
 
-    from llauncher.agent import auth as agent_auth
+    # Token resolution was hoisted to core.agent_token (#171); patch there.
     monkeypatch.setattr(
-        agent_auth, "default_token_path",
+        "llauncher.core.agent_token.default_token_path",
         lambda: home / ".llauncher" / "agent.token",
     )
     return home

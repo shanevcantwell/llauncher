@@ -74,11 +74,16 @@ class NodeRegistry:
         ``llauncher-agent`` under systemd / NSSM / foreground), so it
         does *not* inherit ``LLAUNCHER_AGENT_TOKEN`` from the agent's
         environment. We source via
-        :func:`llauncher.agent.auth.resolve_agent_token` with
+        :func:`llauncher.core.agent_token.resolve_agent_token` with
         ``allow_generate=False`` — that reads the env var first, then
         the on-disk ``~/.llauncher/agent.token``. ``allow_generate=False``
         because only the agent itself should ever materialize a fresh
         token; the UI must be a pure consumer.
+
+        The token resolver lives in :mod:`llauncher.core.agent_token`
+        (issue #171) precisely so ``remote`` can read it without
+        importing ``agent.*`` — the layering violation this edge used to
+        embody.
 
         Returns ``None`` if no token can be resolved; callers should
         leave ``api_key=None`` in that case, which matches the
@@ -86,7 +91,7 @@ class NodeRegistry:
         token-less first run).
         """
         try:
-            from llauncher.agent.auth import resolve_agent_token
+            from llauncher.core.agent_token import resolve_agent_token
             return resolve_agent_token(allow_generate=False)
         except Exception:
             # Token resolution must never break registry load. If the

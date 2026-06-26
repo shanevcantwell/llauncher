@@ -496,7 +496,10 @@ class TestRemoteNodeReadAudit:
             message="started",
         )
 
-        # ``name == "local"`` triggers the self-loop short-circuit.
+        # Post-#200: the self-loop short-circuit fires only when the caller
+        # IS the agent process (env stamp), not merely because the target
+        # is local. Stamp this process as the agent to exercise it.
+        monkeypatch.setenv("LLAUNCHER_IS_AGENT_PROCESS", "1")
         node = RemoteNode("local", "127.0.0.1", port=8765)
 
         with patch("httpx.Client") as mock_client_class:
@@ -530,6 +533,7 @@ class TestRemoteNodeReadAudit:
             caller="t",
         )
 
+        monkeypatch.setenv("LLAUNCHER_IS_AGENT_PROCESS", "1")
         node = RemoteNode("local", "127.0.0.1", port=8765)
         entries = node.read_audit(action_filter="stopped")
         assert len(entries) == 1
@@ -1005,48 +1009,73 @@ class TestRemoteAggregator:
 
 
 # ---------------------------------------------------------------------------
-# Issue #62 — RemoteNode self-loop short-circuit per ADR-009
+# Issue #62 — RemoteNode self-loop short-circuit per ADR-009, NARROWED by #200
 #
-# When a RemoteNode resolves to the local agent, verb methods should
-# bypass HTTP entirely and call the in-process operations layer. Auth
-# is enforced only at the network boundary; the in-process path
+# Pre-#200 the short-circuit fired whenever the target host/port looked
+# local (or the node was named "local"). That captured operator front-ends
+# pointing at the local agent, forcing their launches in-process — the #200
+# defect. The narrowed rule: the short-circuit fires *only* when the caller
+# IS the agent process (the ``LLAUNCHER_IS_AGENT_PROCESS`` env stamp), so
+# the agent keeps its loopback-HTTP-avoiding in-process path while every
+# front-end routes over HTTP (where the delegation gate decides).
+#
+# Auth is enforced only at the network boundary; the in-process path
 # intentionally skips it.
 # ---------------------------------------------------------------------------
 
 
 class TestSelfLoopDetection:
-    """``_is_self_loop`` covers two independent signals."""
+    """``_is_self_loop`` = caller-is-agent AND target-is-local (#200)."""
 
-    def test_name_local_is_self_loop_regardless_of_host(self):
+    # ── caller IS the agent ────────────────────────────────────────────
+    def test_agent_calling_name_local_is_self_loop(self, monkeypatch):
+        monkeypatch.setenv("LLAUNCHER_IS_AGENT_PROCESS", "1")
         node = RemoteNode("local", "192.168.1.100", port=9000)
         assert node._is_self_loop() is True
 
-    def test_localhost_host_and_default_port_is_self_loop(self):
-        node = RemoteNode("anything", "localhost", port=8765)
-        assert node._is_self_loop() is True
-
-    def test_127_0_0_1_with_default_port_is_self_loop(self):
+    def test_agent_calling_localhost_default_port_is_self_loop(self, monkeypatch):
+        monkeypatch.setenv("LLAUNCHER_IS_AGENT_PROCESS", "1")
         node = RemoteNode("anything", "127.0.0.1", port=8765)
         assert node._is_self_loop() is True
 
-    def test_localhost_with_different_port_is_NOT_self_loop(self):
-        # Same host, different port — different process. Not local.
-        node = RemoteNode("anything", "localhost", port=9999)
-        assert node._is_self_loop() is False
-
-    def test_remote_host_with_default_port_is_NOT_self_loop(self):
+    def test_agent_calling_remote_peer_is_NOT_self_loop(self, monkeypatch):
+        # Multi-node isolation: even as the agent, a genuinely remote peer
+        # must go over HTTP — never run the peer's launch in-process.
+        monkeypatch.setenv("LLAUNCHER_IS_AGENT_PROCESS", "1")
         node = RemoteNode("peer", "192.168.1.100", port=8765)
         assert node._is_self_loop() is False
 
-    def test_hostname_match_with_default_port_is_self_loop(self, monkeypatch):
-        import socket
-        monkeypatch.setattr(socket, "gethostname", lambda: "my-workstation")
-        node = RemoteNode("renamed", "my-workstation", port=8765)
-        assert node._is_self_loop() is True
+    def test_agent_calling_localhost_other_port_is_NOT_self_loop(self, monkeypatch):
+        monkeypatch.setenv("LLAUNCHER_IS_AGENT_PROCESS", "1")
+        node = RemoteNode("anything", "localhost", port=9999)
+        assert node._is_self_loop() is False
+
+    # ── caller is a FRONT-END (no agent stamp) ──────────────────────────
+    def test_frontend_local_target_is_NOT_self_loop(self, monkeypatch):
+        # The #200 narrowing: a front-end pointing at the local agent must
+        # NOT short-circuit — it delegates over HTTP via the gate instead.
+        monkeypatch.delenv("LLAUNCHER_IS_AGENT_PROCESS", raising=False)
+        node = RemoteNode("local", "127.0.0.1", port=8765)
+        assert node._is_self_loop() is False
+
+    def test_frontend_name_local_is_NOT_self_loop(self, monkeypatch):
+        monkeypatch.delenv("LLAUNCHER_IS_AGENT_PROCESS", raising=False)
+        node = RemoteNode("local", "192.168.1.100", port=9000)
+        assert node._is_self_loop() is False
+
+    def test_falsy_stamp_is_NOT_self_loop(self, monkeypatch):
+        monkeypatch.setenv("LLAUNCHER_IS_AGENT_PROCESS", "0")
+        node = RemoteNode("local", "127.0.0.1", port=8765)
+        assert node._is_self_loop() is False
 
 
 class TestSelfLoopShortCircuit:
-    """Verb methods bypass HTTP when self-loop is detected."""
+    """Verb methods bypass HTTP when the caller IS the agent (#200)."""
+
+    @pytest.fixture(autouse=True)
+    def _stamp_agent(self, monkeypatch):
+        """Every test in this class runs as the agent process."""
+        monkeypatch.setenv("LLAUNCHER_IS_AGENT_PROCESS", "1")
 
     def test_ping_self_loop_skips_http_and_returns_true(self):
         node = RemoteNode("local", "localhost", port=8765)

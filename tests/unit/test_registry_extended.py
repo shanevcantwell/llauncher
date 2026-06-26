@@ -447,7 +447,7 @@ class TestLocalNodeTokenResolution:
         token_path = tmp_path / "agent.token"
         token_path.write_text("test-token-abc123")
         monkeypatch.setattr(
-            "llauncher.agent.auth.default_token_path", lambda: token_path
+            "llauncher.core.agent_token.default_token_path", lambda: token_path
         )
         monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
 
@@ -470,7 +470,7 @@ class TestLocalNodeTokenResolution:
         # No token file, no env var → resolver returns None.
         token_path = tmp_path / "nonexistent.token"
         monkeypatch.setattr(
-            "llauncher.agent.auth.default_token_path", lambda: token_path
+            "llauncher.core.agent_token.default_token_path", lambda: token_path
         )
         monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
 
@@ -502,7 +502,7 @@ class TestLocalNodeTokenResolution:
         token_path = tmp_path / "agent.token"
         token_path.write_text("local-token-only")
         monkeypatch.setattr(
-            "llauncher.agent.auth.default_token_path", lambda: token_path
+            "llauncher.core.agent_token.default_token_path", lambda: token_path
         )
         monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
 
@@ -525,7 +525,7 @@ class TestLocalNodeTokenResolution:
         def boom(**kwargs):
             raise RuntimeError("filesystem on fire")
 
-        monkeypatch.setattr("llauncher.agent.auth.resolve_agent_token", boom)
+        monkeypatch.setattr("llauncher.core.agent_token.resolve_agent_token", boom)
 
         registry = NodeRegistry()
         # No exception bubbles up; resolver returns None defensively.
@@ -555,7 +555,7 @@ class TestRemoteNodeTokenPersistence:
         # Prevents the resolver from picking up the real user's token.
         agent_token_path = tmp_path / "agent.token-absent"
         monkeypatch.setattr(
-            "llauncher.agent.auth.default_token_path", lambda: agent_token_path
+            "llauncher.core.agent_token.default_token_path", lambda: agent_token_path
         )
         monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
         return nodes_file, tokens_file
@@ -633,7 +633,7 @@ class TestRemoteNodeTokenPersistence:
         agent_token = tmp_path / "agent.token"
         agent_token.write_text("local-secret")
         monkeypatch.setattr(
-            "llauncher.agent.auth.default_token_path", lambda: agent_token
+            "llauncher.core.agent_token.default_token_path", lambda: agent_token
         )
 
         reg = NodeRegistry()
@@ -683,7 +683,7 @@ class TestRemoteNodeTokenPersistence:
         agent_token = tmp_path / "agent.token"
         agent_token.write_text("would-be-credential-confusion")
         monkeypatch.setattr(
-            "llauncher.agent.auth.default_token_path", lambda: agent_token
+            "llauncher.core.agent_token.default_token_path", lambda: agent_token
         )
         assert not tokens_file.exists()
 

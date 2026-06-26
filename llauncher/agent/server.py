@@ -32,6 +32,7 @@ from llauncher.agent.middleware import (
     BodySizeLimitMiddleware,
 )
 from llauncher.agent.routing import router, get_node_name
+from llauncher.core import delegation
 from llauncher.core import lockfile as lf
 from llauncher.core import settings
 from llauncher.core.settings import AGENT_API_KEY
@@ -373,6 +374,13 @@ def run_agent(config: AgentConfig) -> None:
     # would have exited above, and the loopback branch generates a
     # token on first run if none was supplied.
     logger.info("Authentication is active. Binding to %s", config.host)
+
+    # Agent-identity stamp (issue #200). Set BEFORE uvicorn.run so any code
+    # reached from within this process — including the in-process operations
+    # the agent's own routes invoke — detects "I am the agent" via
+    # ``core.delegation.is_agent_process()`` and never delegates back to
+    # itself. Front-end processes (MCP, UI) never set this stamp.
+    os.environ[delegation.AGENT_PROCESS_ENV] = "1"
 
     # Run the server. ``lifespan="on"`` ensures the FastAPI lifespan handler
     # (which reaps llama-server children on shutdown per #65) actually fires
