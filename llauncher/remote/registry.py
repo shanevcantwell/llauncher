@@ -3,12 +3,15 @@
 import json
 import logging
 import os
-from pathlib import Path
 from typing import Iterator
 
+from llauncher.core.settings import LAUNCHER_STATE_DIR
 from llauncher.remote.node import RemoteNode, NodeStatus
 
-NODES_FILE = Path.home() / ".llauncher" / "nodes.json"
+# Derived from the single LAUNCHER_STATE_DIR base (issue #196). With
+# LAUNCHER_STATE_DIR unset these resolve to ~/.llauncher/* exactly as
+# before.
+NODES_FILE = LAUNCHER_STATE_DIR / "nodes.json"
 # Sibling secrets file for remote-node API tokens (issue #132). Kept
 # separate from ``nodes.json`` so the C10 invariant — "credentials never
 # live in the registry file" — stays crisp. Different secret classes
@@ -16,14 +19,15 @@ NODES_FILE = Path.home() / ".llauncher" / "nodes.json"
 # own files: blast-radius per-concern, corruption degrades gracefully,
 # and the filename itself telegraphs "this is the credential, treat
 # accordingly". Do NOT ratchet tokens back into nodes.json.
-NODE_TOKENS_FILE = Path.home() / ".llauncher" / "node_tokens.json"
+NODE_TOKENS_FILE = LAUNCHER_STATE_DIR / "node_tokens.json"
 logger = logging.getLogger(__name__)
 
 
 class NodeRegistry:
     """Manages a collection of remote nodes.
 
-    Persists node configurations to ~/.llauncher/nodes.json.
+    Persists node configurations to ``nodes.json`` under
+    ``LAUNCHER_STATE_DIR`` (default ``~/.llauncher``; see issue #196).
     """
 
     def __init__(self):
