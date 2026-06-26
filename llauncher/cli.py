@@ -89,6 +89,27 @@ def _json_output(data) -> None:
     console.print(json.dumps(data, indent=2, default=str))
 
 
+def _delegated_outcome(res: dict | None, verb: str, port: int) -> tuple[bool, str]:
+    """Reduce a delegated ``RemoteNode`` verb result to ``(success, message)``.
+
+    Mirrors the MCP server's ``_delegated_or_error`` dict|None guard
+    (``mcp_server/tools/servers.py``) but for the CLI's render contract: a
+    delegated launch returns the agent's ADR-010 envelope over HTTP (a
+    ``dict`` with ``success``/``message``); a transport or HTTP failure
+    returns ``{"success": False, "error": ...}``; and a 200-with-JSON-null
+    body surfaces as Python ``None``. Collapse all three to the ``(bool,
+    str)`` pair the CLI renders, never raising on the ``None`` seam.
+    """
+    if res is None:
+        return (
+            False,
+            f"Local agent returned an empty response for {verb} on port {port}",
+        )
+    success = bool(res.get("success"))
+    message = res.get("message") or res.get("error") or f"{verb} on port {port}"
+    return success, message
+
+
 # ---------------------------------------------------------------------------
 # model subcommands
 # ---------------------------------------------------------------------------
@@ -160,12 +181,26 @@ def start_server(
     for human invocations — pick a port deliberately.
     """
     from llauncher import operations
+    from llauncher.core import delegation
+    from llauncher.remote.node import local_agent_node
 
-    result = operations.start(name, port, caller=caller)
-    if not result.success:
-        console.print(f"[red]✗ {result.message}[/red]")
+    # Delegation gate (#200/#203): with a healthy local agent present (or an
+    # explicit ``LLAUNCHER_DELEGATE_TO_LOCAL_AGENT`` override) POST the launch
+    # to the agent over HTTP so the ``llama-server`` is a child of the
+    # systemd-managed agent — the sole spawner under system-mode (#194). With
+    # no agent reachable, fall back to the in-process op (dev/standalone).
+    if delegation.should_delegate():
+        success, message = _delegated_outcome(
+            local_agent_node().start_server(name, port), "start", port
+        )
+    else:
+        result = operations.start(name, port, caller=caller)
+        success, message = result.success, result.message
+
+    if not success:
+        console.print(f"[red]✗ {message}[/red]")
         raise typer.Exit(code=1)
-    console.print(_color(result.message, "running"))
+    console.print(_color(message, "running"))
 
 
 @server_app.command("stop")
@@ -175,12 +210,24 @@ def stop_server(
 ) -> None:
     """Stop a running server on the specified port."""
     from llauncher import operations
+    from llauncher.core import delegation
+    from llauncher.remote.node import local_agent_node
 
-    result = operations.stop(port, caller=caller)
-    if not result.success:
-        console.print(f"[red]✗ {result.message}[/red]")
+    # Delegation gate (#200/#203): mirror ``start`` — delegate to the local
+    # agent over HTTP when one is reachable (sole-spawner intent, #194),
+    # else stop in-process (dev/standalone).
+    if delegation.should_delegate():
+        success, message = _delegated_outcome(
+            local_agent_node().stop_server(port), "stop", port
+        )
+    else:
+        result = operations.stop(port, caller=caller)
+        success, message = result.success, result.message
+
+    if not success:
+        console.print(f"[red]✗ {message}[/red]")
         raise typer.Exit(code=1)
-    console.print(_color(result.message, "stopped"))
+    console.print(_color(message, "stopped"))
 
 
 @server_app.command("cancel")
