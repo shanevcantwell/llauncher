@@ -17,19 +17,44 @@ _llama_server_path = Path(os.getenv(
     str(Path.home() / ".local" / "bin" / "llama-server")
 ))
 
-# If the path is a directory, try to auto-detect llama-server binary
-if _llama_server_path.is_dir():
-    # Try llama-server first, then llama-server.exe (Windows)
+# If the path is a directory, try to auto-detect llama-server binary.
+#
+# Every filesystem probe here (`.is_dir()`, `.exists()`) is guarded
+# against OSError (incl. PermissionError / FileNotFoundError on the
+# parent). A stale, unreadable, or migrated LLAMA_SERVER_PATH must never
+# raise at *import* time — that would brick the entire package (issue
+# #195: `import llauncher`, `llauncher --help`, and test collection all
+# fail). On any probe failure we fall back to the configured path as a
+# plain Path — the same graceful fallback the happy path already takes
+# when the path isn't a directory — so the failure surfaces with a clear
+# message at point-of-use (start/preflight), not at import.
+def _resolve_llama_server_path(configured: Path) -> Path:
+    try:
+        is_dir = configured.is_dir()
+    except OSError:
+        logger.warning(
+            "Could not probe LLAMA_SERVER_PATH %r (%s); deferring "
+            "validation to start/preflight.",
+            str(configured),
+            "unreadable",
+        )
+        return configured
+    if not is_dir:
+        return configured
+    # Directory: try llama-server first, then llama-server.exe (Windows).
     for candidate in ["llama-server", "llama-server.exe"]:
-        binary_path = _llama_server_path / candidate
-        if binary_path.exists():
-            LLAMA_SERVER_PATH = binary_path
-            break
-    else:
-        # Fallback: use the directory path (will fail later with FileNotFoundError)
-        LLAMA_SERVER_PATH = _llama_server_path
-else:
-    LLAMA_SERVER_PATH = _llama_server_path
+        binary_path = configured / candidate
+        try:
+            exists = binary_path.exists()
+        except OSError:
+            continue
+        if exists:
+            return binary_path
+    # Fallback: use the directory path (will fail later with a clear error).
+    return configured
+
+
+LLAMA_SERVER_PATH = _resolve_llama_server_path(_llama_server_path)
 
 # Path to launch scripts directory
 SCRIPTS_PATH = Path(os.getenv(
