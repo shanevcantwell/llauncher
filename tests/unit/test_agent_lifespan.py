@@ -198,6 +198,40 @@ def test_lifespan_shutdown_tolerates_lockfile_enumeration_failure(
     assert stop_called is False
 
 
+def test_lifespan_startup_provisions_run_dir(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Startup self-provisions LAUNCHER_RUN_DIR (issue #201 Part 1).
+
+    After a fresh system-mode install the migrated state dir carries logs/
+    and audit.jsonl but not run/, so the first lockfile/marker write could
+    fail before llama-server spawns. The lifespan startup creates it.
+    """
+    run_dir = tmp_path / "run"
+    assert not run_dir.exists()
+    monkeypatch.setattr(agent_server.settings, "LAUNCHER_RUN_DIR", run_dir)
+    # No managed children to reap on shutdown.
+    monkeypatch.setattr(agent_server.lf, "list_lockfiles", lambda: [])
+
+    _drive_lifespan(monkeypatch)
+
+    assert run_dir.is_dir()
+
+
+def test_lifespan_startup_run_dir_is_idempotent(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An already-present run dir is fine (exist_ok=True) — no raise."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    monkeypatch.setattr(agent_server.settings, "LAUNCHER_RUN_DIR", run_dir)
+    monkeypatch.setattr(agent_server.lf, "list_lockfiles", lambda: [])
+
+    _drive_lifespan(monkeypatch)
+
+    assert run_dir.is_dir()
+
+
 def test_create_app_wires_lifespan() -> None:
     """``create_app()`` constructs a FastAPI app with the lifespan handler bound."""
     app = agent_server.create_app(auth_token="test-token")

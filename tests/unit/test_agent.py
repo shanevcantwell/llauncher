@@ -354,10 +354,90 @@ class TestStopServerEndpoint:
 class TestLogsEndpoint:
     """Tests for the /logs/{port} endpoint."""
 
-    def test_logs_nonexistent_port_returns_404(self, client):
-        """Test that logs for nonexistent port returns 404."""
-        response = client.get("/logs/99999")
+    def test_logs_nonexistent_port_returns_404(self, client, tmp_path, monkeypatch):
+        """No live server AND no log file on disk → 404 (issue #201 Part 2b)."""
+        monkeypatch.setattr(
+            "llauncher.core.process.LOG_DIR", (tmp_path / "logs").resolve()
+        )
+        (tmp_path / "logs").mkdir()
+        response = client.get("/logs/49999")
         assert response.status_code == 404
+
+    def test_logs_dead_port_serves_most_recent_log(
+        self, client, tmp_path, monkeypatch
+    ):
+        """A server that spawned then exited leaves no live pid but its log
+        on disk; /logs/{port} must serve it instead of 404-ing (#201 2b)."""
+        log_dir = (tmp_path / "logs").resolve()
+        log_dir.mkdir()
+        monkeypatch.setattr("llauncher.core.process.LOG_DIR", log_dir)
+        # Point the lockfile run dir at an empty tmp so no stale claim leaks
+        # the config name in; we assert the None fallback explicitly.
+        monkeypatch.setattr(
+            "llauncher.core.lockfile.LAUNCHER_RUN_DIR", tmp_path / "run"
+        )
+        # Port 49998 is not a live llama-server; write its death log.
+        (log_dir / "BrokenModel-deadbeef-49998.log").write_text(
+            "=== started ===\nerror while loading shared libraries: libfoo.so\n",
+            encoding="utf-8",
+        )
+
+        response = client.get("/logs/49998")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["port"] == 49998
+        assert data["config_name"] is None
+        assert any("shared libraries" in ln for ln in data["lines"])
+        assert data["total_lines"] == len(data["lines"])
+
+
+    def test_logs_live_server_tails_by_pid(self, client, monkeypatch):
+        """When a server is live, /logs tails its log by pid (unchanged path)."""
+        from llauncher.agent import routing
+
+        mock_state = _MockState()
+        mock_state.running = {
+            8081: _MockServerInfo(
+                pid=4242, port=8081, config_name="mistral-7b"
+            )
+        }
+        monkeypatch.setattr(routing, "get_state", lambda: mock_state)
+        monkeypatch.setattr(
+            "llauncher.core.process.stream_logs",
+            lambda pid, lines: ["server is listening"],
+        )
+
+        response = client.get("/logs/8081")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["config_name"] == "mistral-7b"
+        assert data["lines"] == ["server is listening"]
+        assert data["total_lines"] == 1
+
+
+class TestStatusReconcile:
+    """`/status` prunes stale lockfiles for dead processes (issue #201 2a)."""
+
+    def test_status_prunes_stale_lockfile(self, client, tmp_path, monkeypatch):
+        """A lockfile claiming a dead pid is removed by the status sweep."""
+        from llauncher.core import lockfile as lf
+
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        monkeypatch.setattr("llauncher.core.lockfile.LAUNCHER_RUN_DIR", run_dir)
+        monkeypatch.setattr(
+            "llauncher.core.settings.LAUNCHER_RUN_DIR", run_dir
+        )
+        monkeypatch.setattr(
+            "llauncher.core.audit_log.LAUNCHER_AUDIT_PATH",
+            tmp_path / "audit.jsonl",
+        )
+        lf.write_lockfile(49997, "dead-model", 999_999, run_dir=run_dir)
+        assert (run_dir / "49997.lock").exists()
+
+        response = client.get("/status")
+        assert response.status_code == 200
+        assert not (run_dir / "49997.lock").exists()
 
     def test_logs_returns_correct_structure(self, client):
         """Test that logs return correct structure."""

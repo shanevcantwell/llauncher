@@ -150,6 +150,14 @@ def get_status() -> dict:
     """
     from llauncher.core.gpu import GPUHealthCollector
 
+    # Reconcile stale lockfiles before reporting (issue #201 Part 2a). A
+    # server that spawned then died immediately leaves total_running correct
+    # (it's gone from the process table) but its {port}.lock behind, which
+    # would block a future start on that port. The sweep prunes dead claims
+    # and emits one OBSERVED_STOPPED audit entry each; it is idempotent and
+    # cheap, so running it on every status poll is safe.
+    ops.reconcile_stale_lockfiles(caller="status")
+
     state = get_state()
     state.refresh_running_servers()
 
@@ -443,24 +451,47 @@ def delete_model(model_name: str) -> dict:
 
 @router.get("/logs/{port}")
 def get_logs(port: int, lines: Annotated[int, None] = None) -> dict:
-    """Get recent log lines for a server."""
-    from llauncher.core.process import stream_logs
+    """Get recent log lines for a server on ``port``.
+
+    When a server is live, tail its log by pid. When no server is live
+    (issue #201 Part 2b), fall back to the most-recent ``*-{port}.log`` on
+    disk so the operator can still retrieve the death cause of a server that
+    spawned then exited immediately — the previous behavior 404'd in that
+    case, hiding exactly the log that explains the failure. Only when no log
+    file exists for the port at all do we 404.
+    """
+    from llauncher.core import lockfile as lf
+    from llauncher.core.process import read_logs_for_port, stream_logs
 
     state = get_state()
     state.refresh()
 
-    if port not in state.running:
+    num_lines = lines or 100
+
+    if port in state.running:
+        server = state.running[port]
+        log_lines = stream_logs(pid=server.pid, lines=num_lines)
+        return {
+            "port": port,
+            "config_name": server.config_name,
+            "lines": log_lines,
+            "total_lines": len(log_lines),
+        }
+
+    # No live server — serve the most recent log file for the port.
+    log_lines = read_logs_for_port(port, num_lines)
+    if log_lines is None:
         raise HTTPException(
-            status_code=404, detail=f"No server running on port {port}"
+            status_code=404,
+            detail=f"No server running on port {port} and no log file found",
         )
 
-    server = state.running[port]
-    num_lines = lines or 100
-    log_lines = stream_logs(pid=server.pid, lines=num_lines)
-
+    # Best-effort model name from a lingering lockfile (the status-path
+    # reconcile may not have run yet); None when the claim is already gone.
+    claim = lf.read_lockfile(port)
     return {
         "port": port,
-        "config_name": server.config_name,
+        "config_name": claim.model if claim is not None else None,
         "lines": log_lines,
         "total_lines": len(log_lines),
     }

@@ -162,7 +162,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     is at worst a re-termination of an already-dying pid, which
     ``core.process.stop_server_by_pid`` absorbs.
     """
-    # Startup — nothing to do.
+    # Startup — self-provision the run/ directory (issue #201 Part 1).
+    # Lockfile and marker writes target {LAUNCHER_RUN_DIR}/{port}.lock|.swap
+    # with O_EXCL. After a fresh system-mode install the migrated state dir
+    # carries logs/ and audit.jsonl but intentionally not run/, so the first
+    # launch could fail before llama-server even spawns. Create it eagerly
+    # here, mirroring the LOG_DIR.mkdir in core.process.start_server. A
+    # PermissionError on a read-only state dir is a real misconfiguration and
+    # is intentionally allowed to surface.
+    settings.LAUNCHER_RUN_DIR.mkdir(parents=True, exist_ok=True)
     yield
 
     # Shutdown — reap managed children. We catch OSError specifically because
