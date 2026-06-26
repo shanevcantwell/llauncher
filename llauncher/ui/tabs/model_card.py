@@ -5,26 +5,11 @@ import streamlit as st
 from llauncher import operations as ops
 from llauncher.state import LauncherState
 from llauncher.core import delegation
-from llauncher.core import settings
 from llauncher.core.process import stream_logs
 from llauncher.remote.state import RemoteAggregator
 from llauncher.remote.node import RemoteServerInfo
 from llauncher.ui.components.port_picker import render_port_picker
 from llauncher.ui.utils import format_uptime
-
-
-def _local_agent_node():
-    """Build a ``RemoteNode`` aimed at the local agent for delegation (#200).
-
-    Mirrors ``mcp_server.tools.servers._local_agent_node``: the UI is a
-    front-end, not the agent process, so the node's ``_is_self_loop()`` is
-    False and the verb is POSTed over HTTP to ``127.0.0.1:AGENT_PORT``.
-    """
-    from llauncher.core.agent_token import resolve_agent_token
-    from llauncher.remote.node import RemoteNode
-
-    token = resolve_agent_token(allow_generate=False)
-    return RemoteNode("local", "127.0.0.1", port=settings.AGENT_PORT, api_key=token)
 
 
 def render_model_card(
@@ -191,7 +176,8 @@ def _render_eviction_dialog(
             # it). With no agent reachable it falls back to the in-process
             # swap (dev/standalone), preserving the toast taxonomy below.
             if delegation.should_delegate():
-                res = _local_agent_node().swap_server(model_name, port)
+                # ``or {}`` guards the ``dict | None`` seam (see _handle_start).
+                res = delegation.local_agent_node().swap_server(model_name, port) or {}
                 if res.get("success"):
                     st.toast(f"{model_name} now running on port {port}", icon="✅")
                 else:
@@ -382,11 +368,21 @@ def _handle_start(
                 # ``operations.swap``); the M4 tab restructure (#50)
                 # preserves this call.
                 if delegation.should_delegate():
-                    res = _local_agent_node().start_server(model_name, resolved_port)
+                    # ``RemoteNode.start_server`` is ``dict | None`` (a 200
+                    # with a null body yields None); ``or {}`` makes the
+                    # ``.get`` calls None-safe without masking a real error
+                    # dict (transport/non-2xx arrives as a dict already).
+                    res = delegation.local_agent_node().start_server(
+                        model_name, resolved_port
+                    ) or {}
                     if res.get("success"):
                         st.toast(res.get("message") or f"Starting {model_name}", icon="✅")
                     else:
-                        err = res.get("message") or res.get("error") or "Failed to start"
+                        err = (
+                            res.get("message")
+                            or res.get("error")
+                            or "Local agent returned no result"
+                        )
                         st.error(err)
                         st.toast(err, icon="❌")
                 else:

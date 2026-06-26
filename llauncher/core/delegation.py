@@ -141,3 +141,25 @@ def should_delegate(host: str = "127.0.0.1", port: int | None = None) -> bool:
         return override
 
     return local_agent_healthy(host=host, port=port)
+
+
+def local_agent_node():
+    """Construct a ``RemoteNode`` aimed at the local agent (#200 delegation).
+
+    Single construction point for the delegation target — host, port, and
+    token live here rather than being copy-pasted into each front-end.
+    The node is named ``"local"`` and carries the resolved ``X-Api-Key``;
+    because a front-end is not the agent process, its ``_is_self_loop()``
+    is False, so verb calls go over HTTP to ``127.0.0.1:AGENT_PORT``.
+
+    ``RemoteNode`` is imported lazily: ``remote.node`` imports *this*
+    module at load time, so a top-level import here would be circular. The
+    lazy import keeps ``core`` free of a load-time edge to ``remote`` while
+    still centralizing the construction.
+    """
+    from llauncher.core import settings
+    from llauncher.core.agent_token import resolve_agent_token
+    from llauncher.remote.node import RemoteNode
+
+    token = resolve_agent_token(allow_generate=False)
+    return RemoteNode("local", "127.0.0.1", port=settings.AGENT_PORT, api_key=token)
