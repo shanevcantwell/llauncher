@@ -89,6 +89,15 @@ AGENT_API_KEY: str | None = os.getenv("LLAUNCHER_AGENT_TOKEN")
 if AGENT_API_KEY == "":
     AGENT_API_KEY = None
 
+# Port the local llauncher agent binds (env: LLAUNCHER_AGENT_PORT, default
+# 8765). Mirrors ``agent.config.AgentConfig.from_env``'s port read so the
+# delegation gate (``core.delegation``) and the remote-node client share a
+# single source of truth rather than each re-reading the env inline. Only
+# the ``LLAUNCHER_``-prefixed name is honored — the legacy single-``L``
+# spelling is intentionally NOT a fallback (issue #151 naming direction;
+# see test_env_var_naming_regression).
+AGENT_PORT = int(os.getenv("LLAUNCHER_AGENT_PORT", "8765"))
+
 # Base directory for all durable launcher state (issue #196). Every
 # per-actor state path (config, run lockfiles, audit log, per-server
 # logs, node registry + token sidecars, agent token) derives from this

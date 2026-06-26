@@ -17,8 +17,26 @@ from __future__ import annotations
 from mcp import Tool
 
 from llauncher import operations as ops
+from llauncher.core import delegation
+from llauncher.core import settings
 from llauncher.core.process import stream_logs
 from llauncher.state import LauncherState
+
+
+def _local_agent_node():
+    """Build a ``RemoteNode`` aimed at the local agent for delegation (#200).
+
+    Imported lazily so this module's import graph stays free of ``remote``
+    on the in-process path (the common standalone/dev case). The node is
+    named ``"local"`` and carries the resolved ``X-Api-Key``; because the
+    MCP front-end is not the agent process, its ``_is_self_loop()`` is
+    False and the verb call goes over HTTP to ``127.0.0.1:AGENT_PORT``.
+    """
+    from llauncher.core.agent_token import resolve_agent_token
+    from llauncher.remote.node import RemoteNode
+
+    token = resolve_agent_token(allow_generate=False)
+    return RemoteNode("local", "127.0.0.1", port=settings.AGENT_PORT, api_key=token)
 
 
 def get_tools() -> list[Tool]:
@@ -193,6 +211,13 @@ async def start_server(args: dict) -> dict:
             "error": "Missing required argument: port",
         }
 
+    # Delegation gate (#200): with a healthy local agent present (or an
+    # explicit override), POST the launch to the agent over HTTP so the
+    # ``llama-server`` is a child of the systemd-managed agent. With no
+    # agent reachable, fall back to the in-process op (dev/standalone).
+    if delegation.should_delegate():
+        return _local_agent_node().start_server(model_name, port)
+
     result = ops.start(model_name, port, caller="mcp")
     return result.to_dict()
 
@@ -210,6 +235,10 @@ async def stop_server(args: dict) -> dict:
             "action": "error",
             "error": "Missing required argument: port",
         }
+
+    # Delegation gate (#200): see ``start_server``.
+    if delegation.should_delegate():
+        return _local_agent_node().stop_server(port)
 
     result = ops.stop(port, caller="mcp")
     return result.to_dict()
@@ -237,6 +266,10 @@ async def swap_server(args: dict) -> dict:
             "action": "error",
             "error": "Missing required argument: model_name",
         }
+
+    # Delegation gate (#200): see ``start_server``.
+    if delegation.should_delegate():
+        return _local_agent_node().swap_server(model_name, port)
 
     result = ops.swap(model_name, port, caller="mcp")
     return result.to_dict()

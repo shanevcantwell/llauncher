@@ -815,11 +815,12 @@ class TestUtilityFunctions:
         # Force the on-disk token file lookup to a missing path so the
         # refuse-to-start branch is exercised even if the operator's real
         # home has a file present.
-        from llauncher.agent import auth as agent_auth
         from pathlib import Path
 
+        # Token resolution was hoisted to core.agent_token (#171); patch the
+        # canonical home so run_agent's resolver honors the missing path.
         monkeypatch.setattr(
-            agent_auth, "default_token_path",
+            "llauncher.core.agent_token.default_token_path",
             lambda: Path("/nonexistent/llauncher/agent.token"),
         )
 
