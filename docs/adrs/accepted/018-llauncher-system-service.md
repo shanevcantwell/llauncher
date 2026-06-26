@@ -22,11 +22,14 @@ systemd installer therefore shipped a `--user` unit only.
 
 That posture breaks down for the multiuser host:
 
-- **A non-admin agent must drive the runtime.** A separate, unprivileged agent
-  account needs to start/stop/swap servers through the local agent. With a
-  per-user install, the token and state live in the *operator's* private home
-  (mode 0700), so the agent user cannot read the token without the operator
-  copying secrets between homes — fragile and a credential-sprawl hazard.
+- **A second local user must be able to drive the runtime.** A separate,
+  unprivileged account (e.g. `claude`) needs to start/stop/swap servers. It does
+  so through its **own tokenless, in-process MCP server** — the MCP/CLI plane
+  crosses no network boundary and needs no token (see [`../../auth.md`](../../auth.md)).
+  So the real enabler is **shared access to state**: lockfiles, `config.json`,
+  the run dir. With a per-user install that state lives in the *operator's*
+  private home (mode 0700), unreachable by the second user. The blocker is
+  state locality, not the token.
 - **State trapped in a home dir.** Logs, audit records, the run dir, the node
   registry, and the token all sit under one human's `$HOME`. That couples the
   service's lifecycle and visibility to a login session and a specific user
@@ -48,12 +51,15 @@ installs a real system service:
   relocates config, node registry, token, run dir, audit, and logs to
   `/var/lib/llauncher` (the single relocation knob; Python support lands in
   parallel PR #197). This directly resolves #191.
-- **Group-readable secrets, not copied secrets.** The env file
+- **Group-readable secrets for the HTTP plane.** The env file
   (`/var/lib/llauncher/agent.env`) and the mirrored token
   (`/var/lib/llauncher/agent.token`) are written mode `0640`, group
-  `inference`. The operator UI and a non-admin agent user — both members of
-  `inference` — read the token in place. No secret ever has to be duplicated
-  into a second home.
+  `inference`. This serves the *other* plane: the Streamlit UI and any
+  remote/HTTP clients, which cross the agent's network boundary and so **do**
+  need the `X-Api-Key` token (see [`../../auth.md`](../../auth.md)).
+  Group-readability lets those in-group consumers read the token in place, with
+  no secret duplicated into a second home. (The tokenless local MCP/CLI plane
+  above does not touch this.)
 - **Boot-time service.** `[Install] WantedBy=multi-user.target`; no
   `enable-linger` step.
 

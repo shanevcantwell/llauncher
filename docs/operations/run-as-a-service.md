@@ -6,9 +6,13 @@ not service-managed. This doc covers persistent installs on:
 - Linux (systemd, user-mode)
 - Windows (NSSM-wrapped service)
 
-The scope mirrors ADR-009's posture: every node is a peer started
-deliberately, and the local agent is no exception. These installers
-just remove the "deliberately" step from your morning routine.
+These installers remove the "start it deliberately every morning" step
+for the local agent. (The user-mode posture documented here traces to
+ADR-009's "every node is a deliberately-started peer" framing, which
+**ADR-018 superseded** with a real boot-time system-service mode —
+`--system`, dedicated `llauncher` account, state under
+`/var/lib/llauncher`. This doc still covers the `--user` install; for the
+token/auth model across both planes see [`../auth.md`](../auth.md).)
 
 ## What gets installed
 
@@ -28,8 +32,8 @@ touches the unit template.
 
 ## Security note up front
 
-The agent's only auth layer is the bearer token in
-`LLAUNCHER_AGENT_TOKEN`. Both installers default the bind to `0.0.0.0`
+The agent's only auth layer is the `X-Api-Key` token in
+`LLAUNCHER_AGENT_TOKEN` (see [`../auth.md`](../auth.md)). Both installers default the bind to `0.0.0.0`
 in the generated env file — that's the right answer for the
 multi-workstation case the service install implies, but **only** if the
 network between those workstations is trusted (LAN, Tailscale, VPN). If
@@ -168,12 +172,18 @@ service config, not by re-reading the file. The installer re-applies it.)
 From any machine that can reach the agent's host:port:
 
 ```bash
-curl -sS -H "Authorization: Bearer $LLAUNCHER_AGENT_TOKEN" \
-    http://<host>:8765/health
+# /health is auth-exempt — proves only reachability + liveness:
+curl -sS http://<host>:8765/health
+
+# /status requires the token — proves the token matches too. The header
+# is X-Api-Key (NOT Authorization: Bearer); see docs/auth.md:
+curl -sS -H "X-Api-Key: $LLAUNCHER_AGENT_TOKEN" \
+    http://<host>:8765/status
 ```
 
-A 200 response with a small JSON body confirms the service is up, the
-token matches, and the bind interface is reachable.
+A 200 on `/status` confirms the service is up, the token matches, and the
+bind interface is reachable. A 401/403 there means the token is missing or
+wrong (`/health` would still return 200 — it skips auth).
 
 ## Token rotation
 
