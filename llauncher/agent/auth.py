@@ -9,10 +9,11 @@ HTTP API authentication. The policy in precedence order:
    the token from standard input (one line, stripped). Lets operators
    pipe a token from a secret manager without leaving it in the
    environment.
-3. The token file at ``~/.llauncher/agent.token``, when present.
-   Read verbatim (stripped).
+3. The token file ``agent.token`` under ``LAUNCHER_STATE_DIR``
+   (default ``~/.llauncher``; see issue #196), when present. Read
+   verbatim (stripped).
 4. Otherwise, generate a fresh ``secrets.token_urlsafe(32)`` token,
-   write it to ``~/.llauncher/agent.token`` with mode 0600 (parent
+   write it to that ``agent.token`` path with mode 0600 (parent
    dir 0700), print it to stderr *once*, and return it.
 
 The auto-generation path is only safe to silently take when the
@@ -44,8 +45,17 @@ def is_loopback(host: str) -> bool:
 
 
 def default_token_path() -> Path:
-    """Return ``~/.llauncher/agent.token``."""
-    return Path.home() / ".llauncher" / "agent.token"
+    """Return the agent token path under ``LAUNCHER_STATE_DIR``.
+
+    Derived from the single durable-state base (issue #196). With
+    ``LAUNCHER_STATE_DIR`` unset this resolves to
+    ``~/.llauncher/agent.token`` exactly as before. Imported lazily so
+    importing this module stays filesystem-free and avoids any import
+    ordering concerns.
+    """
+    from llauncher.core.settings import LAUNCHER_STATE_DIR
+
+    return LAUNCHER_STATE_DIR / "agent.token"
 
 
 def _read_stdin_token() -> str:

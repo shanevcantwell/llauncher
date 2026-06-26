@@ -64,19 +64,36 @@ AGENT_API_KEY: str | None = os.getenv("LLAUNCHER_AGENT_TOKEN")
 if AGENT_API_KEY == "":
     AGENT_API_KEY = None
 
+# Base directory for all durable launcher state (issue #196). Every
+# per-actor state path (config, run lockfiles, audit log, per-server
+# logs, node registry + token sidecars, agent token) derives from this
+# single base so a multiuser deployment can point every actor at a
+# shared, non-home-relative location via one env var. Each per-dir env
+# override below still wins when set explicitly; otherwise the path is
+# derived from this base. The legacy ``~/.llauncher`` default is the
+# base's default, so with ``LAUNCHER_STATE_DIR`` unset every resolved
+# path is byte-identical to before this var existed. Pure getenv + Path
+# — no filesystem probing at import (cf. issue #195).
+LAUNCHER_STATE_DIR = Path(os.getenv(
+    "LAUNCHER_STATE_DIR",
+    str(Path.home() / ".llauncher"),
+))
+
 # Lockfile directory for running servers (per ADR-008).
 # Configurable via env so container deployments can volume-mount it,
 # enabling in-container agents to read host-side llauncher state.
+# Precedence: explicit ``LAUNCHER_RUN_DIR`` > ``LAUNCHER_STATE_DIR``/run.
 LAUNCHER_RUN_DIR = Path(os.getenv(
     "LAUNCHER_RUN_DIR",
-    str(Path.home() / ".llauncher" / "run"),
+    str(LAUNCHER_STATE_DIR / "run"),
 ))
 
 # Audit log path (per ADR-008). JSON Lines, append-only.
 # Same volume-mount story as LAUNCHER_RUN_DIR.
+# Precedence: explicit ``LAUNCHER_AUDIT_PATH`` > ``LAUNCHER_STATE_DIR``/audit.jsonl.
 LAUNCHER_AUDIT_PATH = Path(os.getenv(
     "LAUNCHER_AUDIT_PATH",
-    str(Path.home() / ".llauncher" / "audit.jsonl"),
+    str(LAUNCHER_STATE_DIR / "audit.jsonl"),
 ))
 
 # Per-server log directory (ADR-013). Files inside are
@@ -86,7 +103,7 @@ LAUNCHER_AUDIT_PATH = Path(os.getenv(
 # same way as ``LAUNCHER_RUN_DIR`` and ``LAUNCHER_AUDIT_PATH``.
 LAUNCHER_LOG_DIR = Path(os.getenv(
     "LAUNCHER_LOG_DIR",
-    str(Path.home() / ".llauncher" / "logs"),
+    str(LAUNCHER_STATE_DIR / "logs"),
 ))
 
 # Size cap for a single live log file before rotation kicks in (ADR-013).
