@@ -913,6 +913,12 @@ llauncher enforces validation rules:
 
 For the HTTP agent API (used in multi-node setups), see the agent documentation at `http://<node>:8765/docs` when an agent is running.
 
+> **Auth differs by plane.** This MCP server is **local and in-process** —
+> it has no token (its trust boundary is the stdio pipe). The HTTP agent
+> below **always** requires an `X-Api-Key` token. The two are not the same
+> process and must not be conflated. See [`auth.md`](auth.md) for the full
+> model (who needs a token, exempt paths, resolution precedence).
+
 The MCP tools map to these HTTP endpoints (all port-keyed per ADR-010; `routing.py`):
 
 | MCP Tool | HTTP Endpoint |

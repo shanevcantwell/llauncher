@@ -17,7 +17,7 @@ Canonical surface for LLM agents and automation. Stdio transport; full read + mu
 - **Configuration CRUD**: `add_model`, `update_model_config`, `delete_model`, `validate_config`
 
 ### HTTP Agent
-Same verbs over REST for multi-node setups (ADR-009 hub-spoke). Port-keyed routes (`/start/{port}`, `/swap/{port}`, `/stop/{port}`, `/cancel/{port}`, `/footer-context/{port}`) plus `/status`, `/models`, `/models/health`. Token-protected when bound off-loopback (ADR-003).
+Same verbs over REST for multi-node setups (ADR-009 hub-spoke). Port-keyed routes (`/start/{port}`, `/swap/{port}`, `/stop/{port}`, `/cancel/{port}`, `/footer-context/{port}`) plus `/status`, `/models`, `/models/health`. **Always** token-protected via an `X-Api-Key` header — including on loopback, where the token is auto-generated rather than operator-supplied (ADR-003). A non-loopback bind additionally *refuses to start* without a pre-existing token. Unlike the agent, the MCP server and local CLI are in-process and tokenless. See [`docs/auth.md`](docs/auth.md) for the full token/auth model.
 
 ### Streamlit UI
 Web dashboard for human operators. Four tabs: Dashboard (read-only running view), Models (config CRUD + per-model start/stop/swap with explicit port picker), Nodes (peer registry), Audit (local audit-log tail).
@@ -427,7 +427,7 @@ run.bat agent
 - `LLAUNCHER_AGENT_HOST`: Host to bind to (default: `127.0.0.1`). Set to `0.0.0.0` or a specific LAN IP to expose the agent to other hosts — see "Security Notes" below.
 - `LLAUNCHER_AGENT_PORT`: Port to listen on (default: `8765`)
 - `LLAUNCHER_AGENT_NODE_NAME`: Friendly name for the node
-- `LLAUNCHER_AGENT_TOKEN`: Required when binding to anything other than loopback. The agent refuses to start on a non-loopback host without it. Special value `-` reads the token from stdin (one line). On a loopback start with no value set, a fresh token is auto-generated and written to `~/.llauncher/agent.token` (mode 0600).
+- `LLAUNCHER_AGENT_TOKEN`: The agent's `X-Api-Key` token. The agent **always** enforces a token (auth is never off, even on loopback); this var lets you supply it explicitly. *Required* when binding to anything other than loopback — the agent refuses to start on a non-loopback host without it. Special value `-` reads the token from stdin (one line). On a loopback start with no value set, a fresh token is auto-generated and written to `~/.llauncher/agent.token` (mode 0600). For the full token/auth model (which consumers need a token, exempt paths, resolution order), see [`docs/auth.md`](docs/auth.md).
 
 #### 3. Start the Dashboard on the Head Machine
 
@@ -485,6 +485,7 @@ New-NetFirewallRule -DisplayName "llauncher Agent" -Direction Inbound -LocalPort
 - **Token required for non-loopback binds**: Binding to anything other than `127.0.0.1` / `::1` / `localhost` requires `LLAUNCHER_AGENT_TOKEN` to be set. The agent refuses to start otherwise. On loopback first-run with no token configured, a fresh token is generated at `~/.llauncher/agent.token` (mode 0600) and printed once to stderr.
 - **Trusted LAN Only**: Even with a token, only expose the agent on networks you trust — the transport is plain HTTP (no TLS). Tailscale is the recommended option for cross-host trust.
 - **Firewall**: Restrict port 8765 to your LAN subnet.
+- **Full auth model**: For the token/auth reference — the two planes (token-bearing HTTP agent vs. tokenless local MCP/CLI), the `X-Api-Key` header, exempt paths, resolution precedence, and file locations/modes — see [`docs/auth.md`](docs/auth.md).
 
 ### Usage
 

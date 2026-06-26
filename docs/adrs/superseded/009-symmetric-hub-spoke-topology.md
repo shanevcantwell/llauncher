@@ -1,7 +1,13 @@
 # ADR-009: Symmetric Hub/Spoke Topology
 
-**Status:** Accepted  
+**Status:** Superseded by ADR-018  
 **Date:** 2026-05-02  
+
+> **Note (2026-06-25):** Superseded by [ADR-018](../accepted/018-llauncher-system-service.md),
+> which replaces *only this ADR's deployment posture* — the framing of the local
+> agent as a user-started peer with state under `$HOME`. The symmetric hub/spoke
+> *topology* below (config sovereignty, per-node registry, self-loop dispatch,
+> identity resolution) remains in force.
 
 ## Context
 
