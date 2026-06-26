@@ -19,6 +19,7 @@ from mcp import Tool
 from llauncher import operations as ops
 from llauncher.core import delegation
 from llauncher.core.process import stream_logs
+from llauncher.remote.node import local_agent_node
 from llauncher.state import LauncherState
 
 
@@ -219,7 +220,7 @@ async def start_server(args: dict) -> dict:
     # ``llama-server`` is a child of the systemd-managed agent. With no
     # agent reachable, fall back to the in-process op (dev/standalone).
     if delegation.should_delegate():
-        res = delegation.local_agent_node().start_server(model_name, port)
+        res = local_agent_node().start_server(model_name, port)
         return _delegated_or_error(res, "start", port)
 
     result = ops.start(model_name, port, caller="mcp")
@@ -242,7 +243,7 @@ async def stop_server(args: dict) -> dict:
 
     # Delegation gate (#200): see ``start_server``.
     if delegation.should_delegate():
-        res = delegation.local_agent_node().stop_server(port)
+        res = local_agent_node().stop_server(port)
         return _delegated_or_error(res, "stop", port)
 
     result = ops.stop(port, caller="mcp")
@@ -274,7 +275,7 @@ async def swap_server(args: dict) -> dict:
 
     # Delegation gate (#200): see ``start_server``.
     if delegation.should_delegate():
-        res = delegation.local_agent_node().swap_server(model_name, port)
+        res = local_agent_node().swap_server(model_name, port)
         return _delegated_or_error(res, "swap", port)
 
     result = ops.swap(model_name, port, caller="mcp")

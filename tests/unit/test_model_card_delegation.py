@@ -36,7 +36,7 @@ def _delegate(node, *, enabled=True):
     with patch.object(
         model_card.delegation, "should_delegate", return_value=enabled
     ), patch.object(
-        model_card.delegation, "local_agent_node", return_value=node
+        model_card, "local_agent_node", return_value=node
     ) as factory:
         yield factory
 

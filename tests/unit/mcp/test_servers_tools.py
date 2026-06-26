@@ -388,7 +388,7 @@ class TestDelegationRouting:
                 return_value=True,
             ),
             patch(
-                "llauncher.mcp_server.tools.servers.delegation.local_agent_node",
+                "llauncher.mcp_server.tools.servers.local_agent_node",
                 return_value=node,
             ),
         )
@@ -417,7 +417,7 @@ class TestDelegationRouting:
             "llauncher.mcp_server.tools.servers.delegation.should_delegate",
             return_value=False,
         ), patch(
-            "llauncher.mcp_server.tools.servers.delegation.local_agent_node"
+            "llauncher.mcp_server.tools.servers.local_agent_node"
         ) as mock_node, patch(
             "llauncher.mcp_server.tools.servers.ops.start",
             return_value=envelope,
@@ -464,7 +464,7 @@ class TestDelegationRouting:
             "llauncher.mcp_server.tools.servers.delegation.should_delegate",
             return_value=False,
         ), patch(
-            "llauncher.mcp_server.tools.servers.delegation.local_agent_node"
+            "llauncher.mcp_server.tools.servers.local_agent_node"
         ) as mock_node, patch(
             "llauncher.mcp_server.tools.servers.ops.stop",
             return_value=envelope,
@@ -501,7 +501,7 @@ class TestDelegationRouting:
             "llauncher.mcp_server.tools.servers.delegation.should_delegate",
             return_value=False,
         ), patch(
-            "llauncher.mcp_server.tools.servers.delegation.local_agent_node"
+            "llauncher.mcp_server.tools.servers.local_agent_node"
         ) as mock_node, patch(
             "llauncher.mcp_server.tools.servers.ops.swap",
             return_value=envelope,

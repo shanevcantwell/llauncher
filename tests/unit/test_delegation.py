@@ -210,3 +210,32 @@ class TestRemoteDoesNotImportAgent:
             allow_generate=False,
         )
         assert token is None
+
+    def test_importing_core_delegation_does_not_import_remote_or_agent(self):
+        """Issue #200 layering: ``core.delegation`` must depend on nothing in
+        ``remote`` or ``agent``.
+
+        The ``local_agent_node`` factory (which constructs a ``RemoteNode``)
+        was moved out of ``core.delegation`` into ``remote.node`` so ``core``
+        no longer carries an edge — even a lazy/function-local one — to the
+        upper layers. Run in a fresh interpreter so other tests' imports
+        cannot mask a regression, and assert that importing the module pulls
+        in neither package.
+        """
+        code = (
+            "import sys; "
+            "import llauncher.core.delegation; "
+            "leaked = sorted(m for m in sys.modules "
+            "if m in ('llauncher.remote', 'llauncher.agent') "
+            "or m.startswith('llauncher.remote.') "
+            "or m.startswith('llauncher.agent.')); "
+            "print(leaked); "
+            "sys.exit(1 if leaked else 0)"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True
+        )
+        assert result.returncode == 0, (
+            "core.delegation imported remote.*/agent.* (layering inversion "
+            f"#200); leaked modules: {result.stdout.strip()}\n{result.stderr}"
+        )

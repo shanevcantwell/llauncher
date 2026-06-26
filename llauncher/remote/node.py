@@ -535,3 +535,28 @@ class RemoteNode:
             "last_seen": self.last_seen.isoformat() if self.last_seen else None,
             "error_message": self._error_message,
         }
+
+
+def local_agent_node() -> RemoteNode:
+    """Construct a ``RemoteNode`` aimed at the local agent (#200 delegation).
+
+    Single construction point for the delegation target — host, port, and
+    token live here rather than being copy-pasted into each front-end. The
+    node is named ``"local"`` and carries the resolved ``X-Api-Key``;
+    because a front-end is not the agent process, its :meth:`_is_self_loop`
+    is False, so verb calls go over HTTP to ``127.0.0.1:AGENT_PORT``.
+
+    This factory lives in the ``remote`` layer rather than
+    :mod:`llauncher.core.delegation` (issue #200 follow-up): it constructs a
+    ``RemoteNode``, so its natural home is alongside that class. ``core``
+    owns only the *decision* (``should_delegate``); ``remote`` owns *building
+    the target*, keeping ``core`` free of any edge to ``remote`` or
+    ``agent``. ``settings``/``agent_token`` are imported at call time —
+    downward (``remote → core``) edges, read late so test patches and
+    reloaded settings take effect.
+    """
+    from llauncher.core import settings
+    from llauncher.core.agent_token import resolve_agent_token
+
+    token = resolve_agent_token(allow_generate=False)
+    return RemoteNode("local", "127.0.0.1", port=settings.AGENT_PORT, api_key=token)

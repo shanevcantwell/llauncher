@@ -7,7 +7,7 @@ from llauncher.state import LauncherState
 from llauncher.core import delegation
 from llauncher.core.process import stream_logs
 from llauncher.remote.state import RemoteAggregator
-from llauncher.remote.node import RemoteServerInfo
+from llauncher.remote.node import RemoteServerInfo, local_agent_node
 from llauncher.ui.components.port_picker import render_port_picker
 from llauncher.ui.utils import format_uptime
 
@@ -177,7 +177,7 @@ def _render_eviction_dialog(
             # swap (dev/standalone), preserving the toast taxonomy below.
             if delegation.should_delegate():
                 # ``or {}`` guards the ``dict | None`` seam (see _handle_start).
-                res = delegation.local_agent_node().swap_server(model_name, port) or {}
+                res = local_agent_node().swap_server(model_name, port) or {}
                 if res.get("success"):
                     st.toast(f"{model_name} now running on port {port}", icon="✅")
                 else:
@@ -372,7 +372,7 @@ def _handle_start(
                     # with a null body yields None); ``or {}`` makes the
                     # ``.get`` calls None-safe without masking a real error
                     # dict (transport/non-2xx arrives as a dict already).
-                    res = delegation.local_agent_node().start_server(
+                    res = local_agent_node().start_server(
                         model_name, resolved_port
                     ) or {}
                     if res.get("success"):
