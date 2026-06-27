@@ -8,7 +8,6 @@ and op results into HTTP status codes.
 
 from __future__ import annotations
 
-import socket
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Response
@@ -35,10 +34,16 @@ def get_state() -> LauncherState:
 
 
 def get_node_name() -> str:
-    """Get the node name from environment or hostname."""
-    import os
+    """Get the node name from environment or hostname.
 
-    return os.getenv("LLAUNCHER_AGENT_NODE_NAME", socket.gethostname())
+    Delegates to :func:`llauncher.core.node_info.get_node_name` — the
+    single resolution point shared with the in-process self-loop path
+    (issue #125). Re-exported here so callers and tests that import it
+    from ``agent.routing`` keep working.
+    """
+    from llauncher.core import node_info as _node_info
+
+    return _node_info.get_node_name()
 
 
 # ─────────── Request body schemas ────────────────────────────────
@@ -121,25 +126,15 @@ async def health_check() -> dict:
 
 @router.get("/node-info")
 def node_info() -> dict:
-    """Get information about this node."""
-    import platform
+    """Get information about this node.
 
-    ips: list[str] = []
-    try:
-        hostname = socket.gethostname()
-        addr_info = socket.getaddrinfo(hostname, None)
-        ips = list(set(str(addr[4][0]) for addr in addr_info))
-    except Exception:
-        pass
+    The payload is built by :func:`llauncher.core.node_info.get_node_info`
+    — the single source shared with the in-process self-loop path so the
+    HTTP endpoint and ``RemoteNode.get_node_info`` never drift (issue #125).
+    """
+    from llauncher.core import node_info as _node_info
 
-    return {
-        "node_name": get_node_name(),
-        "hostname": socket.gethostname(),
-        "os": platform.system(),
-        "os_version": platform.version(),
-        "python_version": platform.python_version(),
-        "ip_addresses": ips,
-    }
+    return _node_info.get_node_info()
 
 
 @router.get("/status")
