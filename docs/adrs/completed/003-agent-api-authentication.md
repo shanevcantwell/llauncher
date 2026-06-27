@@ -37,13 +37,17 @@ A review document (`docs/reviews/2026-04-25-enhancement-no-auth-agent-api.md`) w
 **Implementation approach:**
 1. Add `api_key` field to core settings (`core/settings.py`)
 2. Store key in node config: `{ "host": "...", "port": ..., "api_key": "..." }`
-3. FastAPI middleware checks `X-Api-Key` header on all write endpoints (`/start`, `/stop`, `/swap`, `/nodes/add`, `/nodes/remove`, `/nodes/status`)
+3. FastAPI middleware checks the `X-Api-Key` header on every non-exempt
+   request — **including read GETs** (`/status`, `/models`,
+   `/models/health`, `/node-info`, `/logs/{port}`, …), because every read
+   leaks something (running-model inventory, OS/IP/process info). This is
+   the as-built security-cohort posture; it is narrower than this section's
+   original draft, which also exempted `/status`/`/models`/`/models/health`.
+   See the Amendment Notes for the drift resolution (#126).
 
-   Exempt read-only endpoints that don't require authentication:
+   Exempt paths that skip authentication regardless of token configuration
+   (`agent/middleware.py::_AUTH_EXEMPT_PATHS`):
    - `/health` — liveness probe
-   - `/status` — running servers status
-   - `/models` — list all configured models
-   - `/models/health` — model health status
    - `/docs`, `/openapi.json`, `/redoc` — API documentation
 4. When `api_key` is empty/None in settings, skip auth entirely (backward compatible)
 5. Add `llauncher_add_node` tool support for passing api_key when registering new nodes
@@ -94,16 +98,19 @@ design:
   `~/.llauncher/agent.token` (mode 0600).
 - `llauncher/agent/middleware.py` uses `hmac.compare_digest` for the
   `X-Api-Key` check.
-- **Exempt-paths drift:** the original Decision §3 and the
-  Implementation Notes below list `/health`, `/status`, `/models`,
+- **Exempt-paths drift — RESOLVED (#126, Option A):** the original
+  Decision §3 listed `/health`, `/status`, `/models`, `/models/health`,
   `/docs`, `/openapi.json`, `/redoc` as auth-exempt. The live code in
-  `agent/middleware.py:20` exempts a narrower set:
+  `agent/middleware.py::_AUTH_EXEMPT_PATHS` exempts a narrower set:
   `{/health, /docs, /redoc, /openapi.json}`. `/status`, `/models`,
   and `/node-info` all require the token. This is consistent with the
   security-cohort posture (every read leaks something — running
-  models, OS/IP/process info from `/node-info`) but the ADR was never
-  updated to match. Tracked as issue #126 for resolution (narrow the
-  docs to match the code, or widen the code to match the docs).
+  models, OS/IP/process info from `/node-info`). Resolved by narrowing
+  the docs to match the code: Decision §3 and the Implementation Notes
+  now list only the four exempt paths, and a regression guard
+  (`tests/unit/test_agent_middleware.py::test_exempt_paths_match_documented_set`)
+  pins `_AUTH_EXEMPT_PATHS` so future code widening cannot silently
+  re-open the drift.
 - **Local-node UI auth fix (2026-05-24 follow-up commit):** the UI
   process is separate from the agent and does not inherit
   `LLAUNCHER_AGENT_TOKEN`, so the `local` registry entry sourced no
@@ -120,5 +127,5 @@ design:
 
 - **Middleware**: `llauncher/agent/middleware.py` implements `X-Api-Key` header validation
 - **Settings**: `llauncher/core/settings.py` defines `AGENT_API_KEY` from `LLAUNCHER_AGENT_TOKEN` env var
-- **Exemptions** (per live code at `agent/middleware.py:20`): `/health`, `/docs`, `/openapi.json`, `/redoc`. Note this is narrower than the original Decision §3 listed; see Amendment Notes for the drift. `/status`, `/models`, `/node-info` all require the token.
+- **Exemptions** (per live code at `agent/middleware.py::_AUTH_EXEMPT_PATHS`): `/health`, `/docs`, `/openapi.json`, `/redoc`. `/status`, `/models`, `/node-info` and all other reads require the token. Decision §3 above now matches this; the historical drift is recorded as resolved in the Amendment Notes (#126).
 - **pi-footer-extension**: Currently unauthenticated (token pass-through deferred to future)
