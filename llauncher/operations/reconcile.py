@@ -34,6 +34,20 @@ def reconcile_stale_lockfiles(*, caller: str = "reconcile") -> list[Lockfile]:
     entry is emitted exactly once per dead claim. Safe to call on every
     ``/status``.
 
+    Liveness is decided by :func:`llauncher.core.lockfile.is_pid_alive`,
+    which treats an inaccessible-but-present pid (``psutil.AccessDenied``,
+    e.g. a cross-uid ``llama-server`` under system-mode #191/#194) as
+    **alive** — so the sweep never removes the lockfile of a running server
+    it merely cannot read (issue #208).
+
+    TOCTOU note: there is a microsecond window between the dead-check and
+    :func:`llauncher.core.lockfile.remove_lockfile` in which a racing
+    ``/start`` on the same port could write a fresh lockfile that this sweep
+    then removes. Single-operator, single-host operation makes this window
+    negligible; if concurrent multi-actor starts ever become real, the
+    remove would need to be guarded by re-reading the lockfile and confirming
+    the pid is unchanged. Not worth the complexity at present.
+
     Args:
         caller: Audit caller field. Defaults to ``"reconcile"``; the agent's
             status path passes ``"status"`` so the entry is attributable.

@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 
+import psutil
 import pytest
 
 from llauncher.core import lockfile as lf
@@ -160,6 +161,35 @@ def test_is_pid_alive_false_for_likely_dead() -> None:
     # Use a sentinel pid that is overwhelmingly unlikely to exist on any
     # system. PID_MAX on Linux is typically 4194304; 2**31-1 exceeds that.
     assert lf.is_pid_alive(2**31 - 1) is False
+
+
+def test_is_pid_alive_true_on_access_denied(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A present-but-unreadable pid reads as alive (issue #208).
+
+    Under system-mode (#191/#194) ``llama-server`` runs as a different uid,
+    so ``psutil`` raises ``AccessDenied`` reading a *live* process. That must
+    not be mistaken for death, or reconcile would reclaim a running server.
+    """
+
+    def _raise_access_denied(_pid: int) -> psutil.Process:
+        raise psutil.AccessDenied(pid=_pid)
+
+    monkeypatch.setattr(lf.psutil, "Process", _raise_access_denied)
+    assert lf.is_pid_alive(4242) is True
+
+
+def test_is_pid_alive_false_on_no_such_process(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A genuinely absent pid reads as dead/reclaimable (issue #208)."""
+
+    def _raise_no_such_process(_pid: int) -> psutil.Process:
+        raise psutil.NoSuchProcess(_pid)
+
+    monkeypatch.setattr(lf.psutil, "Process", _raise_no_such_process)
+    assert lf.is_pid_alive(4242) is False
 
 
 # ---------------------------------------------------------------------------
