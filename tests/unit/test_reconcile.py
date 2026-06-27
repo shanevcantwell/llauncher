@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import psutil
 import pytest
 
 from llauncher.core import audit_log
@@ -102,6 +103,56 @@ def test_idempotent_no_double_emit(state_dirs: Path) -> None:
         if e.action is audit_log.AuditAction.OBSERVED_STOPPED
     ]
     assert len(observed) == 1
+
+
+def test_keeps_access_denied_lockfile(
+    state_dirs: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A lockfile whose pid is present-but-unreadable is NOT pruned (#208).
+
+    Under system-mode (#191/#194) the sweep runs as a different uid than the
+    ``llama-server`` it spawned, so ``psutil`` raises ``AccessDenied`` reading
+    a live process. ``is_pid_alive`` treats that as alive, so the sweep must
+    leave the lockfile of a running cross-uid server in place.
+    """
+    lf.write_lockfile(8083, "cross-uid-model", 4242, run_dir=state_dirs)
+
+    def _raise_access_denied(_pid: int) -> psutil.Process:
+        raise psutil.AccessDenied(pid=_pid)
+
+    monkeypatch.setattr(lf.psutil, "Process", _raise_access_denied)
+
+    pruned = reconcile_stale_lockfiles()
+
+    assert pruned == []
+    assert (state_dirs / "8083.lock").exists()
+    assert audit_log.read_entries() == []
+
+
+def test_sweep_keeps_access_denied_prunes_dead(
+    state_dirs: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """In one sweep: an unreadable (live) pid survives, a gone pid is pruned.
+
+    This is the #208 blast-radius guard — a single ``AccessDenied`` pid must
+    not cause the sweep to clear other ports, and genuinely-dead claims still
+    reconcile as before.
+    """
+    lf.write_lockfile(8081, "dead-model", _DEAD_PID, run_dir=state_dirs)
+    lf.write_lockfile(8083, "cross-uid-model", 4242, run_dir=state_dirs)
+
+    def _fake_process(pid: int) -> psutil.Process:
+        if pid == 4242:
+            raise psutil.AccessDenied(pid=pid)
+        raise psutil.NoSuchProcess(pid)
+
+    monkeypatch.setattr(lf.psutil, "Process", _fake_process)
+
+    pruned = reconcile_stale_lockfiles()
+
+    assert [p.port for p in pruned] == [8081]
+    assert not (state_dirs / "8081.lock").exists()
+    assert (state_dirs / "8083.lock").exists()
 
 
 def test_empty_run_dir_is_noop(state_dirs: Path) -> None:
