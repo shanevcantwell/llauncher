@@ -6,12 +6,14 @@ Covers all four subcommand groups: model, server, node, config.
 
 import json
 import pytest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import typer
 from typer.testing import CliRunner
 
+from llauncher import cli
 from llauncher.cli import app, console
 from llauncher.core.config import ConfigStore
 from llauncher.models.config import ModelConfig
@@ -282,6 +284,164 @@ def test_stop_nonexistent_port(mock_config_store):
         result = runner.invoke(app, ["server", "stop", "9000"])
         assert result.exit_code == 0
         mock_stop.assert_called_once_with(9000, caller="cli")
+
+
+# ---------------------------------------------------------------------------
+# server delegation gate (#203, mirrors MCP/UI #200 delegation tests)
+# ---------------------------------------------------------------------------
+#
+# The autouse ``_deterministic_delegation`` fixture (tests/conftest.py) pins
+# ``LLAUNCHER_DELEGATE_TO_LOCAL_AGENT=0`` and clears the agent stamp, so the
+# CLI's gate takes the in-process path unless a test overrides it. These tests
+# mirror ``TestDelegationRouting`` (mcp) / ``test_model_card_delegation`` (ui):
+# the gate decision is patched (or env-forced), the local-agent-node factory is
+# mocked, and we assert delegate → HTTP via the node, in-process → ``ops.*``.
+
+
+@contextmanager
+def _cli_delegate(node, *, enabled=True):
+    """Patch the gate decision and the local-agent-node factory the CLI uses.
+
+    ``cli.start_server`` / ``cli.stop_server`` import ``delegation`` and
+    ``local_agent_node`` at call time, so patch them at their definition
+    sites (``llauncher.core.delegation.should_delegate`` and
+    ``llauncher.remote.node.local_agent_node``).
+    """
+    with patch(
+        "llauncher.core.delegation.should_delegate", return_value=enabled
+    ), patch(
+        "llauncher.remote.node.local_agent_node", return_value=node
+    ) as factory:
+        yield factory
+
+
+class TestCliStartDelegation:
+    def test_start_delegates_over_http_when_agent_present(self, mock_config_store):
+        node = MagicMock()
+        node.start_server.return_value = {
+            "success": True,
+            "action": "started",
+            "port": 8080,
+            "message": "Started m on port 8080",
+        }
+        with patch("llauncher.operations.start") as mock_ops_start, _cli_delegate(node):
+            result = runner.invoke(app, ["server", "start", "m", "--port", "8080"])
+
+        assert result.exit_code == 0
+        node.start_server.assert_called_once_with("m", 8080)
+        mock_ops_start.assert_not_called()
+
+    def test_start_in_process_when_no_agent(self, mock_config_store):
+        from llauncher.operations import StartResult
+
+        result_obj = StartResult(
+            success=True, action="started", port=8080, model="m",
+            pid=7, message="Started m on port 8080",
+        )
+        with patch(
+            "llauncher.operations.start", return_value=result_obj
+        ) as mock_ops_start, _cli_delegate(MagicMock(), enabled=False) as factory:
+            result = runner.invoke(app, ["server", "start", "m", "--port", "8080"])
+
+        assert result.exit_code == 0
+        mock_ops_start.assert_called_once_with("m", 8080, caller="cli")
+        factory.assert_not_called()
+
+    def test_start_env_override_forces_delegation(self, mock_config_store, monkeypatch):
+        """Real gate: ``LLAUNCHER_DELEGATE_TO_LOCAL_AGENT=1`` → HTTP, no probe."""
+        monkeypatch.setenv("LLAUNCHER_DELEGATE_TO_LOCAL_AGENT", "1")
+        monkeypatch.delenv("LLAUNCHER_IS_AGENT_PROCESS", raising=False)
+        node = MagicMock()
+        node.start_server.return_value = {"success": True, "message": "ok"}
+        with patch("llauncher.operations.start") as mock_ops_start, patch(
+            "llauncher.remote.node.local_agent_node", return_value=node
+        ):
+            result = runner.invoke(app, ["server", "start", "m", "--port", "8080"])
+
+        assert result.exit_code == 0
+        node.start_server.assert_called_once_with("m", 8080)
+        mock_ops_start.assert_not_called()
+
+    def test_start_delegated_failure_exits_nonzero(self, mock_config_store):
+        node = MagicMock()
+        node.start_server.return_value = {
+            "success": False, "error": "agent refused", "port": 8080,
+        }
+        with patch("llauncher.operations.start"), _cli_delegate(node):
+            result = runner.invoke(app, ["server", "start", "m", "--port", "8080"])
+
+        assert result.exit_code == 1
+        assert "agent refused" in result.stdout
+
+    def test_start_delegated_none_result_is_safe(self, mock_config_store):
+        """A ``None`` delegated body must surface as an error, not raise."""
+        node = MagicMock()
+        node.start_server.return_value = None
+        with patch("llauncher.operations.start"), _cli_delegate(node):
+            result = runner.invoke(app, ["server", "start", "m", "--port", "8080"])
+
+        assert result.exit_code == 1
+        assert "empty response" in result.stdout.lower()
+
+
+class TestCliStopDelegation:
+    def test_stop_delegates_over_http_when_agent_present(self, mock_config_store):
+        node = MagicMock()
+        node.stop_server.return_value = {
+            "success": True, "action": "stopped", "port": 8080,
+            "message": "Stopped server on port 8080",
+        }
+        with patch("llauncher.operations.stop") as mock_ops_stop, _cli_delegate(node):
+            result = runner.invoke(app, ["server", "stop", "8080"])
+
+        assert result.exit_code == 0
+        node.stop_server.assert_called_once_with(8080)
+        mock_ops_stop.assert_not_called()
+
+    def test_stop_in_process_when_no_agent(self, mock_config_store):
+        from llauncher.operations import StopResult
+
+        result_obj = StopResult(
+            success=True, action="stopped", port=8080,
+            message="Stopped server on port 8080",
+        )
+        with patch(
+            "llauncher.operations.stop", return_value=result_obj
+        ) as mock_ops_stop, _cli_delegate(MagicMock(), enabled=False) as factory:
+            result = runner.invoke(app, ["server", "stop", "8080"])
+
+        assert result.exit_code == 0
+        mock_ops_stop.assert_called_once_with(8080, caller="cli")
+        factory.assert_not_called()
+
+    def test_stop_delegated_failure_exits_nonzero(self, mock_config_store):
+        node = MagicMock()
+        node.stop_server.return_value = {
+            "success": False, "error": "No server running on port 8080",
+        }
+        with patch("llauncher.operations.stop"), _cli_delegate(node):
+            result = runner.invoke(app, ["server", "stop", "8080"])
+
+        assert result.exit_code == 1
+        assert "no server running" in result.stdout.lower()
+
+    def test_stop_delegated_message_fallback(self, mock_config_store):
+        """Envelope lacking message/error/success → synthesized 'stop on port'."""
+        node = MagicMock()
+        node.stop_server.return_value = {"port": 8080}
+        with patch("llauncher.operations.stop"), _cli_delegate(node):
+            result = runner.invoke(app, ["server", "stop", "8080"])
+
+        # success defaults False (no 'success' key) → exit 1, synthesized msg.
+        assert result.exit_code == 1
+        assert "stop on port 8080" in result.stdout
+
+
+def test_delegated_outcome_none_seam():
+    """Unit-level guard on the dict|None reducer (mirrors MCP ``_delegated_or_error``)."""
+    ok, msg = cli._delegated_outcome(None, "start", 8080)
+    assert ok is False
+    assert "empty response" in msg.lower()
 
 
 # ---------------------------------------------------------------------------
