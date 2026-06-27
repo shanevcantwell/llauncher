@@ -138,11 +138,69 @@ def test_default_vram_check_no_backend_passes() -> None:
     assert reason == ""
 
 
-def test_default_vram_check_backend_with_no_devices_passes() -> None:
+def test_default_vram_check_backend_with_no_devices_warns_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Issue #150: default mode is ``warn`` — pass but log a structured warning."""
+    monkeypatch.delenv(pf.VRAM_PREFLIGHT_ENV, raising=False)
+    cfg = _config()
+    with caplog.at_level("WARNING", logger="llauncher.operations.preflight"):
+        with _patch_gpu({"backends": ["nvidia"], "devices": []}):
+            ok, reason = pf.default_vram_check(cfg)
+    assert ok is True
+    assert reason == ""
+    assert any("cannot verify VRAM headroom" in rec.message for rec in caplog.records)
+
+
+def test_default_vram_check_backend_with_no_devices_strict_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #150: ``strict`` fails closed when VRAM headroom is unknown."""
+    monkeypatch.setenv(pf.VRAM_PREFLIGHT_ENV, "strict")
     cfg = _config()
     with _patch_gpu({"backends": ["nvidia"], "devices": []}):
         ok, reason = pf.default_vram_check(cfg)
+    assert ok is False
+    assert "cannot verify vram headroom" in reason.lower()
+    assert "nvidia" in reason
+
+
+def test_default_vram_check_backend_with_no_devices_off_passes_silently(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Issue #150: ``off`` restores the legacy no-op — pass with no warning."""
+    monkeypatch.setenv(pf.VRAM_PREFLIGHT_ENV, "off")
+    cfg = _config()
+    with caplog.at_level("WARNING", logger="llauncher.operations.preflight"):
+        with _patch_gpu({"backends": ["nvidia"], "devices": []}):
+            ok, reason = pf.default_vram_check(cfg)
     assert ok is True
+    assert reason == ""
+    assert not any("VRAM pre-flight" in rec.message for rec in caplog.records)
+
+
+def test_default_vram_check_unknown_mode_falls_back_to_warn(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An unrecognized mode logs a warning and defaults to ``warn`` (pass)."""
+    monkeypatch.setenv(pf.VRAM_PREFLIGHT_ENV, "bogus")
+    cfg = _config()
+    with caplog.at_level("WARNING", logger="llauncher.operations.preflight"):
+        with _patch_gpu({"backends": ["nvidia"], "devices": []}):
+            ok, reason = pf.default_vram_check(cfg)
+    assert ok is True
+    assert reason == ""
+    assert any("falling back to" in rec.message for rec in caplog.records)
+
+
+def test_vram_unknown_mode_is_case_insensitive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(pf.VRAM_PREFLIGHT_ENV, "  STRICT  ")
+    assert pf._vram_unknown_mode() == "strict"
 
 
 def test_default_vram_check_sufficient_passes() -> None:

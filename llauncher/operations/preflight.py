@@ -21,6 +21,7 @@ slice-2 wiring.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from collections.abc import Callable
 
@@ -58,6 +59,45 @@ def run_preflight_check(
         logger.exception("%s pre-flight check raised; treating as failure", label)
         return False, f"{label} check raised: {exc}"
     return ok, reason
+
+
+# Behavior when VRAM headroom cannot be verified — a GPU backend is present
+# but reports no device numbers (e.g. a transient ``nvidia-smi`` hiccup or a
+# malformed device query). Governed by the ``LLAUNCHER_VRAM_PREFLIGHT`` env
+# var (issue #150):
+#
+#   ``strict`` — fail closed: reject with "cannot verify VRAM headroom".
+#   ``warn``   — proceed but log a structured WARNING (the default).
+#   ``off``    — proceed silently, matching the legacy no-op behavior.
+#
+# Default is ``warn`` rather than ``strict`` because the companion
+# device-query defect makes the unknown-VRAM branch fire constantly;
+# defaulting to strict would block every swap. ``warn`` restores a visible
+# guard rail without regressing swap availability. The "no backend at all"
+# branch (genuinely CPU-only host) is unaffected and always passes.
+VRAM_PREFLIGHT_ENV = "LLAUNCHER_VRAM_PREFLIGHT"
+VRAM_PREFLIGHT_DEFAULT = "warn"
+VRAM_PREFLIGHT_MODES = ("strict", "warn", "off")
+
+
+def _vram_unknown_mode() -> str:
+    """Resolve the configured behavior for the unknown-VRAM branch.
+
+    Reads :data:`VRAM_PREFLIGHT_ENV` at call time (so the runtime env, and
+    test monkeypatching, take effect without re-import). An unrecognized
+    value logs a WARNING and falls back to :data:`VRAM_PREFLIGHT_DEFAULT`.
+    """
+    raw = os.environ.get(VRAM_PREFLIGHT_ENV, VRAM_PREFLIGHT_DEFAULT).strip().lower()
+    if raw not in VRAM_PREFLIGHT_MODES:
+        logger.warning(
+            "%s=%r is not one of %s; falling back to %r",
+            VRAM_PREFLIGHT_ENV,
+            raw,
+            VRAM_PREFLIGHT_MODES,
+            VRAM_PREFLIGHT_DEFAULT,
+        )
+        return VRAM_PREFLIGHT_DEFAULT
+    return raw
 
 
 # Heuristic constant: VRAM (MiB) per billion parameters at ~Q4_K_M quantization.
@@ -129,6 +169,11 @@ def default_vram_check(config: ModelConfig) -> tuple[bool, str]:
       state. If no GPU backend is detected, treat the check as a no-op
       pass — the process will fail naturally if the host can't run the
       model. This matches the agent-routing behavior.
+    - If a backend *is* detected but reports no device numbers, VRAM
+      headroom is unknown. Per issue #150 this is governed by
+      :data:`VRAM_PREFLIGHT_ENV` (``strict`` rejects, ``warn`` passes with
+      a logged warning, ``off`` passes silently) — never a silent no-op,
+      which would let a blind swap OOM.
     - Compute :func:`estimate_vram_mb` for ``config``.
     - Pass if **any** device reports ``free_vram_mb >= required``. We pick
       the most-free device rather than enforcing an exact placement; the
@@ -147,6 +192,18 @@ def default_vram_check(config: ModelConfig) -> tuple[bool, str]:
 
     devices = health.get("devices") or []
     if not devices:
+        # Backend present but no device numbers — VRAM headroom is unknown.
+        # Issue #150: this is the dangerous branch (a blind swap can OOM), so
+        # govern it explicitly instead of silently passing.
+        mode = _vram_unknown_mode()
+        reason = (
+            "cannot verify VRAM headroom: GPU backend "
+            f"{backends!r} present but reported no device data"
+        )
+        if mode == "strict":
+            return False, reason
+        if mode == "warn":
+            logger.warning("VRAM pre-flight: %s; proceeding (mode=warn)", reason)
         return True, ""
 
     required_mb = estimate_vram_mb(config)
