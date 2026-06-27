@@ -587,6 +587,28 @@ def stream_logs(pid: int | None = None, model_name: str | None = None, lines: in
     return []
 
 
+def read_logs_for_port(port: int, lines: int = 100) -> list[str] | None:
+    """Return the tail of the most-recent log file for ``port``.
+
+    Resolves the freshest ``*-{port}.log`` in :data:`LOG_DIR` (mirroring
+    the port-keyed glob in :func:`stream_logs`) and tails it, **without
+    requiring a live process**. This is the read path for issue #201
+    Part 2(b): a server that spawned then exited within ~1s leaves its
+    death cause in ``logs/{stem}-{port}.log``, but the live-process lookup
+    in :func:`stream_logs` (``pid=...``) can no longer reach it. The agent's
+    ``GET /logs/{port}`` falls back here so the operator can still retrieve
+    that log after the process is gone.
+
+    Returns ``None`` when no log file exists for the port (the caller maps
+    that to 404), otherwise the tailed lines — possibly an empty list when
+    the newest file is empty, which is distinct from "no file at all."
+    """
+    match = _newest_log(LOG_DIR.glob(f"*-{port}.log"))
+    if match is None:
+        return None
+    return _tail_file(match, lines)
+
+
 def _tail_file(path: Path, lines: int) -> list[str]:
     """Read the last ``lines`` lines from ``path``.
 

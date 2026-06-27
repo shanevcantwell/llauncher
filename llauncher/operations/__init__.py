@@ -44,6 +44,7 @@ from .preflight import (
     default_vram_check,
     estimate_vram_mb,
 )
+from .reconcile import reconcile_stale_lockfiles
 from .start import StartResult, start
 from .stop import (
     StopResult,
@@ -78,6 +79,8 @@ __all__ = [
     "OrphanInfo",
     "list_orphans",
     "record_observed_orphan",
+    # Stale-lockfile reconcile sweep (issue #201)
+    "reconcile_stale_lockfiles",
     # Swap-related constants and types
     "PreflightCheck",
     "STARTUP_LOG_TAIL_MAX",
