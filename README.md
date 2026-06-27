@@ -268,6 +268,12 @@ llauncher includes validation rules to prevent problematic actions:
 - **Model whitelists**: Optionally restrict which models can be started
 - **Caller blacklists**: Restrict which callers (UI, MCP, etc.) can perform actions
 
+## Versioning
+
+`vN` (`v1`, `v2`, `v3` …) denotes the architecture generation; `0.x`
+(`0.4.0a0` / `v0.4.0-alpha`) denotes the semver release. They are independent
+axes and do not map to each other — see [`docs/VERSIONING.md`](docs/VERSIONING.md).
+
 ## Project Structure
 
 ```
