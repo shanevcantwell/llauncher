@@ -1138,6 +1138,47 @@ class TestSelfLoopShortCircuit:
         mock_del.assert_called_once_with("qwen", caller="local")
         assert result["success"] is True
 
+    def test_get_node_info_self_loop_reads_in_process(self):
+        """Self-loop branch builds the payload in-process, no HTTP (#125)."""
+        node = RemoteNode("local", "localhost", port=8765)
+        canned = {
+            "node_name": "this-host",
+            "hostname": "this-host",
+            "os": "Linux",
+            "os_version": "6.x",
+            "python_version": "3.12.0",
+            "ip_addresses": ["127.0.0.1"],
+        }
+        with patch("httpx.Client") as mock_client_class, \
+             patch(
+                 "llauncher.core.node_info.get_node_info", return_value=canned
+             ) as mock_info:
+            result = node.get_node_info()
+
+        mock_client_class.assert_not_called()
+        mock_info.assert_called_once_with()
+        assert result == canned
+        assert node.status == NodeStatus.ONLINE
+        assert node.last_seen is not None
+
+    def test_get_node_info_remote_node_still_uses_http(self):
+        """Regression guard: a genuinely remote node still goes over HTTP."""
+        node = RemoteNode("peer", "192.168.1.100", port=8765)
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"node_name": "peer", "os": "Linux"}
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client.get.return_value = mock_response
+        with patch("httpx.Client", return_value=mock_client) as mock_client_class, \
+             patch("llauncher.core.node_info.get_node_info") as mock_info:
+            result = node.get_node_info()
+
+        mock_client_class.assert_called_once()
+        mock_info.assert_not_called()
+        assert result == {"node_name": "peer", "os": "Linux"}
+
     def test_self_loop_skips_auth_header_check(self):
         """In-process path is not subject to LLAUNCHER_AGENT_TOKEN — auth is a
         network-boundary concern only."""

@@ -225,9 +225,23 @@ class RemoteNode:
     def get_node_info(self) -> dict | None:
         """Get detailed information about the node.
 
+        On the #62 self-loop (this process *is* the agent, target is the
+        local node) the payload is pure local-state introspection, so we
+        build it in-process via :func:`llauncher.core.node_info.get_node_info`
+        rather than burning a loopback HTTP round-trip, the auth hop, and
+        the FastAPI middleware chain to read data this process already has
+        (issue #125). The endpoint handler sources the *same* builder, so
+        the in-process and over-the-wire payloads cannot drift.
+
         Returns:
             Node info dictionary or None if unavailable.
         """
+        if self._is_self_loop():
+            from llauncher.core import node_info as _node_info
+
+            self.status = NodeStatus.ONLINE
+            self.last_seen = datetime.now()
+            return _node_info.get_node_info()
         try:
             with self._get_client() as client:
                 response = client.get(
