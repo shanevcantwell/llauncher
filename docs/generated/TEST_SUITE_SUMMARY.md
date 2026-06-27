@@ -16,10 +16,10 @@
 
 | Category | Files | Tests |
 |----------|-------|-------|
-| Unit | 52 | 899 |
-| Integration | 10 | 78 |
-| Other | 4 | 24 |
-| **Total** | **66** | **1001** |
+| Unit | 61 | 1036 |
+| Integration | 11 | 82 |
+| Other | 5 | 25 |
+| **Total** | **77** | **1143** |
 
 ## Tests carrying special markers
 
@@ -30,7 +30,7 @@ ad-hoc markers used in the suite without declaration.
 
 | Marker | Tests |
 |--------|-------|
-| `@pytest.mark.integration` | 3 |
+| `@pytest.mark.integration` | 7 |
 | `@pytest.mark.integration_real` | 1 |
 | `@pytest.mark.live` | 4 |
 | `@pytest.mark.real_model_health` | 9 |
@@ -208,7 +208,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_dispatch_tool_unknown_tool`**
   - *Test that unknown tool raises ValueError.*
 
-#### `tests/unit/mcp/test_servers_tools.py` (26 tests)
+#### `tests/unit/mcp/test_servers_tools.py` (33 tests)
 
 - **`test_missing_model_name`**
   - *Returns error envelope when model_name is absent (no ops call).*
@@ -254,12 +254,20 @@ ad-hoc markers used in the suite without declaration.
   - *start_server tool schema requires both model_name and port (ADR-010).*
 - **`test_swap_server_requires_port_and_model`**
 - **`test_stop_server_requires_only_port`**
+- **`test_start_delegates_over_http_when_gate_true`**
+- **`test_start_in_process_when_gate_false`**
+- **`test_delegated_null_body_maps_to_error_envelope`**
+  - *A 200-with-null delegated result (``None``) becomes a coherent*
+- **`test_stop_delegates_over_http_when_gate_true`**
+- **`test_stop_in_process_when_gate_false`**
+- **`test_swap_delegates_over_http_when_gate_true`**
+- **`test_swap_in_process_when_gate_false`**
 - **`test_missing_port`**
 - **`test_delivered_when_marker_exists`**
 - **`test_no_op_when_marker_absent`**
   - *No in-flight op → marker_existed=False, still success=True.*
 
-#### `tests/unit/test_agent.py` (70 tests)
+#### `tests/unit/test_agent.py` (74 tests)
 
 - **`test_health_returns_200`**
   - *Test that health endpoint returns 200.*
@@ -291,8 +299,16 @@ ad-hoc markers used in the suite without declaration.
   - *Unknown model surfaces ops.start's ``error`` action as 500.*
 - **`test_stop_empty_port_is_idempotent_200`**
   - *Idempotent stop: 200 with ``already_empty`` action.*
+- **`test_stop_live_port_responds_while_termination_pending`**
+  - *Issue #140 timing contract, end to end through the endpoint.*
 - **`test_logs_nonexistent_port_returns_404`**
-  - *Test that logs for nonexistent port returns 404.*
+  - *No live server AND no log file on disk → 404 (issue #201 Part 2b).*
+- **`test_logs_dead_port_serves_most_recent_log`**
+  - *A server that spawned then exited leaves no live pid but its log*
+- **`test_logs_live_server_tails_by_pid`**
+  - *When a server is live, /logs tails its log by pid (unchanged path).*
+- **`test_status_prunes_stale_lockfile`**
+  - *A lockfile claiming a dead pid is removed by the status sweep.*
 - **`test_logs_returns_correct_structure`**
   - *Test that logs return correct structure.*
 - **`test_audit_empty_returns_empty_list`**
@@ -355,12 +371,12 @@ ad-hoc markers used in the suite without declaration.
   - *Pre-flight model-health rejection (issue #57) → 409, not 500.*
 - **`test_start_server_error_returns_500`**
   - *``error`` action (model not found, launch failure, …) → 500.*
-- **`test_stop_server_success`**
-  - *``stopped`` action → 200.*
+- **`test_stop_server_stopping_returns_202`**
+  - *``stopping`` action (issue #140 async-accept) → 202.*
 - **`test_stop_server_already_empty_is_200`**
   - *Idempotent stop — empty port returns 200, not 404.*
-- **`test_stop_server_termination_failure_returns_500`**
-  - *A live process that won't terminate → 500.*
+- **`test_stop_server_error_action_returns_500`**
+  - *Defensive mapping: an ``error`` envelope still maps to 500.*
 - **`test_swap_server_success`**
   - *``swapped`` action → 200.*
 - **`test_swap_rejected_preflight_returns_409`**
@@ -430,16 +446,22 @@ ad-hoc markers used in the suite without declaration.
 - **`test_create_app_unauthenticated_uses_runtime_guard_not_assert`**
   - *C1 (#112): the production-mode guard must survive ``python -O``.*
 
-#### `tests/unit/test_agent_lifespan.py` (6 tests)
+#### `tests/unit/test_agent_lifespan.py` (9 tests)
 
 - **`test_lifespan_shutdown_no_lockfiles_is_noop`**
   - *Zero managed children → enumerate and exit cleanly without calling stop().*
 - **`test_lifespan_shutdown_reaps_each_lockfile`**
   - *Each enumerated lockfile dispatches one ``ops.stop(port)`` call.*
+- **`test_lifespan_shutdown_coalesces_with_inflight_stop`**
+  - *A port whose in-flight background stop completed is skipped (PR #161).*
 - **`test_lifespan_shutdown_tolerates_per_port_failure`**
   - *A failing ``ops.stop`` for one port does not abort the loop.*
 - **`test_lifespan_shutdown_tolerates_lockfile_enumeration_failure`**
   - *If the lockfile directory is unreadable, shutdown exits without raising.*
+- **`test_lifespan_startup_provisions_run_dir`**
+  - *Startup self-provisions LAUNCHER_RUN_DIR (issue #201 Part 1).*
+- **`test_lifespan_startup_run_dir_is_idempotent`**
+  - *An already-present run dir is fine (exist_ok=True) — no raise.*
 - **`test_create_app_wires_lifespan`**
   - *``create_app()`` constructs a FastAPI app with the lifespan handler bound.*
 - **`test_run_agent_passes_lifespan_on`**
@@ -477,6 +499,13 @@ ad-hoc markers used in the suite without declaration.
 - **`test_vram_error_contains_required_and_available`**
   - *409 error includes required_mb and available_mb when insufficient.*
 
+#### `tests/unit/test_agent_nonblocking.py` (2 tests)
+
+- **`test_blocking_verb_handlers_are_sync_def`**
+  - *Structural guard: the blocking handlers must NOT be coroutine functions.*
+- **`test_health_responsive_during_blocking_swap`**
+  - *``GET /health`` returns while a blocking swap is still in progress.*
+
 #### `tests/unit/test_audit_log.py` (14 tests)
 
 - **`test_record_creates_file`**
@@ -509,7 +538,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_local_target_skips_registry`**
   - *Sanity check: ``target == 'local'`` reads on-disk, ignoring registry.*
 
-#### `tests/unit/test_cli.py` (25 tests)
+#### `tests/unit/test_cli.py` (35 tests)
 
 - **`test_help_shows_all_command_groups`**
   - *CLI help should display all four subcommand groups.*
@@ -540,6 +569,20 @@ ad-hoc markers used in the suite without declaration.
 - **`test_server_cancel_json_output`**
 - **`test_stop_nonexistent_port`**
   - *Stopping a non-running server is now idempotent (per ADR-010).*
+- **`test_start_delegates_over_http_when_agent_present`**
+- **`test_start_in_process_when_no_agent`**
+- **`test_start_env_override_forces_delegation`**
+  - *Real gate: ``LLAUNCHER_DELEGATE_TO_LOCAL_AGENT=1`` → HTTP, no probe.*
+- **`test_start_delegated_failure_exits_nonzero`**
+- **`test_start_delegated_none_result_is_safe`**
+  - *A ``None`` delegated body must surface as an error, not raise.*
+- **`test_stop_delegates_over_http_when_agent_present`**
+- **`test_stop_in_process_when_no_agent`**
+- **`test_stop_delegated_failure_exits_nonzero`**
+- **`test_stop_delegated_message_fallback`**
+  - *Envelope lacking message/error/success → synthesized 'stop on port'.*
+- **`test_delegated_outcome_none_seam`**
+  - *Unit-level guard on the dict|None reducer (mirrors MCP ``_delegated_or_error``).*
 - **`test_node_add_and_list`**
   - *Adding a node should persist it and list should show it.*
 - **`test_node_add_with_api_key_persists`**
@@ -619,6 +662,57 @@ ad-hoc markers used in the suite without declaration.
 - **`test_running_server_lookup`**
 - **`test_not_running_server_lookup`**
 
+#### `tests/unit/test_delegation.py` (19 tests)
+
+- **`test_stamp_truthy_is_agent`**
+- **`test_stamp_other_truthy_values`**
+- **`test_stamp_falsy_or_unrecognized_is_not_agent`**
+- **`test_stamp_unset_is_not_agent`**
+- **`test_200_is_healthy`**
+- **`test_non_200_is_unhealthy`**
+- **`test_transport_error_is_unhealthy`**
+- **`test_probe_sends_api_key_and_uses_settings_port`**
+- **`test_no_token_sends_no_header`**
+- **`test_resolver_failure_degrades_to_unauthenticated_probe`**
+- **`test_caller_is_agent_never_delegates_and_never_probes`**
+- **`test_frontend_healthy_agent_delegates`**
+- **`test_frontend_no_agent_falls_back_in_process`**
+- **`test_override_force_delegate_skips_probe`**
+- **`test_override_force_in_process_skips_probe`**
+- **`test_unrecognized_override_falls_through_to_autodetect`**
+- **`test_importing_remote_does_not_import_agent_package`**
+- **`test_core_agent_token_resolves_without_agent_import`**
+  - *The hoisted resolver is importable + callable from core directly.*
+- **`test_importing_core_delegation_does_not_import_remote_or_agent`**
+  - *Issue #200 layering: ``core.delegation`` must depend on nothing in*
+
+#### `tests/unit/test_env_var_naming_regression.py` (14 tests)
+
+- **`test_resolve_uses_new_env_var_name`**
+  - *The new ``LLAUNCHER_AGENT_TOKEN`` is read and returned verbatim.*
+- **`test_resolve_ignores_old_env_var_name`**
+  - *The legacy ``LAUNCHER_AGENT_TOKEN`` MUST NOT be honored as a fallback.*
+- **`test_resolve_prefers_new_when_both_set`**
+  - *Belt-and-suspenders: if a future dual-read sneaks in, the new name wins.*
+- **`test_resolve_stdin_trigger_uses_new_name`**
+  - *``LLAUNCHER_AGENT_TOKEN=-`` triggers the stdin read path.*
+- **`test_resolve_stdin_trigger_old_name_does_not_fire`**
+  - *Setting the legacy name to ``-`` must NOT trigger the stdin read path.*
+- **`test_agent_config_from_env_uses_new_host_name`**
+- **`test_agent_config_from_env_ignores_old_host_name`**
+  - *Legacy ``LAUNCHER_AGENT_HOST`` MUST fall through to the default.*
+- **`test_agent_config_from_env_uses_new_port_name`**
+- **`test_agent_config_from_env_ignores_old_port_name`**
+  - *Legacy ``LAUNCHER_AGENT_PORT`` MUST fall through to the default (8765).*
+- **`test_agent_config_from_env_uses_new_node_name`**
+- **`test_agent_config_from_env_ignores_old_node_name`**
+  - *Legacy ``LAUNCHER_AGENT_NODE_NAME`` MUST be ignored (yields ``None``).*
+- **`test_routing_get_node_name_uses_new_name`**
+- **`test_routing_get_node_name_ignores_old_name`**
+  - *Legacy name must not leak into the routing layer's node-name lookup.*
+- **`test_no_legacy_env_var_names_in_tracked_source`**
+  - *No tracked source outside the historical allowlist may reference*
+
 #### `tests/unit/test_footer_cache.py` (10 tests)
 
 - **`test_returns_full_context_when_lockfile_and_config_present`**
@@ -652,13 +746,23 @@ ad-hoc markers used in the suite without declaration.
 - **`test_is_available_returns_bool`**
   - *is_available always returns a boolean even when tool is absent.*
 
-#### `tests/unit/test_gpu_health_extended.py` (25 tests)
+#### `tests/unit/test_gpu_health_extended.py` (30 tests)
 
 - **`test_to_int_variants`**
 - **`test_to_float_variants`**
-- **`test_query_nvidia_csv_list_entry_attaches_process`**
-  - *When entry is a list (CSV form), pid/pname become a process record.*
-- **`test_query_nvidia_csv_no_pid_no_process_list`**
+- **`test_query_nvidia_valid_output_populates_devices`**
+  - *Real-shaped CSV from both queries → devices + uuid-mapped process.*
+- **`test_query_nvidia_uses_valid_fields_only`**
+  - *Pin the #148 bug shape: no per-process fields or json token in*
+- **`test_query_nvidia_empty_output_yields_no_devices`**
+- **`test_query_nvidia_malformed_rows_skipped`**
+  - *Short rows, non-numeric index, and unattributable processes are*
+- **`test_query_nvidia_device_query_failure_returns_empty`**
+  - *Non-zero returncode on the device query → clean empty result,*
+- **`test_query_nvidia_process_query_failure_keeps_devices`**
+  - *Compute-apps query failing must not discard device data.*
+- **`test_query_nvidia_process_query_oserror_keeps_devices`**
+  - *PR #159 review: an OS-level error (FileNotFoundError /*
 - **`test_try_nvidia_returns_false_when_binary_missing`**
 - **`test_try_rocm_returns_false_when_binary_missing`**
 - **`test_try_mps_returns_false_when_not_apple`**
@@ -683,7 +787,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_refresh_with_simulation_sets_nvidia_backend`**
 - **`test_is_available_rocm_uses_rocm_smi`**
 
-#### `tests/unit/test_lockfile.py` (21 tests)
+#### `tests/unit/test_lockfile.py` (23 tests)
 
 - **`test_write_creates_file_and_returns_lockfile`**
 - **`test_write_persists_valid_json`**
@@ -701,6 +805,10 @@ ad-hoc markers used in the suite without declaration.
 - **`test_list_skips_corrupt_files`**
 - **`test_is_pid_alive_true_for_self`**
 - **`test_is_pid_alive_false_for_likely_dead`**
+- **`test_is_pid_alive_true_on_access_denied`**
+  - *A present-but-unreadable pid reads as alive (issue #208).*
+- **`test_is_pid_alive_false_on_no_such_process`**
+  - *A genuinely absent pid reads as dead/reclaimable (issue #208).*
 - **`test_reconcile_dead_pid`**
 - **`test_reconcile_alive_pid_no_sentinel_check`**
 - **`test_reconcile_alive_pid_with_passing_sentinel`**
@@ -797,6 +905,16 @@ ad-hoc markers used in the suite without declaration.
 - **`test_request_cancel_tempfile_unlink_filenotfound_is_ignored`**
   - *If cleanup unlink raises FileNotFoundError it's swallowed; the OSError still raises.*
 
+#### `tests/unit/test_model_card_delegation.py` (6 tests)
+
+- **`test_local_start_delegates_over_http`**
+- **`test_local_start_in_process_when_no_agent`**
+- **`test_local_start_none_result_is_safe`**
+  - *A ``None`` delegated result must not raise (dict | None seam).*
+- **`test_eviction_delegates_over_http`**
+- **`test_eviction_in_process_when_no_agent`**
+- **`test_eviction_none_result_is_safe`**
+
 #### `tests/unit/test_model_health.py` (8 tests)
 
 - **`test_existing_valid_file`**
@@ -863,7 +981,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_cache_type_invalid_value`**
   - *Test invalid cache_type raises error.*
 
-#### `tests/unit/test_models_config_extended.py` (14 tests)
+#### `tests/unit/test_models_config_extended.py` (18 tests)
 
 - **`test_missing_path_raises`**
   - *Validator raises on a missing path via the normal constructor.*
@@ -873,6 +991,14 @@ ad-hoc markers used in the suite without declaration.
 - **`test_legacy_extra_args_list_is_joined`**
 - **`test_legacy_port_fields_silently_dropped`**
 - **`test_from_dict_with_existing_path`**
+- **`test_skip_suppresses_validation_for_missing_path`**
+  - *``from_dict_unvalidated`` constructs even when the path is absent.*
+- **`test_skip_does_not_leak_after_from_dict_unvalidated`**
+  - *The skip is scoped to the call; a later normal construct validates.*
+- **`test_context_manager_restores_prior_value_when_nested`**
+  - *Token-based reset restores the outer value rather than forcing False.*
+- **`test_skip_flag_does_not_bleed_across_threads`**
+  - *Concurrent constructions do not share the skip flag (no race).*
 - **`test_blacklisted_port_blocked`**
 - **`test_blacklisted_caller_blocked`**
 - **`test_non_whitelisted_model_blocked`**
@@ -955,7 +1081,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_local_node_constant_matches_protocol`**
   - *``LOCAL_NODE`` is the literal that ``model_card.py`` checks.*
 
-#### `tests/unit/test_operations.py` (50 tests)
+#### `tests/unit/test_operations.py` (58 tests)
 
 - **`test_start_on_empty_port`**
 - **`test_start_idempotent_when_same_model_running`**
@@ -971,6 +1097,22 @@ ad-hoc markers used in the suite without declaration.
 - **`test_stop_running_server`**
 - **`test_stop_with_stale_lockfile`**
 - **`test_stop_when_termination_fails`**
+- **`test_stop_in_background_returns_while_termination_pending`**
+  - *Caller-side success on a slow-but-successful shutdown (issue #140).*
+- **`test_stop_in_background_repeat_request_is_deduped`**
+  - *A second stop while one is in flight: ``stopping``, no second kill.*
+- **`test_stop_in_background_empty_port_is_synchronous`**
+  - *Empty port short-circuits synchronously — identical to ``stop``.*
+- **`test_stop_in_background_stale_lockfile_cleaned_synchronously`**
+  - *Stale claim (dead pid) reconciles inline, no thread, no kill.*
+- **`test_stop_in_background_termination_failure_audited`**
+  - *Async failure is observable: STOPPED/ERROR audit, lockfile retained.*
+- **`test_stop_in_background_reaps_inflight_registry_on_completion`**
+  - *Completed background stops leave no registry entry (PR #161 review).*
+- **`test_join_inflight_stop_returns_false_when_nothing_in_flight`**
+  - *No in-flight stop → ``False``: the caller must drive its own stop.*
+- **`test_join_inflight_stop_running_then_completed`**
+  - *Still-running stop → ``False`` (fall back); completed → ``True`` (skip).*
 - **`test_start_result_to_dict_envelope`**
 - **`test_stop_result_to_dict_envelope`**
 - **`test_swap_on_empty_port`**
@@ -1062,18 +1204,15 @@ ad-hoc markers used in the suite without declaration.
 - **`test_list_populated_table`**
 - **`test_list_json`**
 
-#### `tests/unit/test_phase_d_coverage.py` (26 tests)
+#### `tests/unit/test_phase_d_coverage.py` (24 tests)
 
 - **`test_filenotfound_returns_false`**
 - **`test_permission_error_returns_false`**
 - **`test_timeout_returns_false`**
-- **`test_json_decode_error_returns_false`**
 - **`test_exception_returns_false`**
 - **`test_exception_returns_false`**
-- **`test_driver_version_filenotfound_swallowed`**
-  - *L232 — secondary subprocess FileNotFoundError handled; devices kept.*
-- **`test_driver_version_timeout_swallowed`**
-  - *L234 — secondary subprocess TimeoutExpired handled; devices kept.*
+- **`test_compute_apps_timeout_swallowed`**
+  - *Secondary subprocess TimeoutExpired handled; devices kept.*
 - **`test_to_dict_returns_asdict`**
 - **`test_mps_block_level_fallback_extracts_chipset`**
 - **`test_mps_returncode_nonzero_returns_empty`**
@@ -1136,7 +1275,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_default_vram_check_handles_missing_free_vram_field`**
   - *Resilience: a device without ``free_vram_mb`` is treated as 0 MiB.*
 
-#### `tests/unit/test_process.py` (57 tests)
+#### `tests/unit/test_process.py` (69 tests)
 
 - **`test_preferred_port_available`**
   - *Preferred port available - returns immediately.*
@@ -1166,6 +1305,20 @@ ad-hoc markers used in the suite without declaration.
   - *repeat_penalty=None does not include --repeat-penalty flag.*
 - **`test_repeat_penalty_included`**
   - *repeat_penalty=1.5 includes --repeat-penalty flag with correct value.*
+- **`test_alias_present_with_exact_name`**
+  - *The spawn argv contains ``--alias`` immediately followed by*
+- **`test_alias_present_in_full_config`**
+  - *Alias is emitted regardless of which optional fields are set.*
+- **`test_alias_name_with_spaces_untransformed`**
+  - *A name containing spaces survives as a single argv token —*
+- **`test_alias_name_with_unicode_untransformed`**
+  - *Unicode names are emitted byte-for-byte.*
+- **`test_alias_not_sanitized_like_log_names`**
+  - *The lossy ``[^\w-] -> _`` transform used for log *filenames**
+- **`test_alias_emitted_exactly_once_with_extra_args`**
+  - *Benign ``extra_args`` must not produce a second ``--alias``;*
+- **`test_alias_cannot_be_overridden_via_extra_args`**
+  - *Launcher-owned flag stays launcher-owned: ``extra_args``*
 - **`test_normal_start`**
   - *Normal successful server start.*
 - **`test_binary_not_found`**
@@ -1178,6 +1331,16 @@ ad-hoc markers used in the suite without declaration.
   - *Stop server by pid terminates children then parent.*
 - **`test_stop_by_pid_not_found`**
   - *Stop server by pid when process not found.*
+- **`test_stop_by_pid_kills_children_surviving_grace`**
+  - *Issue #140: a child that outlives its SIGTERM grace is SIGKILLed.*
+- **`test_stop_by_pid_child_gone_before_kill_is_tolerated`**
+  - *A survivor that exits between wait and kill is success, not error.*
+- **`test_stop_by_pid_grace_defaults_read_from_settings_at_call_time`**
+  - *Grace periods come from settings when not passed (issue #140).*
+- **`test_stop_by_pid_explicit_grace_overrides_settings`**
+  - *Explicit keyword grace wins over the settings defaults.*
+- **`test_stop_by_port_forwards_grace_to_stop_by_pid`**
+  - *``stop_server_by_port`` propagates the grace knobs (issue #140).*
 - **`test_find_by_port_found`**
   - *Find server by port when found via --port <n> format.*
 - **`test_find_all_servers`**
@@ -1252,6 +1415,60 @@ ad-hoc markers used in the suite without declaration.
   - *A pre-existing log file is preserved; the banner appends to it.*
 - **`test_rotates_when_existing_log_exceeds_max_bytes`**
   - *An oversized log triggers rotation before the new run appends.*
+
+#### `tests/unit/test_process_log_resolution.py` (16 tests)
+
+- **`test_log_path_for_keeps_sanitized_stem_readable`**
+  - *The on-disk name stays greppable: sanitized name (dots → underscores)*
+- **`test_log_path_for_separates_names_that_sanitize_alike`**
+  - *#146/#63 regression: names differing only in non-[\w-] chars used to*
+- **`test_log_stem_for_is_stable_and_port_independent`**
+  - *The mapping is deterministic (same name → same stem, every call) and*
+- **`test_log_stem_for_is_glob_safe`**
+  - *The stem contains only [\w-] chars — no glob metacharacters survive,*
+- **`test_read_logs_for_port_returns_none_when_no_file`**
+  - *No ``*-{port}.log`` on disk → None, so the agent can map it to 404.*
+- **`test_read_logs_for_port_tails_without_a_live_process`**
+  - *The death cause of an immediately-exited server is retrievable from*
+- **`test_read_logs_for_port_prefers_freshest_file`**
+  - *Across a swap two ``*-{port}.log`` may coexist; serve the newest.*
+- **`test_read_logs_for_port_empty_file_is_empty_list_not_none`**
+  - *An existing but empty log → [] (200 with no lines), distinct from a*
+- **`test_newest_log_prefers_freshest_match`**
+  - *The port/name glob disambiguator returns the freshest file, not an*
+- **`test_newest_log_empty_is_none`**
+  - *No matches → None (callers fall through to an empty log list).*
+- **`test_stream_logs_by_model_name_round_trips_the_mint`**
+  - *A file written under log_path_for resolves back via the raw config*
+- **`test_stream_logs_by_model_name_handles_glob_metachars`**
+  - *A name containing glob metachars (``[``) must not be treated as a*
+- **`test_stream_logs_colliding_names_read_back_only_their_own_lines`**
+  - *#146/#63 round-trip: two models whose names sanitize identically each*
+- **`test_ready_reads_model_specific_log_not_stale_sibling`**
+  - *#145: with a stale ``*-{port}.log`` (no indicator) AND the new model's*
+- **`test_ready_keys_on_named_model_only`**
+  - *Negative side of the asymmetry: pointed at a model whose own log has*
+- **`test_ready_not_shadowed_by_sanitize_alike_sibling`**
+  - *#146 readiness round-trip: a sibling whose name sanitizes identically*
+
+#### `tests/unit/test_reconcile.py` (8 tests)
+
+- **`test_removes_stale_lockfile_and_returns_it`**
+  - *A lockfile claiming a dead pid is removed and returned.*
+- **`test_keeps_live_lockfile`**
+  - *A lockfile claiming the live test pid is left untouched.*
+- **`test_mixed_prunes_only_dead`**
+  - *Only the dead-pid claim is pruned; the live one survives.*
+- **`test_emits_one_observed_stopped_audit_entry`**
+  - *Each pruned lockfile produces exactly one OBSERVED_STOPPED entry.*
+- **`test_idempotent_no_double_emit`**
+  - *A second sweep finds nothing — the pruned lockfile is already gone.*
+- **`test_keeps_access_denied_lockfile`**
+  - *A lockfile whose pid is present-but-unreadable is NOT pruned (#208).*
+- **`test_sweep_keeps_access_denied_prunes_dead`**
+  - *In one sweep: an unreadable (live) pid survives, a gone pid is pruned.*
+- **`test_empty_run_dir_is_noop`**
+  - *No lockfiles → empty result, no audit entries.*
 
 #### `tests/unit/test_registry_extended.py` (27 tests)
 
@@ -1331,7 +1548,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_aggregator_handles_offline_nodes_gracefully`**
   - *Test that aggregator handles offline nodes without crashing.*
 
-#### `tests/unit/test_remote.py` (64 tests)
+#### `tests/unit/test_remote.py` (68 tests)
 
 - **`test_node_initialization`**
   - *Test that node initializes with correct defaults.*
@@ -1365,6 +1582,8 @@ ad-hoc markers used in the suite without declaration.
   - *409 → ``success=False`` with the conflict detail propagated.*
 - **`test_stop_server_success`**
   - *Test stop_server returns success result.*
+- **`test_stop_server_accepts_202_stopping`**
+  - *Issue #140: the async-accept envelope (202/``stopping``) is success.*
 - **`test_stop_server_not_found`**
   - *Test stop_server returns 404 error for missing server.*
 - **`test_get_logs_success`**
@@ -1435,17 +1654,22 @@ ad-hoc markers used in the suite without declaration.
   - *Test getting servers when node is offline.*
 - **`test_get_all_models_node_offline`**
   - *Test getting models when node is offline.*
-- **`test_name_local_is_self_loop_regardless_of_host`**
-- **`test_localhost_host_and_default_port_is_self_loop`**
-- **`test_127_0_0_1_with_default_port_is_self_loop`**
-- **`test_localhost_with_different_port_is_NOT_self_loop`**
-- **`test_remote_host_with_default_port_is_NOT_self_loop`**
-- **`test_hostname_match_with_default_port_is_self_loop`**
+- **`test_agent_calling_name_local_is_self_loop`**
+- **`test_agent_calling_localhost_default_port_is_self_loop`**
+- **`test_agent_calling_remote_peer_is_NOT_self_loop`**
+- **`test_agent_calling_localhost_other_port_is_NOT_self_loop`**
+- **`test_frontend_local_target_is_NOT_self_loop`**
+- **`test_frontend_name_local_is_NOT_self_loop`**
+- **`test_falsy_stamp_is_NOT_self_loop`**
 - **`test_ping_self_loop_skips_http_and_returns_true`**
 - **`test_start_server_self_loop_calls_ops_directly`**
 - **`test_stop_server_self_loop_calls_ops_directly`**
 - **`test_swap_server_self_loop_calls_ops_directly`**
 - **`test_delete_model_self_loop_calls_ops_directly`**
+- **`test_get_node_info_self_loop_reads_in_process`**
+  - *Self-loop branch builds the payload in-process, no HTTP (#125).*
+- **`test_get_node_info_remote_node_still_uses_http`**
+  - *Regression guard: a genuinely remote node still goes over HTTP.*
 - **`test_self_loop_skips_auth_header_check`**
   - *In-process path is not subject to LLAUNCHER_AGENT_TOKEN — auth is a*
 - **`test_remote_node_still_uses_http`**
@@ -1545,6 +1769,19 @@ ad-hoc markers used in the suite without declaration.
 - **`test_icons_are_distinct`**
   - *Each severity gets a visually distinct icon — no copy-paste collisions.*
 
+#### `tests/unit/test_settings_import_safety.py` (5 tests)
+
+- **`test_reload_does_not_raise_when_is_dir_probe_errors`**
+  - *A PermissionError from the ``.is_dir()`` probe must not propagate.*
+- **`test_reload_does_not_raise_when_exists_probe_errors`**
+  - *A PermissionError from the per-candidate ``.exists()`` probe is tolerated.*
+- **`test_directory_autodetects_binary`**
+  - *Happy path: a directory containing ``llama-server`` auto-detects it.*
+- **`test_file_path_passes_through_unchanged`**
+  - *A plain file path (not a directory) passes through verbatim.*
+- **`test_nonexistent_path_passes_through_unchanged`**
+  - *A nonexistent path resolves to itself (failure deferred to use).*
+
 #### `tests/unit/test_state.py` (28 tests)
 
 - **`test_start_with_eviction_successful`**
@@ -1603,6 +1840,19 @@ ad-hoc markers used in the suite without declaration.
   - *Test creating ModelConfig.*
 - **`test_model_config_to_dict`**
   - *Test ModelConfig serialization.*
+
+#### `tests/unit/test_state_dir.py` (5 tests)
+
+- **`test_defaults_under_home_llauncher_when_unset`**
+  - *With no env overrides every path derives from ~/.llauncher.*
+- **`test_state_dir_redirects_all_paths`**
+  - *Setting LAUNCHER_STATE_DIR points every actor at the shared base.*
+- **`test_state_dir_is_not_home_relative`**
+  - *An absolute non-home base is honored verbatim (multiuser deploy).*
+- **`test_explicit_per_dir_override_wins_over_base`**
+  - *An explicit per-dir env var beats its LAUNCHER_STATE_DIR-derived default.*
+- **`test_no_filesystem_touch_at_import`**
+  - *Reloading settings must not create the state dir on disk.*
 
 #### `tests/unit/test_state_extended.py` (9 tests)
 
@@ -1670,6 +1920,14 @@ ad-hoc markers used in the suite without declaration.
   - *st.tabs is called with a 4-element list including Audit.*
 - **`test_refresh_all_calls_all_components`**
   - *Refresh button should call all refresh methods.*
+
+#### `tests/unit/test_ui_launch.py` (5 tests)
+
+- **`test_resolve_ui_host_defaults_to_loopback`**
+- **`test_resolve_ui_host_honors_env_override`**
+- **`test_resolve_ui_host_blank_override_falls_back_to_loopback`**
+- **`test_build_streamlit_argv_runs_the_packaged_app`**
+- **`test_build_streamlit_argv_binds_resolved_host`**
 
 #### `tests/unit/test_ui_rendering.py` (22 tests)
 
@@ -1822,6 +2080,14 @@ ad-hoc markers used in the suite without declaration.
 - **`test_auth_uses_hmac_compare_digest`**
   - *Source-level proof; no microbench. Hardening plan §4.16.*
 
+#### `tests/integration/test_gpu_real_nvidia_smi.py` (4 tests)
+
+- **`test_device_query_fields_are_valid`** `@integration`
+- **`test_compute_apps_query_fields_are_valid`** `@integration`
+- **`test_old_broken_query_is_rejected`** `@integration`
+  - *Regression pin for the #148 bug shape against the real binary.*
+- **`test_refresh_populates_devices_with_vram`** `@integration`
+
 #### `tests/integration/test_mcp_flows.py` (8 tests)
 
 - **`test_start_server_happy_path_via_mcp`**
@@ -1971,4 +2237,9 @@ ad-hoc markers used in the suite without declaration.
   - *A pid that leaves and re-enters the scan emits a fresh audit line.*
 - **`test_refresh_orphans_unreadable_pid_never_audits`**
   - *``cmdline_unreadable=True`` pids do NOT write OBSERVED_ORPHAN entries.*
+
+#### `tests/regression/test_test_summary_drift_regression.py` (1 tests)
+
+- **`test_test_suite_summary_is_not_stale`**
+  - *The committed summary matches a fresh regeneration of the tree.*
 
