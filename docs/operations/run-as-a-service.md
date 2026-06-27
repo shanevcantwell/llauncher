@@ -1,5 +1,13 @@
 # Running `llauncher-agent` as a Service
 
+> **Multiuser / `--system` mode lives in its own runbook.** This doc is
+> the general install/operate surface (single-user `--user` on Linux,
+> NSSM on Windows). For the live multiuser host migration — the dedicated
+> `llauncher` service account, `/var/lib/llauncher` state, the `inference`
+> group, host provisioning, and the cutover/rollback flow — see
+> [`multiuser-migration-runbook.md`](multiuser-migration-runbook.md).
+> That runbook supersedes the `--system` notes scattered here.
+
 The agent is the daemon piece of llauncher; the UI is interactive and is
 not service-managed. This doc covers persistent installs on:
 
