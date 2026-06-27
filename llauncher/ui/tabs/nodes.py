@@ -187,6 +187,14 @@ def render_add_node_form(registry: NodeRegistry) -> None:
     Args:
         registry: NodeRegistry instance.
     """
+    st.info(
+        "Adding a remote node currently requires copying the remote agent's "
+        "API token by hand. See the README section **Adding a remote node** "
+        "for the step-by-step walkthrough. Automatic session-token issuance "
+        "(#137) will eliminate this manual step in a future release.",
+        icon="🔑",
+    )
+
     with st.form("add_node_form", clear_on_submit=True):
         node_name = st.text_input(
             "Node Name",
@@ -218,9 +226,12 @@ def render_add_node_form(registry: NodeRegistry) -> None:
             "API Key",
             type="password",
             help=(
-                "Token from the remote agent's LLAUNCHER_AGENT_TOKEN / "
-                "agent.token. Required for non-loopback agents (per ADR-003). "
-                "Leave blank for unauthenticated loopback agents."
+                "On the remote box, run `llauncher-agent print-token` (or "
+                "`cat ~/.llauncher/agent.token` on Linux / "
+                "`Get-Content $env:USERPROFILE\\.llauncher\\agent.token` on "
+                "Windows) and paste the value here. Required for non-loopback "
+                "agents (per ADR-003); leave blank only for unauthenticated "
+                "loopback agents."
             ),
         )
 

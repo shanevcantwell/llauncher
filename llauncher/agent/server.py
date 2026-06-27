@@ -411,7 +411,37 @@ def main() -> None:
         action="store_true",
         help="Stop any running agent and exit",
     )
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=["print-token"],
+        help=(
+            "Optional subcommand. 'print-token' resolves this node's agent "
+            "token (env > stdin > ~/.llauncher/agent.token) and prints it to "
+            "stdout, then exits — so an operator can copy it into the head's "
+            "Add Node form without file-archaeology (issue #134)."
+        ),
+    )
     args = parser.parse_args()
+
+    # Handle print-token subcommand: resolve and print the local token, then
+    # exit. Never auto-generates — printing a freshly minted token from a
+    # read-only command would diverge the on-disk secret; a missing token is
+    # a fail-loud config error, not a trigger to mint one.
+    if args.command == "print-token":
+        env_token = os.environ.get("LLAUNCHER_AGENT_TOKEN")
+        token = resolve_agent_token(env_value=env_token, allow_generate=False)
+        if token is None:
+            sys.stderr.write(
+                "[llauncher-agent] ERROR: no agent token found. Start the "
+                "agent once on loopback to generate ~/.llauncher/agent.token, "
+                "or set LLAUNCHER_AGENT_TOKEN.\n"
+            )
+            sys.exit(1)
+            return
+        print(token)
+        sys.exit(0)
+        return
 
     # Handle --stop flag
     if args.stop:
