@@ -7,14 +7,43 @@ is implemented in M1, vLLM follows in M6.
 """
 
 import shlex
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import ClassVar, Literal
+from typing import Iterator, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 from llauncher.core.settings import BLACKLISTED_PORTS as _ENV_BLACKLISTED_PORTS
+
+
+# Per-context skip flag for ``ModelConfig.model_path`` existence validation
+# (issue #88b). A ``ContextVar`` replaces the prior class-attribute toggle,
+# which mutated shared class state (``cls._skip_path_validation = True/False``)
+# and was racy: concurrent callers could clobber each other's flag — one
+# resetting to ``False`` while another was still mid-``model_validate`` with
+# the skip expected. A ContextVar is isolated per thread / async task, so each
+# caller sees only its own value (default ``False``) and the race cannot occur.
+_skip_path_validation_var: ContextVar[bool] = ContextVar(
+    "llauncher_skip_path_validation", default=False
+)
+
+
+@contextmanager
+def _skip_path_validation() -> Iterator[None]:
+    """Suppress ``ModelConfig.model_path`` existence checks within the block.
+
+    Scoped to the calling context only (see :data:`_skip_path_validation_var`);
+    nesting is safe because the token-based ``reset`` restores the prior value
+    rather than unconditionally clearing to ``False``.
+    """
+    token = _skip_path_validation_var.set(True)
+    try:
+        yield
+    finally:
+        _skip_path_validation_var.reset(token)
 
 
 # Deny-list of llama-server flags llauncher manages at its own boundary
@@ -99,14 +128,6 @@ class ModelConfig(BaseModel):
     mlock: bool = False
     extra_args: str = ""
 
-    # ClassVar (not Pydantic field): underscore-prefixed annotations are
-    # treated as PrivateAttr descriptors by Pydantic v2, which made
-    # ``getattr(cls, "_skip_path_validation", False)`` truthy at the class
-    # level and silently no-op'd the validator on a fresh process. ClassVar
-    # makes this a plain Python class variable so the validator runs as
-    # intended on first construction (see issue #88).
-    _skip_path_validation: ClassVar[bool] = False
-
     @field_validator("extra_args", mode="before")
     @classmethod
     def extra_args_no_managed_flags(cls, v):
@@ -154,7 +175,7 @@ class ModelConfig(BaseModel):
     @classmethod
     def model_exists(cls, v: str, info) -> str:
         """Validate that the model path exists (supports shard patterns)."""
-        if getattr(cls, "_skip_path_validation", False):
+        if _skip_path_validation_var.get():
             return v
 
         path = Path(v)
@@ -187,11 +208,8 @@ class ModelConfig(BaseModel):
         # Migrate extra_args from list[str] to str (legacy v1 shape).
         if "extra_args" in data and isinstance(data["extra_args"], list):
             data["extra_args"] = " ".join(data["extra_args"])
-        cls._skip_path_validation = True
-        try:
+        with _skip_path_validation():
             return cls.model_validate(data)
-        finally:
-            cls._skip_path_validation = False
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""

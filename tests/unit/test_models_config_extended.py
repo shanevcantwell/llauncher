@@ -6,6 +6,7 @@ path validators.
 
 from __future__ import annotations
 
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -16,6 +17,8 @@ from llauncher.models.config import (
     ChangeRules,
     AuditEntry,
     RunningServer,
+    _skip_path_validation,
+    _skip_path_validation_var,
 )
 
 
@@ -82,6 +85,91 @@ class TestFromDictUnvalidated:
         f.write_bytes(b"x")
         cfg = ModelConfig.from_dict({"name": "m", "model_path": str(f)})
         assert cfg.name == "m"
+
+
+# ---------------------------------------------------------------------------
+# Issue #88(b): skip flag is context-scoped, effective, and non-racy
+# ---------------------------------------------------------------------------
+
+class TestSkipPathValidationContext:
+    """The path-validation skip flag is a context-scoped, non-racy switch.
+
+    Pre-#88(b) the skip flag toggled a shared class attribute, which both
+    (a) leaked across constructions until reset and (b) raced under
+    concurrency. These tests pin the ContextVar replacement.
+    """
+
+    def test_skip_suppresses_validation_for_missing_path(self) -> None:
+        """``from_dict_unvalidated`` constructs even when the path is absent.
+
+        This is the load-bearing behavior #88 said was broken on a fresh
+        process: the skip must actually suppress the existence check.
+        """
+        cfg = ModelConfig.from_dict_unvalidated(
+            {"name": "m", "model_path": "/definitely/does/not/exist.gguf"}
+        )
+        assert cfg.model_path == "/definitely/does/not/exist.gguf"
+
+    def test_skip_does_not_leak_after_from_dict_unvalidated(self) -> None:
+        """The skip is scoped to the call; a later normal construct validates."""
+        ModelConfig.from_dict_unvalidated(
+            {"name": "m", "model_path": "/no/such/path.gguf"}
+        )
+        # Flag must be back to its default outside the context.
+        assert _skip_path_validation_var.get() is False
+        with pytest.raises(ValueError, match="does not exist"):
+            ModelConfig(name="m", model_path="/still/missing.gguf")
+
+    def test_context_manager_restores_prior_value_when_nested(self) -> None:
+        """Token-based reset restores the outer value rather than forcing False."""
+        with _skip_path_validation():
+            assert _skip_path_validation_var.get() is True
+            with _skip_path_validation():
+                assert _skip_path_validation_var.get() is True
+            # Inner exit restores the outer True, not the global default.
+            assert _skip_path_validation_var.get() is True
+        assert _skip_path_validation_var.get() is False
+
+    def test_skip_flag_does_not_bleed_across_threads(self) -> None:
+        """Concurrent constructions do not share the skip flag (no race).
+
+        One thread holds the skip open and builds a config with a missing
+        path; a second thread, started while the first is inside the skip
+        context, must still see validation enforced (its own context's
+        default ``False``). Pre-#88(b) the shared class attribute let the
+        first thread's ``True`` leak into the second.
+        """
+        gate = threading.Event()
+        release = threading.Event()
+        other_validated = {"raised": None}
+
+        def hold_skip_open() -> None:
+            with _skip_path_validation():
+                # Build with a missing path: must succeed under the skip.
+                ModelConfig(name="a", model_path="/missing/a.gguf")
+                gate.set()  # signal: skip is now open in this thread
+                release.wait(timeout=5)  # keep the context alive
+
+        def expect_validation() -> None:
+            gate.wait(timeout=5)  # enter while the other thread's skip is open
+            try:
+                ModelConfig(name="b", model_path="/missing/b.gguf")
+                other_validated["raised"] = False
+            except ValueError:
+                other_validated["raised"] = True
+            finally:
+                release.set()
+
+        t1 = threading.Thread(target=hold_skip_open)
+        t2 = threading.Thread(target=expect_validation)
+        t1.start()
+        t2.start()
+        t1.join(timeout=10)
+        t2.join(timeout=10)
+
+        # The second thread saw validation enforced despite the first
+        # thread holding the skip open — no cross-thread bleed.
+        assert other_validated["raised"] is True
 
 
 # ---------------------------------------------------------------------------
