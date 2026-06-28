@@ -102,6 +102,53 @@ class TestHandleStartDelegation:
         st.error.assert_called_once()
 
 
+# ───────────────────────────── _handle_stop ─────────────────────────────────
+
+
+class TestHandleStopDelegation:
+    """A stop is mutating, so it must route through the delegation gate like
+    start/swap (#200/#203). Mirrors ``TestHandleStartDelegation``: delegate →
+    POST via the local agent node and never touch the in-process path; no agent
+    → in-process ``state.stop_server``; ``None`` delegated result → failure
+    toast, not an ``AttributeError`` (the cross-uid SIGTERM bug, ADR-018)."""
+
+    def test_local_stop_delegates_over_http(self):
+        node = MagicMock()
+        node.stop_server.return_value = {"success": True, "message": "stopped"}
+        state = MagicMock()
+
+        with patch.object(model_card, "st", _mock_st()), _delegate(node):
+            model_card._handle_stop(state, None, "local", 8080)
+
+        node.stop_server.assert_called_once_with(8080)
+        state.stop_server.assert_not_called()
+
+    def test_local_stop_in_process_when_no_agent(self):
+        state = MagicMock()
+        state.stop_server.return_value = (True, "stopped")
+
+        with patch.object(model_card, "st", _mock_st()), _delegate(
+            MagicMock(), enabled=False
+        ) as factory:
+            model_card._handle_stop(state, None, "local", 8080)
+
+        state.stop_server.assert_called_once_with(8080, caller="ui")
+        factory.assert_not_called()
+
+    def test_local_stop_none_result_is_safe(self):
+        """A ``None`` delegated result must surface as failure, not raise."""
+        node = MagicMock()
+        node.stop_server.return_value = None
+        state = MagicMock()
+
+        with patch.object(model_card, "st", _mock_st()) as st, _delegate(node):
+            model_card._handle_stop(state, None, "local", 8080)
+
+        state.stop_server.assert_not_called()
+        # Surfaced as a failure toast (icon="❌"), not an AttributeError.
+        st.toast.assert_called_with("Local agent returned no result", icon="❌")
+
+
 # ──────────────────────── _render_eviction_dialog (swap) ────────────────────
 
 
