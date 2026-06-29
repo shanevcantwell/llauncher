@@ -1,6 +1,7 @@
 # ADR-023: Service-Owned Venv Recomposition (Re-Coupling Durable References to Their Venv Lifecycle)
 
-**Status:** `proposed`
+**Status:** `accepted`
+**Accepted:** 2026-06-28
 **Date:** 2026-06-28
 **Related:** **amends the `ExecStart` mechanism of** ADR-018 (agent system
 service) and ADR-022 (UI `systemd --user` service). Does **not** revert either:
@@ -10,12 +11,12 @@ resolves into exists. Touches the deliberate shared-install decision encoded in
 `scripts/systemd/install-cli.sh` (untracked; tracked as part of ADR-022's
 downstream phase).
 
-> This is a **ratification surface** (`auto:draft`), not an implemented decision.
-> Status is `proposed` (the repo's `draft/` folder = "not yet ratified",
-> README:11; same posture ADR-022 used). It records the **decision and its one
-> open fork**; the build is a separate `auto:fix`. The bidirectional amendment
-> notes on ADR-018 / ADR-022 and the README index row take effect **on
-> ratification**, not on this draft — this draft mutates **no other file**.
+> This was a **ratification surface** (`auto:draft`); it is now **ratified**
+> (`accepted`, 2026-06-28), having moved `draft/` → `accepted/` per README:11.
+> It records the **decision and the resolution of its one open fork** (OQ1,
+> resolved below as Fork B-shared); the build is a separate `auto:fix`. The
+> bidirectional amendment notes on ADR-018 / ADR-022 and the README index row
+> took effect **on this ratification** (applied in the ratifying commit).
 
 ---
 
@@ -267,10 +268,18 @@ reproducibility phase. Each is a downstream `auto:fix`; step granularity is
 
 ## Open Questions
 
-- [ ] **OQ1 — UI venv ownership fork (must ratify before Phase B).** Fork
+- [x] **OQ1 — UI venv ownership fork (must ratify before Phase B).** Fork
   B-shared (system ensure unit, recommended) or Fork B-peruser (per-operator
   user-owned venv)? **Resolution:** operator decision at ratification of this
   ADR; determines Phase B's shape.
+  > **Resolved (operator, 2026-06-28): shared `/opt` venv (Fork B-shared).** The
+  > UI uses the single root-owned `/opt/llauncher/venv`; a **system**
+  > `*-ensure-venv` oneshot unit (root) owns its recomposition, and the
+  > `--user` UI unit consumes it read-only with a detect-and-**fail-loud**
+  > backstop (it cannot recompose cross-scope). Per-operator venv (Fork
+  > B-peruser) is rejected for now (one shared system-managed venv, fewer moving
+  > parts; revisit if multi-operator divergence becomes real). Phase B therefore
+  > builds the Fork B-shared shape.
 - [ ] **OQ2 — Introduce a dependency lockfile?** Without one, recompose is
   non-reproducible and staleness detection is impossible. **Resolution:** decide
   alongside Phase C; if yes, pick `uv`/`pip-tools` and commit the lock.
@@ -294,13 +303,13 @@ fills that gap.
 
 **Superseded by:** TBD.
 
-**On ratification (deferred — applied at acceptance, not on this draft):**
-- Add an amendment note to `accepted/018-llauncher-system-service.md` and
+**On ratification (applied at acceptance, 2026-06-28 — done in the ratifying commit):**
+- [x] Amendment note added to `accepted/018-llauncher-system-service.md` and
   `accepted/022-llauncher-ui-user-service.md` pointing to ADR-023 as governing
   their `ExecStart` venv guarantee.
-- Add the README index row (`docs/adrs/README.md`) and `git mv` this file from
-  `draft/` to `accepted/` (or `completed/` once Phases A+B land), setting Status
-  accordingly.
+- [x] README index row added (`docs/adrs/README.md`) and this file `git mv`'d
+  from `draft/` to `accepted/`, Status set to `accepted`. (Moves to `completed/`
+  once Phases A+B land.)
 
 ## References
 
