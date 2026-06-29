@@ -3,9 +3,11 @@
 **Constitutions, by reference** (read before structural work; cite handles in
 PRs and commits):
 
-- `~/github/shanevcantwell/design-docs/ecosystem-ground-physics/CODE_CONSTITUTION.md`
+- `/srv/dev/shanevcantwell/harness-tools/docs/ground-physics/CODE_CONSTITUTION.md`
   — ecosystem rules. The *why* is in `GROUND_PHYSICS.md` beside it; the
-  alignment plan in `ALIGNMENT_ROADMAP.md`.
+  alignment plan in `ALIGNMENT_ROADMAP.md`. (Canonical home as of the
+  2026-06-22 migration; the old `design-docs/ecosystem-ground-physics/` path
+  is a `MOVED.md` tombstone.)
 - `.claude/architecture.md` — layer map and forbidden import edges.
 
 ## llauncher's position in the ecosystem physics
