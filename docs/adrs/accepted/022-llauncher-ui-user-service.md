@@ -7,6 +7,8 @@
 ADR-003 / ADR-017 (agent auth, token plane).
 **Prerequisites:** No code gate (see §Open Questions — corrected).
 
+**Amended by [ADR-023](023-service-owned-venv-recomposition.md)** (2026-06-28): the UI unit's `ExecStart`/venv mechanism is amended — the shared root-owned `/opt/llauncher/venv` that `ExecStart=/usr/local/bin/llauncher-ui` resolves through is now guaranteed by a **system** `*-ensure-venv` oneshot unit (root) that recomposes it and re-places the `/usr/local/bin` symlinks, with the `--user` UI unit carrying only a detect-and-**fail-loud** `ExecStartPre` backstop (it cannot recompose cross-scope). ADR-023's OQ1 was resolved as the shared-`/opt` fork. All other provisions of this ADR stand.
+
 > This is a **ratification surface**, not an implemented decision. Status is
 > `proposed` (the repo's `draft/` folder = "not yet ratified", README:11). It
 > records the **decision only**; the build is a separate `auto:fix` (see

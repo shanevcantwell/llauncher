@@ -5,6 +5,8 @@
 
 **Superseded in part by [ADR-022](022-llauncher-ui-user-service.md)** (2026-06-28): the UI control-plane decision (hand-launched → per-operator systemd --user) is now governed by ADR-022. All other provisions of this ADR stand.
 
+**Amended by [ADR-023](023-service-owned-venv-recomposition.md)** (2026-06-28): the agent unit's `ExecStart`/venv mechanism is amended — the `$PROJECT_DIR/.venv` that `ExecStart=@VENV_BIN@/llauncher-agent` resolves into is now guaranteed by a **root** `*-ensure-venv` oneshot unit that recomposes it from `pyproject.toml` (fail-loud on failure). All other provisions of this ADR stand.
+
 **Supersedes:** ADR-009 (Symmetric Hub/Spoke Topology) — only its *deployment
 posture* (local agent as a user-started peer). The symmetric hub/spoke
 *topology* of ADR-009 still holds; this ADR replaces only the framing that the
