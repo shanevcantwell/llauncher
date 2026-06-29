@@ -1,6 +1,7 @@
 # ADR-022: llauncher UI under Operator-Scoped `systemd --user` Control
 
-**Status:** proposed
+**Status:** accepted
+**Accepted:** 2026-06-28
 **Date:** 2026-06-28
 **Related:** ADR-018 (System Service) — this narrows ADR-018's UI posture;
 ADR-003 / ADR-017 (agent auth, token plane).
