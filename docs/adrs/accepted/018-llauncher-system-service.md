@@ -3,6 +3,8 @@
 **Status:** Accepted
 **Date:** 2026-06-25
 
+**Superseded in part by [ADR-022](022-llauncher-ui-user-service.md)** (2026-06-28): the UI control-plane decision (hand-launched → per-operator systemd --user) is now governed by ADR-022. All other provisions of this ADR stand.
+
 **Supersedes:** ADR-009 (Symmetric Hub/Spoke Topology) — only its *deployment
 posture* (local agent as a user-started peer). The symmetric hub/spoke
 *topology* of ADR-009 still holds; this ADR replaces only the framing that the
@@ -59,7 +61,7 @@ installs a real system service:
   need the `X-Api-Key` token (see [`../../auth.md`](../../auth.md)).
   Group-readability lets those in-group consumers read the token in place, with
   no secret duplicated into a second home. (The tokenless local MCP/CLI plane
-  above does not touch this.)
+  above does not touch this.) (UI control plane superseded by ADR-022.)
 - **Boot-time service.** `[Install] WantedBy=multi-user.target`; no
   `enable-linger` step.
 

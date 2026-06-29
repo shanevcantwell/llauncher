@@ -1,7 +1,6 @@
 # Running `llauncher-agent` as a Service
 
-The agent is the daemon piece of llauncher; the UI is interactive and is
-not service-managed. This doc covers persistent installs on:
+The agent is the daemon piece of llauncher. The UI's service posture is governed by [ADR-022](../adrs/accepted/022-llauncher-ui-user-service.md): it is **decided** to run as a per-operator systemd --user unit, with **implementation pending**. Until that lands, the UI is still hand-launched (below). This doc covers persistent installs on:
 
 - Linux (systemd, user-mode)
 - Windows (NSSM-wrapped service)

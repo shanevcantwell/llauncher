@@ -52,6 +52,7 @@ while [ $# -gt 0 ]; do
 done
 
 # --- Mode-dependent locations -----------------------------------------
+# UI service posture: see ADR-022 (decided: per-operator systemd --user; implementation pending). UI is currently hand-launched.
 # The UI process (Streamlit) is separate from the systemd service and does
 # NOT inherit LLAUNCHER_AGENT_TOKEN from the unit's environment, so it can
 # only authenticate against the local agent by reading the mirrored token
