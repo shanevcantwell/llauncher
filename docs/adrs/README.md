@@ -6,7 +6,7 @@ state of the decision**, not the maturity of the ADR document itself.
 | Folder | Meaning | Count |
 |--------|---------|-------|
 | [`completed/`](./completed/) | Accepted; implementation done; no open issues tracking gaps against the ADR | 10 |
-| [`accepted/`](./accepted/) | Accepted; known partial implementation tracked as open issues, or scope explicitly deferred in the ADR's own §Deferred Work | 6 |
+| [`accepted/`](./accepted/) | Accepted; known partial implementation tracked as open issues, or scope explicitly deferred in the ADR's own §Deferred Work | 7 |
 | [`superseded/`](./superseded/) | Replaced by a later ADR; preserved as historical record | 2 |
 | [`draft/`](./draft/) | Not yet ratified | 1 |
 
@@ -38,6 +38,7 @@ Folder placement and in-document Status are kept in sync.
 - [ADR-015 — Orphan Policy (Annotation and Listing)](./accepted/015-orphan-policy.md) — `adopt` verb deferred per §Deferred Work
 - [ADR-018 — llauncher as a System Service](./accepted/018-llauncher-system-service.md) — `--system` install mode landed (#194); host provisioning (#196) and `LAUNCHER_STATE_DIR` Python support (#197) tracked separately; supersedes ADR-009's deployment posture
 - [ADR-LLNCH-019 — Server-Metrics Surface (Live In-Server Inference Telemetry)](./accepted/adr-llnch-019-server-metrics-surface.md) — ratified; implementation not yet begun; deferred scope tracked #174/#175/#176
+- [ADR-022 — llauncher UI under Operator-Scoped `systemd --user` Control](./accepted/022-llauncher-ui-user-service.md) — per-operator user unit (`scripts/systemd/llauncher-ui.service.user.in` + `install-ui.sh`); narrows ADR-018's UI posture; `/usr/local/bin` symlink (`install-cli.sh`, root) and `inference`-group membership are operator/host steps (#223)
 
 ### Draft
 
