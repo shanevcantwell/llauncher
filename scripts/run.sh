@@ -25,32 +25,38 @@ print_info() {
     echo -e "${YELLOW}ℹ${NC} $1"
 }
 
-# Check if virtual environment exists
-if [ ! -d "$PROJECT_DIR/.venv" ]; then
-    print_info "Virtual environment not found. Creating one..."
-    cd "$PROJECT_DIR"
-    python3 -m venv .venv
-    print_status "Virtual environment created"
-fi
-
-# Activate virtual environment
-source "$PROJECT_DIR/.venv/bin/activate"
+# Ensure + activate the repo-local virtual environment. Only the commands
+# that actually run code need this — `install` (disabled) and the help text
+# must not bootstrap a ~498 MB venv as a side effect (issue #154).
+ensure_venv() {
+    if [ ! -d "$PROJECT_DIR/.venv" ]; then
+        print_info "Virtual environment not found. Creating one..."
+        cd "$PROJECT_DIR"
+        python3 -m venv .venv
+        print_status "Virtual environment created"
+    fi
+    # shellcheck disable=SC1091
+    source "$PROJECT_DIR/.venv/bin/activate"
+}
 
 case "${1:-}" in
     install)
-        # Disabled: this installed into the repo-local .venv (activated above),
-        # disconnected from the operator's global commands — the "complete"
-        # banner implied a global readiness it never delivered. See issue #154.
+        # Disabled: this installed into the repo-local .venv, disconnected
+        # from the operator's global commands — the "complete" banner implied
+        # a global readiness it never delivered. See issue #154.
         print_error "run.sh install is disabled: it installed into a repo-local .venv,"
-        print_error "disconnected from your global commands. For a global install:"
+        print_error "disconnected from your global commands. For a global install"
+        print_error "(puts llauncher / llauncher-ui on your PATH):"
         echo "    pip install --user -e \".[ui]\"   # from this repo, with no venv active"
         exit 1
         ;;
     mcp)
+        ensure_venv
         print_info "Starting MCP server..."
         python -m llauncher.mcp.server
         ;;
     ui)
+        ensure_venv
         print_info "Starting Streamlit UI..."
         # Bind to loopback by default. The dashboard has no built-in auth;
         # see README "Streamlit UI" + docs/plans/security-hardening-plan.md
@@ -60,16 +66,19 @@ case "${1:-}" in
             --server.address "${LAUNCHER_UI_HOST:-127.0.0.1}"
         ;;
     agent)
+        ensure_venv
         print_info "Starting remote management agent..."
         print_info "Agent will listen on 0.0.0.0:8765"
         print_info "Set LLAUNCHER_AGENT_PORT and LLAUNCHER_AGENT_NODE_NAME to customize"
         llauncher-agent
         ;;
     stop)
+        ensure_venv
         print_info "Stopping remote management agent..."
         llauncher-agent --stop
         ;;
     discover)
+        ensure_venv
         print_info "Discovering launch scripts..."
         python -m llauncher discover
         ;;
@@ -90,7 +99,7 @@ case "${1:-}" in
         echo "  LLAUNCHER_AGENT_PORT     Port to listen on (default: 8765)"
         echo "  LLAUNCHER_AGENT_NODE_NAME Friendly name for this node"
         echo ""
-        echo "First time setup:"
-        echo "  $0 install"
+        echo "First time setup (puts llauncher / llauncher-ui on your PATH):"
+        echo "  pip install --user -e \".[ui]\"   # from this repo, with no venv active"
         ;;
 esac
