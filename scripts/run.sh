@@ -1,6 +1,6 @@
 #!/bin/bash
 # llauncher - Linux/Mac runner script
-# Usage: ./run.sh [mcp|ui|agent|discover|install]
+# Usage: ./run.sh [mcp|ui|agent|discover|setup|install]
 
 set -e
 
@@ -40,6 +40,43 @@ ensure_venv() {
 }
 
 case "${1:-}" in
+    setup)
+        # Recompose the agent venv from pyproject.toml (ADR-023, issue #227).
+        #
+        # This is the single, named recompose command the system ensure unit
+        # (llauncher-agent-ensure-venv.service) calls, and the live successor
+        # to the disabled `install` pointer (issue #154). It REUSES the one
+        # venv-creation path — ensure_venv (added by #219, which only CREATES
+        # the venv) — and adds the POPULATE step on top, rather than
+        # parallel-implementing a second venv builder.
+        #
+        # OQ3 (lazy re-heal): existence-check on the entry point. If the
+        # venv already resolves `llauncher-agent`, this is a no-op — we
+        # recompose only when missing/broken, never eagerly every boot.
+        # OQ2 (minimal): rebuild from pyproject.toml `>=` floors via an
+        # editable install; no lockfile (deferred to ADR-023 Phase C).
+        if [ -x "$PROJECT_DIR/.venv/bin/llauncher-agent" ]; then
+            print_status "Agent venv already populated (llauncher-agent present) — nothing to recompose."
+            exit 0
+        fi
+        ensure_venv  # creates + activates .venv (the #219 path); do not duplicate it
+        print_info "Recomposing agent venv from $PROJECT_DIR/pyproject.toml (editable install)..."
+        # Fail-loud: a nonzero pip recompose must abort with an actionable
+        # message so the ensure unit enters `failed` and the agent (which
+        # Requires= it) never starts against a half-built venv.
+        if ! pip install -e "$PROJECT_DIR"; then
+            print_error "Recompose FAILED: 'pip install -e $PROJECT_DIR' returned nonzero."
+            print_error "The agent venv at $PROJECT_DIR/.venv is NOT usable. Resolve the error"
+            print_error "above (network down? broken pyproject.toml?) and re-run: ./scripts/run.sh setup"
+            exit 1
+        fi
+        if [ ! -x "$PROJECT_DIR/.venv/bin/llauncher-agent" ]; then
+            print_error "Recompose INCOMPLETE: the llauncher-agent entry point is still missing"
+            print_error "after 'pip install -e'. Refusing to report success (fail-loud, ADR-023)."
+            exit 1
+        fi
+        print_status "Agent venv recomposed: $PROJECT_DIR/.venv/bin/llauncher-agent present."
+        ;;
     install)
         # Disabled: this installed into the repo-local .venv, disconnected
         # from the operator's global commands — the "complete" banner implied
@@ -93,6 +130,7 @@ case "${1:-}" in
         echo "  ui        Start Streamlit UI (requires agent; start it first)"
         echo "  stop      Stop running agent"
         echo "  discover  List discovered launch scripts"
+        echo "  setup     Recompose the agent .venv from pyproject.toml (editable install)"
         echo ""
         echo "Environment variables for agent:"
         echo "  LLAUNCHER_AGENT_HOST     Host to bind to (default: 0.0.0.0)"

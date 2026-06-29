@@ -28,6 +28,8 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 VENV_BIN="$PROJECT_DIR/.venv/bin"
 
 UNIT_NAME="llauncher-agent.service"
+# Root oneshot that guarantees the agent venv (system mode only; ADR-023/#227).
+ENSURE_UNIT_NAME="llauncher-agent-ensure-venv.service"
 ENV_EXAMPLE="$SCRIPT_DIR/llauncher-agent.env.example"
 
 # Colors
@@ -98,6 +100,14 @@ uninstall() {
         rm -f "$UNIT_PATH"
         say "Removed $UNIT_PATH"
     fi
+    # Tear down the system-scope ensure unit alongside the agent (ADR-023/#227).
+    if [ "$MODE" = "system" ]; then
+        "${SYSTEMCTL[@]}" disable --now "$ENSURE_UNIT_NAME" 2>/dev/null || true
+        if [ -f "$UNIT_DIR/$ENSURE_UNIT_NAME" ]; then
+            rm -f "$UNIT_DIR/$ENSURE_UNIT_NAME"
+            say "Removed $UNIT_DIR/$ENSURE_UNIT_NAME"
+        fi
+    fi
     "${SYSTEMCTL[@]}" daemon-reload
     info "Env file left in place at $ENV_FILE (delete manually if desired)."
     info "Token file left in place at $TOKEN_FILE (delete manually if desired)."
@@ -110,7 +120,7 @@ uninstall() {
 # --- Preflight ---------------------------------------------------------
 if [ ! -x "$VENV_BIN/llauncher-agent" ]; then
     err "Did not find $VENV_BIN/llauncher-agent."
-    err "Run './scripts/run.sh install' first to create the venv."
+    err "Run './scripts/run.sh setup' first to recompose the venv (ADR-023)."
     exit 1
 fi
 
@@ -212,7 +222,26 @@ sed \
     "$TEMPLATE" > "$UNIT_PATH"
 say "Rendered unit to $UNIT_PATH"
 
+# --- Ensure-venv unit (system scope only; ADR-023 / #227) --------------
+# The agent system unit Requires=/After= this root oneshot so the agent never
+# starts against a missing/broken venv. It is system-scoped because recompose
+# must run where the dev-tree .venv is writable (root), not as User=llauncher.
+# User mode owns its own venv via `run.sh setup` at launch, so it gets no
+# ensure unit here.
+if [ "$MODE" = "system" ]; then
+    ENSURE_TEMPLATE="$SCRIPT_DIR/llauncher-agent-ensure-venv.service.in"
+    ENSURE_UNIT_PATH="$UNIT_DIR/$ENSURE_UNIT_NAME"
+    sed \
+        -e "s|@PROJECT_DIR@|$PROJECT_DIR|g" \
+        "$ENSURE_TEMPLATE" > "$ENSURE_UNIT_PATH"
+    say "Rendered ensure unit to $ENSURE_UNIT_PATH"
+fi
+
 "${SYSTEMCTL[@]}" daemon-reload
+if [ "$MODE" = "system" ]; then
+    "${SYSTEMCTL[@]}" enable "$ENSURE_UNIT_NAME" >/dev/null
+    say "Enabled $ENSURE_UNIT_NAME"
+fi
 "${SYSTEMCTL[@]}" enable "$UNIT_NAME" >/dev/null
 say "Enabled $UNIT_NAME"
 
