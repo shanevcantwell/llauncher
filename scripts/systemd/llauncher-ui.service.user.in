@@ -38,6 +38,21 @@ Type=simple
 ; fixed at process start — exactly when systemd injects the unit env. See
 ; ADR-022 §Open Questions and core/agent_token.py::default_token_path().
 Environment=LAUNCHER_STATE_DIR=/var/lib/llauncher
+
+; ADR-023 Phase B (issue #228): fail-loud backstop. ExecStart resolves
+; /usr/local/bin/llauncher-ui -> /opt/llauncher/venv/bin/llauncher-ui, the
+; shared, ROOT-owned venv that the operator's disk-hygiene policy treats as
+; non-durable (freely reaped by a sweep). This is a `systemd --user` unit running
+; as the operator uid: it CANNOT write or recompose that root tree, and it CANNOT
+; Requires=/After= the system ensure unit (cross-scope dependency forbidden). So
+; it only DETECTS-and-FAILS-LOUD — if the shared venv or its llauncher-ui entry
+; point is missing/unusable, exit nonzero so the unit enters `failed` with an
+; actionable journal line, rather than starting a broken UI. Recompose stays a
+; ROOT action (OQ1 Fork B-shared): the operator runs the real, existing recompose
+; command named below. Invariant VENV-OWNED-OR-GUARANTEED / PARSE-AT-THE-DOOR:
+; guarantee or fail loud at the door; never start a degraded service.
+; (No leading `-`: a nonzero exit here MUST fail the unit — that is the point.)
+ExecStartPre=/bin/sh -c 'test -d /opt/llauncher/venv && test -x /opt/llauncher/venv/bin/llauncher-ui || { echo "llauncher-ui backstop (ADR-023): shared venv /opt/llauncher/venv or its llauncher-ui entry point is missing or not executable. A --user unit cannot recompose this root-owned venv (cross-scope recompose is forbidden). Recompose it as root from the repo checkout: sudo bash scripts/systemd/install-cli.sh" >&2; exit 1; }'
 ExecStart=/usr/local/bin/llauncher-ui
 
 Restart=on-failure
