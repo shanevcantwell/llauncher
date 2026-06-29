@@ -4,8 +4,7 @@
 **Date:** 2026-06-28
 **Related:** ADR-018 (System Service) — this narrows ADR-018's UI posture;
 ADR-003 / ADR-017 (agent auth, token plane).
-**Blocked on:** #130 (OPEN) — UI→agent token mirror on Linux. The build/install
-phase cannot land until #130 is resolved.
+**Prerequisites:** No code gate (see §Open Questions — corrected).
 
 > This is a **ratification surface**, not an implemented decision. Status is
 > `proposed` (the repo's `draft/` folder = "not yet ratified", README:11). It
@@ -114,8 +113,9 @@ transfer to it.
   but at the cost of being wrong on every other axis.)
 - **A third template to maintain** alongside ADR-018's two agent unit templates
   (`*.service.in`, `*.service.system.in`).
-- **Hard dependency on #130.** Without the Linux token mirror, the unit starts
-  but cannot authenticate to the agent (see §Open Questions).
+- **Two operational preconditions** (both ADR-018-mandated, not new code): the unit
+  must set `Environment=LAUNCHER_STATE_DIR=/var/lib/llauncher`, and the operator
+  must be in group `inference`. See §Open Questions for the corrected analysis.
 
 ## Alternatives Considered
 
@@ -145,13 +145,33 @@ logs/Restart=on-failure). Strictly dominated.
 
 ## Open Questions
 
-- [ ] **#130 (OPEN) — UI→agent token mirror on Linux** is a hard prerequisite.
-  Title: *"install.sh lacks token-mirror equivalent to install.ps1 — UI auth
-  broken on Linux"* (label `user:gate`). The unit's no-service-account model
-  depends on the `0640 root:inference` token existing and being group-readable;
-  without #130 the unit runs but the dashboard cannot authenticate to the agent.
-  **Resolution:** the build/install phase (§Downstream Phase) is blocked on #130
-  closing. Do not begin the `auto:fix` until then.
+- [ ] **Prerequisites — no code gate.** Contrary to this ADR's first draft, #130
+  is *not* a prerequisite for this decision. The auth path works today:
+
+  - The token mirror #130 asked for already shipped — implemented for the
+    duplicate **#131** (since CLOSED, PR #133 / `b5101ef`, extended/hardened
+    since). #130 is a likely-stale duplicate of #131 pending only an operator
+    runtime probe, not new code.
+  - `LAUNCHER_STATE_DIR` is honored in the Python token-read path: **#197 is
+    MERGED** (ADR-018's "pending #197" Consequence note predates the merge).
+    `core/settings.py` reads `LAUNCHER_STATE_DIR` from the environment at module
+    import; `core/agent_token.py::default_token_path()` lazily resolves
+    `<LAUNCHER_STATE_DIR>/agent.token`.
+
+  Therefore a `--user` UI unit at the operator uid reads the system agent's
+  `0640 root:inference` token **in place** — no mirror, no relocation — given
+  two preconditions (both already mandated by ADR-018):
+
+  1. **The unit sets `Environment=LAUNCHER_STATE_DIR=/var/lib/llauncher`.** The
+     value is fixed at process start, which is exactly when systemd injects the
+     unit env. **This is the one thing the unit template must not omit.**
+  2. The operator uid is a member of group `inference` (host provisioning, not
+     the installer — ADR-018 §installer-vs-host-provisioning;
+     `setup-inference-lane.sh`; #196).
+
+  Both residual risks are operational (group membership + the unit's
+  `LAUNCHER_STATE_DIR` env), not code-gated. The downstream `auto:fix` (unit
+  template + `install-cli.sh` tracking + installer step) is unblocked.
 - [ ] **`Restart=` policy and crash-loop guard** for the unit template — whether
   to mirror the agent's `Restart=on-failure` / `StartLimitBurst` shape.
   **Resolution:** decided during the build `auto:fix`, not here.
@@ -182,7 +202,7 @@ here and applied at ratification, because a `proposed` ADR has not taken effect.
 ## Downstream Phase (scope boundary — NOT built here)
 
 This ADR records the **decision only**. The implementation is a separate
-`auto:fix`, **blocked on #130**, comprising:
+`auto:fix` (unblocked — see §Open Questions), comprising:
 
 1. A unit template `scripts/systemd/llauncher-ui.service.user.in`
    (`ExecStart=/usr/local/bin/llauncher-ui`, loopback Streamlit, operator uid,
@@ -213,7 +233,9 @@ ratification; sub-problem enumeration with acceptance criteria is
   group-`inference` token mirror.
 - `docs/operations/run-as-a-service.md:3-4` — explicit "UI not service-managed" prose.
 - `docs/auth.md:15,107` — UI as token-consuming HTTP client of the agent.
-- Issue #130 (OPEN, `user:gate`) — Linux token-mirror prerequisite.
+- Issue #131 (CLOSED, PR #133 / `b5101ef`) — Linux token mirror (shipped; #130 is a likely-stale duplicate).
+- Issue #197 (MERGED) — `LAUNCHER_STATE_DIR` honored in Python token-read path.
+- Issue #196 — operator group `inference` provisioning (`setup-inference-lane.sh`).
 - Commit `29cb2ee` — UI delegation gate (UI owns nothing).
 
 ---
