@@ -6,6 +6,15 @@ coordination flags, never as owned work.
 **Verified against:** `origin/main @ 8480290` (fetched 2026-06-28, US/Mountain afternoon).
 Local checkout at `11f2c7a` (4 behind — intentionally not pulled; see Coordination).
 
+> **UPDATE 2026-06-29 (single context took this over; the other tab was closed):** the build is no
+> longer "not started." **Phase A landed** (PR #230 → `#227`: agent `*-ensure-venv` oneshot) and the
+> **Phase B fail-loud backstop landed** (PR #232 → `#228`). The **#219 / #168** coordination gates were
+> resolved (#219 merged; seams encoded into issue state). The **auto-recompose half of Phase B**
+> (root `/opt` ensure oneshot) turned out to be a *distinct, unbuilt* deliverable — Phase A ensures the
+> agent `.venv`, the UI uses `/opt/llauncher/venv` — now tracked as **#233**. Full session through-line:
+> `harness-tools/docs/handoffs/2026-06-29-completion-bell-and-adr023-phases.md`. The status below is
+> superseded by that handoff + issues #229/#231/#233/#234.
+
 ---
 
 ## TL;DR
