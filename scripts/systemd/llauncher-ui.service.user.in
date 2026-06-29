@@ -1,0 +1,51 @@
+; llauncher Streamlit UI — systemd *user* unit template.
+;
+; Do not install this file directly. Run `scripts/systemd/install-ui.sh`
+; (as your own operator account, NOT root), which copies this template to
+; ${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/llauncher-ui.service and
+; runs `systemctl --user enable --now`.
+;
+; This unit has NO @…@ placeholders: every value is fixed. The UI runs as the
+; caller's own uid (no User=/Group=/EnvironmentFile=) — it is an unprivileged,
+; loopback-only (127.0.0.1) per-operator front-end, not machine infrastructure.
+; See ADR-022 (narrows ADR-018's UI posture): the agent is a system service,
+; the UI is a per-operator `systemd --user` unit.
+;
+; The /usr/local/bin/llauncher-ui symlink is placed by
+; scripts/systemd/install-cli.sh (root). Group `inference` membership for the
+; caller is host provisioning. Neither is the installer's job.
+
+[Unit]
+Description=llauncher Streamlit UI (per-operator user service)
+Documentation=https://github.com/shanevcantwell/llauncher
+After=network-online.target
+Wants=network-online.target
+; Crash-loop guard mirrors the agent unit
+; (scripts/systemd/llauncher-agent.service.system.in): restart aggressively,
+; but if the unit fails 10 times inside a minute treat it as a config problem
+; and give up. ADR-022 §Open Questions deferred this policy to the build; the
+; UI and agent share the same supervised-process failure shape, so the agent's
+; values carry over unchanged.
+; (StartLimit* live in [Unit] since systemd 230; [Service] is deprecated.)
+StartLimitBurst=10
+StartLimitIntervalSec=60
+
+[Service]
+Type=simple
+; The single non-negotiable line: without it the UI reads ~/.llauncher and
+; misses the system agent's /var/lib/llauncher/agent.token (0640 root:inference),
+; which the caller reads in place via `inference`-group membership. The value is
+; fixed at process start — exactly when systemd injects the unit env. See
+; ADR-022 §Open Questions and core/agent_token.py::default_token_path().
+Environment=LAUNCHER_STATE_DIR=/var/lib/llauncher
+ExecStart=/usr/local/bin/llauncher-ui
+
+Restart=on-failure
+RestartSec=5
+
+; journald (per-user) captures stdout/stderr by default — view with
+;   journalctl --user -u llauncher-ui -f
+
+[Install]
+; User units want default.target, NOT multi-user.target.
+WantedBy=default.target

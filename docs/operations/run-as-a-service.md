@@ -1,6 +1,6 @@
 # Running `llauncher-agent` as a Service
 
-The agent is the daemon piece of llauncher. The UI's service posture is governed by [ADR-022](../adrs/accepted/022-llauncher-ui-user-service.md): it is **decided** to run as a per-operator systemd --user unit, with **implementation pending**. Until that lands, the UI is still hand-launched (below). This doc covers persistent installs on:
+The agent is the daemon piece of llauncher. The UI's service posture is governed by [ADR-022](../adrs/accepted/022-llauncher-ui-user-service.md): it runs as a per-operator `systemd --user` unit, installed via [`scripts/systemd/install-ui.sh`](#ubuntu--linux-ui-systemd-user-unit) (see the UI section below). Two operator/host steps sit outside that installer: the `/usr/local/bin/llauncher-ui` symlink (placed by `install-cli.sh`, as root) and the caller's `inference`-group membership (host provisioning). This doc covers persistent installs on:
 
 - Linux (systemd, user-mode)
 - Windows (NSSM-wrapped service)
@@ -92,6 +92,83 @@ systemctl --user restart llauncher-agent
 
 The env file is left in place; remove it manually if you want a fully
 clean state.
+
+---
+
+## Ubuntu / Linux (UI systemd --user unit)
+
+The Streamlit UI is a per-operator front-end, not machine infrastructure
+(loopback-only, no built-in auth, matters only while an operator is
+watching). [ADR-022](../adrs/accepted/022-llauncher-ui-user-service.md)
+runs it as a `systemd --user` unit owned by your login session — never a
+system unit, never root.
+
+### Operator/host preconditions (NOT done by the installer)
+
+1. **The `/usr/local/bin/llauncher-ui` symlink** the unit's `ExecStart`
+   points at. Place it once, as root:
+
+   ```bash
+   sudo bash scripts/systemd/install-cli.sh
+   ```
+
+   This installs `llauncher` (+ `llauncher-mcp`, `llauncher-ui`) into a
+   dedicated `/opt/llauncher/venv` and symlinks the console scripts into
+   `/usr/local/bin`.
+
+2. **`inference`-group membership** for your account. The UI reads the
+   system agent's token (`/var/lib/llauncher/agent.token`, mode `0640`
+   `root:inference`) in place via group membership — no copy. Group
+   provisioning is a host step (harness-tools
+   `setup-inference-lane.sh`):
+
+   ```bash
+   sudo usermod -aG inference "$USER"   # then re-login
+   ```
+
+`install-ui.sh` *warns* (does not block) if either is missing, so the
+unit can be rendered now and becomes functional once provisioning lands.
+
+### Install
+
+```bash
+./scripts/systemd/install-ui.sh
+```
+
+The installer (as your own account, NOT root):
+
+- Copies the fixed unit template to
+  `~/.config/systemd/user/llauncher-ui.service`. The template hardcodes
+  `Environment=LAUNCHER_STATE_DIR=/var/lib/llauncher` — the one line that
+  makes the UI read the system agent's token instead of `~/.llauncher`;
+  it is **not** overridable from the installer's environment.
+- Runs `systemctl --user daemon-reload`, `enable --now`.
+
+It is idempotent — re-run it to pick up a `git pull` that touches the
+template.
+
+### Autostart at boot / survive logout (optional)
+
+```bash
+loginctl enable-linger "$USER"
+```
+
+Optional and your call — the installer prints this as guidance but never
+runs it.
+
+### Operate
+
+```bash
+systemctl --user status llauncher-ui
+systemctl --user restart llauncher-ui
+journalctl --user -u llauncher-ui -f      # live logs
+```
+
+### Uninstall
+
+```bash
+./scripts/systemd/install-ui.sh --uninstall
+```
 
 ---
 
