@@ -253,12 +253,12 @@ class ModelConfig(BaseModel):
             if head in MANAGED_NATIVE_FLAGS:
                 field = MANAGED_NATIVE_FLAG_TO_FIELD[head]
                 msg = (
-                    f"extra_args contains {head!r}, which llauncher already "
-                    f"emits natively from the {field!r} config field. "
-                    f"llama-server argument parsing is first-wins and the "
-                    f"native flag precedes extra_args, so this occurrence is "
-                    f"silently dropped — set the {field!r} field instead. "
-                    f"See issue #156."
+                    f"extra_args contains {head!r}, which llauncher manages via "
+                    f"the {field!r} config field. When that field is set "
+                    f"llauncher emits {head!r} itself, ahead of extra_args, and "
+                    f"llama-server argument parsing is first-wins — so a "
+                    f"duplicate here is silently dropped. Set the {field!r} "
+                    f"field instead. See issue #156."
                 )
                 if loading:
                     # Pre-existing config on disk: surface loudly, keep loading.
