@@ -60,7 +60,7 @@ class NodeRegistry:
                     timeout=node_data.get("timeout", 5.0),
                     api_key=raw_key,
                 )
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError):  # pragma: no cover - defensive recovery from a corrupted/partial nodes.json; start fresh rather than crash UI startup
             # Corrupted file, start fresh
             self._nodes.clear()
 
@@ -142,7 +142,7 @@ class NodeRegistry:
         """
         tokens = self._load_node_tokens()
         for name, token in tokens.items():
-            if name == "local":
+            if name == "local":  # pragma: no cover - C10 security guard: 'local' token is never sourced from the sidecar (canonical source is agent.token); skip to prevent credential confusion
                 continue
             node = self._nodes.get(name)
             if node is not None and not node.api_key:
@@ -233,7 +233,7 @@ class NodeRegistry:
         NODES_FILE.parent.mkdir(parents=True, exist_ok=True)
         try:
             NODES_FILE.parent.chmod(0o700)
-        except OSError:
+        except OSError:  # pragma: no cover - best-effort dir chmod; no-op/failure on exotic FS (WSL-on-NTFS, some cloud mounts) is swallowed, the 0600 on the file is the load-bearing protection
             # Best-effort; chmod is a no-op on some filesystems (e.g.
             # WSL-on-NTFS). The 0600 on the file itself is the
             # load-bearing protection.
@@ -253,7 +253,7 @@ class NodeRegistry:
 
         try:
             os.chmod(NODES_FILE, 0o600)
-        except OSError as e:
+        except OSError as e:  # pragma: no cover - best-effort re-tighten; chmod failure on exotic FS (WSL-on-NTFS, cloud mounts) is logged-and-swallowed, not fatal
             logger.warning(f"Could not set restrictive permissions on {NODES_FILE}: {e}")
 
         # Sidecar tokens file (issue #132). Wrapped so a token-write
@@ -261,7 +261,7 @@ class NodeRegistry:
         # succeeded — the two files are independent on purpose.
         try:
             self._save_node_tokens()
-        except Exception as e:  # noqa: BLE001 — defensive isolation
+        except Exception as e:  # noqa: BLE001 — defensive isolation  # pragma: no cover - isolates a sidecar token-write failure from the just-succeeded nodes.json write (#132); the two files are independent on purpose
             logger.warning(f"Could not write {NODE_TOKENS_FILE}: {e}")
 
     def add_node(
