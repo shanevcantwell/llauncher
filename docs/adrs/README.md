@@ -6,7 +6,7 @@ state of the decision**, not the maturity of the ADR document itself.
 | Folder | Meaning | Count |
 |--------|---------|-------|
 | [`completed/`](./completed/) | Accepted; implementation done; no open issues tracking gaps against the ADR | 10 |
-| [`accepted/`](./accepted/) | Accepted; known partial implementation tracked as open issues, or scope explicitly deferred in the ADR's own §Deferred Work | 8 |
+| [`accepted/`](./accepted/) | Accepted; known partial implementation tracked as open issues, or scope explicitly deferred in the ADR's own §Deferred Work | 9 |
 | [`superseded/`](./superseded/) | Replaced by a later ADR; preserved as historical record | 2 |
 | [`draft/`](./draft/) | Not yet ratified | 2 |
 
@@ -40,6 +40,7 @@ Folder placement and in-document Status are kept in sync.
 - [ADR-LLNCH-019 — Server-Metrics Surface (Live In-Server Inference Telemetry)](./accepted/adr-llnch-019-server-metrics-surface.md) — ratified; implementation not yet begun; deferred scope tracked #174/#175/#176
 - [ADR-022 — llauncher UI under Operator-Scoped `systemd --user` Control](./accepted/022-llauncher-ui-user-service.md) — per-operator user unit (`scripts/systemd/llauncher-ui.service.user.in` + `install-ui.sh`); narrows ADR-018's UI posture; `/usr/local/bin` symlink (`install-cli.sh`, root) and `inference`-group membership are operator/host steps (#223)
 - [ADR-023 — Service-Owned Venv Recomposition](./accepted/023-service-owned-venv-recomposition.md) — re-couples each service's `ExecStart` venv reference to a same-scope recompose guarantee (root `*-ensure-venv` oneshot units; user UI fail-loud backstop); amends ADR-018 / ADR-022; OQ1 resolved as shared `/opt` venv (2026-06-28); Phases A/B implementation pending
+- [ADR-025 — UI Endpoint-Layer Boundary, Enforced by a Static Test](./accepted/025-ui-endpoint-layer-boundary-enforced-by-test.md) — codifies the `ui/` → `state`/`operations`/`remote` rule as an AST guard (`tests/architecture/test_ui_layer_boundaries.py`) + AppTest harness; the deterministic catch for the cross-layer reach that escaped to an alpha; OQ: drop the `ui/*` coverage omit and re-baseline the floor (tracked #69)
 
 ### Draft
 
