@@ -46,3 +46,22 @@ REMOTE (client) remote/  (NodeRegistry · RemoteNode · RemoteAggregator)
 > Known regression: `remote/registry.py` imported `agent.auth.resolve_agent_token`
 > (a `remote → agent` edge) to source the local token. The fix is to hoist the
 > token *read* path into `core` and keep token *materialization* in `agent`.
+
+## Enforced UI boundary (ADR-025)
+
+`ui/` reaches the backend **only** through `state`/`operations`/`remote` —
+backend verbs via the orchestration facades, all node I/O via `remote/`
+(`NodeRegistry` / `RemoteNode` / `RemoteAggregator`). A UI module must never:
+
+- do its own HTTP to a node (`httpx` / `requests` / `urllib` / `http.client` /
+  `socket` / `aiohttp`) — node I/O is `remote/`'s job; or
+- import a peer/sibling endpoint (`llauncher.agent.*`, `llauncher.mcp_server.*`,
+  `llauncher.cli`).
+
+This is **enforced statically** by
+`tests/architecture/test_ui_layer_boundaries.py`: an AST scan over
+`llauncher/ui/**` that fails fast on either breach, citing this file and the
+offending `file:line`. It is the deterministic catch for the cross-layer reach
+(a UI tab hitting a node URL directly) that previously escaped to an alpha tag.
+A behavioral complement (`tests/ui/` AppTest harness, `forbid_direct_http`)
+asserts the same at runtime for the tabs it drives.
