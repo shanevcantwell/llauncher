@@ -307,24 +307,13 @@ class TestEvictionRollbackRecovery:
         )
         return state
 
-    def test_readiness_false_rollback_failure_unavailable(self, tmp_path):
-        """546-548: readiness returns not-ready, rollback start raises."""
-        state = self._two_model_state(tmp_path)
-        with patch("llauncher.state.process_stop_server", return_value=True), \
-             patch("llauncher.state.stop_server_by_pid"), \
-             patch("llauncher.state.wait_for_server_ready", return_value=False), \
-             patch("llauncher.state.process_start_server") as mock_start:
-            # 1st call: new model starts OK. 2nd call (rollback): raises.
-            mock_start.side_effect = [MagicMock(pid=111), RuntimeError("rollback boom")]
-            result = state._start_with_eviction_impl(
-                "new", port=8081, caller="cli",
-                readiness_timeout=5, strict_rollback=True,
-            )
-        assert result.success is False
-        assert result.port_state == "unavailable"
-        assert result.rolled_back is False
-        assert "Rollback failed" in result.error
-        assert 8081 not in state.running
+    # NOTE: `test_readiness_false_rollback_failure_unavailable` was removed as
+    # false coverage (#244 → corrective for #249). It mocked
+    # `wait_for_server_ready` with a bare `return_value=False`, which the real
+    # function — `tuple[bool, list[str]]` — never returns. state.py:519 binds the
+    # result without unpacking, so `not ready` is always False and the readiness-
+    # failure rollback block (state.py ~520-562) is dead. That block is now
+    # honestly `# pragma: no cover` pending the genuine fix in #249.
 
     def test_readiness_raises_rollback_succeeds_restored(self, tmp_path):
         """563-587: wait_for_server_ready raises, rollback restores old."""

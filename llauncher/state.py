@@ -517,7 +517,11 @@ class LauncherState:
 
         try:
             ready = wait_for_server_ready(port, timeout=readiness_timeout)
-            if not ready:
+            # dead until #249 — wait_for_server_ready returns tuple[bool, list[str]]
+            # but line 519 binds it without unpacking, so `not ready` is always
+            # False; pragma'd honestly rather than fake-covered, real fix tracked
+            # in #249.
+            if not ready:  # pragma: no cover
                 # Terminate new process
                 stop_server_by_pid(new_pid)
                 self.running.pop(port, None)
