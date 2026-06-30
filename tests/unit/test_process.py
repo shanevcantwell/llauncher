@@ -88,12 +88,14 @@ class TestFindAvailablePort:
         def port_in_use(p):
             return p == 9000  # Only 9000 is in use
 
-        with patch("llauncher.core.process.is_port_in_use", side_effect=port_in_use):
+        # Pin the blacklist empty so the scan is independent of the
+        # ``BLACKLISTED_PORTS`` env var (which defaults to [] but is set on
+        # some dev hosts); 8080 is then the first allocatable port.
+        with patch("llauncher.core.process.is_port_in_use", side_effect=port_in_use), \
+             patch("llauncher.core.process.BLACKLISTED_PORTS", []):
             success, port, msg = find_available_port(preferred_port=9000, start=8080, end=8090)
             assert success is True
-            # 8080 is blacklisted (BLACKLISTED_PORTS), so the first
-            # allocatable port in [8080, 8090] is 8081.
-            assert port == 8081
+            assert port == 8080
             assert "auto-allocated" in msg.lower()
 
     def test_preferred_port_in_use_scan_multiple(self):
@@ -117,11 +119,11 @@ class TestFindAvailablePort:
 
     def test_no_preferred_port_first_available(self):
         """No preferred port, first port in range available."""
-        with patch("llauncher.core.process.is_port_in_use", return_value=False):
+        with patch("llauncher.core.process.is_port_in_use", return_value=False), \
+             patch("llauncher.core.process.BLACKLISTED_PORTS", []):
             success, port, msg = find_available_port(start=8080, end=8090)
             assert success is True
-            # 8080 is blacklisted, so the first allocatable port is 8081.
-            assert port == 8081
+            assert port == 8080
 
     def test_preferred_port_in_range_skipped(self):
         """Preferred port within range is skipped during scan."""
@@ -129,11 +131,12 @@ class TestFindAvailablePort:
         def port_in_use(p):
             return p == 8085  # Preferred port is in range and in use
 
-        with patch("llauncher.core.process.is_port_in_use", side_effect=port_in_use):
+        with patch("llauncher.core.process.is_port_in_use", side_effect=port_in_use), \
+             patch("llauncher.core.process.BLACKLISTED_PORTS", []):
             success, port, msg = find_available_port(preferred_port=8085, start=8080, end=8090)
             assert success is True
-            # First allocatable, not the preferred: 8080 is blacklisted so 8081.
-            assert port == 8081
+            # First allocatable in range, not the preferred (8085 is in use).
+            assert port == 8080
 
 
 class TestBuildCommand:
