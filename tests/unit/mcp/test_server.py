@@ -230,3 +230,82 @@ class TestMainFunctions:
     def test_main_entry_point(self):
         """Test the if __name__ == '__main__' block."""
         assert callable(main)
+
+
+class TestInterfaceCloseout:
+    """INTERFACE coverage close-out for the MCP dispatch + handler wiring."""
+
+    @pytest.mark.asyncio
+    async def test_dispatch_tool_cancel_server(self):
+        """Dispatch to cancel_server — stateless verb, bypasses the singleton.
+
+        Covers server.py:83 — the ``cancel_server`` arm of ``_dispatch_tool``
+        in the stateless verb group (ADR-010/ADR-014), reached before
+        ``get_mcp_state``.
+        """
+        with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
+            with patch(
+                "llauncher.mcp_server.server.servers_tools.cancel_server",
+                return_value="cancel_server_result",
+            ):
+                result = await _dispatch_tool("cancel_server", {"port": 8080})
+                assert result == "cancel_server_result"
+                # Stateless verb must not touch the lazy LauncherState singleton.
+                mock_get.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_main_async_registered_handlers_invoke_dispatch(self):
+        """The decorated ``list_tools``/``call_tool`` callbacks delegate to the handlers.
+
+        Covers server.py:120 and :124 — the existing ``main_async`` test
+        registers the handlers but never *invokes* the inner decorated
+        functions, so their one-line bodies stayed uncovered. Here we capture
+        what ``@server.list_tools()`` / ``@server.call_tool()`` register and
+        then call them, confirming each delegates to its module-level handler.
+        """
+        captured: dict = {}
+
+        def list_tools_decorator():
+            def register(fn):
+                captured["list_tools"] = fn
+                return fn
+            return register
+
+        def call_tool_decorator():
+            def register(fn):
+                captured["call_tool"] = fn
+                return fn
+            return register
+
+        with patch("llauncher.mcp_server.server.Server") as mock_server_class:
+            mock_server = MagicMock()
+            mock_server_class.return_value = mock_server
+            mock_server.list_tools = MagicMock(side_effect=list_tools_decorator)
+            mock_server.call_tool = MagicMock(side_effect=call_tool_decorator)
+
+            async def mock_run(*args, **kwargs):
+                pass
+            mock_server.run.return_value = mock_run()
+
+            with patch("llauncher.mcp_server.server.stdio_server") as mock_stdio:
+                mock_stdio.return_value.__aenter__.return_value = (
+                    MagicMock(),
+                    MagicMock(),
+                )
+                with patch(
+                    "llauncher.mcp_server.server.list_tools_handler",
+                    new=AsyncMock(return_value=["a-tool"]),
+                ) as mock_lt, patch(
+                    "llauncher.mcp_server.server.call_tool_handler",
+                    new=AsyncMock(return_value=["a-result"]),
+                ) as mock_ct:
+                    await main_async()
+
+                    # Invoke the captured decorated callbacks (server.py:120, :124).
+                    assert await captured["list_tools"]() == ["a-tool"]
+                    assert await captured["call_tool"]("some_tool", {"k": "v"}) == [
+                        "a-result"
+                    ]
+
+                    mock_lt.assert_awaited_once()
+                    mock_ct.assert_awaited_once_with("some_tool", {"k": "v"})
