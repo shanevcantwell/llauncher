@@ -18,7 +18,11 @@ from llauncher.core.process import (
     _tail_file,
     is_port_in_use,
 )
-from llauncher.models.config import ModelConfig
+from llauncher.models.config import (
+    DENIED_EXTRA_ARG_FLAGS,
+    MANAGED_NATIVE_FLAGS,
+    ModelConfig,
+)
 
 
 # Fixtures
@@ -197,10 +201,16 @@ class TestBuildCommand:
         assert "--extra2" in cmd
 
     def test_extra_args_with_quoted_strings(self, minimal_config):
-        """extra_args properly handles quoted strings with spaces."""
-        minimal_config.extra_args = '--reverse-prompt "You are helpful"'
+        """extra_args properly handles quoted strings with spaces.
+
+        Uses ``--chat-template`` (not a llauncher-managed flag) so the test
+        exercises shlex quote handling without tripping the issue #156
+        managed-flag collision guard. ``--reverse-prompt`` would now be
+        rejected on assignment because llauncher emits it natively.
+        """
+        minimal_config.extra_args = '--chat-template "You are helpful"'
         cmd = build_command(minimal_config, port=8080)
-        assert "--reverse-prompt" in cmd
+        assert "--chat-template" in cmd
         assert "You are helpful" in cmd
 
     def test_custom_host(self, minimal_config):
@@ -1078,3 +1088,65 @@ class TestStartServerLogsLifecycle:
         # New live log contains only the banner (no previous content).
         assert "X" not in log_file.read_text(encoding="utf-8")
         assert "=== started at" in log_file.read_text(encoding="utf-8")
+
+
+class TestBuildCommandManagedFlagDriftGuard:
+    """Issue #156: keep ``MANAGED_NATIVE_FLAGS`` (the collision deny-set) in
+
+    sync with what ``build_command`` actually emits. If a future change adds a
+    native flag to ``build_command`` without registering it in
+    ``MANAGED_NATIVE_FLAGS`` / ``DENIED_EXTRA_ARG_FLAGS``, the silent
+    first-wins-loss trap would reopen for that flag — this test fails loudly
+    instead.
+    """
+
+    @staticmethod
+    def _is_flag(token: str) -> bool:
+        # A flag token starts with '-' and is not a (possibly negative) number.
+        if not token.startswith("-"):
+            return False
+        try:
+            float(token)
+        except ValueError:
+            return True
+        return False
+
+    def test_every_emitted_flag_is_registered(self) -> None:
+        # Exercise every conditional branch in build_command so all native
+        # flags are emitted. extra_args is empty so only native flags appear.
+        cfg = ModelConfig.from_dict_unvalidated({
+            "name": "drift-model",
+            "model_path": "/fake/model.gguf",
+            "mmproj_path": "/fake/mmproj.gguf",
+            "n_gpu_layers": 10,
+            "ctx_size": 4096,
+            "threads": 4,
+            "threads_batch": 8,
+            "ubatch_size": 512,
+            "batch_size": 2048,
+            "flash_attn": "on",
+            "no_mmap": True,
+            "cache_type_k": "q8_0",
+            "cache_type_v": "q8_0",
+            "n_cpu_moe": 2,
+            "parallel": 4,
+            "temperature": 0.7,
+            "top_k": 40,
+            "top_p": 0.9,
+            "min_p": 0.05,
+            "repeat_penalty": 1.1,
+            "reverse_prompt": "STOP",
+            "mlock": True,
+            "extra_args": "",
+        })
+        cmd = build_command(cfg, port=8080, host="0.0.0.0")
+
+        emitted_flags = {t for t in cmd if self._is_flag(t)}
+        registered = MANAGED_NATIVE_FLAGS | DENIED_EXTRA_ARG_FLAGS
+
+        unregistered = emitted_flags - registered
+        assert not unregistered, (
+            "build_command emits flags not registered in MANAGED_NATIVE_FLAGS "
+            f"or DENIED_EXTRA_ARG_FLAGS: {sorted(unregistered)}. Register them "
+            "so the issue #156 collision guard covers them."
+        )
