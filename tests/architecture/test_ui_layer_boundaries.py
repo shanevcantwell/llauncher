@@ -42,13 +42,21 @@ _ARCH_DOC = ".claude/architecture.md"
 # Direct-HTTP libraries a UI module must never import. Node I/O is the job of
 # ``remote/`` (the sanctioned client); a UI module constructing/hitting a URL
 # itself is exactly the cross-layer reach this guard exists to catch.
+#
+# Roots here are *whole packages* that exist only to do network transport, so a
+# blanket ban carries no false positives (``httpx``, ``requests``, the
+# third-party ``urllib3``, raw ``socket``, ``aiohttp``, ``pycurl``).
 _HTTP_ROOTS = frozenset(
-    {"httpx", "requests", "urllib3", "urllib", "socket", "aiohttp", "pycurl", "http3"}
+    {"httpx", "requests", "urllib3", "socket", "aiohttp", "pycurl"}
 )
-# ``http`` is stdlib and mostly harmless (e.g. ``http.HTTPStatus``); only
-# ``http.client`` is a direct-HTTP transport, so it is matched specifically
-# rather than blanket-banning the ``http`` namespace.
-_HTTP_DOTTED = ("http.client",)
+# Stdlib namespaces that are *mostly* harmless and must NOT be blanket-banned —
+# only their transport submodules are violations, matched specifically:
+#   * ``http``    — ``http.HTTPStatus`` etc. are fine; only ``http.client``.
+#   * ``urllib``  — ``urllib.parse`` / ``urllib.error`` / ``urllib.robotparser``
+#                   are URL/parse utilities, not transport; only
+#                   ``urllib.request`` (and its ``urllib.response`` helper) open
+#                   the network.
+_HTTP_DOTTED = ("http.client", "urllib.request", "urllib.response")
 
 # Peer/sibling endpoints across the layer map. ``ui`` may depend *downward*
 # (state / operations / remote / core / models / util) and *within itself*,
@@ -187,11 +195,13 @@ def test_guard_actually_detects_a_planted_violation():
     must_catch = [
         "httpx",
         "requests",
-        "urllib",
+        "urllib3",
         "urllib.request",
+        "urllib.response",
         "http.client",
         "socket",
         "aiohttp",
+        "pycurl",
         "llauncher.agent.auth",
         "llauncher.mcp_server.server",
         "llauncher.cli",
@@ -214,6 +224,10 @@ def test_guard_actually_detects_a_planted_violation():
         "os",
         "http",  # bare stdlib http (e.g. http.HTTPStatus) is fine
         "http.server",  # not a client transport
+        "urllib",  # bare stdlib urllib (no transport submodule pulled in)
+        "urllib.parse",  # URL parsing/encoding — not transport
+        "urllib.error",  # exception types — not transport
+        "urllib.robotparser",  # robots.txt parsing — not transport
     ]
     for module in must_allow:
         assert _classify(module) is None, f"scanner false-positive on {module!r}"

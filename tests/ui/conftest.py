@@ -176,6 +176,7 @@ def registry_factory():
 # ---------------------------------------------------------------------------
 _DIRECT_HTTP_TARGETS = (
     "socket.socket.connect",
+    "socket.socket.connect_ex",
     "socket.create_connection",
 )
 

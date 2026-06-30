@@ -51,14 +51,18 @@ def _button_by_key(at, key):
 class TestNodesTabRender:
     """The tab renders headlessly through the engine facades only."""
 
-    def test_empty_registry_renders_header_and_add_form(
+    def test_registry_with_no_nodes_renders_header_and_add_form(
         self, tab_harness, mock_registry, mock_aggregator
     ):
+        # ``mock_registry`` is a present-but-node-less registry (truthy, iterates
+        # to nothing). This exercises the header + node-list-frame + Add Node
+        # form, not the (registry-falsy) empty-state banner branch.
         at = tab_harness(render_nodes_tab, mock_registry, mock_aggregator)
 
         assert not at.exception
         assert at.header[0].value == "🖥️ Nodes"
-        # Even with no nodes, the Add Node form must be reachable.
+        assert "Registered Nodes" in {s.value for s in at.subheader}
+        # With a node-less registry the Add Node form must still be reachable.
         labels = {el.label for el in at.text_input}
         assert {"Node Name", "Host", "API Key"} <= labels
 

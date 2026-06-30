@@ -79,7 +79,8 @@ point downward; siblings do not import siblings.**
 - **`ui/` reaches the backend only through `state`/`operations`/`remote`** — backend
   verbs via the orchestration facades, all node I/O via `remote/` (`NodeRegistry` /
   `RemoteNode` / `RemoteAggregator`). A UI module must never do its own HTTP to a node
-  (`httpx`/`requests`/`urllib`/`http.client`/`socket`) nor import a peer endpoint
+  (`httpx`/`requests`/`urllib3`/`urllib.request`/`http.client`/`socket`/`aiohttp`/`pycurl`
+  — the guard's `_HTTP_*` sets are authoritative) nor import a peer endpoint
   (`agent`/`mcp_server`/`cli`). **Enforced statically** by
   `tests/architecture/test_ui_layer_boundaries.py` (ADR-025) — the deterministic catch
   for the cross-layer reach that escaped to an alpha tag.

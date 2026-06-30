@@ -78,7 +78,17 @@ possible point, before any behavior is even constructed.
   honest; a brand-new HTTP library imported in `ui/` would slip through until
   added. *Mitigation:* the set covers every transport in the repo's dependency
   surface today, and the meta-test documents the intent so additions are
-  obvious. A genuinely new transport is a reviewable event.
+  obvious. A genuinely new transport is a reviewable event. Whole-package roots
+  (`httpx`, `requests`, `urllib3`, `socket`, `aiohttp`, `pycurl`) are banned
+  outright; mixed stdlib namespaces (`http`, `urllib`) are *not* — only their
+  transport submodules (`http.client`, `urllib.request`/`urllib.response`) are
+  flagged, so `urllib.parse` / `http.HTTPStatus` and friends stay legal.
+- **Dynamic imports are invisible to the AST scan.** `__import__("httpx")` and
+  `importlib.import_module(...)` are `Call` nodes, not `Import`/`ImportFrom`, so
+  the static guard does not see them. *Mitigation:* smuggling a transport into a
+  UI tab via a string-built dynamic import is contrived and conspicuous in
+  review, and the behavioral `forbid_direct_http` sentinel still fires on the
+  actual socket connect/`connect_ex` regardless of how the library was imported.
 - Static import analysis cannot catch a UI module that reaches the network via a
   *legitimately downward* dependency that itself misbehaves. *Mitigation:* that
   is a different defect (a `remote`/`core` bug), out of this guard's scope; the
