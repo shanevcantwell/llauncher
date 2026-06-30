@@ -10,6 +10,7 @@ import os
 import stat
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -130,6 +131,24 @@ def test_last_modified_populated_for_valid():
 
     result = check_model_health(str(path))
     assert isinstance(result.model_dump()["last_modified"], str) or hasattr(result, "last_modified")
+
+
+def test_resolution_failure_recovers_with_reason():
+    """An unexpected exception during resolution is caught (lines 106-109).
+
+    If ``Path.resolve()`` raises something other than the inner-handled
+    ``OSError`` (e.g. a ``RuntimeError`` from a pathological path), the outer
+    ``except Exception`` records the message as ``reason`` and returns an
+    invalid result instead of propagating.
+    """
+    from pathlib import Path as _Path
+
+    with patch.object(_Path, "resolve", side_effect=RuntimeError("boom-resolve")):
+        result = check_model_health("/some/path/that/will/blow/up.gguf")
+
+    assert result.valid is False
+    assert result.reason is not None
+    assert "boom-resolve" in result.reason
 
 
 def test_cache_invalidation():

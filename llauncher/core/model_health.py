@@ -90,7 +90,7 @@ def check_model_health(model_path: str) -> ModelHealthResult:
             stat = path.stat()
             result.size_bytes = stat.st_size
             result.last_modified = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
-        except OSError:
+        except OSError:  # pragma: no cover - stat() edge (e.g. race after is_file); size/mtime stay None and we continue to the readability check, which is the load-bearing gate
             pass  # May fail on edge cases; continue to readability check
 
         # Check readability by attempting an open + close.
