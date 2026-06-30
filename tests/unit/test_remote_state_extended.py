@@ -149,6 +149,90 @@ class TestGetModelsByName:
             assert "node2" not in model2_nodes
 
 
+    def test_get_models_by_name_skips_offline_node(self):
+        """A node returning ``None`` (offline) is skipped, not crashed on
+        (state.py 112 — the ``continue`` guard)."""
+        registry = NodeRegistry()
+        registry.add_node("online-node", "localhost", 8765)
+        registry.add_node("offline-node", "localhost", 8766)
+
+        aggregator = RemoteAggregator(registry)
+
+        def mock_get_models(self):
+            if self.name == "online-node":
+                return [{"name": "model1", "model_path": "/p/model1"}]
+            return None  # offline → triggers the continue
+
+        with patch.object(RemoteNode, "get_models", mock_get_models):
+            models_by_name = aggregator.get_models_by_name()
+
+        assert "model1" in models_by_name
+        # Only the online node contributed; the offline node was skipped.
+        assert [n for n, _ in models_by_name["model1"]] == ["online-node"]
+
+
+class TestSwapOnNode:
+    """Tests for RemoteAggregator.swap_on_node method (state.py 151-155)."""
+
+    def test_swap_on_node_not_found(self):
+        registry = NodeRegistry()
+        aggregator = RemoteAggregator(registry)
+
+        result = aggregator.swap_on_node("nonexistent", "test-model", 8081)
+
+        assert result is not None
+        assert result["success"] is False
+        assert "not found" in result["error"]
+
+    def test_swap_on_node_success(self):
+        registry = NodeRegistry()
+        registry.add_node("test-node", "localhost", 8765)
+        aggregator = RemoteAggregator(registry)
+
+        captured: dict = {}
+
+        def mock_swap_server(self, model_name, port):
+            captured["args"] = (model_name, port)
+            return {"success": True, "port": port}
+
+        with patch.object(RemoteNode, "swap_server", mock_swap_server):
+            result = aggregator.swap_on_node("test-node", "test-model", 8081)
+
+        assert result["success"] is True
+        assert captured["args"] == ("test-model", 8081)
+
+
+class TestDeleteModelOnNode:
+    """Tests for RemoteAggregator.delete_model_on_node (state.py 163-167)."""
+
+    def test_delete_model_on_node_not_found(self):
+        registry = NodeRegistry()
+        aggregator = RemoteAggregator(registry)
+
+        result = aggregator.delete_model_on_node("nonexistent", "test-model")
+
+        assert result is not None
+        assert result["success"] is False
+        assert "not found" in result["error"]
+
+    def test_delete_model_on_node_success(self):
+        registry = NodeRegistry()
+        registry.add_node("test-node", "localhost", 8765)
+        aggregator = RemoteAggregator(registry)
+
+        captured: dict = {}
+
+        def mock_delete_model(self, model_name):
+            captured["arg"] = model_name
+            return {"success": True}
+
+        with patch.object(RemoteNode, "delete_model", mock_delete_model):
+            result = aggregator.delete_model_on_node("test-node", "test-model")
+
+        assert result["success"] is True
+        assert captured["arg"] == "test-model"
+
+
 class TestStartOnNode:
     """Tests for RemoteAggregator.start_on_node method."""
 
