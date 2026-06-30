@@ -376,7 +376,7 @@ class GPUHealthCollector:
             gpu_index = 0
             for line in out.stdout.splitlines():
                 match = re.search(r"(\w[\w\s.]+)\s*\n.*?Chipset Model", line)
-                if match:
+                if match:  # pragma: no cover - dead branch (issue #246): the regex requires a literal '\n' but splitlines() strips it, so this never matches real system_profiler output; the block-level fallback below is the live MPS-discovery path. Bounced rather than fixed (production MPS-parse change, unverifiable on this non-Apple host).
                     name = match.group(1).strip()
                     result["devices"].append(
                         GPUDevice(index=gpu_index, name=name, total_vram_mb=_estimate_apple_unified_mem())

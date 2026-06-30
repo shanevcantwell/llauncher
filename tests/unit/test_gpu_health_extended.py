@@ -443,3 +443,135 @@ class TestIsAvailableRouting:
         with patch.object(gpu_mod, "shutil_which", side_effect=fake_which):
             assert collector.is_available("rocm") is True
             assert collector.is_available("nvidia") is False
+
+
+# ---------------------------------------------------------------------------
+# _collect_devices backend fall-through (priority order)
+# ---------------------------------------------------------------------------
+
+class TestCollectDevicesBackendOrder:
+    def test_collect_devices_selects_rocm_when_nvidia_absent(self):
+        """NVIDIA fails, ROCm succeeds → backend 'rocm', return short-circuits MPS."""
+        collector = GPUHealthCollector()
+
+        def rocm_ok(result):
+            result.devices.append(GPUDevice(index=0, name="ROCm GPU 0", used_vram_mb=512))
+            return True
+
+        with patch.object(collector, "_try_NVIDIA", return_value=False), \
+             patch.object(collector, "_try_ROCM", side_effect=rocm_ok), \
+             patch.object(collector, "_try_MPS", return_value=True) as mps_probe:
+            result = collector._collect_devices()
+
+        assert result.backends == ["rocm"]
+        assert [d.name for d in result.devices] == ["ROCm GPU 0"]
+        # Priority order: MPS is never consulted once ROCm wins.
+        mps_probe.assert_not_called()
+
+    def test_collect_devices_selects_mps_when_nvidia_and_rocm_absent(self):
+        """NVIDIA and ROCm fail, MPS succeeds → backend 'mps'."""
+        collector = GPUHealthCollector()
+
+        def mps_ok(result):
+            result.devices.append(GPUDevice(index=0, name="Apple M3", total_vram_mb=16384))
+            return True
+
+        with patch.object(collector, "_try_NVIDIA", return_value=False), \
+             patch.object(collector, "_try_ROCM", return_value=False), \
+             patch.object(collector, "_try_MPS", side_effect=mps_ok):
+            result = collector._collect_devices()
+
+        assert result.backends == ["mps"]
+        assert [d.name for d in result.devices] == ["Apple M3"]
+
+
+# ---------------------------------------------------------------------------
+# _try_ROCM / _try_MPS success paths
+# ---------------------------------------------------------------------------
+
+class TestBackendProbeSuccessPaths:
+    def test_try_rocm_success_extends_devices(self):
+        """rocm-smi present + _query_ROCM yields a device → True, device added."""
+        collector = GPUHealthCollector()
+        result = GPUHealthResult()
+        with patch.object(gpu_mod, "shutil_which", return_value="/usr/bin/rocm-smi"), \
+             patch.object(
+                 collector, "_query_ROCM",
+                 return_value={"devices": [GPUDevice(index=0, name="ROCm GPU 0", used_vram_mb=999)]},
+             ):
+            assert collector._try_ROCM(result) is True
+        assert len(result.devices) == 1
+        assert result.devices[0].used_vram_mb == 999
+
+    def test_try_mps_success_extends_devices(self):
+        """Apple MPS available + _query_MPS yields a device → True, device added."""
+        collector = GPUHealthCollector()
+        result = GPUHealthResult()
+        with patch.object(gpu_mod, "is_apple_mps_available", return_value=True), \
+             patch.object(
+                 collector, "_query_MPS",
+                 return_value={"devices": [GPUDevice(index=0, name="Apple M3", total_vram_mb=16384)]},
+             ):
+            assert collector._try_MPS(result) is True
+        assert len(result.devices) == 1
+        assert result.devices[0].name == "Apple M3"
+
+    def test_query_mps_populates_via_block_fallback(self):
+        """Realistic system_profiler output → device discovered via the
+        block-level fallback matcher (the live MPS-discovery path; the
+        per-line loop body is dead, see issue #246)."""
+        sp_output = (
+            "Graphics/Displays:\n"
+            "    Apple M3 Pro:\n"
+            "      Chipset Model: Apple M3 Pro\n"
+            "      Type: GPU\n"
+        )
+        collector = GPUHealthCollector()
+        fake_run = MagicMock(return_value=SimpleNamespace(returncode=0, stdout=sp_output))
+        with patch.object(gpu_mod, "is_apple_mps_available", return_value=True), \
+             patch.object(gpu_mod.subprocess, "run", fake_run), \
+             patch.object(gpu_mod, "_estimate_apple_unified_mem", return_value=16384):
+            out = collector._query_MPS()
+        assert len(out["devices"]) == 1
+        assert out["devices"][0].total_vram_mb == 16384
+
+
+# ---------------------------------------------------------------------------
+# _query_ROCM parse-block exception handlers
+# ---------------------------------------------------------------------------
+
+class TestROCMParseExceptionHandlers:
+    def _run_with_splitlines_raising(self, exc):
+        """rocm-smi exits 0 but stdout.splitlines() raises mid-parse."""
+        bad_stdout = MagicMock()
+        bad_stdout.splitlines.side_effect = exc
+        return MagicMock(return_value=SimpleNamespace(returncode=0, stdout=bad_stdout))
+
+    def test_query_rocm_parse_filenotfound_swallowed(self):
+        collector = GPUHealthCollector()
+        fake_run = self._run_with_splitlines_raising(FileNotFoundError("vanished"))
+        with patch.object(gpu_mod.subprocess, "run", fake_run):
+            out = collector._query_ROCM()
+        assert out == {"devices": []}
+
+    def test_query_rocm_parse_timeout_swallowed(self):
+        collector = GPUHealthCollector()
+        fake_run = self._run_with_splitlines_raising(
+            subprocess.TimeoutExpired(cmd="rocm-smi", timeout=10)
+        )
+        with patch.object(gpu_mod.subprocess, "run", fake_run):
+            out = collector._query_ROCM()
+        assert out == {"devices": []}
+
+
+# ---------------------------------------------------------------------------
+# _csv_rows blank-line skip
+# ---------------------------------------------------------------------------
+
+class TestCSVRowsBlankSkip:
+    def test_csv_rows_skips_blank_lines(self):
+        from llauncher.core.gpu import _csv_rows
+
+        rows = _csv_rows("0, A100\n\n   \n1, H100\n")
+        # Blank and whitespace-only lines are dropped; data rows survive.
+        assert rows == [["0", "A100"], ["1", "H100"]]

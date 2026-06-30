@@ -1815,3 +1815,122 @@ def test_swap_cancel_after_success_is_no_op_with_advisory(
     written = lf.read_lockfile(8081, run_dir=run_dir)
     assert written is not None
     assert written.model == "new-model"
+
+
+def test_start_cancel_after_preflight_returns_cancelled(
+    run_dir: Path, audit_path: Path, sample_config: ModelConfig, mock_popen: MagicMock
+) -> None:
+    """Cancel at the *post-preflight* checkpoint (ADR-014) yields no state change.
+
+    ``is_cancelled`` returns False at the pre-preflight checkpoint and True
+    at the post-preflight one, exercising the second cancel gate in
+    ``operations.start`` (``stage="post-preflight"``). The launch must never
+    be reached and no lockfile may be written.
+    """
+    calls = {"n": 0}
+
+    def is_cancelled_side(*_args, **_kwargs):
+        calls["n"] += 1
+        return calls["n"] >= 2  # False pre-preflight, True post-preflight
+
+    with patch("llauncher.operations.ConfigStore.get_model", return_value=sample_config), \
+         patch("llauncher.operations.proc.start_server", return_value=mock_popen) as start_proc, \
+         patch("llauncher.operations.start.mk.is_cancelled", side_effect=is_cancelled_side):
+        result = ops.start("mistral-7b", 8081, caller="test", model_health_check=None)
+
+    assert result.success is False
+    assert result.action == "cancelled"
+    assert "post-preflight" in result.message
+    # Cancel caught before the spawn — launch never attempted.
+    start_proc.assert_not_called()
+    assert lf.read_lockfile(8081, run_dir=run_dir) is None
+    # Marker released by the surrounding finally.
+    assert (run_dir / "8081.swap").exists() is False
+
+    entries = al.read_entries(path=audit_path)
+    assert any(
+        e.action == AuditAction.STARTED and e.result == AuditResult.CANCELLED
+        for e in entries
+    )
+
+
+def test_swap_same_model_in_flight_marker_rejects(
+    run_dir: Path, marker_run_dir: Path, audit_path: Path
+) -> None:
+    """Same-model swap while a marker is already held → ``rejected_in_progress``.
+
+    The 1b same-model short-circuit still takes the marker for concurrency
+    safety (ADR-011); when ``take_marker`` raises ``FileExistsError`` because
+    another op already holds it, ``swap`` returns the in-progress result
+    rather than the idempotent ``already_running``. Exercises the
+    ``except FileExistsError`` branch in the same-model path.
+    """
+    import os
+    from llauncher.core import marker as mk
+
+    lf.write_lockfile(8081, "mistral-7b", os.getpid(), run_dir=run_dir)
+    # A live marker (current pid as holder) simulates an op already in flight.
+    mk.take_marker(
+        8081, caller="other", from_model="mistral-7b", to_model="mistral-7b"
+    )
+
+    result = ops.swap("mistral-7b", 8081, caller="test")
+
+    assert result.success is False
+    assert result.action == "rejected_in_progress"
+    assert result.port_state == "unchanged"
+    assert result.previous_model == "mistral-7b"
+    # The pre-existing live marker is left in place — we don't own it.
+    assert (run_dir / "8081.swap").exists() is True
+
+    entries = al.read_entries(path=audit_path)
+    assert any(
+        e.action == AuditAction.SWAPPED
+        and e.result == AuditResult.REJECTED_IN_PROGRESS
+        for e in entries
+    )
+
+
+def test_launch_and_await_ready_lockfile_race_terminate_oserror(caplog) -> None:
+    """Lockfile race during launch + terminate raises OSError → logged, race returned.
+
+    Covers the OSError cleanup branch in ``_launch_and_await_ready``: the new
+    model's atomic lockfile write loses a race, so we tear down the process we
+    just spawned — but ``terminate`` raises ``OSError`` because the process
+    already exited (ESRCH). The exception is logged (not swallowed silently,
+    per issue #61) and the race tuple is returned. Parallels the start-side
+    ``test_start_lockfile_race_terminate_oserror_does_not_mask_error``.
+    """
+    import importlib
+    import logging
+
+    # ``operations.swap`` the attribute is the verb function (the package
+    # re-exports it), so reach the module via importlib — same gotcha the
+    # background-stop reap test documents.
+    swap_mod = importlib.import_module("llauncher.operations.swap")
+
+    racing_popen = MagicMock()
+    racing_popen.pid = 88888
+    racing_popen.terminate.side_effect = OSError("process already exited (ESRCH)")
+    cfg = _make_config("new-model")
+
+    with patch(
+        "llauncher.operations.swap.proc.start_server", return_value=racing_popen
+    ), patch(
+        "llauncher.operations.swap.lf.write_lockfile",
+        side_effect=FileExistsError("raced"),
+    ):
+        with caplog.at_level(logging.ERROR, logger="llauncher.operations.swap"):
+            ready, pid, logs, err = swap_mod._launch_and_await_ready(
+                cfg, 8081, server_bin=None, readiness_timeout=1
+            )
+
+    assert ready is False
+    assert pid == 88888
+    assert logs == []
+    assert "lockfile race" in err
+    assert any("Failed to terminate raced-launch" in r.message for r in caplog.records)
+    assert any(
+        isinstance(r.exc_info, tuple) and r.exc_info[0] is OSError
+        for r in caplog.records
+    )
