@@ -91,7 +91,9 @@ class TestFindAvailablePort:
         with patch("llauncher.core.process.is_port_in_use", side_effect=port_in_use):
             success, port, msg = find_available_port(preferred_port=9000, start=8080, end=8090)
             assert success is True
-            assert port == 8080
+            # 8080 is blacklisted (BLACKLISTED_PORTS), so the first
+            # allocatable port in [8080, 8090] is 8081.
+            assert port == 8081
             assert "auto-allocated" in msg.lower()
 
     def test_preferred_port_in_use_scan_multiple(self):
@@ -118,7 +120,8 @@ class TestFindAvailablePort:
         with patch("llauncher.core.process.is_port_in_use", return_value=False):
             success, port, msg = find_available_port(start=8080, end=8090)
             assert success is True
-            assert port == 8080
+            # 8080 is blacklisted, so the first allocatable port is 8081.
+            assert port == 8081
 
     def test_preferred_port_in_range_skipped(self):
         """Preferred port within range is skipped during scan."""
@@ -129,7 +132,8 @@ class TestFindAvailablePort:
         with patch("llauncher.core.process.is_port_in_use", side_effect=port_in_use):
             success, port, msg = find_available_port(preferred_port=8085, start=8080, end=8090)
             assert success is True
-            assert port == 8080  # Should get first available, not preferred
+            # First allocatable, not the preferred: 8080 is blacklisted so 8081.
+            assert port == 8081
 
 
 class TestBuildCommand:
@@ -655,8 +659,15 @@ class TestIsPortInUse:
             assert result is True
 
 
-class TestFindAvailablePort:
-    """Additional tests for find_available_port edge cases."""
+class TestFindAvailablePortEdgeCases:
+    """Additional tests for find_available_port edge cases.
+
+    Renamed from ``TestFindAvailablePort`` (#coverage close-out): the
+    duplicate class name shadowed the canonical ``TestFindAvailablePort``
+    above at import time, so its six tests — including the
+    preferred-port-available (line 66) and default-start (line 61) cases
+    — were silently never collected. Renaming revives both classes.
+    """
 
     def test_blacklisted_port_skipped(self):
         """Blacklisted ports are skipped during allocation."""
