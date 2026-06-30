@@ -126,9 +126,16 @@ def default_vram_check(config: ModelConfig) -> tuple[bool, str]:
     Strategy:
 
     - Query :class:`llauncher.core.gpu.GPUHealthCollector` for current device
-      state. If no GPU backend is detected, treat the check as a no-op
-      pass — the process will fail naturally if the host can't run the
-      model. This matches the agent-routing behavior.
+      state. If no GPU backend is detected at all (genuine CPU-only host),
+      treat the check as a no-op pass — the process will fail naturally if
+      the host can't run the model. This matches the agent-routing behavior.
+    - **Fail loud when a backend is present but exposes no device data.**
+      A detected GPU backend with an empty device list means VRAM headroom
+      cannot be verified (malformed device query, transient ``nvidia-smi``
+      hiccup, etc.). Rather than silently admitting the launch and risking a
+      blind OOM, the check refuses with a ``"cannot verify VRAM headroom"``
+      reason (#150). This is fail-closed by design: a backend that claims to
+      exist must be able to report its devices.
     - Compute :func:`estimate_vram_mb` for ``config``.
     - Pass if **any** device reports ``free_vram_mb >= required``. We pick
       the most-free device rather than enforcing an exact placement; the
@@ -147,7 +154,17 @@ def default_vram_check(config: ModelConfig) -> tuple[bool, str]:
 
     devices = health.get("devices") or []
     if not devices:
-        return True, ""
+        # Backend present but no device numbers: VRAM headroom is unknown.
+        # Fail loud rather than admit a blind launch that can OOM (#150).
+        logger.warning(
+            "VRAM pre-flight: backend(s) %s detected but no device data; "
+            "refusing launch (cannot verify VRAM headroom)",
+            backends,
+        )
+        return False, (
+            f"cannot verify VRAM headroom: GPU backend(s) {backends} detected "
+            "but reported no device data"
+        )
 
     required_mb = estimate_vram_mb(config)
     best_free = max(int(d.get("free_vram_mb") or 0) for d in devices)
