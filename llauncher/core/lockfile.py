@@ -101,7 +101,7 @@ def write_lockfile(
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(lf.to_dict(), f, indent=2)
-    except Exception:
+    except Exception:  # pragma: no cover - best-effort cleanup of a partial write after the O_EXCL fd is open; the inner FileNotFoundError guards a cleanup race where the just-created file already vanished. Exercising it would require injecting a mid-fdopen failure, which buys no real coverage of behavior.
         # Best-effort cleanup of a partial write so reconciliation isn't
         # poisoned by an empty/corrupt lockfile.
         try:

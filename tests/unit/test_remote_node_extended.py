@@ -206,3 +206,146 @@ class TestStopAndLogsErrorPaths:
         n = _node()
         assert n.get_logs(8081) is None
         assert n.status == NodeStatus.OFFLINE
+
+
+# ---------------------------------------------------------------------------
+# start_server error/transport fallback — symmetry with swap_server /
+# delete_model (TestVerbDetailSurfacing already covers those). Covers the
+# bare-except on malformed-JSON ``detail`` (node.py 336-337), the
+# non-dict/HTTP fallback return (340-343), and the transport-error → OFFLINE
+# branch (344-346).
+# ---------------------------------------------------------------------------
+
+class TestStartServerErrorPaths:
+    @patch("httpx.Client")
+    def test_start_server_detail_missing_falls_back(self, mock_cls):
+        """Non-200 whose body is not JSON → bare-except swallows, then the
+        ``HTTP {code}`` fallback envelope is returned (336-337, 340-343)."""
+        resp = MagicMock(status_code=500)
+        resp.json = MagicMock(side_effect=ValueError("not json"))
+        mock_cls.return_value = _http_client_mock(response=resp)
+        out = _node().start_server("modelX", 8081)
+        assert out["success"] is False
+        assert "HTTP 500" in out["error"]
+
+    @patch("httpx.Client")
+    def test_start_server_detail_non_dict_falls_back(self, mock_cls):
+        """A ``detail`` that is a bare string (not a dict) takes the same
+        fallback path, surfacing the string as the error (340-343)."""
+        resp = MagicMock(status_code=503)
+        resp.json = MagicMock(return_value={"detail": "service unavailable"})
+        mock_cls.return_value = _http_client_mock(response=resp)
+        out = _node().start_server("modelX", 8081)
+        assert out["success"] is False
+        assert out["error"] == "service unavailable"
+
+    @patch("httpx.Client")
+    def test_start_server_request_error_marks_offline(self, mock_cls):
+        """Transport error → OFFLINE + error envelope (344-346)."""
+        mock_cls.side_effect = httpx.RequestError("down")
+        n = _node()
+        out = n.start_server("modelX", 8081)
+        assert out["success"] is False
+        assert n.status == NodeStatus.OFFLINE
+
+
+# ---------------------------------------------------------------------------
+# swap_server HTTP success path (node.py 364-366) — the detail/error/
+# transport branches are covered in TestVerbDetailSurfacing; the 200 path
+# was the remaining gap.
+# ---------------------------------------------------------------------------
+
+class TestSwapServerSuccess:
+    @patch("httpx.Client")
+    def test_swap_server_success_returns_json_and_online(self, mock_cls):
+        resp = MagicMock(status_code=200)
+        resp.json = MagicMock(return_value={"success": True, "action": "swapped"})
+        mock_cls.return_value = _http_client_mock(response=resp)
+        n = _node()
+        out = n.swap_server("modelX", 8081)
+        assert out == {"success": True, "action": "swapped"}
+        assert n.status == NodeStatus.ONLINE
+
+
+# ---------------------------------------------------------------------------
+# read_audit ``result_filter`` — self-loop (node.py 516) and HTTP (523).
+# The existing suite exercises ``action_filter`` on both branches but not
+# ``result_filter``.
+# ---------------------------------------------------------------------------
+
+class TestReadAuditResultFilter:
+    def test_self_loop_applies_result_filter(self, tmp_path, monkeypatch):
+        """In-process branch filters on ``AuditResult`` value (516)."""
+        from llauncher.core import audit_log
+
+        audit_path = tmp_path / "audit.jsonl"
+        monkeypatch.setattr(
+            "llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path
+        )
+        audit_log.record(
+            audit_log.AuditAction.STARTED, audit_log.AuditResult.SUCCESS, caller="t"
+        )
+        audit_log.record(
+            audit_log.AuditAction.STARTED, audit_log.AuditResult.ERROR, caller="t"
+        )
+
+        monkeypatch.setenv("LLAUNCHER_IS_AGENT_PROCESS", "1")
+        node = RemoteNode("local", "127.0.0.1", port=8765)
+        with patch("httpx.Client") as mock_client_class:
+            entries = node.read_audit(result_filter="error")
+            mock_client_class.assert_not_called()
+
+        assert len(entries) == 1
+        assert entries[0]["result"] == "error"
+
+    @patch("httpx.Client")
+    def test_http_passes_result_filter_param(self, mock_cls):
+        """HTTP branch forwards ``result_filter`` as the ``result`` query
+        param (523)."""
+        resp = MagicMock(status_code=200)
+        resp.json = MagicMock(return_value=[])
+        client = _http_client_mock(response=resp)
+        mock_cls.return_value = client
+        out = _node().read_audit(limit=20, result_filter="success")
+        assert out == []
+        params = client.get.call_args.kwargs["params"]
+        assert params["result"] == "success"
+        assert params["limit"] == 20
+
+
+# ---------------------------------------------------------------------------
+# local_agent_node() factory (node.py 572-576).
+# ---------------------------------------------------------------------------
+
+class TestLocalAgentNodeFactory:
+    def test_builds_local_target_with_resolved_token(self, monkeypatch):
+        from llauncher.remote.node import local_agent_node
+
+        monkeypatch.setattr("llauncher.core.settings.AGENT_PORT", 9999)
+        monkeypatch.setattr(
+            "llauncher.core.agent_token.resolve_agent_token",
+            lambda allow_generate=False: "resolved-token",
+        )
+
+        node = local_agent_node()
+
+        assert node.name == "local"
+        assert node.host == "127.0.0.1"
+        assert node.port == 9999
+        assert node.api_key == "resolved-token"
+
+    def test_builds_local_target_with_no_token(self, monkeypatch):
+        """``allow_generate=False`` resolver returning None → api_key None."""
+        from llauncher.remote.node import local_agent_node
+
+        monkeypatch.setattr("llauncher.core.settings.AGENT_PORT", 8765)
+        monkeypatch.setattr(
+            "llauncher.core.agent_token.resolve_agent_token",
+            lambda allow_generate=False: None,
+        )
+
+        node = local_agent_node()
+
+        assert node.name == "local"
+        assert node.port == 8765
+        assert node.api_key is None
