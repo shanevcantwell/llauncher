@@ -88,7 +88,11 @@ class TestFindAvailablePort:
         def port_in_use(p):
             return p == 9000  # Only 9000 is in use
 
-        with patch("llauncher.core.process.is_port_in_use", side_effect=port_in_use):
+        # Pin the blacklist empty so the scan is independent of the
+        # ``BLACKLISTED_PORTS`` env var (which defaults to [] but is set on
+        # some dev hosts); 8080 is then the first allocatable port.
+        with patch("llauncher.core.process.is_port_in_use", side_effect=port_in_use), \
+             patch("llauncher.core.process.BLACKLISTED_PORTS", []):
             success, port, msg = find_available_port(preferred_port=9000, start=8080, end=8090)
             assert success is True
             assert port == 8080
@@ -115,7 +119,8 @@ class TestFindAvailablePort:
 
     def test_no_preferred_port_first_available(self):
         """No preferred port, first port in range available."""
-        with patch("llauncher.core.process.is_port_in_use", return_value=False):
+        with patch("llauncher.core.process.is_port_in_use", return_value=False), \
+             patch("llauncher.core.process.BLACKLISTED_PORTS", []):
             success, port, msg = find_available_port(start=8080, end=8090)
             assert success is True
             assert port == 8080
@@ -126,10 +131,12 @@ class TestFindAvailablePort:
         def port_in_use(p):
             return p == 8085  # Preferred port is in range and in use
 
-        with patch("llauncher.core.process.is_port_in_use", side_effect=port_in_use):
+        with patch("llauncher.core.process.is_port_in_use", side_effect=port_in_use), \
+             patch("llauncher.core.process.BLACKLISTED_PORTS", []):
             success, port, msg = find_available_port(preferred_port=8085, start=8080, end=8090)
             assert success is True
-            assert port == 8080  # Should get first available, not preferred
+            # First allocatable in range, not the preferred (8085 is in use).
+            assert port == 8080
 
 
 class TestBuildCommand:
@@ -655,8 +662,15 @@ class TestIsPortInUse:
             assert result is True
 
 
-class TestFindAvailablePort:
-    """Additional tests for find_available_port edge cases."""
+class TestFindAvailablePortEdgeCases:
+    """Additional tests for find_available_port edge cases.
+
+    Renamed from ``TestFindAvailablePort`` (#coverage close-out): the
+    duplicate class name shadowed the canonical ``TestFindAvailablePort``
+    above at import time, so its six tests — including the
+    preferred-port-available (line 66) and default-start (line 61) cases
+    — were silently never collected. Renaming revives both classes.
+    """
 
     def test_blacklisted_port_skipped(self):
         """Blacklisted ports are skipped during allocation."""
