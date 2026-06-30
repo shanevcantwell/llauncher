@@ -405,12 +405,7 @@ def node_status(
     for node_name in list(registry._nodes.keys()):
         try:
             registry.get_node(node_name).ping()
-        except Exception:  # pragma: no cover - defensive: a transient ping
-            # failure (transport hiccup, slow node) must not abort the
-            # status render; we deliberately swallow it and keep the node's
-            # prior status. Exercising every transport failure mode here
-            # would test ``RemoteNode.ping``'s own error handling, not this
-            # render loop, so the swallow is left uncovered by intent.
+        except Exception:
             pass  # keep current status if ping fails completely
 
     if as_json:

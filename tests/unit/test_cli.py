@@ -610,23 +610,54 @@ def test_invalid_subcommand():
 
 
 def test_print_table_colours_status_keywords():
-    """``_print_table`` styles ``online``/``serving`` and ``stopped`` cells.
+    """``_print_table`` routes status keywords through ``_color``, others through ``Text``.
 
-    Exercises the per-cell status-keyword branches (cli.py:75-80): a value
-    of ``online`` (or ``running``/``serving``) takes the green branch and a
-    value of ``stopped`` takes the yellow branch. We render directly rather
-    than through a command so every status keyword is hit deterministically
-    regardless of live node/server state.
+    Exercises the per-cell status-keyword branches (cli.py:75-80) *and*
+    asserts the routing so a branch swap or a misspelled keyword would fail:
+    every recognised status (``online``/``serving``/``running`` → green
+    branch line 76; ``stopped`` → yellow branch line 78; ``offline`` → line
+    79-80) must be handed to ``_color`` with its lowercased status, while a
+    non-status value must NOT be (it falls to the plain-``Text`` else arm).
     """
-    # No assertion on ANSI styling itself (Rich owns that); reaching the
-    # branches without raising is the coverage target. ``serving`` and
-    # ``online`` both flow through the first branch (cli.py:76); ``stopped``
-    # through the second (cli.py:78); ``offline`` through the third.
-    cli._print_table(
-        ["STATUS"],
-        [["online"], ["serving"], ["running"], ["stopped"], ["offline"], ["other"]],
-        title="Styling",
-    )
+    from unittest.mock import patch as _patch
+
+    rows = [["online"], ["serving"], ["running"], ["stopped"], ["offline"], ["other"]]
+    with _patch("llauncher.cli._color", wraps=cli._color) as color_spy:
+        cli._print_table(["STATUS"], rows, title="Styling")
+
+    routed = {call.args for call in color_spy.call_args_list}
+    # Each recognised keyword reached its colour branch with (value, status).
+    for kw in ("online", "serving", "running", "stopped", "offline"):
+        assert (kw, kw) in routed, f"{kw} did not route through _color"
+    # The non-status value took the plain-Text else branch, never _color.
+    assert all(
+        call.args[0] != "other" for call in color_spy.call_args_list
+    ), "non-status value should not be colourised"
+
+
+def test_node_status_ping_failure_is_swallowed(node_config_file):
+    """A node whose ``ping()`` raises does not abort the status render (cli.py:407-409).
+
+    The ping refresh loop swallows a transient failure and keeps the node's
+    prior status so one flaky node cannot blank the whole status table.
+    """
+    node = _mock_node("10.0.0.9", 8765, "online")
+
+    with patch("llauncher.cli.NodeRegistry") as MockReg:
+        reg_instance = MagicMock()
+        reg_instance._nodes = {"flaky": node}
+        pinger = MagicMock()
+        pinger.ping.side_effect = RuntimeError("transient transport hiccup")
+        reg_instance.get_node.return_value = pinger
+        MockReg.return_value = reg_instance
+
+        result = runner.invoke(app, ["node", "status"])
+
+    # The swallow kept the loop alive; the node still renders from its prior
+    # (online) status rather than the command aborting.
+    assert result.exit_code == 0
+    assert "flaky" in result.stdout
+    pinger.ping.assert_called_once()
 
 
 def test_server_status_json_with_running_server(mock_config_store):

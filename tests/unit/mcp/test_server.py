@@ -283,9 +283,9 @@ class TestInterfaceCloseout:
             mock_server.list_tools = MagicMock(side_effect=list_tools_decorator)
             mock_server.call_tool = MagicMock(side_effect=call_tool_decorator)
 
-            async def mock_run(*args, **kwargs):
-                pass
-            mock_server.run.return_value = mock_run()
+            # AsyncMock so ``server.run`` is awaitable on every call — avoids
+            # the single-use coroutine footgun of a pre-created coroutine.
+            mock_server.run = AsyncMock()
 
             with patch("llauncher.mcp_server.server.stdio_server") as mock_stdio:
                 mock_stdio.return_value.__aenter__.return_value = (
