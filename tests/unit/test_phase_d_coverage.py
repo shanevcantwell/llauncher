@@ -357,7 +357,7 @@ class TestCliTableRenderBranches:
         cfg = ModelConfig.from_dict_unvalidated({
             "name": "tab-render", "model_path": str(tmp_path / "m.gguf"),
         })
-        with patch("llauncher.cli.ConfigStore.get_model", return_value=cfg):
+        with patch("llauncher.core.config.ConfigStore.get_model", return_value=cfg):
             result = runner.invoke(cli_app, ["model", "info", "tab-render"])
         assert result.exit_code == 0
         # Table headers appear in rendered output.
@@ -370,7 +370,7 @@ class TestCliTableRenderBranches:
             start_time=datetime.now(),  # uptime ~0s
         )
         fake_state = MagicMock(running={8081: srv})
-        with patch("llauncher.cli.LauncherState", return_value=fake_state):
+        with patch("llauncher.state.LauncherState", return_value=fake_state):
             result = runner.invoke(cli_app, ["server", "status"])
         assert result.exit_code == 0
         assert "Running Servers" in result.stdout or "8081" in result.stdout
@@ -379,7 +379,7 @@ class TestCliTableRenderBranches:
         """Node-list table branch — populates nodes registry then invokes."""
         nodes_file = tmp_path / "nodes.json"
         with patch("llauncher.remote.registry.NODES_FILE", nodes_file), \
-             patch("llauncher.cli.NodeRegistry") as MockReg:
+             patch("llauncher.remote.registry.NodeRegistry") as MockReg:
             fake_node = SimpleNamespace(
                 host="h.local", port=8765, api_key="",
                 status=SimpleNamespace(value="online"),
@@ -394,7 +394,7 @@ class TestCliTableRenderBranches:
 
     def test_node_list_empty_yellow_branch(self, tmp_path):
         """All-nodes filter with empty registry → 'No nodes registered' branch."""
-        with patch("llauncher.cli.NodeRegistry") as MockReg:
+        with patch("llauncher.remote.registry.NodeRegistry") as MockReg:
             MockReg.return_value._nodes = {}
             result = runner.invoke(cli_app, ["node", "list"])
         assert result.exit_code in (0, 2)

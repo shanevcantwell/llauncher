@@ -191,6 +191,14 @@ Tails the local audit log at `LAUNCHER_AUDIT_PATH` (`~/.llauncher/audit.jsonl` b
 
 The `llauncher` Typer CLI is a co-equal consumer of `llauncher/operations/` alongside the MCP server, HTTP Agent, and Streamlit UI. Every group supports a `--json` / `-j` flag for machine-readable output; the default is a Rich-rendered color table for human use.
 
+A global `--state-dir` option (before the subcommand) points a single invocation at a config/state directory other than the default, with precedence `--state-dir` > `LAUNCHER_STATE_DIR` env > `~/.llauncher`:
+
+```bash
+llauncher --state-dir /var/lib/llauncher model list
+```
+
+This is the mechanism for a non-login/non-interactive caller (an automation harness, a service account) to read a shared multiuser state dir without exporting `LAUNCHER_STATE_DIR` or symlinking `~/.llauncher`.
+
 **Subcommand groups:**
 
 ```bash

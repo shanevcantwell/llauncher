@@ -145,7 +145,7 @@ def test_server_status_no_servers(mock_config_store, sample_model_config):
     """Server status with no running servers should show informational message."""
     _dir, _path = mock_config_store
 
-    with patch("llauncher.cli.LauncherState") as MockState:
+    with patch("llauncher.state.LauncherState") as MockState:
         instance = MagicMock()
         instance.running = {}
         MockState.return_value = instance
@@ -159,7 +159,7 @@ def test_server_status_json_empty(mock_config_store):
     """Server status --json with no servers should return empty JSON object."""
     _dir, _path = mock_config_store
 
-    with patch("llauncher.cli.LauncherState") as MockState:
+    with patch("llauncher.state.LauncherState") as MockState:
         instance = MagicMock()
         instance.running = {}
         MockState.return_value = instance
@@ -483,7 +483,7 @@ def test_node_add_duplicate_fails(tmp_path):
 
     nodes_file = tmp_path / ".llauncher" / "nodes.json"
 
-    with patch("llauncher.cli.NodeRegistry", spec=NodeRegistry) as MockReg:
+    with patch("llauncher.remote.registry.NodeRegistry", spec=NodeRegistry) as MockReg:
         reg_instance = MagicMock()
         MockReg.return_value = reg_instance
         reg_instance.add_node.return_value = (False, "Node 'my-node' already exists")
@@ -513,7 +513,7 @@ def test_node_remove(node_config_file):
 
 def test_node_remove_not_found():
     """Removing a non-existent node should error."""
-    with patch("llauncher.cli.NodeRegistry") as MockReg:
+    with patch("llauncher.remote.registry.NodeRegistry") as MockReg:
         reg_instance = MagicMock()
         MockReg.return_value = reg_instance
         reg_instance.remove_node.return_value = (False, "Node 'ghost' not found")
@@ -527,7 +527,7 @@ def test_node_status_json(node_config_file):
     # Add a node first
     runner.invoke(app, ["node", "add", "jstatus-node", "--host", "9.8.7.6"])
 
-    with patch("llauncher.cli.NodeRegistry") as MockReg:
+    with patch("llauncher.remote.registry.NodeRegistry") as MockReg:
         reg_instance = MagicMock()
         MockReg.return_value = reg_instance
 
@@ -556,7 +556,7 @@ def test_config_path_printed(mock_config_store):
     """Config path should print the path to the configuration file."""
     _dir, cfg_path = mock_config_store
 
-    with patch("llauncher.cli.CONFIG_PATH", cfg_path):
+    with patch("llauncher.core.config.CONFIG_PATH", cfg_path):
         result = runner.invoke(app, ["config", "path"])
     assert result.exit_code == 0
     assert str(cfg_path) in result.stdout
@@ -643,7 +643,7 @@ def test_node_status_ping_failure_is_swallowed(node_config_file):
     """
     node = _mock_node("10.0.0.9", 8765, "online")
 
-    with patch("llauncher.cli.NodeRegistry") as MockReg:
+    with patch("llauncher.remote.registry.NodeRegistry") as MockReg:
         reg_instance = MagicMock()
         reg_instance._nodes = {"flaky": node}
         pinger = MagicMock()
@@ -672,7 +672,7 @@ def test_server_status_json_with_running_server(mock_config_store):
     srv = MagicMock()
     srv.to_dict.return_value = {"port": 8080, "config_name": "m", "pid": 7}
 
-    with patch("llauncher.cli.LauncherState") as MockState:
+    with patch("llauncher.state.LauncherState") as MockState:
         instance = MagicMock()
         instance.running = {8080: srv}
         MockState.return_value = instance
@@ -705,7 +705,7 @@ def test_server_status_table_uptime_boundaries(mock_config_store):
         8003: _srv("seconds", 13, 42),    # < 60    → "42s"
     }
 
-    with patch("llauncher.cli.LauncherState") as MockState:
+    with patch("llauncher.state.LauncherState") as MockState:
         instance = MagicMock()
         instance.running = running
         MockState.return_value = instance
@@ -720,7 +720,7 @@ def test_server_status_table_uptime_boundaries(mock_config_store):
 
 def test_list_nodes_json(node_config_file):
     """``node list --json`` emits ``registry.to_dict()`` (cli.py:371-372)."""
-    with patch("llauncher.cli.NodeRegistry") as MockReg:
+    with patch("llauncher.remote.registry.NodeRegistry") as MockReg:
         reg_instance = MagicMock()
         reg_instance.to_dict.return_value = {"nodeA": {"host": "1.2.3.4", "port": 8765}}
         MockReg.return_value = reg_instance
@@ -745,7 +745,7 @@ def test_node_status_table_online_only(node_config_file):
     online = _mock_node("10.0.0.1", 8765, "online")
     offline = _mock_node("10.0.0.2", 8765, "offline")
 
-    with patch("llauncher.cli.NodeRegistry") as MockReg:
+    with patch("llauncher.remote.registry.NodeRegistry") as MockReg:
         reg_instance = MagicMock()
         reg_instance._nodes = {"up": online, "down": offline}
         # get_node(...).ping() is a no-op MagicMock — the ping loop's try
@@ -764,7 +764,7 @@ def test_node_status_table_all_includes_offline(node_config_file):
     online = _mock_node("10.0.0.1", 8765, "online")
     offline = _mock_node("10.0.0.2", 8765, "offline")
 
-    with patch("llauncher.cli.NodeRegistry") as MockReg:
+    with patch("llauncher.remote.registry.NodeRegistry") as MockReg:
         reg_instance = MagicMock()
         reg_instance._nodes = {"up": online, "down": offline}
         MockReg.return_value = reg_instance
@@ -777,7 +777,7 @@ def test_node_status_table_all_includes_offline(node_config_file):
 
 def test_node_status_table_empty_roster(node_config_file):
     """``node status`` with no registered nodes prints the empty notice (cli.py:435-436)."""
-    with patch("llauncher.cli.NodeRegistry") as MockReg:
+    with patch("llauncher.remote.registry.NodeRegistry") as MockReg:
         reg_instance = MagicMock()
         reg_instance._nodes = {}
         MockReg.return_value = reg_instance
@@ -801,9 +801,9 @@ def test_config_validate_schema_exception(mock_config_store):
         "model_path": "/fake/path/model.gguf",
     })
 
-    with patch("llauncher.cli.ConfigStore.get_model", return_value=cfg):
+    with patch("llauncher.core.config.ConfigStore.get_model", return_value=cfg):
         with patch(
-            "llauncher.cli.ModelConfig.model_validate",
+            "llauncher.models.config.ModelConfig.model_validate",
             side_effect=ValueError("schema boom"),
         ):
             result = runner.invoke(app, ["config", "validate", "broken-model"])
