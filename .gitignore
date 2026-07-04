@@ -137,7 +137,7 @@ cython_debug/
 
 # llauncher specific
 *.log
-~/.llauncher/
+.llauncher/
 llauncher-config.json
 .claude/*
 !.claude/architecture.md

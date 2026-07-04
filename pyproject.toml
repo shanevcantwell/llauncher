@@ -1,6 +1,6 @@
 [project]
 name = "llauncher"
-version = "0.4.0a0"
+version = "0.4.1a0"
 description = "MCP-first launcher for managing llama.cpp llama-server instances"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -61,6 +61,12 @@ omit = [
     # CLI entry-point shim for ``python -m llauncher.agent``; covered
     # indirectly through integration runs of the agent, not unit tests.
     "llauncher/agent/__main__.py",
+    # ``python -m llauncher.mcp_server`` entry shim — a 2-line passthrough
+    # to ``mcp_server.server:main`` that runs ``_main()`` at import time, so
+    # it cannot be unit-imported without launching the stdio server. Omitted
+    # for parity with ``agent/__main__.py`` above (same entry-shim category);
+    # ``server.main`` / ``server.main_async`` themselves are unit-covered.
+    "llauncher/mcp_server/__main__.py",
 ]
 
 [tool.coverage.report]

@@ -138,11 +138,28 @@ def test_default_vram_check_no_backend_passes() -> None:
     assert reason == ""
 
 
-def test_default_vram_check_backend_with_no_devices_passes() -> None:
+def test_default_vram_check_backend_with_no_devices_fails_loud() -> None:
+    """#150: backend detected but no device data must fail loud, not silently pass.
+
+    A GPU backend that claims to exist yet reports no devices means VRAM
+    headroom is unverifiable (malformed query / nvidia-smi hiccup). The
+    check refuses the launch rather than admitting a blind, OOM-prone swap.
+    """
     cfg = _config()
     with _patch_gpu({"backends": ["nvidia"], "devices": []}):
         ok, reason = pf.default_vram_check(cfg)
-    assert ok is True
+    assert ok is False
+    assert "cannot verify vram headroom" in reason.lower()
+    assert "nvidia" in reason.lower()
+
+
+def test_default_vram_check_backend_with_missing_devices_key_fails_loud() -> None:
+    """#150: a missing ``devices`` key is treated the same as an empty list."""
+    cfg = _config()
+    with _patch_gpu({"backends": ["nvidia"]}):
+        ok, reason = pf.default_vram_check(cfg)
+    assert ok is False
+    assert "cannot verify vram headroom" in reason.lower()
 
 
 def test_default_vram_check_sufficient_passes() -> None:
@@ -182,8 +199,12 @@ def test_default_vram_check_picks_best_device() -> None:
     assert ok is True
 
 
-def test_default_vram_check_handles_missing_free_vram_field() -> None:
-    """Resilience: a device without ``free_vram_mb`` is treated as 0 MiB."""
+def test_default_vram_check_all_devices_missing_free_vram_fails_loud() -> None:
+    """#241: all-``None`` free_vram_mb must fail loud as "cannot verify",
+
+    not collapse to a misleading "insufficient VRAM ... 0 MiB" reason. The
+    telemetry is unknown, not genuinely zero.
+    """
     cfg = _config("mistral-7b", "/models/mistral-7b.gguf")
     with _patch_gpu({
         "backends": ["nvidia"],
@@ -191,3 +212,37 @@ def test_default_vram_check_handles_missing_free_vram_field() -> None:
     }):
         ok, reason = pf.default_vram_check(cfg)
     assert ok is False
+    assert "cannot verify vram headroom" in reason.lower()
+    assert "insufficient" not in reason.lower()
+
+
+def test_default_vram_check_all_devices_missing_key_fails_loud() -> None:
+    """#241: same as above when the key is absent entirely, and across
+    multiple devices — not just a single ``None`` value."""
+    cfg = _config("mistral-7b", "/models/mistral-7b.gguf")
+    with _patch_gpu({
+        "backends": ["nvidia"],
+        "devices": [
+            {"index": 0, "name": "RTX-a"},
+            {"index": 1, "name": "RTX-b", "free_vram_mb": None},
+        ],
+    }):
+        ok, reason = pf.default_vram_check(cfg)
+    assert ok is False
+    assert "cannot verify vram headroom" in reason.lower()
+
+
+def test_default_vram_check_mixed_none_and_real_value_uses_real_value() -> None:
+    """#241: the genuine-capacity path is unchanged when at least one device
+    reports a real ``free_vram_mb`` number, even alongside unreadable peers."""
+    cfg = _config("mistral-7b", "/models/mistral-7b.gguf")  # ~7168 MiB needed
+    with _patch_gpu({
+        "backends": ["nvidia"],
+        "devices": [
+            {"index": 0, "name": "unreadable", "free_vram_mb": None},
+            {"index": 1, "name": "readable", "free_vram_mb": 16000},
+        ],
+    }):
+        ok, reason = pf.default_vram_check(cfg)
+    assert ok is True
+    assert reason == ""

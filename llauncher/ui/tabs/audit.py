@@ -150,7 +150,20 @@ def render_audit_tab(
                 f"or add it on the Nodes tab."
             )
             return
-        remote_entries = node.read_audit(limit=int(limit))
+        # Forward the filter selection to the remote read so the wire
+        # payload shrinks when the user has a tight filter (issue #118).
+        # The endpoint / ``read_audit`` accept a single value each, so we
+        # can only push a selection of exactly one option down the wire;
+        # for empty or multi-value selections we fetch unfiltered and rely
+        # on the in-memory post-filter below (which also covers the
+        # single-value case, keeping behavior identical either way).
+        remote_action = selected_actions[0] if len(selected_actions) == 1 else None
+        remote_result = selected_results[0] if len(selected_results) == 1 else None
+        remote_entries = node.read_audit(
+            limit=int(limit),
+            action_filter=remote_action,
+            result_filter=remote_result,
+        )
         if remote_entries is None:
             st.error(
                 f"Could not read audit log from node '{target}' "

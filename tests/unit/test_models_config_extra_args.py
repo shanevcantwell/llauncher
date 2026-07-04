@@ -16,6 +16,8 @@ import pytest
 
 from llauncher.models.config import (
     DENIED_EXTRA_ARG_FLAGS,
+    MANAGED_NATIVE_FLAG_TO_FIELD,
+    MANAGED_NATIVE_FLAGS,
     ModelConfig,
 )
 
@@ -211,10 +213,15 @@ class TestPostConstructionAssignment:
             cfg.extra_args = "--alias=evil"
 
     def test_assignment_of_benign_args_succeeds(self, model_file: str) -> None:
-        """Sanity: legitimate post-construction updates still work."""
+        """Sanity: legitimate post-construction updates still work.
+
+        Uses ``--log-disable``/``--verbose`` — flags llauncher does not emit
+        natively — so the update is genuinely benign. ``--temp`` would now be
+        rejected by the issue #156 managed-flag collision guard.
+        """
         cfg = ModelConfig(name="m", model_path=model_file, extra_args="")
-        cfg.extra_args = "--ctx-size 4096 --temp 0.7"
-        assert "--ctx-size" in cfg.extra_args
+        cfg.extra_args = "--log-disable --verbose"
+        assert "--log-disable" in cfg.extra_args
 
 
 class TestDenyListContents:
@@ -239,3 +246,140 @@ class TestDenyListContents:
     def test_deny_list_is_frozen(self) -> None:
         """Frozenset guards against accidental mutation at import time."""
         assert isinstance(DENIED_EXTRA_ARG_FLAGS, frozenset)
+
+
+class TestManagedNativeFlagCollision:
+    """Issue #156: a flag llauncher emits natively from a structured field
+
+    must not silently first-wins-lose when also placed in ``extra_args``.
+    Write paths reject it; the load path warns but tolerates it.
+    """
+
+    # ---- write path: construction rejects --------------------------------
+
+    @pytest.mark.parametrize("flag", sorted(MANAGED_NATIVE_FLAGS))
+    def test_construction_rejects_each_managed_native_flag(
+        self, model_file: str, flag: str
+    ) -> None:
+        with pytest.raises(ValueError, match="issue #156"):
+            ModelConfig(
+                name="m",
+                model_path=model_file,
+                extra_args=f"{flag} sentinel-value",
+            )
+
+    def test_error_names_the_owning_field(self, model_file: str) -> None:
+        """The reject message points the operator at the dedicated field."""
+        with pytest.raises(ValueError, match="ubatch_size"):
+            ModelConfig(
+                name="m",
+                model_path=model_file,
+                extra_args="--ubatch-size 4096",
+            )
+
+    def test_construction_rejects_equals_form(self, model_file: str) -> None:
+        with pytest.raises(ValueError, match="issue #156"):
+            ModelConfig(
+                name="m",
+                model_path=model_file,
+                extra_args="--parallel=4",
+            )
+
+    def test_assignment_rejects_managed_native_flag(self, model_file: str) -> None:
+        """validate_assignment enforces the guard post-construction too."""
+        cfg = ModelConfig(name="m", model_path=model_file, extra_args="")
+        with pytest.raises(ValueError, match="--batch-size"):
+            cfg.extra_args = "--batch-size 4096"
+
+    def test_from_dict_rejects_managed_native_flag(self, model_file: str) -> None:
+        """The public dict constructor (UI/CLI write path) rejects too."""
+        with pytest.raises(ValueError, match="issue #156"):
+            ModelConfig.from_dict({
+                "name": "m",
+                "model_path": model_file,
+                "extra_args": "--threads-batch 16",
+            })
+
+    # ---- the batch/parallel family the issue names by hand ---------------
+
+    @pytest.mark.parametrize(
+        "flag", ["--batch-size", "--ubatch-size", "--parallel", "--threads-batch"]
+    )
+    def test_issue_156_named_family_is_guarded(
+        self, model_file: str, flag: str
+    ) -> None:
+        assert flag in MANAGED_NATIVE_FLAGS
+        with pytest.raises(ValueError, match="issue #156"):
+            ModelConfig(
+                name="m", model_path=model_file, extra_args=f"{flag} 4"
+            )
+
+    # ---- load path: warn but tolerate ------------------------------------
+
+    def test_load_warns_but_tolerates_collision(self) -> None:
+        """A pre-existing config on disk with a managed flag in extra_args
+
+        loads (no raise) but emits a loud warning — the silent loss is now
+        non-silent without bricking the whole-registry load.
+        """
+        with pytest.warns(UserWarning, match="issue #156"):
+            cfg = ModelConfig.from_dict_unvalidated({
+                "name": "m",
+                "model_path": "/fake/does-not-matter.gguf",
+                "extra_args": "--embeddings --ubatch-size 2048",
+            })
+        # Tolerated: the config loaded and the string round-trips unchanged.
+        assert cfg.extra_args == "--embeddings --ubatch-size 2048"
+
+    def test_load_live_embedding_repro_warns(self) -> None:
+        """Exact shape of the live resident embedding config (issue #156):
+
+        native ``ubatch_size`` default with ``--ubatch-size 2048`` in
+        extra_args. Must warn, must still load.
+        """
+        with pytest.warns(UserWarning, match="ubatch_size"):
+            cfg = ModelConfig.from_dict_unvalidated({
+                "name": "embeddinggemma-300M-F32-pooled",
+                "model_path": "/fake/emb.gguf",
+                "ubatch_size": 512,
+                "extra_args": "--embeddings --log-disable --ubatch-size 2048 --batch-size 2048",
+            })
+        assert cfg.ubatch_size == 512
+
+    def test_load_still_raises_on_security_denied_flag(self) -> None:
+        """Load tolerance applies ONLY to the silent-loss class. The
+
+        security deny-list (``--alias`` etc.) must still hard-fail on load.
+        """
+        with pytest.raises(ValueError, match="--alias"):
+            ModelConfig.from_dict_unvalidated({
+                "name": "m",
+                "model_path": "/fake/x.gguf",
+                "extra_args": "--alias sneaky",
+            })
+
+    def test_managed_native_and_denied_are_disjoint(self) -> None:
+        """The two collision classes must not overlap — a flag is either
+
+        security-owned (always reject) or value-carrying (write-reject /
+        load-warn), never both, so the validator's branch order is moot.
+        """
+        assert MANAGED_NATIVE_FLAGS.isdisjoint(DENIED_EXTRA_ARG_FLAGS)
+
+    def test_managed_native_flags_derived_from_mapping(self) -> None:
+        assert MANAGED_NATIVE_FLAGS == frozenset(MANAGED_NATIVE_FLAG_TO_FIELD)
+
+    def test_validator_handles_list_input_defensively(self) -> None:
+        """Defend-in-depth: if the validator is called directly with a
+
+        ``list[str]`` (the legacy shape is normally joined before validation),
+        it still tokenizes and applies the collision guard rather than crashing.
+        """
+        # Benign list round-trips untouched.
+        assert ModelConfig.extra_args_no_managed_flags(["--log-disable", "--verbose"]) == [
+            "--log-disable",
+            "--verbose",
+        ]
+        # A managed flag in list form is still caught on the write path.
+        with pytest.raises(ValueError, match="issue #156"):
+            ModelConfig.extra_args_no_managed_flags(["--parallel", "4"])

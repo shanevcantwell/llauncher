@@ -303,7 +303,32 @@ def _handle_stop(
         port: Port of the server to stop.
     """
     if node_name == "local":
-        success, message = state.stop_server(port, caller="ui")
+        # Delegation gate (#200/#203): a stop is a mutating op, so it routes
+        # through the local agent over HTTP when one is reachable — the same
+        # gate the CLI (``cli.py::stop_server``) and MCP
+        # (``mcp_server/tools/servers.py``) stop paths use. This is what makes
+        # ``llama-server`` (running as the ``llauncher`` service account in
+        # ADR-018 system-mode) terminable from the operator-owned Streamlit UI:
+        # the agent owns the process, so no cross-uid SIGTERM (psutil
+        # AccessDenied) is attempted from the UI process. Per
+        # ``docs/ARCHITECTURE.md`` "Endpoints orchestrate — they do not
+        # reimplement them", the UI delegates rather than re-running the
+        # in-process ``core.process`` stop. With no agent reachable it falls
+        # back to the in-process op (dev/standalone), preserving prior
+        # behaviour exactly.
+        if delegation.should_delegate():
+            # ``RemoteNode.stop_server`` is ``dict | None`` (a 200 with a null
+            # body yields None); ``or {}`` makes ``.get`` None-safe without
+            # masking a real error dict (transport/non-2xx arrives as a dict).
+            res = local_agent_node().stop_server(port) or {}
+            success = bool(res.get("success"))
+            message = (
+                res.get("message")
+                or res.get("error")
+                or "Local agent returned no result"
+            )
+        else:
+            success, message = state.stop_server(port, caller="ui")
     elif aggregator:
         result = aggregator.stop_on_node(node_name, port)
         success, message = _parse_aggregator_result(result)
