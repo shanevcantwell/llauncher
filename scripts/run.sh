@@ -110,7 +110,15 @@ case "${1:-}" in
         llauncher-agent
         ;;
     stop)
-        ensure_venv
+        # Do NOT call ensure_venv here: `stop` must not bootstrap a ~500MB
+        # venv as a side effect on a machine that installed globally
+        # (`pip install --user -e ".[ui]"`) with no local .venv (issue #229).
+        # If a repo-local venv exists, activate it so the agent already
+        # running from it is reachable; otherwise rely on PATH.
+        if [ -d "$PROJECT_DIR/.venv" ]; then
+            # shellcheck disable=SC1091
+            source "$PROJECT_DIR/.venv/bin/activate"
+        fi
         print_info "Stopping remote management agent..."
         llauncher-agent --stop
         ;;
