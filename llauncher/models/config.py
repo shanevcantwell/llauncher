@@ -179,7 +179,6 @@ class ModelConfig(BaseModel):
     mmproj_path: str | None = None
     n_gpu_layers: int = Field(default=255, ge=0)
     ctx_size: int = Field(default=131072, gt=0)
-    np: int | None = Field(default=None, ge=1, description="Number of KV cache pages")
     threads: int | None = None
     threads_batch: int = Field(default=8, gt=0)
     ubatch_size: int = Field(default=512, gt=0)
@@ -305,6 +304,9 @@ class ModelConfig(BaseModel):
         - Drops ``default_port`` (per ADR-010: port is a call-site concern).
         - Drops ``port`` (legacy synonym, same reason).
         - Drops ``host`` (legacy; defaults handled at start time).
+        - Drops ``np`` (issue #235: dead, mislabeled duplicate of
+          ``parallel`` — never rendered by ``build_command``; live store
+          audit confirmed every persisted value was already null).
         - Migrates ``extra_args`` from ``list[str]`` to ``str``.
         """
         data = data.copy()
@@ -312,6 +314,7 @@ class ModelConfig(BaseModel):
         data.pop("default_port", None)
         data.pop("port", None)
         data.pop("host", None)
+        data.pop("np", None)  # #235: dead field, superseded by `parallel`
         # Migrate extra_args from list[str] to str (legacy v1 shape).
         if "extra_args" in data and isinstance(data["extra_args"], list):
             data["extra_args"] = " ".join(data["extra_args"])

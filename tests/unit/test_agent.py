@@ -143,7 +143,7 @@ class TestStatusEndpoint:
         assert data["total_running"] == len(data["running_servers"])
 
     def test_status_includes_model_config_per_server(self, client):
-        """Test that /status includes model_config with ctx_size and np per server."""
+        """Test that /status includes model_config with ctx_size per server."""
         from llauncher.agent import routing
 
         # Clear any state from other tests
@@ -155,7 +155,6 @@ class TestStatusEndpoint:
                 name='test-model',
                 model_path='/fake/model.gguf',
                 ctx_size=2048,
-                np=4,
                 n_gpu_layers=32,
             ),
         }
@@ -178,14 +177,13 @@ class TestStatusEndpoint:
         assert data["total_running"] == 1
         server = data["running_servers"][0]
 
-        # model_config should be present with np and ctx_size
+        # model_config should be present with ctx_size
         assert "model_config" in server
         assert server["model_config"] is not None
         mc = server["model_config"]
         assert "ctx_size" in mc
-        assert "np" in mc
+        assert "np" not in mc
         assert mc["ctx_size"] == 2048
-        assert mc["np"] == 4
 
     def test_status_model_config_none_for_unknown_server(self, client):
         """Test that model_config is None when config lookup fails."""
@@ -283,9 +281,9 @@ class TestModelsEndpoint:
             assert "kind" in model  # Per ADR-010 + #42 scaffolding
             assert "n_gpu_layers" in model
             assert "ctx_size" in model
-            assert "np" in model
             assert "running" in model
             assert "default_port" not in model  # Removed per ADR-010
+            assert "np" not in model  # Removed per #235 (dead, mislabeled duplicate of `parallel`)
 
 
 class TestStartServerEndpoint:

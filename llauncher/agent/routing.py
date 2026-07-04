@@ -261,7 +261,6 @@ def list_models() -> list[dict]:
                 "mmproj_path": config.mmproj_path,
                 "n_gpu_layers": config.n_gpu_layers,
                 "ctx_size": config.ctx_size,
-                "np": config.np,
                 "running": running_port is not None,
                 "running_port": running_port,
             }
