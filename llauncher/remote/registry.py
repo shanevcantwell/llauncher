@@ -48,24 +48,52 @@ class NodeRegistry:
             self._populate_local_token()
             return
 
+        migrated = False
         try:
             data = json.loads(NODES_FILE.read_text())
             for name, node_data in data.items():
                 # Backward compat: old files use "api_key", new files use "has_api_key"
                 raw_key = node_data.get("api_key")
+                host = node_data["host"]
+                port = node_data.get("port", 8765)
+                if isinstance(host, str) and host.count(":") == 1:
+                    # Issue #27: a prior UI bug let an embedded port slip
+                    # into the host field (e.g. "192.168.137.2:8765") on
+                    # top of a separate port field, producing a malformed
+                    # base_url. Migrate once, at the door (PARSE-AT-THE-DOOR):
+                    # split the embedded port out and prefer it as the
+                    # real port, then persist the corrected shape below.
+                    fixed_host, _, port_str = host.rpartition(":")
+                    if port_str.isdigit():
+                        port = int(port_str)
+                    logger.warning(
+                        f"Migrated corrupted host for node '{name}': "
+                        f"{host!r} -> host={fixed_host!r}, port={port}"
+                    )
+                    host = fixed_host
+                    migrated = True
                 self._nodes[name] = RemoteNode(
                     name=node_data["name"],
-                    host=node_data["host"],
-                    port=node_data.get("port", 8765),
+                    host=host,
+                    port=port,
                     timeout=node_data.get("timeout", 5.0),
                     api_key=raw_key,
                 )
-        except (json.JSONDecodeError, KeyError):  # pragma: no cover - defensive recovery from a corrupted/partial nodes.json; start fresh rather than crash UI startup
-            # Corrupted file, start fresh
+        except (json.JSONDecodeError, KeyError, ValueError):
+            # Corrupted file (bad JSON/shape), or an entry that still
+            # fails NodeConfig validation after the embedded-port
+            # migration above (issue #27) — start fresh rather than
+            # crash UI startup.
             self._nodes.clear()
+            migrated = False
 
         self._populate_local_token()
         self._populate_remote_tokens()
+
+        if migrated:
+            # Persist the corrected shape once so the migration doesn't
+            # re-run (and re-log) on every subsequent load.
+            self._save()
 
     def _resolve_local_token(self) -> str | None:
         """Resolve the local agent's auth token, or return ``None``.
@@ -289,13 +317,21 @@ class NodeRegistry:
         if name in self._nodes and not overwrite:
             return False, f"Node '{name}' already exists. Use overwrite=True to replace."
 
-        self._nodes[name] = RemoteNode(
-            name=name,
-            host=host,
-            port=port,
-            timeout=timeout,
-            api_key=api_key,
-        )
+        try:
+            node = RemoteNode(
+                name=name,
+                host=host,
+                port=port,
+                timeout=timeout,
+                api_key=api_key,
+            )
+        except ValueError as e:
+            # NodeConfig validation failure (issue #27) — surface as a
+            # normal (success, message) failure rather than an
+            # exception, matching the rest of this method's contract.
+            return False, str(e)
+
+        self._nodes[name] = node
         self._save()
         return True, f"Node '{name}' added successfully"
 

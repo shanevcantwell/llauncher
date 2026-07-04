@@ -48,6 +48,14 @@ def _button_by_key(at, key):
                          f"{[e.key for e in at.button]}")
 
 
+def _button_by_label(at, label):
+    for el in at.button:
+        if el.label == label:
+            return el
+    raise AssertionError(f"no button labelled {label!r}; saw "
+                         f"{[e.label for e in at.button]}")
+
+
 class TestNodesTabRender:
     """The tab renders headlessly through the engine facades only."""
 
@@ -104,6 +112,34 @@ class TestAddNodeFormSmoke:
         assert "LLAUNCHER_AGENT_TOKEN" in help_text
         assert "agent.token" in help_text
         assert "ADR-003" in help_text
+
+
+class TestAddNodeFormHostValidation:
+    """Issue #27: the form surfaces ``NodeConfig`` host validation as an
+    ``st.error``, never an uncaught exception, and documents the rule
+    up front in the field's help text.
+    """
+
+    def test_host_help_warns_against_embedded_port(
+        self, tab_harness, mock_registry, mock_aggregator
+    ):
+        at = tab_harness(render_nodes_tab, mock_registry, mock_aggregator)
+
+        help_text = _input_by_label(at, "Host").help
+        assert "no port" in help_text.lower()
+
+    def test_embedded_port_host_shows_error_not_exception(
+        self, tab_harness, mock_registry, mock_aggregator
+    ):
+        at = tab_harness(render_nodes_tab, mock_registry, mock_aggregator)
+
+        _input_by_label(at, "Node Name").set_value("gpu-rig")
+        _input_by_label(at, "Host").set_value("192.168.1.50:8765")
+        _button_by_label(at, "🔍 Test Connection").click()
+        at.run()
+
+        assert not at.exception
+        assert any("port" in e.value for e in at.error)
 
 
 class TestNodesTabRemoteIO:

@@ -9,9 +9,47 @@ from unittest.mock import MagicMock, patch
 import pytest
 import httpx
 
-from llauncher.remote.node import RemoteNode, NodeStatus, RemoteServerInfo
+from llauncher.remote.node import NodeConfig, RemoteNode, NodeStatus, RemoteServerInfo
 from llauncher.remote.registry import NodeRegistry, NODES_FILE
 from llauncher.remote.state import RemoteAggregator
+
+
+class TestNodeConfig:
+    """Tests for the ``NodeConfig`` pydantic model (issue #27)."""
+
+    def test_defaults(self):
+        config = NodeConfig(name="n", host="192.168.1.100")
+
+        assert config.port == 8765
+        assert config.timeout == 5.0
+
+    def test_base_url(self):
+        config = NodeConfig(name="n", host="192.168.1.100", port=9000)
+
+        assert config.base_url == "http://192.168.1.100:9000"
+
+    def test_rejects_host_with_embedded_port(self):
+        with pytest.raises(ValueError, match="must not embed a port"):
+            NodeConfig(name="n", host="192.168.137.2:8765")
+
+    def test_allows_ipv6_literal_with_multiple_colons(self):
+        # "::1" and full IPv6 literals carry 2+ colons — the #27 bug
+        # was specifically the *single*-colon host:port shape.
+        config = NodeConfig(name="n", host="::1")
+
+        assert config.host == "::1"
+
+    def test_rejects_port_out_of_range(self):
+        with pytest.raises(ValueError):
+            NodeConfig(name="n", host="192.168.1.100", port=80)
+
+    def test_rejects_non_positive_timeout(self):
+        with pytest.raises(ValueError):
+            NodeConfig(name="n", host="192.168.1.100", timeout=0)
+
+    def test_rejects_empty_host(self):
+        with pytest.raises(ValueError):
+            NodeConfig(name="n", host="")
 
 
 class TestRemoteNode:
@@ -40,6 +78,12 @@ class TestRemoteNode:
         node = RemoteNode("test-node", "192.168.1.100", port=9000)
 
         assert node.base_url == "http://192.168.1.100:9000"
+
+    def test_rejects_host_with_embedded_port(self):
+        """Issue #27: constructing a node with a corrupted host raises
+        a single-line ``ValueError``, not a raw pydantic traceback."""
+        with pytest.raises(ValueError, match="must not embed a port"):
+            RemoteNode("test-node", "192.168.137.2:8765")
 
     def test_str_representation(self):
         """Test string representation."""
@@ -629,6 +673,18 @@ class TestNodeRegistry:
         assert success is False
         assert "already exists" in message
 
+    def test_add_node_rejects_embedded_port_host(self, temp_nodes_file):
+        """Issue #27: NodeConfig validation failures surface as a normal
+        ``(False, message)`` result, not an uncaught exception, and the
+        node is not registered."""
+        registry = NodeRegistry()
+
+        success, message = registry.add_node("test-node", "192.168.1.100:8765", 8765)
+
+        assert success is False
+        assert "port" in message
+        assert registry.get_node("test-node") is None
+
     def test_add_node_overwrite(self, temp_nodes_file):
         """Test adding duplicate node with overwrite."""
         registry = NodeRegistry()
@@ -676,6 +732,58 @@ class TestNodeRegistry:
         assert node is not None
         assert node.host == "192.168.1.100"
         assert node.port == 9000
+
+    def test_load_migrates_corrupted_embedded_port_host(self, temp_nodes_file):
+        """Issue #27: a pre-existing corrupted ``nodes.json`` entry with a
+        host carrying an embedded port is migrated once, at load time,
+        rather than producing a broken ``RemoteNode`` or crashing.
+        """
+        temp_nodes_file.parent.mkdir(parents=True, exist_ok=True)
+        temp_nodes_file.write_text(
+            json.dumps(
+                {
+                    "gpu-rig": {
+                        "name": "gpu-rig",
+                        "host": "192.168.137.2:8765",
+                        "port": 8765,
+                        "timeout": 5.0,
+                    }
+                }
+            )
+        )
+
+        registry = NodeRegistry()
+
+        node = registry.get_node("gpu-rig")
+        assert node is not None
+        assert node.host == "192.168.137.2"
+        assert node.port == 8765
+        assert node.base_url == "http://192.168.137.2:8765"
+
+        # The migration is persisted so a reload doesn't need to re-fix it.
+        on_disk = json.loads(temp_nodes_file.read_text())
+        assert on_disk["gpu-rig"]["host"] == "192.168.137.2"
+
+    def test_load_unrecoverable_entry_starts_fresh(self, temp_nodes_file):
+        """An entry that still fails validation after migration (e.g. an
+        out-of-range port) falls back to the existing corrupted-file
+        behavior — start fresh — rather than crashing UI startup."""
+        temp_nodes_file.parent.mkdir(parents=True, exist_ok=True)
+        temp_nodes_file.write_text(
+            json.dumps(
+                {
+                    "bad-node": {
+                        "name": "bad-node",
+                        "host": "192.168.1.100",
+                        "port": 80,
+                    }
+                }
+            )
+        )
+
+        registry = NodeRegistry()
+
+        assert registry.get_node("bad-node") is None
 
     def test_refresh_all(self, temp_nodes_file):
         """Test refreshing all nodes."""
