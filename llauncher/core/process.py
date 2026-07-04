@@ -178,6 +178,12 @@ def build_command(
     if config.mlock:
         cmd.append("--mlock")
 
+    # Prometheus /metrics endpoint (issue #169). Default-on: cheap scrape
+    # surface, and the structured source for tps/kv-cache/draft-acceptance
+    # telemetry that /slots doesn't cover.
+    if config.metrics:
+        cmd.append("--metrics")
+
     # Extra args (parse free-form string into arguments)
     if config.extra_args:
         cmd.extend(shlex.split(config.extra_args))

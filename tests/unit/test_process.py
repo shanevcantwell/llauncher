@@ -239,6 +239,18 @@ class TestBuildCommand:
         assert "--repeat-penalty" in cmd
         assert "1.5" in cmd
 
+    def test_metrics_default_on(self, minimal_config):
+        """Issue #169: metrics defaults to True and emits --metrics."""
+        assert minimal_config.metrics is True
+        cmd = build_command(minimal_config, port=8080)
+        assert "--metrics" in cmd
+
+    def test_metrics_disabled_omits_flag(self, minimal_config):
+        """Issue #169: metrics=False must not emit --metrics."""
+        minimal_config.metrics = False
+        cmd = build_command(minimal_config, port=8080)
+        assert "--metrics" not in cmd
+
 
 def _alias_value(cmd: list[str]) -> str:
     """Return the argv token immediately following ``--alias``."""

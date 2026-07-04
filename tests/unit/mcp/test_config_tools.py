@@ -95,9 +95,9 @@ class TestUpdateModelConfig:
 
     @pytest.mark.asyncio
     async def test_update_model_config_sets_remaining_native_fields(self, mock_state):
-        """Cover the threads / flash_attn / no_mmap apply branches so the
+        """Cover the threads / flash_attn / no_mmap / metrics apply branches so
 
-        whole update_model_config field-apply block is exercised.
+        the whole update_model_config field-apply block is exercised.
         """
         with patch("llauncher.core.config.ConfigStore"):
             result = await update_model_config(
@@ -108,6 +108,7 @@ class TestUpdateModelConfig:
                         "threads": 12,
                         "flash_attn": "off",
                         "no_mmap": True,
+                        "metrics": False,
                     },
                 },
             )
@@ -117,6 +118,7 @@ class TestUpdateModelConfig:
         assert updated.threads == 12
         assert updated.flash_attn == "off"
         assert updated.no_mmap is True
+        assert updated.metrics is False
 
     @pytest.mark.asyncio
     async def test_update_model_config_rejects_colliding_extra_args(self, mock_state):
@@ -438,3 +440,15 @@ class TestGetTools:
         props = tools["update_model_config"].inputSchema["properties"]["config"]["properties"]
         for field in ("batch_size", "ubatch_size", "parallel", "threads_batch"):
             assert field in props, field
+
+    def test_metrics_field_reachable_via_mcp_config_schema(self):
+        """Issue #169: the ``metrics`` toggle must be discoverable via both
+
+        ``update_model_config`` and ``add_model`` input schemas, and typed
+        as boolean.
+        """
+        tools = {t.name: t for t in get_tools()}
+        update_props = tools["update_model_config"].inputSchema["properties"]["config"]["properties"]
+        add_props = tools["add_model"].inputSchema["properties"]["config"]["properties"]
+        assert update_props["metrics"]["type"] == "boolean"
+        assert add_props["metrics"]["type"] == "boolean"

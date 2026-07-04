@@ -33,6 +33,7 @@ def get_tools() -> list[Tool]:
                             "parallel": {"type": "integer"},
                             "flash_attn": {"type": "string", "enum": ["on", "off", "auto"]},
                             "no_mmap": {"type": "boolean"},
+                            "metrics": {"type": "boolean", "description": "Enable llama-server's Prometheus /metrics endpoint (--metrics). Defaults to true."},
                             "extra_args": {"type": "string", "description": "Additional command-line arguments (space-separated). Flags llauncher emits natively (e.g. --batch-size, --ubatch-size, --parallel, --threads-batch) are rejected here — set the dedicated field instead (issue #156)."},
                         },
                     },
@@ -78,6 +79,7 @@ def get_tools() -> list[Tool]:
                             "threads": {"type": "integer"},
                             "flash_attn": {"type": "string"},
                             "no_mmap": {"type": "boolean"},
+                            "metrics": {"type": "boolean", "description": "Enable llama-server's Prometheus /metrics endpoint (--metrics). Defaults to true."},
                             "extra_args": {"type": "string", "description": "Additional command-line arguments (space-separated, use quotes for args with spaces)"},
                         },
                         "required": ["name", "model_path"],
@@ -165,6 +167,8 @@ async def update_model_config(state: LauncherState, args: dict) -> dict:
             updated_config.flash_attn = updates["flash_attn"]
         if "no_mmap" in updates:
             updated_config.no_mmap = updates["no_mmap"]
+        if "metrics" in updates:
+            updated_config.metrics = updates["metrics"]
         if "extra_args" in updates:
             updated_config.extra_args = updates["extra_args"]
 
