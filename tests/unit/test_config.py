@@ -42,6 +42,33 @@ def test_config_store_load_nonexistent(mock_config_store):
     assert models == {}
 
 
+def test_config_store_load_corrupt_returns_empty(
+    mock_config_store, tmp_config_dir, capsys
+):
+    """A corrupt (non-JSON) config file recovers to an empty dict (lines 45-47).
+
+    ``load()`` catches ``JSONDecodeError``/``OSError``, prints a diagnostic,
+    and returns ``{}`` so a damaged config never crashes a read path.
+    """
+    tmp_config_dir.mkdir(parents=True, exist_ok=True)
+    (tmp_config_dir / "config.json").write_text("{ this is not valid json")
+
+    models = ConfigStore.load()
+
+    assert models == {}
+    assert "Error loading config" in capsys.readouterr().out
+
+
+def test_update_missing_model_raises_keyerror(
+    mock_config_store, sample_model_config
+):
+    """Updating a model that was never added raises ``KeyError`` (line 107)."""
+    # Name matches config.name so we pass the mismatch guard and reach the
+    # membership check; the store is empty, so the model is "not found".
+    with pytest.raises(KeyError, match="Model not found"):
+        ConfigStore.update_model(sample_model_config.name, sample_model_config)
+
+
 def test_config_store_update_model(mock_config_store, sample_model_config):
     """Test updating an existing model."""
     ConfigStore.add_model(sample_model_config)

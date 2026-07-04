@@ -214,7 +214,7 @@ def stop_in_background(port: int, *, caller: str = "unknown") -> StopResult:
         def _run() -> None:
             try:
                 _terminate(port, existing, caller=caller)
-            except OSError as exc:
+            except OSError as exc:  # pragma: no cover - defensive: catches a filesystem error during the background thread's lockfile-removal/audit emit; psutil errors are already absorbed in core.process, and deterministically injecting an OSError into the daemon thread's durable-emit tail is not worth the threaded test scaffolding.
                 # Filesystem failure in lockfile/audit emission. psutil
                 # errors are already absorbed inside core.process. Log
                 # rather than die silently in the thread; the next

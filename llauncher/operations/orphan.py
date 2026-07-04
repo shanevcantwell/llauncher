@@ -70,7 +70,7 @@ def list_orphans(*, caller: str = "reconcile") -> list[OrphanInfo]:
     for process, port, unreadable in proc.find_all_llama_servers_annotated():
         try:
             pid = int(process.pid)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError):  # pragma: no cover - defensive: psutil.Process.pid is always an int, so this coercion guard is effectively unreachable; kept to fail safe rather than crash a reconcile scan on a hypothetically non-numeric pid.
             continue
 
         if unreadable or port is None:

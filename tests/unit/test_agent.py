@@ -216,6 +216,47 @@ class TestStatusEndpoint:
         assert server["model_config"] is None
 
 
+class TestStatusGpuBranches:
+    """/status GPU-health branch coverage (routing.py:190-195)."""
+
+    def test_status_gpu_no_backends_reports_not_degraded(self, client, monkeypatch):
+        """A collector that reports no backends yields a non-degraded GPU block.
+
+        Covers routing.py:193 — the ``else`` arm when ``get_health()`` returns
+        a payload with a falsy ``backends`` entry (no GPU backend present).
+        """
+        import llauncher.core.gpu as gpu_mod
+
+        class FakeCollector:
+            def get_health(self):
+                return {"backends": []}  # falsy → not-degraded else branch
+
+        monkeypatch.setattr(gpu_mod, "GPUHealthCollector", FakeCollector)
+
+        response = client.get("/status")
+        assert response.status_code == 200
+        assert response.json()["gpu"] == {"degraded": False, "error": None}
+
+    def test_status_gpu_collector_exception_reports_degraded(self, client, monkeypatch):
+        """A collector that raises degrades the GPU block instead of 500-ing.
+
+        Covers routing.py:194-195 — any exception from the GPU collector is
+        caught and surfaced as ``{"degraded": True, "error": <ExcType>}`` so
+        the status poll stays healthy.
+        """
+        import llauncher.core.gpu as gpu_mod
+
+        class BoomCollector:
+            def __init__(self):
+                raise RuntimeError("no gpu backend")
+
+        monkeypatch.setattr(gpu_mod, "GPUHealthCollector", BoomCollector)
+
+        response = client.get("/status")
+        assert response.status_code == 200
+        assert response.json()["gpu"] == {"degraded": True, "error": "RuntimeError"}
+
+
 class TestModelsEndpoint:
     """Tests for the /models endpoint."""
 
@@ -846,6 +887,62 @@ class TestUtilityFunctions:
 
         assert result is False
         assert "Error stopping agent: test" in error_msg
+
+    def test_stop_agent_psutil_race_returns_false(self, monkeypatch):
+        """psutil fallback: a NoSuchProcess/AccessDenied race is swallowed.
+
+        Covers server.py:117-124 — ``find_process_on_port`` returns None so
+        we enter the psutil fallback, find a LISTEN connection on the port,
+        but ``psutil.Process``/``terminate`` loses a race against the process
+        exiting (NoSuchProcess). The ``except`` ``continue``s, the loop
+        exhausts, and the function logs the warning and returns False.
+        """
+        from llauncher.agent.server import stop_agent
+        import psutil
+        from unittest.mock import MagicMock
+
+        class MockResponse:
+            status_code = 200
+
+        monkeypatch.setattr("httpx.get", lambda url, timeout: MockResponse())
+        # Not found via /proc → drop into the psutil fallback loop.
+        monkeypatch.setattr(
+            "llauncher.agent.server.find_process_on_port", lambda port: None
+        )
+
+        mock_conn = MagicMock()
+        mock_conn.laddr.port = 8080
+        mock_conn.status = "LISTEN"
+        mock_conn.pid = 5678
+        monkeypatch.setattr("psutil.net_connections", lambda kind: [mock_conn])
+
+        def raise_nosuch(proc):
+            raise psutil.NoSuchProcess(proc)
+
+        monkeypatch.setattr("psutil.Process", raise_nosuch)
+
+        result = stop_agent(8080)
+
+        # The race was swallowed (continue), the loop found nothing live to
+        # terminate, and the function reported failure.
+        assert result is False
+
+    def test_stop_agent_non_200_health_returns_false(self, monkeypatch):
+        """A non-200 health response means no live agent → False.
+
+        Covers server.py:123-124 — the ``else`` arm when the health probe
+        answers with a non-200 status (something is on the port but it is
+        not a healthy llauncher agent), so we do not attempt a kill.
+        """
+        from llauncher.agent.server import stop_agent
+
+        class MockResponse:
+            status_code = 503
+
+        monkeypatch.setattr("httpx.get", lambda url, timeout: MockResponse())
+
+        result = stop_agent(8080)
+        assert result is False
 
     def test_run_agent(self, monkeypatch):
         """Test run_agent calls uvicorn.run with correct parameters."""

@@ -602,3 +602,212 @@ def test_invalid_subcommand():
     """Unknown subcommand should produce a helpful error."""
     result = runner.invoke(app, ["bogus"])
     assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# INTERFACE coverage close-out (issue: coverage close-out, INTERFACE cluster)
+# ---------------------------------------------------------------------------
+
+
+def test_print_table_colours_status_keywords():
+    """``_print_table`` routes status keywords through ``_color``, others through ``Text``.
+
+    Exercises the per-cell status-keyword branches (cli.py:75-80) *and*
+    asserts the routing so a branch swap or a misspelled keyword would fail:
+    every recognised status (``online``/``serving``/``running`` → green
+    branch line 76; ``stopped`` → yellow branch line 78; ``offline`` → line
+    79-80) must be handed to ``_color`` with its lowercased status, while a
+    non-status value must NOT be (it falls to the plain-``Text`` else arm).
+    """
+    from unittest.mock import patch as _patch
+
+    rows = [["online"], ["serving"], ["running"], ["stopped"], ["offline"], ["other"]]
+    with _patch("llauncher.cli._color", wraps=cli._color) as color_spy:
+        cli._print_table(["STATUS"], rows, title="Styling")
+
+    routed = {call.args for call in color_spy.call_args_list}
+    # Each recognised keyword reached its colour branch with (value, status).
+    for kw in ("online", "serving", "running", "stopped", "offline"):
+        assert (kw, kw) in routed, f"{kw} did not route through _color"
+    # The non-status value took the plain-Text else branch, never _color.
+    assert all(
+        call.args[0] != "other" for call in color_spy.call_args_list
+    ), "non-status value should not be colourised"
+
+
+def test_node_status_ping_failure_is_swallowed(node_config_file):
+    """A node whose ``ping()`` raises does not abort the status render (cli.py:407-409).
+
+    The ping refresh loop swallows a transient failure and keeps the node's
+    prior status so one flaky node cannot blank the whole status table.
+    """
+    node = _mock_node("10.0.0.9", 8765, "online")
+
+    with patch("llauncher.cli.NodeRegistry") as MockReg:
+        reg_instance = MagicMock()
+        reg_instance._nodes = {"flaky": node}
+        pinger = MagicMock()
+        pinger.ping.side_effect = RuntimeError("transient transport hiccup")
+        reg_instance.get_node.return_value = pinger
+        MockReg.return_value = reg_instance
+
+        result = runner.invoke(app, ["node", "status"])
+
+    # The swallow kept the loop alive; the node still renders from its prior
+    # (online) status rather than the command aborting.
+    assert result.exit_code == 0
+    assert "flaky" in result.stdout
+    pinger.ping.assert_called_once()
+
+
+def test_server_status_json_with_running_server(mock_config_store):
+    """``server status --json`` exports each running server via ``to_dict``.
+
+    Covers the JSON export loop body (cli.py:270): with at least one entry
+    in ``state.running`` the command serializes ``srv.to_dict()`` keyed by
+    port string.
+    """
+    _dir, _path = mock_config_store
+
+    srv = MagicMock()
+    srv.to_dict.return_value = {"port": 8080, "config_name": "m", "pid": 7}
+
+    with patch("llauncher.cli.LauncherState") as MockState:
+        instance = MagicMock()
+        instance.running = {8080: srv}
+        MockState.return_value = instance
+
+        result = runner.invoke(app, ["server", "status", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data == {"8080": {"port": 8080, "config_name": "m", "pid": 7}}
+
+
+def test_server_status_table_uptime_boundaries(mock_config_store):
+    """``server status`` table renders hour/minute/second uptime formats.
+
+    Covers the uptime-formatting boundaries (cli.py:283 hours branch, 285
+    minutes branch; the sub-minute branch is already covered elsewhere). We
+    seed three running servers whose ``uptime_seconds`` land in each band.
+    """
+    _dir, _path = mock_config_store
+
+    def _srv(name, pid, secs):
+        s = MagicMock()
+        s.config_name = name
+        s.pid = pid
+        s.uptime_seconds.return_value = secs
+        return s
+
+    running = {
+        8001: _srv("hours", 11, 7265),    # >= 3600 → "2h 1m"  (line 283)
+        8002: _srv("minutes", 12, 125),   # >= 60   → "2m 5s"  (line 285)
+        8003: _srv("seconds", 13, 42),    # < 60    → "42s"
+    }
+
+    with patch("llauncher.cli.LauncherState") as MockState:
+        instance = MagicMock()
+        instance.running = running
+        MockState.return_value = instance
+
+        result = runner.invoke(app, ["server", "status"])
+        assert result.exit_code == 0
+        # Rich may wrap the table, but the model names anchor the rows.
+        assert "hours" in result.stdout
+        assert "minutes" in result.stdout
+        assert "seconds" in result.stdout
+
+
+def test_list_nodes_json(node_config_file):
+    """``node list --json`` emits ``registry.to_dict()`` (cli.py:371-372)."""
+    with patch("llauncher.cli.NodeRegistry") as MockReg:
+        reg_instance = MagicMock()
+        reg_instance.to_dict.return_value = {"nodeA": {"host": "1.2.3.4", "port": 8765}}
+        MockReg.return_value = reg_instance
+
+        result = runner.invoke(app, ["node", "list", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data == {"nodeA": {"host": "1.2.3.4", "port": 8765}}
+        reg_instance.to_dict.assert_called_once()
+
+
+def _mock_node(host, port, status_value):
+    node = MagicMock()
+    node.host = host
+    node.port = port
+    node.status.value = status_value
+    return node
+
+
+def test_node_status_table_online_only(node_config_file):
+    """``node status`` (no ``--all``) renders only online nodes (cli.py:427-433,439)."""
+    online = _mock_node("10.0.0.1", 8765, "online")
+    offline = _mock_node("10.0.0.2", 8765, "offline")
+
+    with patch("llauncher.cli.NodeRegistry") as MockReg:
+        reg_instance = MagicMock()
+        reg_instance._nodes = {"up": online, "down": offline}
+        # get_node(...).ping() is a no-op MagicMock — the ping loop's try
+        # branch runs without raising.
+        MockReg.return_value = reg_instance
+
+        result = runner.invoke(app, ["node", "status"])
+        assert result.exit_code == 0
+        assert "up" in result.stdout
+        # Offline node filtered out of the default (online-only) view.
+        assert "down" not in result.stdout
+
+
+def test_node_status_table_all_includes_offline(node_config_file):
+    """``node status --all`` includes offline/error nodes (cli.py:427 True branch)."""
+    online = _mock_node("10.0.0.1", 8765, "online")
+    offline = _mock_node("10.0.0.2", 8765, "offline")
+
+    with patch("llauncher.cli.NodeRegistry") as MockReg:
+        reg_instance = MagicMock()
+        reg_instance._nodes = {"up": online, "down": offline}
+        MockReg.return_value = reg_instance
+
+        result = runner.invoke(app, ["node", "status", "--all"])
+        assert result.exit_code == 0
+        assert "up" in result.stdout
+        assert "down" in result.stdout
+
+
+def test_node_status_table_empty_roster(node_config_file):
+    """``node status`` with no registered nodes prints the empty notice (cli.py:435-436)."""
+    with patch("llauncher.cli.NodeRegistry") as MockReg:
+        reg_instance = MagicMock()
+        reg_instance._nodes = {}
+        MockReg.return_value = reg_instance
+
+        result = runner.invoke(app, ["node", "status"])
+        assert result.exit_code == 0
+        assert "no nodes registered" in result.stdout.lower()
+
+
+def test_config_validate_schema_exception(mock_config_store):
+    """``config validate`` reports a schema failure on the exception path.
+
+    Covers cli.py:472-474: ``get_model`` returns a config (so we pass the
+    not-found guard) but the re-validation via ``ModelConfig.model_validate``
+    raises, taking the ``except`` branch that prints the failure and exits 1.
+    """
+    _dir, _path = mock_config_store
+
+    cfg = ModelConfig.from_dict_unvalidated({
+        "name": "broken-model",
+        "model_path": "/fake/path/model.gguf",
+    })
+
+    with patch("llauncher.cli.ConfigStore.get_model", return_value=cfg):
+        with patch(
+            "llauncher.cli.ModelConfig.model_validate",
+            side_effect=ValueError("schema boom"),
+        ):
+            result = runner.invoke(app, ["config", "validate", "broken-model"])
+
+    assert result.exit_code == 1
+    assert "validation failed" in result.stdout.lower()
+    assert "schema boom" in result.stdout
