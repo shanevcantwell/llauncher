@@ -307,13 +307,75 @@ class TestEvictionRollbackRecovery:
         )
         return state
 
-    # NOTE: `test_readiness_false_rollback_failure_unavailable` was removed as
-    # false coverage (#244 → corrective for #249). It mocked
-    # `wait_for_server_ready` with a bare `return_value=False`, which the real
-    # function — `tuple[bool, list[str]]` — never returns. state.py:519 binds the
-    # result without unpacking, so `not ready` is always False and the readiness-
-    # failure rollback block (state.py ~520-562) is dead. That block is now
-    # honestly `# pragma: no cover` pending the genuine fix in #249.
+    def test_readiness_false_rollback_succeeds_restored(self, tmp_path):
+        """520-548: wait_for_server_ready returns a real (False, logs) tuple,
+        the new process is terminated, and rollback restores the evicted
+        server. Regression test for #249 — a prior version of this test
+        mocked `wait_for_server_ready` with a bare `return_value=False`,
+        which the real function (`tuple[bool, list[str]]`) never returns;
+        that false coverage masked state.py:519 binding the tuple without
+        unpacking, which made `if not ready:` permanently unreachable.
+        """
+        state = self._two_model_state(tmp_path)
+        with patch("llauncher.state.process_stop_server", return_value=True), \
+             patch("llauncher.state.stop_server_by_pid") as mock_stop_by_pid, \
+             patch("llauncher.state.wait_for_server_ready",
+                   return_value=(False, ["timed out waiting for ready"])), \
+             patch("llauncher.state.process_start_server") as mock_start:
+            mock_start.side_effect = [MagicMock(pid=111), MagicMock(pid=222)]
+            result = state._start_with_eviction_impl(
+                "new", port=8081, caller="cli",
+                readiness_timeout=5, strict_rollback=True,
+            )
+        mock_stop_by_pid.assert_called_once_with(111)
+        assert result.success is False
+        assert result.port_state == "restored"
+        assert result.rolled_back is True
+        assert result.restored_model == "old"
+        assert "Readiness timeout after 5s" in result.error
+        assert state.running[8081].config_name == "old"
+        assert state.running[8081].pid == 222
+
+    def test_readiness_false_rollback_fails_unavailable(self, tmp_path):
+        """549-558: readiness False, rollback start also raises → unavailable,
+        manual intervention required."""
+        state = self._two_model_state(tmp_path)
+        with patch("llauncher.state.process_stop_server", return_value=True), \
+             patch("llauncher.state.stop_server_by_pid"), \
+             patch("llauncher.state.wait_for_server_ready",
+                   return_value=(False, [])), \
+             patch("llauncher.state.process_start_server") as mock_start:
+            mock_start.side_effect = [MagicMock(pid=111), RuntimeError("rollback boom")]
+            result = state._start_with_eviction_impl(
+                "new", port=8081, caller="cli",
+                readiness_timeout=5, strict_rollback=True,
+            )
+        assert result.success is False
+        assert result.port_state == "unavailable"
+        assert result.rolled_back is False
+        assert "Rollback failed" in result.error
+        assert 8081 not in state.running
+
+    def test_readiness_false_no_rollback_non_strict_unavailable(self, tmp_path):
+        """560-566: readiness False, strict_rollback False → no rollback
+        attempted, port left unavailable."""
+        state = self._two_model_state(tmp_path)
+        with patch("llauncher.state.process_stop_server", return_value=True), \
+             patch("llauncher.state.stop_server_by_pid"), \
+             patch("llauncher.state.wait_for_server_ready",
+                   return_value=(False, [])), \
+             patch("llauncher.state.process_start_server",
+                   return_value=MagicMock(pid=111)):
+            result = state._start_with_eviction_impl(
+                "new", port=8081, caller="cli",
+                readiness_timeout=5, strict_rollback=False,
+            )
+        assert result.success is False
+        assert result.port_state == "unavailable"
+        assert result.rolled_back is False
+        assert "Readiness timeout after 5s" in result.error
+        assert result.new_model_attempted == "new"
+        assert 8081 not in state.running
 
     def test_readiness_raises_rollback_succeeds_restored(self, tmp_path):
         """563-587: wait_for_server_ready raises, rollback restores old."""
