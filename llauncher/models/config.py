@@ -142,6 +142,7 @@ MANAGED_NATIVE_FLAG_TO_FIELD: dict[str, str] = {
     "--repeat-penalty": "repeat_penalty",
     "--reverse-prompt": "reverse_prompt",
     "--mlock": "mlock",
+    "--metrics": "metrics",
 }
 
 MANAGED_NATIVE_FLAGS: frozenset[str] = frozenset(MANAGED_NATIVE_FLAG_TO_FIELD)
@@ -196,6 +197,15 @@ class ModelConfig(BaseModel):
     repeat_penalty: float | None = None
     reverse_prompt: str | None = None
     mlock: bool = False
+    metrics: bool = Field(
+        default=True,
+        description=(
+            "Enable llama-server's Prometheus /metrics endpoint "
+            "(--metrics). Default on: negligible overhead, and the clean "
+            "structured source for tps/kv-cache/draft-acceptance "
+            "telemetry (issue #169)."
+        ),
+    )
     extra_args: str = ""
 
     @field_validator("extra_args", mode="before")
