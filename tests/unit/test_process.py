@@ -251,6 +251,26 @@ class TestBuildCommand:
         cmd = build_command(minimal_config, port=8080)
         assert "--metrics" not in cmd
 
+    def test_slots_default_off_emits_no_slots(self, minimal_config):
+        """Issue #179 SP-1: slots defaults to False and emits --no-slots.
+
+        llama-server's own binary default for --slots is ENABLED (PM-2
+        de-risk finding) — the opposite of a safe default, since /slots
+        exposes per-slot prompt text. The launcher must emit the flag
+        explicitly rather than rely on the binary default.
+        """
+        assert minimal_config.slots is False
+        cmd = build_command(minimal_config, port=8080)
+        assert "--no-slots" in cmd
+        assert "--slots" not in cmd
+
+    def test_slots_enabled_emits_slots_flag(self, minimal_config):
+        """Issue #179 SP-1: slots=True emits --slots, not --no-slots."""
+        minimal_config.slots = True
+        cmd = build_command(minimal_config, port=8080)
+        assert "--slots" in cmd
+        assert "--no-slots" not in cmd
+
 
 def _alias_value(cmd: list[str]) -> str:
     """Return the argv token immediately following ``--alias``."""

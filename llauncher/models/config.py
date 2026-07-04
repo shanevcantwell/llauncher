@@ -143,6 +143,8 @@ MANAGED_NATIVE_FLAG_TO_FIELD: dict[str, str] = {
     "--reverse-prompt": "reverse_prompt",
     "--mlock": "mlock",
     "--metrics": "metrics",
+    "--slots": "slots",
+    "--no-slots": "slots",
 }
 
 MANAGED_NATIVE_FLAGS: frozenset[str] = frozenset(MANAGED_NATIVE_FLAG_TO_FIELD)
@@ -204,6 +206,18 @@ class ModelConfig(BaseModel):
             "(--metrics). Default on: negligible overhead, and the clean "
             "structured source for tps/kv-cache/draft-acceptance "
             "telemetry (issue #169)."
+        ),
+    )
+    slots: bool = Field(
+        default=False,
+        description=(
+            "Expose llama-server's /slots monitoring endpoint (--slots). "
+            "Default OFF: /slots includes per-slot prompt text, so this "
+            "is a sensitive opt-in — note llama-server's own binary "
+            "default is the inverse (ENABLED); llauncher always emits "
+            "--slots or --no-slots explicitly so the effective policy is "
+            "config-driven, not the binary default (ADR-LLNCH-019, "
+            "issue #179 PM-2 de-risk)."
         ),
     )
     extra_args: str = ""
