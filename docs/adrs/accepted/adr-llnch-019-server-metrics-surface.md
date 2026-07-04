@@ -1,6 +1,6 @@
 # ADR-LLNCH-019: Server-Metrics Surface — Live In-Server Inference Telemetry
 
-**Status:** Accepted (ratified 2026-06-19; implementation not yet begun)
+**Status:** Accepted (ratified 2026-06-19; implementation SP-1–SP-6 landed via #179 — `core/server_metrics.py`, `--slots`/`--no-slots` flag policy, `/server-metrics`+`/server-slots` agent endpoints, `server_metrics`/`server_slots` MCP tools, coverage + stub/real integration tests. SP-7 cross-repo handshake is a written finding, tracked on harness-tools#45, not a build blocker here.)
 **Date:** 2026-06-19
 **Amendment (2026-06-22):** `kv_cache_pct` is removed from the aggregate shape (§2 and §Testing). It is a *consumer-side derivation* — the footer computes context-fill locally from its token budget ÷ `ctx_size` — not server telemetry; and the observed `llama-server` build exposes **no** KV-cache metric on `/metrics` (#179 de-risk). Per `EMIT-CANONICAL / PARSE-AT-THE-DOOR`, llauncher surfaces only authoritative reads and **mints no derived metric**. No new invariant introduced.
 **Relationship to other ADRs:**
