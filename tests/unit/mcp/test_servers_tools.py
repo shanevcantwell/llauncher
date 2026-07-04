@@ -14,6 +14,8 @@ import pytest
 from llauncher.mcp_server.tools.servers import (
     get_server_logs,
     get_tools,
+    server_metrics,
+    server_slots,
     server_status,
     start_server,
     stop_server,
@@ -340,14 +342,16 @@ class TestGetServerLogs:
 class TestGetTools:
     """Tool descriptors must reflect the port-keyed shape."""
 
-    def test_returns_seven_tools(self):
-        """start, stop, swap, cancel, server_status, get_server_logs, list_orphans (ADR-015)."""
+    def test_returns_nine_tools(self):
+        """start, stop, swap, cancel, server_status, get_server_logs,
+        list_orphans (ADR-015), server_metrics + server_slots (ADR-LLNCH-019).
+        """
         tools = get_tools()
         names = [t.name for t in tools]
-        assert len(tools) == 7
+        assert len(tools) == 9
         for expected in ("start_server", "stop_server", "swap_server",
                          "cancel_server", "server_status", "get_server_logs",
-                         "list_orphans"):
+                         "list_orphans", "server_metrics", "server_slots"):
             assert expected in names
 
     def test_start_server_requires_model_and_port(self):
@@ -560,3 +564,71 @@ class TestCancelServer:
             "marker_existed": False,
             "port": 9999,
         }
+
+
+# ─── server_metrics / server_slots (ADR-LLNCH-019, issue #179 SP-5) ───
+
+
+class TestServerMetricsTool:
+    """Thin wrapper over ``core.server_metrics.get_aggregate_metrics``."""
+
+    @pytest.mark.asyncio
+    async def test_missing_port(self):
+        result = await server_metrics({})
+        assert result == {"error": "Missing required argument: port"}
+
+    @pytest.mark.asyncio
+    async def test_delegates_to_core_server_metrics(self):
+        snapshot = {"available": True, "phase": "idle"}
+        with patch(
+            "llauncher.core.server_metrics.get_aggregate_metrics",
+            return_value=snapshot,
+        ) as mock_get:
+            result = await server_metrics({"port": 8081})
+
+        mock_get.assert_called_once_with(8081)
+        assert result == snapshot
+
+    @pytest.mark.asyncio
+    async def test_returns_degraded_envelope_verbatim(self):
+        degraded = {"available": False, "reason": "unreachable"}
+        with patch(
+            "llauncher.core.server_metrics.get_aggregate_metrics",
+            return_value=degraded,
+        ):
+            result = await server_metrics({"port": 9999})
+
+        assert result == degraded
+
+
+class TestServerSlotsTool:
+    """Thin wrapper over ``core.server_metrics.get_slots``."""
+
+    @pytest.mark.asyncio
+    async def test_missing_port(self):
+        result = await server_slots({})
+        assert result == {"error": "Missing required argument: port"}
+
+    @pytest.mark.asyncio
+    async def test_delegates_to_core_server_metrics(self):
+        payload = {"available": True, "node": "n1", "slots": []}
+        with patch(
+            "llauncher.core.server_metrics.get_slots", return_value=payload
+        ) as mock_get:
+            result = await server_slots({"port": 8081})
+
+        mock_get.assert_called_once_with(8081)
+        assert result == payload
+
+    @pytest.mark.asyncio
+    async def test_returns_slots_disabled_envelope_verbatim(self):
+        """No HTTP-status mapping at the MCP layer — the tool call returns
+        the envelope as-is; only the agent HTTP endpoint maps this to 404.
+        """
+        disabled = {"available": False, "reason": "slots_disabled"}
+        with patch(
+            "llauncher.core.server_metrics.get_slots", return_value=disabled
+        ):
+            result = await server_slots({"port": 8081})
+
+        assert result == disabled
