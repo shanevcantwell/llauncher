@@ -138,11 +138,28 @@ def test_default_vram_check_no_backend_passes() -> None:
     assert reason == ""
 
 
-def test_default_vram_check_backend_with_no_devices_passes() -> None:
+def test_default_vram_check_backend_with_no_devices_fails_loud() -> None:
+    """#150: backend detected but no device data must fail loud, not silently pass.
+
+    A GPU backend that claims to exist yet reports no devices means VRAM
+    headroom is unverifiable (malformed query / nvidia-smi hiccup). The
+    check refuses the launch rather than admitting a blind, OOM-prone swap.
+    """
     cfg = _config()
     with _patch_gpu({"backends": ["nvidia"], "devices": []}):
         ok, reason = pf.default_vram_check(cfg)
-    assert ok is True
+    assert ok is False
+    assert "cannot verify vram headroom" in reason.lower()
+    assert "nvidia" in reason.lower()
+
+
+def test_default_vram_check_backend_with_missing_devices_key_fails_loud() -> None:
+    """#150: a missing ``devices`` key is treated the same as an empty list."""
+    cfg = _config()
+    with _patch_gpu({"backends": ["nvidia"]}):
+        ok, reason = pf.default_vram_check(cfg)
+    assert ok is False
+    assert "cannot verify vram headroom" in reason.lower()
 
 
 def test_default_vram_check_sufficient_passes() -> None:
