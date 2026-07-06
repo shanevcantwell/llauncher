@@ -86,6 +86,9 @@ def test_start_on_empty_port(
     assert result.port == 8081
     assert result.model == "mistral-7b"
     assert result.pid == 99999
+    # ctx_size/parallel folded in from the ConfigStore lookup (issue #267).
+    assert result.ctx_size == sample_config.ctx_size
+    assert result.parallel == sample_config.parallel
 
     # Lockfile written.
     written = lf.read_lockfile(8081, run_dir=run_dir)
@@ -118,6 +121,10 @@ def test_start_idempotent_when_same_model_running(
     assert result.action == "already_running"
     assert result.model == "mistral-7b"
     assert result.pid == os.getpid()
+    # ctx_size/parallel folded in even on the idempotent no-op path
+    # (issue #267): the short-circuit fetches config too.
+    assert result.ctx_size == sample_config.ctx_size
+    assert result.parallel == sample_config.parallel
     # Process should NOT be launched.
     start_proc.assert_not_called()
 
@@ -610,6 +617,8 @@ def test_start_result_to_dict_envelope() -> None:
         model="mistral-7b",
         pid=12345,
         message="ok",
+        ctx_size=32768,
+        parallel=2,
     )
     d = result.to_dict()
     assert d["success"] is True
@@ -618,6 +627,22 @@ def test_start_result_to_dict_envelope() -> None:
     assert d["model"] == "mistral-7b"
     assert d["pid"] == 12345
     assert d["message"] == "ok"
+    assert d["ctx_size"] == 32768
+    assert d["parallel"] == 2
+
+
+def test_start_result_to_dict_envelope_defaults_ctx_and_parallel_to_none() -> None:
+    """Non-success actions (e.g. rejections) don't carry config; both
+    fields default to ``None`` rather than requiring every call site to
+    pass them explicitly."""
+    result = ops.StartResult(
+        success=False,
+        action="rejected_occupied",
+        port=8081,
+    )
+    d = result.to_dict()
+    assert d["ctx_size"] is None
+    assert d["parallel"] is None
 
 
 def test_stop_result_to_dict_envelope() -> None:
@@ -719,9 +744,14 @@ def test_swap_same_model_short_circuits_already_running(
     import os
 
     lf.write_lockfile(8081, "mistral-7b", os.getpid(), run_dir=run_dir)
+    existing_config = _make_config("mistral-7b")
 
     with patch("llauncher.operations.proc.stop_server_by_port") as stop_proc, \
-         patch("llauncher.operations.proc.start_server") as start_proc:
+         patch("llauncher.operations.proc.start_server") as start_proc, \
+         patch(
+             "llauncher.operations.ConfigStore.get_model",
+             return_value=existing_config,
+         ):
         result = ops.swap("mistral-7b", 8081, caller="test")
 
     assert result.success is True
@@ -730,6 +760,10 @@ def test_swap_same_model_short_circuits_already_running(
     assert result.model == "mistral-7b"
     assert result.previous_model == "mistral-7b"
     assert result.pid == os.getpid()
+    # ctx_size/parallel folded in even on the idempotent no-op path
+    # (issue #267): the short-circuit fetches config too.
+    assert result.ctx_size == existing_config.ctx_size
+    assert result.parallel == existing_config.parallel
     # No teardown / relaunch on same-model swap.
     stop_proc.assert_not_called()
     start_proc.assert_not_called()
@@ -991,6 +1025,11 @@ def test_swap_full_success(
     assert result.model == "new-model"
     assert result.previous_model == "old"
     assert result.pid == 99999
+    # ctx_size/parallel folded in from the new model's ConfigStore lookup
+    # (issue #267).
+    new_config = _make_config("new-model")
+    assert result.ctx_size == new_config.ctx_size
+    assert result.parallel == new_config.parallel
 
     # Lockfile reflects the new claim.
     written = lf.read_lockfile(8081, run_dir=run_dir)
@@ -1191,6 +1230,8 @@ def test_swap_result_to_dict_envelope() -> None:
         pid=12345,
         message="ok",
         startup_logs=["a", "b"],
+        ctx_size=65536,
+        parallel=4,
     )
     d = result.to_dict()
     assert d["success"] is True
@@ -1201,6 +1242,22 @@ def test_swap_result_to_dict_envelope() -> None:
     assert d["previous_model"] == "old"
     assert d["pid"] == 12345
     assert d["startup_logs"] == ["a", "b"]
+    assert d["ctx_size"] == 65536
+    assert d["parallel"] == 4
+
+
+def test_swap_result_to_dict_envelope_defaults_ctx_and_parallel_to_none() -> None:
+    """Non-success actions (e.g. rejections/rollbacks) don't carry config;
+    both fields default to ``None``."""
+    result = ops.SwapResult(
+        success=False,
+        action="rejected_empty",
+        port_state="unchanged",
+        port=8081,
+    )
+    d = result.to_dict()
+    assert d["ctx_size"] is None
+    assert d["parallel"] is None
 
 
 # ---------------------------------------------------------------------------
