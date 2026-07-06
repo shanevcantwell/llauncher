@@ -785,6 +785,65 @@ class TestNodeRegistry:
 
         assert registry.get_node("bad-node") is None
 
+    def test_load_skips_invalid_entry_keeps_valid_siblings(self, temp_nodes_file, caplog):
+        """Issue #273: NodeRegistry._load() used to fold a single bad
+        entry's ``ValueError`` into the whole-file-corruption ``except``,
+        silently discarding every other valid node in the pass. A
+        multi-node file with one invalid entry (out-of-range port) must
+        drop only that entry — all valid nodes survive — and a WARN
+        naming the offending node is logged."""
+        temp_nodes_file.parent.mkdir(parents=True, exist_ok=True)
+        temp_nodes_file.write_text(
+            json.dumps(
+                {
+                    "good-node": {
+                        "name": "good-node",
+                        "host": "192.168.1.50",
+                        "port": 8765,
+                    },
+                    "bad-node": {
+                        "name": "bad-node",
+                        "host": "192.168.1.100",
+                        # Out-of-range port (NodeConfig requires 1024-65535).
+                        "port": 80,
+                    },
+                    "another-good-node": {
+                        "name": "another-good-node",
+                        "host": "192.168.1.51",
+                        "port": 9000,
+                    },
+                }
+            )
+        )
+
+        with caplog.at_level("WARNING", logger="llauncher.remote.registry"):
+            registry = NodeRegistry()
+
+        assert registry.get_node("bad-node") is None
+        good = registry.get_node("good-node")
+        assert good is not None
+        assert good.host == "192.168.1.50"
+        another_good = registry.get_node("another-good-node")
+        assert another_good is not None
+        assert another_good.host == "192.168.1.51"
+
+        assert any(
+            "bad-node" in record.message for record in caplog.records
+        ), "expected a WARN naming the dropped 'bad-node' entry"
+
+    def test_load_whole_file_corruption_starts_fresh(self, temp_nodes_file):
+        """Whole-file corruption (malformed JSON) is a distinct concern
+        from a single bad entry (issue #273): it still falls back to
+        starting fresh with an empty registry, rather than crashing UI
+        startup or being conflated with the now per-entry-scoped
+        validation failure path."""
+        temp_nodes_file.parent.mkdir(parents=True, exist_ok=True)
+        temp_nodes_file.write_text("{not valid json")
+
+        registry = NodeRegistry()
+
+        assert len(registry) == 0
+
     def test_refresh_all(self, temp_nodes_file):
         """Test refreshing all nodes."""
         registry = NodeRegistry()

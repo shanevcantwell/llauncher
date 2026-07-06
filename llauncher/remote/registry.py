@@ -52,38 +52,49 @@ class NodeRegistry:
         try:
             data = json.loads(NODES_FILE.read_text())
             for name, node_data in data.items():
-                # Backward compat: old files use "api_key", new files use "has_api_key"
-                raw_key = node_data.get("api_key")
-                host = node_data["host"]
-                port = node_data.get("port", 8765)
-                if isinstance(host, str) and host.count(":") == 1:
-                    # Issue #27: a prior UI bug let an embedded port slip
-                    # into the host field (e.g. "192.168.137.2:8765") on
-                    # top of a separate port field, producing a malformed
-                    # base_url. Migrate once, at the door (PARSE-AT-THE-DOOR):
-                    # split the embedded port out and prefer it as the
-                    # real port, then persist the corrected shape below.
-                    fixed_host, _, port_str = host.rpartition(":")
-                    if port_str.isdigit():
-                        port = int(port_str)
-                    logger.warning(
-                        f"Migrated corrupted host for node '{name}': "
-                        f"{host!r} -> host={fixed_host!r}, port={port}"
+                try:
+                    # Backward compat: old files use "api_key", new files use "has_api_key"
+                    raw_key = node_data.get("api_key")
+                    host = node_data["host"]
+                    port = node_data.get("port", 8765)
+                    if isinstance(host, str) and host.count(":") == 1:
+                        # Issue #27: a prior UI bug let an embedded port slip
+                        # into the host field (e.g. "192.168.137.2:8765") on
+                        # top of a separate port field, producing a malformed
+                        # base_url. Migrate once, at the door (PARSE-AT-THE-DOOR):
+                        # split the embedded port out and prefer it as the
+                        # real port, then persist the corrected shape below.
+                        fixed_host, _, port_str = host.rpartition(":")
+                        if port_str.isdigit():
+                            port = int(port_str)
+                        logger.warning(
+                            f"Migrated corrupted host for node '{name}': "
+                            f"{host!r} -> host={fixed_host!r}, port={port}"
+                        )
+                        host = fixed_host
+                        migrated = True
+                    self._nodes[name] = RemoteNode(
+                        name=node_data["name"],
+                        host=host,
+                        port=port,
+                        timeout=node_data.get("timeout", 5.0),
+                        api_key=raw_key,
                     )
-                    host = fixed_host
-                    migrated = True
-                self._nodes[name] = RemoteNode(
-                    name=node_data["name"],
-                    host=host,
-                    port=port,
-                    timeout=node_data.get("timeout", 5.0),
-                    api_key=raw_key,
-                )
+                except (KeyError, ValueError) as e:
+                    # Issue #273: a single entry that fails NodeConfig
+                    # validation (or is missing a required key) after the
+                    # embedded-port migration above must not take the
+                    # whole pass down with it. Scope the failure to this
+                    # entry — log and drop only ``name``, keep the rest.
+                    logger.warning(
+                        f"Skipping node '{name}' in {NODES_FILE}: {e}"
+                    )
+                    continue
         except (json.JSONDecodeError, KeyError, ValueError):
-            # Corrupted file (bad JSON/shape), or an entry that still
-            # fails NodeConfig validation after the embedded-port
-            # migration above (issue #27) — start fresh rather than
-            # crash UI startup.
+            # Whole-file corruption (bad JSON, or a non-dict top-level
+            # shape whose per-entry iteration itself raises before the
+            # inner try can scope it) — start fresh rather than crash UI
+            # startup.
             self._nodes.clear()
             migrated = False
 
