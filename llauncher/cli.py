@@ -494,7 +494,11 @@ def config_path() -> None:
     """Print the path to the llauncher configuration file."""
     from llauncher.core.config import CONFIG_PATH
 
-    console.print(f"[green]{CONFIG_PATH}[/green]")
+    # soft_wrap: a filesystem path is a single atom — never soft-wrap it. Rich's
+    # default width (80 cols, and no TTY under pytest) would otherwise insert a
+    # mid-path newline once the path exceeds the console width, corrupting the
+    # emitted value for both a narrow terminal and substring-checking callers (#256).
+    console.print(f"[green]{CONFIG_PATH}[/green]", soft_wrap=True)
 
 
 @config_app.command("validate")
