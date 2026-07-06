@@ -18,10 +18,50 @@ from datetime import datetime
 from enum import Enum
 
 import httpx
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from llauncher.core.delegation import is_agent_process
 
 logger = logging.getLogger(__name__)
+
+
+class NodeConfig(BaseModel):
+    """Validated connection parameters for a :class:`RemoteNode` (issue #27).
+
+    Single source of truth for the shape a node's connection parameters
+    must satisfy — host/port/timeout — so ``RemoteNode`` and
+    ``NodeRegistry`` validate identically instead of each hand-rolling
+    checks. The bug this closes: a host field with an embedded port
+    (``"192.168.137.2:8765"``) plus a *separate* port field produced a
+    malformed ``base_url`` (``http://192.168.137.2:8765:8765``) with no
+    error until the request failed.
+    """
+
+    name: str = Field(min_length=1)
+    host: str = Field(min_length=1)
+    port: int = Field(default=8765, ge=1024, le=65535)
+    timeout: float = Field(default=5.0, gt=0)
+
+    @field_validator("host")
+    @classmethod
+    def _reject_embedded_port(cls, value: str) -> str:
+        """Reject a host carrying a single embedded ``:port`` suffix.
+
+        Exactly one colon is the ``host:port`` shape (the #27 bug);
+        IPv6 literals (``::1``, ``2001:db8::1``) carry two-or-more and
+        are left alone rather than mis-flagged.
+        """
+        if value.count(":") == 1:
+            raise ValueError(
+                f"host {value!r} must not embed a port — use the separate "
+                "port field instead"
+            )
+        return value
+
+    @property
+    def base_url(self) -> str:
+        """Base URL for this node's agent."""
+        return f"http://{self.host}:{self.port}"
 
 
 def _local_host_names() -> frozenset[str]:
@@ -113,10 +153,18 @@ class RemoteNode:
         timeout: float = 5.0,
         api_key: str | None = None,
     ):
-        self.name = name
-        self.host = host
-        self.port = port
-        self.timeout = timeout
+        try:
+            config = NodeConfig(name=name, host=host, port=port, timeout=timeout)
+        except ValidationError as e:
+            # Collapse pydantic's multi-line error into the first,
+            # most-relevant message so callers (registry, UI) can
+            # surface a single readable line rather than a traceback.
+            raise ValueError(e.errors()[0]["msg"]) from e
+        self._config = config
+        self.name = config.name
+        self.host = config.host
+        self.port = config.port
+        self.timeout = config.timeout
         self.api_key: str | None = api_key if api_key else None
         self.status = NodeStatus.OFFLINE
         self.last_seen: datetime | None = None
@@ -125,7 +173,7 @@ class RemoteNode:
     @property
     def base_url(self) -> str:
         """Get the base URL for this node's agent."""
-        return f"http://{self.host}:{self.port}"
+        return self._config.base_url
 
     def __str__(self) -> str:
         return f"RemoteNode({self.name}@{self.host}:{self.port}, status={self.status.value})"

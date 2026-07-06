@@ -194,7 +194,11 @@ def render_add_node_form(registry: NodeRegistry) -> None:
         )
         node_host = st.text_input(
             "Host",
-            help="Hostname or IP address (e.g., '192.168.1.100' or 'server.local')",
+            help=(
+                "Hostname or IP address only — no port (e.g., '192.168.1.100' "
+                "or 'server.local'). Set the port separately below; "
+                "'192.168.1.100:8765' will be rejected."
+            ),
         )
         col1, col2 = st.columns(2)
         with col1:
@@ -245,13 +249,17 @@ def render_add_node_form(registry: NodeRegistry) -> None:
             else:
                 from llauncher.remote.node import RemoteNode
 
-                test_node = RemoteNode(
-                    node_name,
-                    node_host,
-                    node_port,
-                    timeout,
-                    api_key=api_key or None,
-                )
+                try:
+                    test_node = RemoteNode(
+                        node_name,
+                        node_host,
+                        node_port,
+                        timeout,
+                        api_key=api_key or None,
+                    )
+                except ValueError as e:
+                    st.error(str(e))
+                    return
                 result = test_node.ping()
                 if result:
                     st.success(
