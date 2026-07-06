@@ -117,6 +117,8 @@ class TestDispatchToolAllTools:
             ("stop_server", "llauncher.mcp_server.server.servers_tools.stop_server"),
             ("swap_server", "llauncher.mcp_server.server.servers_tools.swap_server"),
             ("delete_model", "llauncher.mcp_server.server.config_tools.delete_model"),
+            ("server_metrics", "llauncher.mcp_server.server.servers_tools.server_metrics"),
+            ("server_slots", "llauncher.mcp_server.server.servers_tools.server_slots"),
         ]
 
         for tool_name, module_path in stateless_verbs:

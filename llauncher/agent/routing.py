@@ -239,6 +239,40 @@ def get_footer_context(port: int) -> dict:
     return ctx.to_dict()
 
 
+@router.get("/server-metrics/{port}")
+def get_server_metrics(port: int) -> dict:
+    """Aggregate live-telemetry snapshot for ``port`` (ADR-LLNCH-019).
+
+    Response shape is **pinned** by the ADR; do not extend without
+    amending it. Safe tier — no prompt text. Always ``200``: an
+    unreachable/loading/no-metrics-flag server is a degraded envelope
+    (``{"available": false, "reason": ...}``), not an HTTP error —
+    matching the ADR's PARSE-AT-THE-DOOR posture. Same auth as
+    ``/status`` (not exempt, see ``agent.middleware``).
+    """
+    from llauncher.core import server_metrics
+
+    return server_metrics.get_aggregate_metrics(port)
+
+
+@router.get("/server-slots/{port}")
+def get_server_slots(port: int) -> dict:
+    """Sensitive per-slot snapshot for ``port`` — includes prompt text.
+
+    Returns ``404 slots_disabled`` when the server was not started with
+    ``--slots`` (the launcher's default posture, issue #179 SP-1).
+    Other degraded states (unreachable) return ``200`` with a degraded
+    envelope, matching :func:`get_server_metrics`. Same auth as
+    ``/status`` (not exempt).
+    """
+    from llauncher.core import server_metrics
+
+    result = server_metrics.get_slots(port)
+    if result.get("reason") == "slots_disabled":
+        raise HTTPException(status_code=404, detail="slots_disabled")
+    return result
+
+
 @router.get("/models")
 def list_models() -> list[dict]:
     """List all configured models on this node."""
