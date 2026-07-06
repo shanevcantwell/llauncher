@@ -68,6 +68,8 @@ class SwapResult:
     message: str = ""
     startup_logs: list[str] = field(default_factory=list)
     cancel_ignored_post_commit: bool = False
+    ctx_size: int | None = None
+    parallel: int | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -296,6 +298,11 @@ def swap(
                 pid=previous_pid,
             )
         mk.release_marker(port)
+        # Idempotent short-circuit predates the config lookup used by the
+        # differing-model path below; fetch it here too so a consumer
+        # folding this result still sees ctx_size/parallel refreshed on a
+        # no-op swap (issue #267).
+        existing_config = ConfigStore.get_model(model_name)
         return SwapResult(
             success=True,
             action="already_running",
@@ -305,6 +312,12 @@ def swap(
             previous_model=previous_model_name,
             pid=previous_pid,
             message=f"{model_name} is already running on port {port}",
+            ctx_size=(
+                existing_config.ctx_size if existing_config is not None else None
+            ),
+            parallel=(
+                existing_config.parallel if existing_config is not None else None
+            ),
         )
 
     # 1c. New model must exist in config.
@@ -485,6 +498,8 @@ def swap(
                 ),
                 startup_logs=startup_logs,
                 cancel_ignored_post_commit=cancel_ignored,
+                ctx_size=new_config.ctx_size,
+                parallel=new_config.parallel,
             )
 
         # New model failed — record the failed start and fall through to rollback.
