@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import typer
+from rich.console import Console
 from typer.testing import CliRunner
 
 from llauncher import cli
@@ -560,6 +561,28 @@ def test_config_path_printed(mock_config_store):
         result = runner.invoke(app, ["config", "path"])
     assert result.exit_code == 0
     assert str(cfg_path) in result.stdout
+
+
+def test_config_path_not_wrapped_when_wider_than_console():
+    """Path output must not be soft-wrapped: a long path on a narrow console
+    must still emit as a single unbroken atom (#256).
+
+    Regression guard — with a forced 80-column, non-TTY console (Rich's default
+    under pytest) and a path longer than 80 chars, the pre-fix code inserted a
+    mid-path newline, so the full path was no longer a substring of stdout.
+    """
+    long_path = Path(
+        "/tmp/pytest-of-someuser/pytest-999999/"
+        "test_config_path_not_wrapped0/.llauncher/config.json"
+    )
+    assert len(str(long_path)) > 80  # must exceed the default console width to bite
+
+    with patch("llauncher.core.config.CONFIG_PATH", long_path), \
+            patch.object(cli, "console", Console(width=80)):
+        result = runner.invoke(app, ["config", "path"])
+
+    assert result.exit_code == 0
+    assert str(long_path) in result.stdout
 
 
 def test_config_validate_valid(mock_config_store):
