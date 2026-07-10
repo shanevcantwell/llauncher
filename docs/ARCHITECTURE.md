@@ -5,22 +5,90 @@ boundary between layers enforceable. Its purpose is to distinguish a valid compo
 from a violation — not to describe what the code currently does, but to state what it
 must do and to name the gaps that remain.
 
-> Edit-time companion: `.claude/architecture.md` is the terse layer map kept open while
-> editing. This document is the governing version — invariant-first, with an audited
-> conformance ledger. Where the two disagree, this one is the target.
+> This document is the single home for the layer map: the terse edit-time diagram and
+> forbidden-edge table live in the section immediately below, and the invariant-first
+> governing version with the audited conformance ledger follows it. There is no separate
+> edit-time file — one home, so there is nothing to disagree with.
 
 ---
 
-## The invariant (read this first)
+## Edit-time layer map (read this first while editing)
 
-Seven rules. All seven apply simultaneously.
+> Minimal distillation of the layering doctrine for use *at edit time*. Deeper context:
+> the full invariant below, the ADRs it cites (esp. ADR-008 stateless facade, ADR-010
+> port-keyed endpoints), and the historical `docs/1-architecture-layers.md` /
+> `docs/2-cross-layer-reach.md`.
+
+```
+ENDPOINT        agent/ (HTTP)   mcp_server/ (stdio)   ui/ (Streamlit)   cli.py
+                     │                 │                   │             │
+                     └─────────────────┴────────┬──────────┴─────────────┘
+                                                ▼
+ORCHESTRATION   operations/  (stateless verbs: start · stop · swap · delete · orphan · preflight)
+                state.py     (LauncherState facade — ADR-008)
+                                                ▼
+CORE            core/  (config · process · settings · lockfile · audit_log · model_health)
+                                                ▼
+MODELS          models/  (pydantic data types — the floor)
+
+REMOTE (client) remote/  (NodeRegistry · RemoteNode · RemoteAggregator)
+                used by ui/ and cli;  reaches a node ONLY over HTTP to agent/ endpoints.
+```
+
+**The one rule: dependencies point downward. Siblings do not import siblings.**
+
+- Endpoints orchestrate; orchestration uses core; core uses models.
+- `remote` and `agent` are **peers across the network boundary** — they share the HTTP
+  wire contract and nothing else. `remote` is a client; `agent` is a server. Neither
+  imports the other in Python.
+- If two siblings need the same helper, **hoist it down** into a shared lower layer
+  (`core`), don't reach sideways.
+
+### Forbidden edges (guard these)
+
+| Edge | Why it's wrong | Do instead |
+|---|---|---|
+| `remote → agent` | client importing its server | call over HTTP, or hoist the shared helper into `core` |
+| `core → {state, operations, agent, remote, ui, mcp_server}` | core must not import upward | invert: caller passes what core needs |
+| `models → anything` | data types are the floor | keep them dependency-free |
+| `state`/`operations` → endpoint layers | orchestration must not know its callers | endpoints depend on orchestration, never the reverse |
+
+> Known regression: `remote/registry.py` imports `agent.auth.resolve_agent_token` (a
+> `remote → agent` edge) to source the local token. The fix is to hoist the token *read*
+> path into `core` and keep token *materialization* in `agent`. Tracked: #171 (audited in
+> the conformance ledger below).
+
+### Enforced UI boundary (ADR-025)
+
+`ui/` reaches the backend **only** through `state`/`operations`/`remote` — backend verbs
+via the orchestration facades, all node I/O via `remote/` (`NodeRegistry` / `RemoteNode`
+/ `RemoteAggregator`). A UI module must never:
+
+- do its own HTTP to a node (`httpx` / `requests` / `urllib` / `http.client` / `socket` /
+  `aiohttp`) — node I/O is `remote/`'s job; or
+- import a peer/sibling endpoint (`llauncher.agent.*`, `llauncher.mcp_server.*`,
+  `llauncher.cli`).
+
+This is **enforced statically** by `tests/architecture/test_ui_layer_boundaries.py`: an
+AST scan over `llauncher/ui/**` that fails fast on either breach, citing this file and
+the offending `file:line`. It is the deterministic catch for the cross-layer reach (a UI
+tab hitting a node URL directly) that previously escaped to an alpha tag. A behavioral
+complement (`tests/ui/` AppTest harness, `forbid_direct_http`) asserts the same at
+runtime for the tabs it drives.
+
+---
+
+## The full invariant (the governing version)
+
+Seven rules. All seven apply simultaneously. Where this section and the edit-time map
+above disagree, this one is the target.
 
 1. **Dependencies point downward.** Each layer imports only from layers beneath it;
    siblings never import siblings. The mechanism is a **perception** firewall — the
    import graph. A module physically cannot name a symbol it does not import, so the
    rule stops a cross-layer edge from being *authored*. It does **not** bound what a
    running process can reach over other channels (HTTP, a shell, a `sys.path` insert) —
-   only what the source may import. *(→ `.claude/architecture.md`; ADR-008)*
+   only what the source may import. *(→ the edit-time layer map above; ADR-008)*
 
 2. **`remote` and `agent` are network peers, not Python neighbors.** They share exactly
    one thing: the HTTP wire contract. `remote` is a client; `agent` is a server. Neither
@@ -236,7 +304,7 @@ rules and is in violation on two.
 | Violation | Why it breaks the invariant | Evidence (`path:symbol`) | Resolved by |
 |-----------|----------------------------|--------------------------|-------------|
 | **Models imports Core (upward edge).** `ModelConfig`'s blacklisted-ports default-factory sources its list from `core.settings`. | Breaks rule 1: `models/` is the floor and must be dependency-free relative to llauncher's own layers; importing `core` inverts the arrow. | `llauncher/models/config.py:17` — `from llauncher.core.settings import BLACKLISTED_PORTS` (consumed at `ChangeRules.blacklisted_ports`) | Invert the dependency: pass the blacklist in at construction/validation time, or hoist the constant to `models`/`util` so the edge points down. Tracked: #170. |
-| **`remote` imports `agent` (sideways/upward edge).** `remote/registry.py` imports `resolve_agent_token` from `agent.auth` to source the local node's token. | Breaks rule 2: client importing its server couples the two across the network-peer boundary they are supposed to share only over HTTP. | `llauncher/remote/registry.py:85` — `from llauncher.agent.auth import resolve_agent_token` | Hoist the token **read** path into `core`; keep token **materialization** in `agent.auth`. Known regression, also noted in `.claude/architecture.md`. Tracked: #171. |
+| **`remote` imports `agent` (sideways/upward edge).** `remote/registry.py` imports `resolve_agent_token` from `agent.auth` to source the local node's token. | Breaks rule 2: client importing its server couples the two across the network-peer boundary they are supposed to share only over HTTP. | `llauncher/remote/registry.py:85` — `from llauncher.agent.auth import resolve_agent_token` | Hoist the token **read** path into `core`; keep token **materialization** in `agent.auth`. Known regression, also noted in the edit-time layer map above. Tracked: #171. |
 
 > **Reconciliation note (rule 5).** `EMIT-CANONICAL` conforms as of
 > `core/process.py:build_command`. However the project `CLAUDE.md` and the ecosystem
