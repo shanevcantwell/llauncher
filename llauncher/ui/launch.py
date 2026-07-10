@@ -8,7 +8,7 @@ instead of the ``cd <repo> && scripts/run.sh ui`` ritual. Mirrors the
 Launches Streamlit in a subprocess (``python -m streamlit run app.py``)
 rather than importing it: ``ui/`` is an endpoint-layer sibling, and
 shelling out keeps this free of any cross-layer Python import (see
-``.claude/architecture.md``) and stable across Streamlit's internal CLI
+``docs/ARCHITECTURE.md``) and stable across Streamlit's internal CLI
 module reshuffles.
 """
 

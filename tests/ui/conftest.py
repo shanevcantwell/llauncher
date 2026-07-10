@@ -2,7 +2,7 @@
 
 The UI tabs are plain ``render_*(…facades…)`` functions that talk to the
 backend only through the engine (``state`` / ``operations``) and to remote
-nodes only through ``remote/`` (per ``.claude/architecture.md`` and ADR-025).
+nodes only through ``remote/`` (per ``docs/ARCHITECTURE.md`` and ADR-025).
 That shape makes them headlessly testable: drive a single tab with
 ``streamlit.testing.v1.AppTest`` while the engine facades are **mocked**, then
 assert on the rendered element tree *and* on which facade methods the tab
@@ -187,7 +187,7 @@ def _forbid_direct_http():
         raise AssertionError(
             "ui/ attempted direct network I/O during render — node I/O must "
             "go through remote/ (NodeRegistry / RemoteNode / RemoteAggregator), "
-            "never a raw socket. See .claude/architecture.md / ADR-025."
+            "never a raw socket. See docs/ARCHITECTURE.md / ADR-025."
         )
 
     patches = [patch(target, side_effect=_boom) for target in _DIRECT_HTTP_TARGETS]

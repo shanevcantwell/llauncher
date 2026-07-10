@@ -2,7 +2,7 @@
 
 Why this test exists
 --------------------
-``ui/`` is an **endpoint** layer (``.claude/architecture.md``). The "one rule"
+``ui/`` is an **endpoint** layer (``docs/ARCHITECTURE.md``). The "one rule"
 is *dependencies point downward; siblings do not import siblings*. Concretely,
 a UI tab reaches the backend **only** through the orchestration facades
 (``state`` / ``operations``) and remote nodes **only** through ``remote/``
@@ -25,7 +25,7 @@ production.
 If this test FAILS, a UI module has reached across a layer boundary. The fix is
 never to loosen this guard — it is to route the call through the engine: backend
 verbs via ``state``/``operations``, node I/O via ``remote/``. See
-``.claude/architecture.md`` (the layer map and the forbidden-edge table) and
+``docs/ARCHITECTURE.md`` (the layer map and the forbidden-edge table) and
 ADR-025.
 """
 
@@ -37,7 +37,7 @@ from pathlib import Path
 # Repo root = two parents up from this file: tests/architecture/<file>.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _UI_ROOT = _REPO_ROOT / "llauncher" / "ui"
-_ARCH_DOC = ".claude/architecture.md"
+_ARCH_DOC = "docs/ARCHITECTURE.md"
 
 # Direct-HTTP libraries a UI module must never import. Node I/O is the job of
 # ``remote/`` (the sanctioned client); a UI module constructing/hitting a URL
