@@ -1128,6 +1128,87 @@ class TestUtilityFunctions:
         assert exited_with == 1
         assert "test error" in error_msg
 
+    def test_main_print_token_from_env(self, monkeypatch, capsys):
+        """print-token resolves the env token, prints it, and exits 0 (#134)."""
+        from llauncher.agent.server import main
+        import sys
+
+        monkeypatch.setattr("sys.argv", ["llauncher-agent", "print-token"])
+        monkeypatch.setenv("LLAUNCHER_AGENT_TOKEN", "sekret-from-env")
+
+        exited_with = None
+
+        def mock_exit(code):
+            nonlocal exited_with
+            exited_with = code
+
+        monkeypatch.setattr(sys, "exit", mock_exit)
+
+        main()
+
+        out = capsys.readouterr().out
+        assert out.strip() == "sekret-from-env"
+        assert exited_with == 0
+
+    def test_main_print_token_from_file(self, monkeypatch, capsys, tmp_path):
+        """print-token falls back to the on-disk token file (#134)."""
+        from llauncher.agent.server import main
+        import sys
+
+        monkeypatch.setattr("sys.argv", ["llauncher-agent", "print-token"])
+        monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
+
+        token_file = tmp_path / "agent.token"
+        token_file.write_text("sekret-from-file\n", encoding="utf-8")
+        monkeypatch.setattr(
+            "llauncher.core.agent_token.default_token_path",
+            lambda: token_file,
+        )
+
+        exited_with = None
+
+        def mock_exit(code):
+            nonlocal exited_with
+            exited_with = code
+
+        monkeypatch.setattr(sys, "exit", mock_exit)
+
+        main()
+
+        out = capsys.readouterr().out
+        assert out.strip() == "sekret-from-file"
+        assert exited_with == 0
+
+    def test_main_print_token_missing_fails_loud(self, monkeypatch, capsys, tmp_path):
+        """print-token exits 1 with a clear stderr message when no token exists (#134)."""
+        from llauncher.agent.server import main
+        import sys
+
+        monkeypatch.setattr("sys.argv", ["llauncher-agent", "print-token"])
+        monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
+
+        # Point at a non-existent token file so resolution returns None
+        # (allow_generate=False is enforced by the subcommand).
+        monkeypatch.setattr(
+            "llauncher.core.agent_token.default_token_path",
+            lambda: tmp_path / "does-not-exist.token",
+        )
+
+        exited_with = None
+
+        def mock_exit(code):
+            nonlocal exited_with
+            exited_with = code
+
+        monkeypatch.setattr(sys, "exit", mock_exit)
+
+        main()
+
+        captured = capsys.readouterr()
+        assert exited_with == 1
+        assert captured.out == ""  # token never printed
+        assert "no agent token found" in captured.err
+
     def test_main_entry_point(self):
         """Test the if __name__ == "__main__" block."""
         # We can't easily test the actual block without importing the module as main

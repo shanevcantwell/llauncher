@@ -468,8 +468,48 @@ In the dashboard:
    - **Node Name**: Friendly name (e.g., `linux-box`, `windows-server`)
    - **Host**: IP address or hostname (e.g., `192.168.1.100`)
    - **Port**: Agent port (default: `8765`)
+   - **API Key**: the remote agent's token (see *Adding a remote node* below)
 4. Click **🔍 Test Connection** to verify
 5. Click **➕ Add Node** to register
+
+##### Adding a remote node (token walkthrough)
+
+A remote agent **always** enforces a token (auth is never off, even on
+loopback). To pair the head with a remote node you copy that token by hand —
+it currently is **not** issued automatically (session-token issuance is
+tracked under #137). Each platform keeps the token in a known file:
+
+| Platform | Token file | Mirrored from | By |
+| --- | --- | --- | --- |
+| Linux | `~/.llauncher/agent.token` | `~/.config/llauncher/agent.env` | `scripts/systemd/install.sh` |
+| Windows | `%USERPROFILE%\.llauncher\agent.token` | `agent.env` | `scripts/windows/install.ps1` |
+
+Step by step:
+
+1. **Get on the remote box.** SSH to a Linux node, or RDP to a Windows node.
+2. **Read the token.** The portable way is the agent's own subcommand, which
+   resolves the token from env / stdin / the token file and prints it to
+   stdout:
+   ```bash
+   llauncher-agent print-token
+   ```
+   If you prefer to read the file directly:
+   ```bash
+   # Linux
+   cat ~/.llauncher/agent.token
+   ```
+   ```powershell
+   # Windows (PowerShell)
+   Get-Content $env:USERPROFILE\.llauncher\agent.token
+   ```
+   Over SSH you can do both in one shot: `ssh windows-box llauncher-agent print-token`.
+3. **Copy the value.** It is a single `secrets.token_urlsafe(32)` string on
+   one line.
+4. **Paste it into the head's UI.** Back on the head machine, paste the value
+   into the **API Key** field of the **Add New Node** form (step 3 above).
+
+The token is stored on the head at `~/.llauncher/node_tokens.json` (mode 0600);
+the `local` node is excluded because its token already lives in `agent.token`.
 
 ### Network Configuration
 

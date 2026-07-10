@@ -6,18 +6,10 @@ Two things live here:
    ``AppTest``-driven smoke that the ``#134`` salvage stopgap
    (``salvage/134-nodes-tab-test``) explicitly pointed forward to ("a real
    rendered-output smoke is deferred to the Streamlit AppTest harness (#69)").
-   It asserts the form renders its fields with the help text that *actually
-   ships* today (ADR-003 / ``LLAUNCHER_AGENT_TOKEN``).
-
-   Note on the salvage: that stopgap also pinned a manual-token-copy ``st.info``
-   banner and platform-specific (``cat`` / ``Get-Content``) API-Key help keyed
-   to issue ``#135``. That copy was never merged into ``render_add_node_form``
-   on ``main`` — it remains terser. Re-implementing those exact assertions would
-   require *adding speculative UI copy that references unshipped #135 work*,
-   which is a product decision, not a test salvage. So this file preserves the
-   salvage's intent (a rendered smoke of the Add Node form) against the shipped
-   copy and surfaces the stranded banner copy in the PR rather than fabricating
-   it.
+   It asserts the form renders its fields with the Phase 0 (#134) operability
+   copy that ships on ``main`` today: the manual-token-copy ``st.info`` banner
+   and the platform-specific (``print-token`` / ``cat`` / ``Get-Content``)
+   API-Key help, alongside the ADR-003 auth reference.
 
 2. **Behavioral remote-I/O test** — drives the tab with ``remote/`` mocked and
    asserts the UI reaches the node *only* through the ``RemoteNode`` facade
@@ -78,7 +70,8 @@ class TestNodesTabRender:
 class TestAddNodeFormSmoke:
     """Rendered-output smoke of the Add Node form (salvage #134 → #69 intent).
 
-    Pins the *shipped* operability copy, not the never-merged #134 banner.
+    Pins the shipped Phase 0 (#134) operability copy: the manual-token-copy
+    banner and the platform-specific API-Key help.
     """
 
     def test_add_node_form_fields_render(
@@ -98,19 +91,34 @@ class TestAddNodeFormSmoke:
         assert "➕ Add Node" in button_labels
         assert "🔍 Test Connection" in button_labels
 
+    def test_manual_token_copy_banner_renders(
+        self, tab_harness, mock_registry, mock_aggregator
+    ):
+        """An info banner surfaces the manual flow and its README pointer."""
+        at = tab_harness(render_nodes_tab, mock_registry, mock_aggregator)
+
+        assert not at.exception
+        banner = next(
+            el.value for el in at.info if "API token by hand" in el.value
+        )
+        assert "Adding a remote node" in banner  # README section pointer
+        assert "#137" in banner  # roadmap issue tracking the successor
+
     def test_api_key_help_documents_token_source_and_adr(
         self, tab_harness, mock_registry, mock_aggregator
     ):
         """First-contact help tells the operator what the API Key field wants.
 
-        Asserts the copy that ships on ``main`` today — the agent-token source
-        and the ADR-003 auth reference — rather than the stranded #134 banner.
+        Asserts the Phase 0 (#134) copy that ships on ``main`` today: the
+        platform-specific token-retrieval commands and the ADR-003 auth
+        reference.
         """
         at = tab_harness(render_nodes_tab, mock_registry, mock_aggregator)
 
         help_text = _input_by_label(at, "API Key").help
-        assert "LLAUNCHER_AGENT_TOKEN" in help_text
-        assert "agent.token" in help_text
+        assert "llauncher-agent print-token" in help_text
+        assert "cat ~/.llauncher/agent.token" in help_text
+        assert "Get-Content $env:USERPROFILE\\.llauncher\\agent.token" in help_text
         assert "ADR-003" in help_text
 
 
