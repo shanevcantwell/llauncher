@@ -267,6 +267,31 @@ Example config entry:
 
 Per ADR-010, port is supplied at every call site (UI port picker, CLI `--port`, MCP `port` arg, HTTP `/start/{port}` route) and is **not** persisted in the config. Legacy `default_port` entries in `config.json` are silently dropped on load.
 
+### State Paths & Volume Mounts (Docker)
+
+Per ADR-008, the lockfile directory and audit log are env-configurable so a container can mount host state as a volume — letting an in-container agent (e.g. `pi-coding-agent`) introspect the state of llauncher running on the host.
+
+| Env var | Default | Holds |
+|---------|---------|-------|
+| `LAUNCHER_STATE_DIR` | `~/.llauncher` | Base for every derived path below |
+| `LAUNCHER_RUN_DIR` | `$LAUNCHER_STATE_DIR/run` | Per-server lockfiles (`{port}.lock`) and swap markers |
+| `LAUNCHER_AUDIT_PATH` | `$LAUNCHER_STATE_DIR/audit.jsonl` | Append-only JSON Lines audit log |
+
+Precedence for each path is the explicit per-path var (`LAUNCHER_RUN_DIR` / `LAUNCHER_AUDIT_PATH`) > the `LAUNCHER_STATE_DIR`-derived default. With every var unset the paths are byte-identical to the legacy `~/.llauncher/*` layout, so setting them is opt-in.
+
+To let a container read the host's live llauncher state, mount the host paths in read-only and point the in-container env vars at the mount:
+
+```bash
+docker run \
+  -v "$HOME/.llauncher/run:/host-llauncher/run:ro" \
+  -v "$HOME/.llauncher/audit.jsonl:/host-llauncher/audit.jsonl:ro" \
+  -e LAUNCHER_RUN_DIR=/host-llauncher/run \
+  -e LAUNCHER_AUDIT_PATH=/host-llauncher/audit.jsonl \
+  my-agent-image
+```
+
+Mount read-only (`:ro`) when the container only introspects; drop `:ro` if the containerized process is the one commanding llauncher and must write lockfiles/audit entries. The audit log is a single file, so bind-mount the file itself (not its parent dir) to avoid masking sibling state.
+
 ## Change Management
 
 llauncher includes validation rules to prevent problematic actions:
