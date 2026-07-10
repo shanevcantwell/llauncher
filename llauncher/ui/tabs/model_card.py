@@ -277,15 +277,85 @@ def _render_model_details(
             else:
                 st.info("No logs available")
 
-    # Edit button (only for stopped models on local)
+    # Edit / Delete buttons (only for stopped models on local)
     st.divider()
     if not running_server and node_name == "local":
-        if st.button("✏️ Edit", width='stretch', key=f"edit_{node_name}_{model_name}_enabled"):
-            st.session_state[f"editing_{model_name}"] = True
-            st.rerun()
+        edit_col, delete_col = st.columns(2)
+        with edit_col:
+            if st.button("✏️ Edit", width='stretch', key=f"edit_{node_name}_{model_name}_enabled"):
+                st.session_state[f"editing_{model_name}"] = True
+                st.rerun()
+        with delete_col:
+            if st.button("🗑️ Delete", width='stretch', key=f"delete_{node_name}_{model_name}_enabled"):
+                st.session_state[f"deleting_{node_name}_{model_name}"] = True
+                st.rerun()
+        _render_delete_confirm(node_name, model_name)
     elif not running_server:
         st.button("✏️ Edit", width='stretch', key=f"edit_{node_name}_{model_name}_disabled", disabled=True)
         st.caption("Remote model editing not yet supported")
+        st.button("🗑️ Delete", width='stretch', key=f"delete_{node_name}_{model_name}_disabled", disabled=True)
+        st.caption("Remote model deletion not yet supported")
+
+
+def _render_delete_confirm(node_name: str, model_name: str) -> None:
+    """Render the two-step delete confirmation gate for a local model.
+
+    Mirrors ``_render_eviction_dialog``'s Cancel/Confirm column layout and
+    session-state gating idiom (#276): a click on the "🗑️ Delete" button
+    upstream sets ``deleting_{node_name}_{model_name}`` in session state and
+    reruns; this function renders the warning + Cancel/Confirm row only
+    while that flag is set, and clears it on either path.
+
+    Delete goes through ``ops.delete_model`` directly (never a
+    ``state``/peer-endpoint seam) to satisfy the UI layer boundary test
+    (ADR-025) — ``llauncher.operations`` imports are allowed from the UI.
+
+    Args:
+        node_name: Name of the node (only called for ``"local"``).
+        model_name: Name of the model to delete.
+    """
+    flag_key = f"deleting_{node_name}_{model_name}"
+    if not st.session_state.get(flag_key):
+        return
+
+    st.warning(
+        f"Delete model config **{model_name}**? This cannot be undone.",
+        icon="⚠️",
+    )
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button(
+            "Cancel",
+            key=f"delete_cancel_{node_name}_{model_name}",
+            width='stretch',
+        ):
+            st.session_state[flag_key] = False
+            st.rerun()
+    with col2:
+        if st.button(
+            "Confirm Delete",
+            key=f"delete_confirm_{node_name}_{model_name}",
+            width='stretch',
+            type="primary",
+        ):
+            result = ops.delete_model(model_name, caller="ui")
+            st.session_state[flag_key] = False
+
+            if result.success:
+                st.toast(result.message, icon="✅")
+            elif result.action == "rejected_in_use":
+                # Belt-and-suspenders: the UI gate (``not running_server``)
+                # should normally prevent this, but the backend check
+                # (live lockfile scan) is the real enforcement — surface it
+                # with the same sticky-error + toast pattern
+                # ``_handle_start``/``_handle_stop`` use for failures.
+                st.error(result.message)
+                st.toast(result.message, icon="❌")
+            else:
+                st.error(result.message)
+                st.toast(result.message, icon="❌")
+            st.rerun()
 
 
 def _handle_stop(
