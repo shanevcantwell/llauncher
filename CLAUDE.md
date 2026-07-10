@@ -3,7 +3,7 @@
 **Constitutions, by reference** (read before structural work; cite handles in
 PRs and commits):
 
-- `/srv/dev/shanevcantwell/harness-tools/docs/ground-physics/CODE_CONSTITUTION.md`
+- `/srv/dev/shanevcantwell/operating-doctrine/ground-physics/CODE_CONSTITUTION.md`
   — ecosystem rules. The *why* is in `GROUND_PHYSICS.md` beside it; the
   alignment plan in `ALIGNMENT_ROADMAP.md`. (Canonical home as of the
   2026-06-22 migration; the old `design-docs/ecosystem-ground-physics/` path
