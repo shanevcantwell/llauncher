@@ -1,7 +1,7 @@
 """CLI for managing llama.cpp server instances via llauncher.
 
 Provides a Typer-based command-line interface with subcommand groups:
-- model: list, info
+- model: list, info, remove
 - server: start, stop, status
 - node: add, list, remove, status
 - config: path, validate
@@ -183,6 +183,36 @@ def model_info(
     cfg_dict = config.model_dump()
     rows = [[k, str(v)] for k, v in cfg_dict.items()]
     _print_table(headers, rows, title=f"Model: {name}")
+
+
+@model_app.command("remove")
+def remove_model(
+    name: str = typer.Argument(..., help="Name of the model config to remove"),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Skip the confirmation prompt."
+    ),
+) -> None:
+    """Remove a model configuration (mirrors ``node remove``).
+
+    Thin wrapper over :func:`llauncher.operations.delete_model` (#276) —
+    config-only; refuses (``rejected_in_use``) while the model is running
+    on any port. Prompts for confirmation unless ``--yes`` is passed, since
+    the delete has no UI/CLI undo.
+    """
+    from llauncher import operations as ops
+
+    if not yes and not typer.confirm(
+        f"Remove model config {name!r}? This cannot be undone."
+    ):
+        console.print("Aborted.")
+        raise typer.Exit(code=1)
+
+    result = ops.delete_model(name, caller="cli")
+
+    if not result.success:
+        console.print(f"[red]✗ {result.message}[/red]")
+        raise typer.Exit(code=1)
+    console.print(_color(result.message, "stopped"))
 
 
 app.add_typer(model_app)

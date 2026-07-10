@@ -139,6 +139,69 @@ def test_model_info_json(mock_config_store):
 
 
 # ---------------------------------------------------------------------------
+# model remove (#276)
+# ---------------------------------------------------------------------------
+
+
+def test_model_remove_rejected_in_use(mock_config_store):
+    """``model remove`` refuses (non-zero exit) when the model is in use.
+
+    Patches ``ops.delete_model`` at ``llauncher.operations.delete_model`` —
+    ``cli.remove_model`` does ``from llauncher import operations as ops``
+    lazily inside the function body, so the module-level attribute on
+    ``llauncher.operations`` is what's resolved at call time.
+    """
+    from llauncher.operations import DeleteModelResult
+
+    envelope = DeleteModelResult(
+        success=False,
+        action="rejected_in_use",
+        name="busy-model",
+        in_use_port=8080,
+        message="Model 'busy-model' is running on port 8080 (pid 123); stop it before deleting.",
+    )
+    with patch("llauncher.operations.delete_model", return_value=envelope) as mock_delete:
+        result = runner.invoke(app, ["model", "remove", "busy-model", "--yes"])
+
+    assert result.exit_code != 0
+    assert "running on port 8080" in result.stdout
+    mock_delete.assert_called_once_with("busy-model", caller="cli")
+
+
+def test_model_remove_happy_path(mock_config_store):
+    """``model remove --yes`` deletes an existing, not-in-use model end to end.
+
+    Uses the real ``ConfigStore`` (via ``mock_config_store``) rather than
+    mocking ``ops.delete_model``, so the CLI-to-operations wiring is
+    genuinely exercised for at least one case.
+    """
+    _dir, _path = mock_config_store
+    ConfigStore.add_model(ModelConfig.from_dict_unvalidated({
+        "name": "removable", "model_path": "/fake/removable.gguf",
+    }))
+    assert "removable" in ConfigStore.list_models()
+
+    result = runner.invoke(app, ["model", "remove", "removable", "--yes"])
+
+    assert result.exit_code == 0
+    assert "removable" not in ConfigStore.list_models()
+
+
+def test_model_remove_without_yes_aborts_on_no(mock_config_store):
+    """Omitting ``--yes`` and answering ``n`` aborts without deleting."""
+    _dir, _path = mock_config_store
+    ConfigStore.add_model(ModelConfig.from_dict_unvalidated({
+        "name": "keep-me", "model_path": "/fake/keep-me.gguf",
+    }))
+
+    result = runner.invoke(app, ["model", "remove", "keep-me"], input="n\n")
+
+    assert result.exit_code != 0
+    assert "aborted" in result.stdout.lower()
+    assert "keep-me" in ConfigStore.list_models()
+
+
+# ---------------------------------------------------------------------------
 # server subcommands
 # ---------------------------------------------------------------------------
 
