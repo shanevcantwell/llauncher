@@ -2,11 +2,11 @@
 
 **Status:** Accepted
 **Date:** 2026-06-30
-**Related:** ADR-008 (LauncherState stateless facade), ADR-010 (port ownership at the call site); `.claude/architecture.md` (layer map + forbidden edges)
+**Related:** ADR-008 (LauncherState stateless facade), ADR-010 (port ownership at the call site); `docs/ARCHITECTURE.md` (layer map + forbidden edges)
 
 ## Context
 
-`ui/` is an **endpoint** layer (`.claude/architecture.md`). The layering doctrine's
+`ui/` is an **endpoint** layer (`docs/ARCHITECTURE.md`). The layering doctrine's
 "one rule" is *dependencies point downward; siblings do not import siblings*.
 For the UI that means two concrete obligations:
 
@@ -14,7 +14,7 @@ For the UI that means two concrete obligations:
   `LauncherState` facade, ADR-008) and `operations` (the stateless verbs).
 - Remote-node I/O goes through `remote/` — `NodeRegistry` / `RemoteNode` /
   `RemoteAggregator` — which is the **single sanctioned HTTP client**. `remote`
-  and `agent` are peers across the network boundary (`.claude/architecture.md`);
+  and `agent` are peers across the network boundary (`docs/ARCHITECTURE.md`);
   the UI is a `remote` *client*, never a node's HTTP caller and never the
   `agent` server's importer.
 
@@ -36,15 +36,15 @@ up as a layering regression nobody is looking for until it bites in production.
    - a peer/sibling endpoint — `llauncher.agent.*`, `llauncher.mcp_server.*`, or
      `llauncher.cli` (sideways edges across the layer map).
 
-   The failure message cites `.claude/architecture.md` and the offending
+   The failure message cites `docs/ARCHITECTURE.md` and the offending
    `file:line`, and points at the fix: *work through the engine/remote facade*.
    The test is self-checking — a companion meta-test feeds the classifier known-
    bad and known-good import shapes so a future refactor that neuters the scanner
    fails loudly instead of going silently blind.
 
-2. **State the invariant in the layer map.** `.claude/architecture.md` and
-   `docs/ARCHITECTURE.md` carry an explicit line: *`ui/` reaches the backend only
-   through `state`/`operations`/`remote`; enforced by
+2. **State the invariant in the layer map.** `docs/ARCHITECTURE.md` carries an
+   explicit line: *`ui/` reaches the backend only through
+   `state`/`operations`/`remote`; enforced by
    `tests/architecture/test_ui_layer_boundaries.py`.*
 
 3. **Provide a headless UI test harness so the boundary is also exercised at
