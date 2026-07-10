@@ -11,7 +11,9 @@
 #
 # Idempotent: safe to re-run after a `git pull` to pick up unit-file
 # changes. Will NOT overwrite an existing env file (so your token and
-# host config survive reinstalls).
+# host config survive reinstalls), but pre-#139 legacy LAUNCHER_AGENT_*
+# key names ARE migrated in place to LLAUNCHER_AGENT_* (values
+# preserved; issue #281).
 #
 # Usage:
 #   ./scripts/systemd/install.sh                    # user: install+enable+start
@@ -177,6 +179,25 @@ else
     chmod "$FILE_MODE" "$ENV_FILE"  # repair perms if they drifted
     [ "$MODE" = "system" ] && chgrp "$FILE_GROUP" "$ENV_FILE"
     say "Env file already exists at $ENV_FILE — leaving it untouched."
+
+    # --- Migrate pre-#139 legacy keys (issue #281) ----------------------
+    # Commit 9f098d9 (#138/#139) renamed LAUNCHER_AGENT_* → LLAUNCHER_AGENT_*,
+    # but env files written from the pre-rename template still carry the
+    # single-L keys — which nothing reads any more, so the agent silently
+    # auto-generates its own token and the UI 403s on every authed endpoint.
+    # PARSE-AT-THE-DOOR: rewrite the key prefix in place, once,
+    # deterministically, preserving each value byte-for-byte. Comment lines
+    # start with '#' and never match the key-anchored pattern. Line order is
+    # preserved, so systemd's last-wins EnvironmentFile semantics (and the
+    # `tail -n1` mirror below) are unaffected.
+    legacy_keys="$(grep -E '^[[:space:]]*LAUNCHER_AGENT_' "$ENV_FILE" \
+        | sed -E 's/^[[:space:]]*(LAUNCHER_AGENT_[A-Za-z0-9_]*).*/\1/' \
+        | sort -u || true)"
+    if [ -n "$legacy_keys" ]; then
+        sed -i -E 's/^([[:space:]]*)LAUNCHER_AGENT_/\1LLAUNCHER_AGENT_/' "$ENV_FILE"
+        renames="$(echo "$legacy_keys" | sed 's/^\(.*\)$/\1 -> L\1/' | paste -sd ', ' -)"
+        say "Migrated pre-#139 legacy keys in $ENV_FILE: $renames"
+    fi
 fi
 
 # --- Token mirror (issue #131) -----------------------------------------
@@ -198,9 +219,11 @@ if [ "$MODE" != "system" ]; then
 fi
 # `|| true` keeps a grep miss (no matching line) from tripping `set -e`
 # via the failing command-substitution — an empty TOKEN_VALUE then routes
-# to the informative else-branch below instead of a silent exit 1. This
-# is the failure mode when a pre-rename env file still uses the old
-# single-L (LAUNCHER, not LLAUNCHER) token key (see #138/#139).
+# to the fail-loud else-branch below instead of a silent exit 1. Legacy
+# single-L (LAUNCHER, not LLAUNCHER; #138/#139) key names have already
+# been migrated in place above, so reaching the else-branch here means
+# the env file genuinely has no usable token — never a shape we
+# trust-and-degrade on (issue #281).
 TOKEN_VALUE="$(grep -E '^LLAUNCHER_AGENT_TOKEN=' "$ENV_FILE" | tail -n1 | cut -d= -f2- | tr -d '[:space:]' || true)"
 if [ -n "$TOKEN_VALUE" ]; then
     # printf '%s' (no trailing newline) matches the byte-shape of
@@ -210,7 +233,14 @@ if [ -n "$TOKEN_VALUE" ]; then
     [ "$MODE" = "system" ] && chgrp "$FILE_GROUP" "$TOKEN_FILE"
     say "Mirrored token to $TOKEN_FILE (mode $FILE_MODE) so the UI can authenticate."
 else
-    info "No LLAUNCHER_AGENT_TOKEN line found in $ENV_FILE; skipping token file mirror."
+    err "No usable LLAUNCHER_AGENT_TOKEN line found in $ENV_FILE (missing or empty value)."
+    err "Refusing to install the service without a mirrored, non-empty token — the agent"
+    err "would silently auto-generate its own token and the UI could never authenticate."
+    err "Fix one of:"
+    err "  - Add a line to $ENV_FILE:  LLAUNCHER_AGENT_TOKEN=<token>"
+    err "    (generate one:  python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+    err "  - Or delete $ENV_FILE and re-run this installer to regenerate it from the template."
+    exit 1
 fi
 
 # --- Unit file ---------------------------------------------------------

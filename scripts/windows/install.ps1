@@ -8,7 +8,9 @@
 #   - This script must run elevated (right-click "Run as Administrator").
 #
 # Idempotent: re-running picks up env-file edits and a new venv path.
-# Will NOT overwrite an existing env file (your token survives).
+# Will NOT overwrite an existing env file (your token survives), but pre-#139
+# legacy LAUNCHER_AGENT_* key names ARE migrated in place to LLAUNCHER_AGENT_*
+# (values preserved; issue #281).
 #
 # Usage:
 #   .\scripts\windows\install.ps1
@@ -91,6 +93,34 @@ if (-not (Test-Path $EnvFile)) {
     Info "Edit it to set LLAUNCHER_AGENT_NODE_NAME / HOST / PORT as needed."
 } else {
     Say "Env file already exists at $EnvFile - leaving it untouched."
+
+    # --- Migrate pre-#139 legacy keys (issue #281) --------------------
+    # Commit 9f098d9 (#138/#139) renamed LAUNCHER_AGENT_* to
+    # LLAUNCHER_AGENT_*, but env files written from the pre-rename
+    # template still carry the single-L keys — which nothing reads any
+    # more, so the agent silently auto-generates its own token under the
+    # SERVICE account's profile and the UI 403s on every authed endpoint.
+    # PARSE-AT-THE-DOOR: rewrite the key prefix in place, once,
+    # deterministically, preserving each value byte-for-byte. Comment
+    # lines start with '#' and never match the key-anchored pattern.
+    $lines = @(Get-Content $EnvFile)
+    $migratedKeys = @()
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match '^\s*LAUNCHER_AGENT_') {
+            $oldKey = ($lines[$i] -split '=', 2)[0].Trim()
+            $lines[$i] = $lines[$i] -replace '^(\s*)LAUNCHER_AGENT_', '${1}LLAUNCHER_AGENT_'
+            $newKey = ($lines[$i] -split '=', 2)[0].Trim()
+            $migratedKeys += "$oldKey -> $newKey"
+        }
+    }
+    if ($migratedKeys.Count -gt 0) {
+        # IMPORTANT: write WITHOUT a UTF-8 BOM — same reasoning as the
+        # token-mirror write below (PS 5.1 `Set-Content -Encoding utf8`
+        # prepends EF BB BF, which would corrupt the first key name).
+        [System.IO.File]::WriteAllLines(
+            $EnvFile, $lines, (New-Object System.Text.UTF8Encoding($false)))
+        Say ("Migrated pre-#139 legacy keys in ${EnvFile}: " + ($migratedKeys -join ', '))
+    }
 }
 
 # Lock the env file: remove inheritance, grant current user only.
@@ -118,8 +148,8 @@ Say "Locked ACL on $EnvFile (current user only)."
 # but the auth source still needs to be discoverable for other reads
 # /writes and for the remote-node case.
 $tokenLine = (Get-Content $EnvFile) | Where-Object { $_ -match '^LLAUNCHER_AGENT_TOKEN=' } | Select-Object -First 1
-if ($tokenLine) {
-    $tokenValue = ($tokenLine -replace '^LLAUNCHER_AGENT_TOKEN=', '').Trim()
+$tokenValue = if ($tokenLine) { ($tokenLine -replace '^LLAUNCHER_AGENT_TOKEN=', '').Trim() } else { '' }
+if ($tokenValue) {
     # IMPORTANT: write WITHOUT a UTF-8 BOM. Windows PowerShell 5.1's
     # `Set-Content -Encoding utf8` prepends EF BB BF, which decodes to
     # U+FEFF and (since str.strip() doesn't strip it) leaks into the
@@ -135,7 +165,17 @@ if ($tokenLine) {
     Set-OwnerOnlyAcl $TokenFile
     Say "Mirrored token to $TokenFile (ACL: current user only) so the UI can authenticate."
 } else {
-    Info "No LLAUNCHER_AGENT_TOKEN line found in ${EnvFile}; skipping token file mirror."
+    # Fail loud, never trust-and-degrade (issue #281): without a mirrored,
+    # non-empty token the service comes up "green" but the agent silently
+    # auto-generates its own token under the SERVICE account's profile,
+    # and the UI gets 403 on every authed endpoint.
+    Die @"
+No usable LLAUNCHER_AGENT_TOKEN line found in ${EnvFile} (missing or empty value).
+Refusing to install the service without a mirrored, non-empty token. Fix one of:
+  - Add a line to ${EnvFile}:  LLAUNCHER_AGENT_TOKEN=<token>
+    (generate one:  python -c "import secrets; print(secrets.token_urlsafe(32))")
+  - Or delete ${EnvFile} and re-run this script to regenerate it from the template.
+"@
 }
 
 # --- Parse env file into NSSM AppEnvironmentExtra format --------------

@@ -100,6 +100,43 @@ def test_run_agent_refuses_non_loopback_without_token(monkeypatch, tmp_path):
     assert "127.0.0.1" in err or "loopback" in err
 
 
+# ─────── #281: refuse to start on pre-#139 legacy-only env ─────────────────
+
+
+def test_run_agent_refuses_legacy_only_token_env(monkeypatch, tmp_path):
+    """#281: agent exits non-zero (code 2) when only the pre-#139
+    single-L ``LAUNCHER_AGENT_TOKEN`` is set and ``LLAUNCHER_AGENT_TOKEN``
+    is absent — even on an otherwise-healthy loopback bind. This is
+    defense in depth for deployments that bypass the installers' own
+    migration (scripts/windows/install.ps1, scripts/systemd/install.sh)."""
+    from llauncher.agent.config import AgentConfig
+    from llauncher.agent import server as agent_srv
+
+    monkeypatch.setenv("LAUNCHER_AGENT_TOKEN", "stale-pre-rename-token")
+    monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
+
+    # uvicorn.run must never be reached.
+    called = []
+    monkeypatch.setattr("uvicorn.run", lambda *a, **kw: called.append((a, kw)))
+
+    buf = io.StringIO()
+    monkeypatch.setattr("sys.stderr", buf)
+
+    # Loopback bind — proves the guard fires independent of the C1-d
+    # non-loopback check, which this legacy-env guard runs ahead of.
+    cfg = AgentConfig(host="127.0.0.1", port=8765)
+
+    with pytest.raises(SystemExit) as excinfo:
+        agent_srv.run_agent(cfg)
+
+    assert excinfo.value.code == 2
+    assert not called
+    err = buf.getvalue()
+    assert "LAUNCHER_AGENT_TOKEN" in err
+    assert "LLAUNCHER_AGENT_TOKEN" in err
+    assert "138" in err or "139" in err
+
+
 # ─────── C1-e: auto-generate token file on first loopback start ────────────
 
 
