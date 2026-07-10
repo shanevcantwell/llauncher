@@ -42,7 +42,8 @@ The allowlist is the set of paths where matches are *expected*:
       formatting may still emit the literal).
     - ``scripts/windows/install.ps1``, ``scripts/systemd/install.sh``,
       ``llauncher/core/agent_token.py``, ``llauncher/agent/server.py``,
-      ``tests/integration/test_agent_security_c1_c2.py``, and
+      ``tests/integration/test_agent_security_c1_c2.py``,
+      ``tests/unit/test_agent_token_legacy_env.py``, and
       ``docs/operations/run-as-a-service.md`` are allowlisted for issue
       #281: the pre-#139 legacy-key *migration and detection* logic
       necessarily names the old key to recognize and rewrite/refuse it.
@@ -249,6 +250,7 @@ ALLOWED_PATH_PREFIXES: tuple[str, ...] = (
     "llauncher/core/agent_token.py",
     "llauncher/agent/server.py",
     "tests/integration/test_agent_security_c1_c2.py",
+    "tests/unit/test_agent_token_legacy_env.py",
     "docs/operations/run-as-a-service.md",
 )
 
