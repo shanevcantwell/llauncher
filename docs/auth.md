@@ -61,15 +61,24 @@ read leaks something (running models, OS/IP/process info):
 
 ## Token resolution precedence
 
-`resolve_agent_token()` (`llauncher/agent/auth.py`) resolves in this order:
+`resolve_agent_token()` (`llauncher/core/agent_token.py`, re-exported from
+`llauncher/agent/auth.py`) resolves in this order:
 
 1. **Env** `LLAUNCHER_AGENT_TOKEN` — used if set, non-empty, and not `"-"`.
+   An explicit override always wins.
 2. **Stdin** — if the env value is exactly `"-"`, read one line from stdin
    (lets you pipe from a secret manager without leaving the token in the
    environment). Empty stdin here is a fatal error, not a fallback.
-3. **Token file** — `agent.token` (see locations below), read verbatim.
-4. **Auto-generate** — `secrets.token_urlsafe(32)`, written to the token
-   file (mode 0600, parent 0700) and printed to stderr **once**.
+3. **`agent.env`** (see locations below) — the `LLAUNCHER_AGENT_TOKEN=`
+   line, parsed directly with `parse_env_file()`. This is the **single
+   live source** (issue #284): both the agent service and the UI/client
+   parse this exact file at startup — there is no installer-time
+   snapshot and no separate token-mirror file. Parsing matches systemd's
+   `EnvironmentFile=` semantics: blank lines and `#`-comments are
+   skipped, and a duplicate key's **last** line wins.
+4. **Auto-generate** — `secrets.token_urlsafe(32)`, appended to `agent.env`
+   as a new `LLAUNCHER_AGENT_TOKEN=` line (file created at mode 0600,
+   parent 0700, if it doesn't exist yet) and printed to stderr **once**.
 
 Step 4 only happens when `allow_generate=True`. The agent
 (`server.py:run_agent`) permits auto-generation **only on a loopback
@@ -79,24 +88,30 @@ auto-generating a secret nobody outside the host has seen is meaningless
 for LAN exposure. Consumers that must never mint a token (the UI, the
 registry) also pass `allow_generate=False`.
 
+**Retired (issue #284):** the `agent.token` mirror file. It used to be a
+separate on-disk copy an installer had to keep in sync with `agent.env` —
+that installer step being skipped/stale was the direct cause of issue
+#281's UI-403 split-brain. Nothing in the runtime reads `agent.token` any
+more; installers migrate a pre-existing one into `agent.env` once, at the
+door, then delete it (`PARSE-AT-THE-DOOR`).
+
 ## File locations & modes
 
 | File | Default path | Mode | Purpose |
 |------|--------------|------|---------|
-| `agent.token` | `~/.llauncher/agent.token` | `0600` (parent `0700`) | The agent's own static token. Read by the agent and by the local UI. |
-| `node_tokens.json` | `~/.llauncher/node_tokens.json` | `0600` (parent `0700`) | Per-**remote**-node tokens, operator-supplied. The `local` entry is excluded by design (its token lives in `agent.token`). |
+| `agent.env` | `~/.llauncher/agent.env` | `0600` (parent `0700`) | The **single live source** for the agent's token and other service-facing config. Parsed directly by both the agent and the local UI. |
+| `node_tokens.json` | `~/.llauncher/node_tokens.json` | `0600` (parent `0700`) | Per-**remote**-node tokens, operator-supplied. The `local` entry is excluded by design (its token lives in `agent.env`). |
 | `nodes.json` | `~/.llauncher/nodes.json` | — | Peer registry. **Never** carries `api_key` (control C10/#83); tokens live in the sidecar above. |
 
-`~/.llauncher/` is the live default. In systemd `--system` mode (ADR-018,
-in flight via #196/#197) state is meant to relocate under
-`LAUNCHER_STATE_DIR=/var/lib/llauncher`, with the token mirrored to
-`/var/lib/llauncher/agent.token` at mode `0640`, group `inference`, so the
-operator UI and a non-admin agent account can read it in place without
-copying secrets. **Caveat:** as of this writing `default_token_path()`
-still hardcodes `~/.llauncher/agent.token` and does not yet consult
-`LAUNCHER_STATE_DIR`; the Python-side honoring of that knob is pending
-#197 (ADR-018 Consequences). Treat `/var/lib/llauncher/agent.token` as the
-target state, not the current read path.
+`~/.llauncher/` is the live default, overridable via `LAUNCHER_STATE_DIR`
+(issue #196). In systemd `--system` mode (ADR-018) state relocates under
+`LAUNCHER_STATE_DIR=/var/lib/llauncher`; `agent.env` there is mode `0640`,
+group `inference`, so the operator UI and a non-admin agent account can
+read it in place without copying secrets. On Windows, `install.ps1`
+injects `LAUNCHER_STATE_DIR=<installing user's %USERPROFILE%\.llauncher>`
+into the NSSM service environment so a service running under
+`LocalSystem` (whose `Path.home()` does not resolve to the operator's
+profile) still resolves the *same* `agent.env` the operator's UI reads.
 
 ## Who needs a token — by consumer
 
@@ -104,7 +119,7 @@ target state, not the current read path.
 |----------|--------|--------|
 | **MCP server / local CLI** | No | n/a — in-process, tokenless |
 | **CLI targeting a remote node** | Yes | `node_tokens.json` entry for that node |
-| **Streamlit UI → local agent** | Yes | `resolve_agent_token(allow_generate=False)` → env, then `agent.token`. The UI is a *separate* process and does **not** inherit the agent's `LLAUNCHER_AGENT_TOKEN` / systemd `EnvironmentFile`; it reads the token file directly. Launched via `ui/launch.py` → `streamlit run app.py`. |
+| **Streamlit UI → local agent** | Yes | `resolve_agent_token(allow_generate=False)` → env, then `agent.env`. The UI is a *separate* process and does **not** inherit the agent's `LLAUNCHER_AGENT_TOKEN` / systemd `EnvironmentFile`; it parses `agent.env` directly. Launched via `ui/launch.py` → `streamlit run app.py`. |
 | **Remote UI/CLI (another machine)** | Yes | env `LLAUNCHER_AGENT_TOKEN`, or the per-node `node_tokens.json` |
 | **`curl` / scripts → agent** | Yes (unless hitting an exempt path) | send `X-Api-Key` |
 
@@ -115,25 +130,26 @@ llauncher." It isn't. A second local user (e.g. `claude`) drives via its
 **own in-process MCP server**, which is tokenless. What that second user
 needs is **shared access to the state** — lockfiles, `config.json`, the
 run dir — which is exactly what `LAUNCHER_STATE_DIR=/var/lib/llauncher`
-(group `inference`) provides (ADR-018). The group-readable `agent.token`
+(group `inference`) provides (ADR-018). The group-readable `agent.env`
 (0640, group `inference`) is for the *other* plane: the UI and any
 remote/HTTP clients that do cross the network boundary.
 
 So in system mode there are two distinct enablers, often conflated:
 
 - **Shared state dir** → enables a second *local* user's MCP/CLI (tokenless).
-- **Group-readable token** → enables the UI / remote HTTP clients (token-bearing).
+- **Group-readable `agent.env`** → enables the UI / remote HTTP clients (token-bearing).
 
 ## Operating notes
 
 - **Loopback is not "no auth."** Even on `127.0.0.1` the agent enforces
   the token; it just generates one for you on first run (printed once to
-  stderr; persisted at `agent.token`).
+  stderr; persisted into `agent.env`).
 - **Token is not TLS.** The transport is plain HTTP. Only expose the agent
   on trusted networks (LAN / Tailscale / VPN / SSH tunnel). See README
   "Security Notes" and `docs/operations/run-as-a-service.md`.
-- **Rotation:** change `LLAUNCHER_AGENT_TOKEN` (or the token file),
-  restart the agent, and update clients. See the run-as-a-service doc.
+- **Rotation:** edit the `LLAUNCHER_AGENT_TOKEN=` line in `agent.env` (or
+  export `LLAUNCHER_AGENT_TOKEN` to override), restart the agent, and
+  update clients. See the run-as-a-service doc.
 - **Roadmap:** ADR-017 (draft) adds opt-in trusted-host *session-token*
   issuance (`POST /session`) on top of this static-token model — it does
   not replace it. Static-token auth remains the fallback.
@@ -143,7 +159,7 @@ So in system mode there are two distinct enablers, often conflated:
 | Concern | Code |
 |---------|------|
 | Header check, exempt paths | `llauncher/agent/middleware.py` |
-| Token resolution precedence | `llauncher/agent/auth.py` (`resolve_agent_token`) |
+| Token resolution precedence + env-file parser | `llauncher/core/agent_token.py` (`resolve_agent_token`, `parse_env_file`) |
 | Loopback / refuse-to-start guard | `llauncher/agent/server.py` (`run_agent`) |
 | Local-UI / remote-node token sourcing | `llauncher/remote/registry.py` |
 | Rationale | ADR-003 (static token), ADR-018 (system mode), ADR-017 (session tokens, draft) |

@@ -987,7 +987,7 @@ class TestUtilityFunctions:
 
         # No token anywhere.
         monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
-        # Force the on-disk token file lookup to a missing path so the
+        # Force the on-disk env-file lookup to a missing path so the
         # refuse-to-start branch is exercised even if the operator's real
         # home has a file present.
         from pathlib import Path
@@ -995,8 +995,8 @@ class TestUtilityFunctions:
         # Token resolution was hoisted to core.agent_token (#171); patch the
         # canonical home so run_agent's resolver honors the missing path.
         monkeypatch.setattr(
-            "llauncher.core.agent_token.default_token_path",
-            lambda: Path("/nonexistent/llauncher/agent.token"),
+            "llauncher.core.agent_token.default_env_path",
+            lambda: Path("/nonexistent/llauncher/agent.env"),
         )
 
         monkeypatch.setattr("socket.gethostname", lambda: "test-host")
@@ -1151,18 +1151,18 @@ class TestUtilityFunctions:
         assert exited_with == 0
 
     def test_main_print_token_from_file(self, monkeypatch, capsys, tmp_path):
-        """print-token falls back to the on-disk token file (#134)."""
+        """print-token falls back to the on-disk agent.env (#134)."""
         from llauncher.agent.server import main
         import sys
 
         monkeypatch.setattr("sys.argv", ["llauncher-agent", "print-token"])
         monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
 
-        token_file = tmp_path / "agent.token"
-        token_file.write_text("sekret-from-file\n", encoding="utf-8")
+        env_file = tmp_path / "agent.env"
+        env_file.write_text("LLAUNCHER_AGENT_TOKEN=sekret-from-file\n", encoding="utf-8")
         monkeypatch.setattr(
-            "llauncher.core.agent_token.default_token_path",
-            lambda: token_file,
+            "llauncher.core.agent_token.default_env_path",
+            lambda: env_file,
         )
 
         exited_with = None
@@ -1187,11 +1187,11 @@ class TestUtilityFunctions:
         monkeypatch.setattr("sys.argv", ["llauncher-agent", "print-token"])
         monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
 
-        # Point at a non-existent token file so resolution returns None
+        # Point at a non-existent env file so resolution returns None
         # (allow_generate=False is enforced by the subcommand).
         monkeypatch.setattr(
-            "llauncher.core.agent_token.default_token_path",
-            lambda: tmp_path / "does-not-exist.token",
+            "llauncher.core.agent_token.default_env_path",
+            lambda: tmp_path / "does-not-exist.env",
         )
 
         exited_with = None

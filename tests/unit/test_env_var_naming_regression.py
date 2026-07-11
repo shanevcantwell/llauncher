@@ -73,7 +73,7 @@ def test_resolve_uses_new_env_var_name(monkeypatch, tmp_path):
     monkeypatch.setenv("LLAUNCHER_AGENT_TOKEN", "correct-horse-battery-staple")
     monkeypatch.delenv("LAUNCHER_AGENT_TOKEN", raising=False)
 
-    result = resolve_agent_token(token_path=tmp_path / "agent.token")
+    result = resolve_agent_token(env_path=tmp_path / "agent.env")
 
     assert result == "correct-horse-battery-staple"
 
@@ -89,10 +89,10 @@ def test_resolve_ignores_old_env_var_name(monkeypatch, tmp_path):
 
     monkeypatch.setenv("LAUNCHER_AGENT_TOKEN", "stale-typo-value")
     monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
-    token_path = tmp_path / "agent.token"
-    assert not token_path.exists()
+    env_path_local = tmp_path / "agent.env"
+    assert not env_path_local.exists()
 
-    result = resolve_agent_token(token_path=token_path, allow_generate=False)
+    result = resolve_agent_token(env_path=env_path_local, allow_generate=False)
 
     assert result is None
 
@@ -104,7 +104,7 @@ def test_resolve_prefers_new_when_both_set(monkeypatch, tmp_path):
     monkeypatch.setenv("LAUNCHER_AGENT_TOKEN", "stale")
     monkeypatch.setenv("LLAUNCHER_AGENT_TOKEN", "fresh")
 
-    result = resolve_agent_token(token_path=tmp_path / "agent.token")
+    result = resolve_agent_token(env_path=tmp_path / "agent.env")
 
     assert result == "fresh"
 
@@ -117,7 +117,7 @@ def test_resolve_stdin_trigger_uses_new_name(monkeypatch, tmp_path):
     monkeypatch.delenv("LAUNCHER_AGENT_TOKEN", raising=False)
     monkeypatch.setattr(auth_mod.sys, "stdin", io.StringIO("piped-token\n"))
 
-    result = auth_mod.resolve_agent_token(token_path=tmp_path / "agent.token")
+    result = auth_mod.resolve_agent_token(env_path=tmp_path / "agent.env")
 
     assert result == "piped-token"
 
@@ -134,10 +134,10 @@ def test_resolve_stdin_trigger_old_name_does_not_fire(monkeypatch, tmp_path):
 
     monkeypatch.setenv("LAUNCHER_AGENT_TOKEN", "-")
     monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
-    token_path = tmp_path / "agent.token"
-    assert not token_path.exists()
+    env_path_local = tmp_path / "agent.env"
+    assert not env_path_local.exists()
 
-    result = resolve_agent_token(token_path=token_path, allow_generate=False)
+    result = resolve_agent_token(env_path=env_path_local, allow_generate=False)
 
     assert result is None
 

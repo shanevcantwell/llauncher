@@ -33,10 +33,11 @@ StartLimitIntervalSec=60
 [Service]
 Type=simple
 ; The single non-negotiable line: without it the UI reads ~/.llauncher and
-; misses the system agent's /var/lib/llauncher/agent.token (0640 root:inference),
-; which the caller reads in place via `inference`-group membership. The value is
-; fixed at process start — exactly when systemd injects the unit env. See
-; ADR-022 §Open Questions and core/agent_token.py::default_token_path().
+; misses the system agent's /var/lib/llauncher/agent.env (0640 root:inference,
+; single live source of the token as of #284), which the caller reads in
+; place via `inference`-group membership. The value is fixed at process
+; start — exactly when systemd injects the unit env. See ADR-022 §Open
+; Questions and core/agent_token.py::default_env_path().
 Environment=LAUNCHER_STATE_DIR=/var/lib/llauncher
 
 ; ADR-023 Phase B (issue #228): fail-loud backstop. ExecStart resolves

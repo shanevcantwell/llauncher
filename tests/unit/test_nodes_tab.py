@@ -55,6 +55,6 @@ class TestAddNodeFormProvisioningCopy:
         assert len(api_key_calls) == 1
         help_text = api_key_calls[0].kwargs["help"]
         assert "llauncher-agent print-token" in help_text
-        assert "cat ~/.llauncher/agent.token" in help_text
-        assert "Get-Content $env:USERPROFILE\\.llauncher\\agent.token" in help_text
+        assert "~/.llauncher/agent.env" in help_text
+        assert "$env:USERPROFILE\\.llauncher\\agent.env" in help_text
         assert "ADR-003" in help_text
