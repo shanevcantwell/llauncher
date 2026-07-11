@@ -4,12 +4,13 @@ Covers:
 
 - **C1-d**: ``run_agent`` refuses to start on a non-loopback host with no
   token configured (exit code 2, stderr names the remediation paths).
-- **C1-e**: On a loopback start with no env token and no existing file,
-  the agent writes a fresh token to ``$HOME/.llauncher/agent.token``
-  with mode 0600 (parent dir 0700) and that token authenticates the
+- **C1-e**: On a loopback start with no env token and no existing
+  ``agent.env``, the agent generates a fresh token and writes it into
+  ``$HOME/.llauncher/agent.env`` (mode 0600, parent dir 0700) as a
+  ``LLAUNCHER_AGENT_TOKEN=`` line, and that token authenticates the
   resulting app.
-- **C1-reuse**: On a second loopback start with the file already
-  present, the agent reads it rather than regenerating.
+- **C1-reuse**: On a second loopback start with ``agent.env`` already
+  carrying a token line, the agent reads it rather than regenerating.
 - **C1-stdin**: With ``LLAUNCHER_AGENT_TOKEN=-`` the token is read from
   stdin and used to authenticate the resulting app.
 - **C2-default**: With no env overrides, ``AgentConfig.from_env()``
@@ -21,6 +22,13 @@ the refuse-to-start guard at the ``run_agent`` entry. Real-bind coverage
 is out of scope (the C2-a hook in the plan calls for socket
 introspection in a real-binary environment, which we leave to manual
 or follow-up work).
+
+Issue #284 retired the standalone ``agent.token`` mirror file; the live
+source read by both the agent and the UI is now ``agent.env`` (a
+``KEY=VALUE`` file), resolved via ``core.agent_token.default_env_path``.
+These tests were updated in place to assert against that file/key shape
+— the resolution-precedence and persistence-guard behavior under test is
+unchanged.
 """
 
 from __future__ import annotations
@@ -71,13 +79,13 @@ def test_run_agent_refuses_non_loopback_without_token(monkeypatch, tmp_path):
     from llauncher.agent import server as agent_srv
 
     monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
-    # Force token-file lookup at a missing path so the operator's real
-    # ~/.llauncher/agent.token cannot accidentally satisfy the guard.
+    # Force env-file lookup at a missing path so the operator's real
+    # ~/.llauncher/agent.env cannot accidentally satisfy the guard.
     # Token resolution was hoisted to core.agent_token (#171); patch the
     # canonical home so the implementation's internal lookup is affected.
     monkeypatch.setattr(
-        "llauncher.core.agent_token.default_token_path",
-        lambda: tmp_path / "definitely-missing.token",
+        "llauncher.core.agent_token.default_env_path",
+        lambda: tmp_path / "definitely-missing.env",
     )
 
     # uvicorn.run must never be reached.
@@ -141,10 +149,10 @@ def test_run_agent_refuses_legacy_only_token_env(monkeypatch, tmp_path):
 
 
 def _isolate_home(monkeypatch, tmp_path):
-    """Point HOME at a tmp dir and patch default_token_path() to honor it.
+    """Point HOME at a tmp dir and patch default_env_path() to honor it.
 
     ``Path.home()`` consults HOME on POSIX; we also patch the module's
-    ``default_token_path`` to defeat any import-time caching.
+    ``default_env_path`` to defeat any import-time caching.
     """
     home = tmp_path / "home"
     home.mkdir()
@@ -154,14 +162,14 @@ def _isolate_home(monkeypatch, tmp_path):
 
     # Token resolution was hoisted to core.agent_token (#171); patch there.
     monkeypatch.setattr(
-        "llauncher.core.agent_token.default_token_path",
-        lambda: home / ".llauncher" / "agent.token",
+        "llauncher.core.agent_token.default_env_path",
+        lambda: home / ".llauncher" / "agent.env",
     )
     return home
 
 
 def test_loopback_first_run_generates_token_file(monkeypatch, tmp_path):
-    """C1-e: first loopback start with no env token writes 0600 file."""
+    """C1-e: first loopback start with no env token writes 0600 agent.env."""
     from llauncher.agent.config import AgentConfig
     from llauncher.agent import server as agent_srv
 
@@ -182,20 +190,22 @@ def test_loopback_first_run_generates_token_file(monkeypatch, tmp_path):
     cfg = AgentConfig(host="127.0.0.1", port=9000)
     agent_srv.run_agent(cfg)
 
-    # Token file exists at the expected path.
-    token_file = home / ".llauncher" / "agent.token"
-    assert token_file.exists(), "agent.token must be auto-generated on first run"
+    # agent.env exists at the expected path.
+    env_file = home / ".llauncher" / "agent.env"
+    assert env_file.exists(), "agent.env must be auto-generated on first run"
 
     # Mode 0600 on the file.
-    file_mode = stat.S_IMODE(token_file.stat().st_mode)
+    file_mode = stat.S_IMODE(env_file.stat().st_mode)
     assert file_mode == 0o600, f"expected 0600, got {oct(file_mode)}"
 
     # Parent dir 0700.
-    parent_mode = stat.S_IMODE(token_file.parent.stat().st_mode)
+    parent_mode = stat.S_IMODE(env_file.parent.stat().st_mode)
     assert parent_mode == 0o700, f"expected 0700 on parent, got {oct(parent_mode)}"
 
-    # File content is a non-trivial secret.
-    token = token_file.read_text(encoding="utf-8").strip()
+    # Content is a LLAUNCHER_AGENT_TOKEN= line with a non-trivial secret.
+    content = env_file.read_text(encoding="utf-8").strip()
+    assert content.startswith("LLAUNCHER_AGENT_TOKEN=")
+    token = content.split("=", 1)[1]
     assert len(token) >= 32
 
     # Stderr announced the token exactly once.
@@ -205,18 +215,18 @@ def test_loopback_first_run_generates_token_file(monkeypatch, tmp_path):
 
 
 def test_loopback_second_run_reuses_existing_token(monkeypatch, tmp_path):
-    """C1-reuse: an existing agent.token is honored rather than rewritten."""
+    """C1-reuse: an existing agent.env token line is honored, not rewritten."""
     from llauncher.agent.config import AgentConfig
     from llauncher.agent import server as agent_srv
 
     monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
     home = _isolate_home(monkeypatch, tmp_path)
 
-    # Pre-seed an existing token file.
-    seeded_path = home / ".llauncher" / "agent.token"
+    # Pre-seed an existing agent.env with a token line.
+    seeded_path = home / ".llauncher" / "agent.env"
     seeded_path.parent.mkdir(parents=True)
     seeded_path.parent.chmod(0o700)
-    seeded_path.write_text("preexisting-token-value\n", encoding="utf-8")
+    seeded_path.write_text("LLAUNCHER_AGENT_TOKEN=preexisting-token-value\n", encoding="utf-8")
     seeded_path.chmod(0o600)
 
     monkeypatch.setattr("uvicorn.run", lambda *a, **kw: None)
@@ -227,7 +237,10 @@ def test_loopback_second_run_reuses_existing_token(monkeypatch, tmp_path):
     agent_srv.run_agent(cfg)
 
     # File content unchanged.
-    assert seeded_path.read_text(encoding="utf-8").strip() == "preexisting-token-value"
+    assert (
+        seeded_path.read_text(encoding="utf-8").strip()
+        == "LLAUNCHER_AGENT_TOKEN=preexisting-token-value"
+    )
     # Stderr did NOT announce a new generated token (the announcement
     # message string is unique to the generate-and-write path).
     assert "Generated new auth token" not in buf.getvalue()

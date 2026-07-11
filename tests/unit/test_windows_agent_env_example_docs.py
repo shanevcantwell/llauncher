@@ -1,15 +1,17 @@
 """Regression guard for issue #123 — LLAMA_SERVER_PATH documented in the
 Windows agent env template.
 
-``scripts/windows/llauncher-agent.env.example`` is the source
-``install.ps1`` copies into ``%USERPROFILE%\\.llauncher\\agent.env`` and
-feeds to NSSM's ``AppEnvironmentExtra``. Before this fix, the template
-covered auth/network/identity vars but never mentioned
-``LLAMA_SERVER_PATH`` (or ``SCRIPTS_PATH``), so an operator installing
-the service under a non-default llama-server location — or under
-NSSM's default LocalSystem account, whose home does not resolve to the
-operator's own ``~/.local/bin`` — had no documented override channel in
-the file NSSM actually injects.
+``scripts/windows/agent.env.example`` (renamed from
+``llauncher-agent.env.example`` by issue #284 so the template name
+matches its live target) is the source ``install.ps1`` seeds, once, into
+``%USERPROFILE%\\.llauncher\\agent.env`` and feeds to NSSM's
+``AppEnvironmentExtra``. Before the #123 fix, the template covered
+auth/network/identity vars but never mentioned ``LLAMA_SERVER_PATH`` (or
+``SCRIPTS_PATH``), so an operator installing the service under a
+non-default llama-server location — or under NSSM's default LocalSystem
+account, whose home does not resolve to the operator's own
+``~/.local/bin`` — had no documented override channel in the file NSSM
+actually injects.
 
 This pins:
   1. Both vars are present as commented (opt-in) examples, matching the
@@ -40,8 +42,8 @@ def _repo_root() -> Path:
     raise RuntimeError(f"Could not locate repo root from {here}")
 
 
-WINDOWS_ENV_EXAMPLE = _repo_root() / "scripts" / "windows" / "llauncher-agent.env.example"
-SYSTEMD_ENV_EXAMPLE = _repo_root() / "scripts" / "systemd" / "llauncher-agent.env.example"
+WINDOWS_ENV_EXAMPLE = _repo_root() / "scripts" / "windows" / "agent.env.example"
+SYSTEMD_ENV_EXAMPLE = _repo_root() / "scripts" / "systemd" / "agent.env.example"
 
 
 @pytest.fixture

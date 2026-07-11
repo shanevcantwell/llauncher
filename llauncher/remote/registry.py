@@ -115,9 +115,10 @@ class NodeRegistry:
         environment. We source via
         :func:`llauncher.core.agent_token.resolve_agent_token` with
         ``allow_generate=False`` — that reads the env var first, then
-        the on-disk ``~/.llauncher/agent.token``. ``allow_generate=False``
-        because only the agent itself should ever materialize a fresh
-        token; the UI must be a pure consumer.
+        parses the on-disk ``~/.llauncher/agent.env`` directly (issue
+        #284 — single live source, no separate token-mirror file).
+        ``allow_generate=False`` because only the agent itself should
+        ever materialize a fresh token; the UI must be a pure consumer.
 
         The token resolver lives in :mod:`llauncher.core.agent_token`
         (issue #171) precisely so ``remote`` can read it without
@@ -168,20 +169,20 @@ class NodeRegistry:
         each match onto the corresponding ``RemoteNode.api_key``.
 
         Missing entries leave ``api_key=None`` — we do NOT synthesize
-        from ``agent.token`` (which is the local agent's token);
+        from ``agent.env`` (which carries the local agent's token);
         cross-pollinating a local token onto a remote node would be a
         credential-confusion bug, symmetric to
         :meth:`_populate_local_token`'s "only touches ``local``" guard.
 
         The ``local`` entry is also skipped here even if it happens to
         appear in ``node_tokens.json``: its canonical source is
-        ``agent.token`` via ``_populate_local_token``, and trusting
+        ``agent.env`` via ``_populate_local_token``, and trusting
         ``node_tokens.json`` for ``local`` would create a drift
         opportunity.
         """
         tokens = self._load_node_tokens()
         for name, token in tokens.items():
-            if name == "local":  # pragma: no cover - C10 security guard: 'local' token is never sourced from the sidecar (canonical source is agent.token); skip to prevent credential confusion
+            if name == "local":  # pragma: no cover - C10 security guard: 'local' token is never sourced from the sidecar (canonical source is agent.env); skip to prevent credential confusion
                 continue
             node = self._nodes.get(name)
             if node is not None and not node.api_key:
@@ -193,11 +194,11 @@ class NodeRegistry:
         Full rewrite each call: any node that was removed from
         ``self._nodes`` or whose ``api_key`` was cleared automatically
         falls out of the file. The ``local`` entry is excluded
-        unconditionally — its token lives in ``agent.token``;
+        unconditionally — its token lives in ``agent.env``;
         duplicating it here would create drift.
 
         Mode 0600 on the file, 0700 on the parent dir — matching the
-        ``nodes.json`` and ``agent.token`` conventions.
+        ``nodes.json`` and ``agent.env`` conventions.
         """
         data = {
             name: node.api_key

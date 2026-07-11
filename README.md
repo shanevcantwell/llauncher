@@ -466,7 +466,7 @@ run.bat agent
 - `LLAUNCHER_AGENT_HOST`: Host to bind to (default: `127.0.0.1`). Set to `0.0.0.0` or a specific LAN IP to expose the agent to other hosts — see "Security Notes" below.
 - `LLAUNCHER_AGENT_PORT`: Port to listen on (default: `8765`)
 - `LLAUNCHER_AGENT_NODE_NAME`: Friendly name for the node
-- `LLAUNCHER_AGENT_TOKEN`: The agent's `X-Api-Key` token. The agent **always** enforces a token (auth is never off, even on loopback); this var lets you supply it explicitly. *Required* when binding to anything other than loopback — the agent refuses to start on a non-loopback host without it. Special value `-` reads the token from stdin (one line). On a loopback start with no value set, a fresh token is auto-generated and written to `~/.llauncher/agent.token` (mode 0600). For the full token/auth model (which consumers need a token, exempt paths, resolution order), see [`docs/auth.md`](docs/auth.md).
+- `LLAUNCHER_AGENT_TOKEN`: The agent's `X-Api-Key` token. The agent **always** enforces a token (auth is never off, even on loopback); this var lets you supply it explicitly and always wins over the file below. *Required* when binding to anything other than loopback — the agent refuses to start on a non-loopback host without it. Special value `-` reads the token from stdin (one line). On a loopback start with no value set (and no `LLAUNCHER_AGENT_TOKEN=` line in `agent.env`), a fresh token is auto-generated and appended into `~/.llauncher/agent.env` (mode 0600 if newly created). For the full token/auth model (which consumers need a token, exempt paths, resolution order), see [`docs/auth.md`](docs/auth.md).
 
 #### 3. Start the Dashboard on the Head Machine
 
@@ -502,30 +502,32 @@ In the dashboard:
 A remote agent **always** enforces a token (auth is never off, even on
 loopback). To pair the head with a remote node you copy that token by hand —
 it currently is **not** issued automatically (session-token issuance is
-tracked under #137). Each platform keeps the token in a known file:
+tracked under #137). The token lives in a single live file per platform —
+`agent.env`, parsed directly by the agent and the local UI (issue #284):
 
-| Platform | Token file | Mirrored from | By |
-| --- | --- | --- | --- |
-| Linux | `~/.llauncher/agent.token` | `~/.config/llauncher/agent.env` | `scripts/systemd/install.sh` |
-| Windows | `%USERPROFILE%\.llauncher\agent.token` | `agent.env` | `scripts/windows/install.ps1` |
+| Platform | Live source (`agent.env`) | Seeded (once) by |
+| --- | --- | --- |
+| Linux | `~/.config/llauncher/agent.env` | `scripts/systemd/install.sh` |
+| Windows | `%USERPROFILE%\.llauncher\agent.env` | `scripts/windows/install.ps1` |
 
 Step by step:
 
 1. **Get on the remote box.** SSH to a Linux node, or RDP to a Windows node.
 2. **Read the token.** The portable way is the agent's own subcommand, which
-   resolves the token from env / stdin / the token file and prints it to
+   resolves the token from env / stdin / `agent.env` and prints it to
    stdout:
    ```bash
    llauncher-agent print-token
    ```
-   If you prefer to read the file directly:
+   If you prefer to read the file directly, look for the
+   `LLAUNCHER_AGENT_TOKEN=` line:
    ```bash
    # Linux
-   cat ~/.llauncher/agent.token
+   grep LLAUNCHER_AGENT_TOKEN= ~/.config/llauncher/agent.env
    ```
    ```powershell
    # Windows (PowerShell)
-   Get-Content $env:USERPROFILE\.llauncher\agent.token
+   Select-String LLAUNCHER_AGENT_TOKEN= $env:USERPROFILE\.llauncher\agent.env
    ```
    Over SSH you can do both in one shot: `ssh windows-box llauncher-agent print-token`.
 3. **Copy the value.** It is a single `secrets.token_urlsafe(32)` string on
@@ -534,7 +536,7 @@ Step by step:
    into the **API Key** field of the **Add New Node** form (step 3 above).
 
 The token is stored on the head at `~/.llauncher/node_tokens.json` (mode 0600);
-the `local` node is excluded because its token already lives in `agent.token`.
+the `local` node is excluded because its token already lives in `agent.env`.
 
 ### Network Configuration
 
@@ -561,7 +563,7 @@ New-NetFirewallRule -DisplayName "llauncher Agent" -Direction Inbound -LocalPort
 #### Security Notes
 
 - **Loopback by default**: The agent binds to `127.0.0.1` unless `LLAUNCHER_AGENT_HOST` is set explicitly. Set it to a LAN IP (or `0.0.0.0`) to expose the agent to other hosts on the network.
-- **Token required for non-loopback binds**: Binding to anything other than `127.0.0.1` / `::1` / `localhost` requires `LLAUNCHER_AGENT_TOKEN` to be set. The agent refuses to start otherwise. On loopback first-run with no token configured, a fresh token is generated at `~/.llauncher/agent.token` (mode 0600) and printed once to stderr.
+- **Token required for non-loopback binds**: Binding to anything other than `127.0.0.1` / `::1` / `localhost` requires `LLAUNCHER_AGENT_TOKEN` to be set. The agent refuses to start otherwise. On loopback first-run with no token configured, a fresh token is generated and appended into `~/.llauncher/agent.env` (mode 0600 if newly created) and printed once to stderr.
 - **Trusted LAN Only**: Even with a token, only expose the agent on networks you trust — the transport is plain HTTP (no TLS). Tailscale is the recommended option for cross-host trust.
 - **Firewall**: Restrict port 8765 to your LAN subnet.
 - **Full auth model**: For the token/auth reference — the two planes (token-bearing HTTP agent vs. tokenless local MCP/CLI), the `X-Api-Key` header, exempt paths, resolution precedence, and file locations/modes — see [`docs/auth.md`](docs/auth.md).

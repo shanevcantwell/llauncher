@@ -104,7 +104,7 @@ def render_node_list(registry: NodeRegistry, aggregator) -> None:
             st.divider()
 
             # Rotate API key (remote nodes only — the ``local`` entry
-            # sources its token from ``~/.llauncher/agent.token`` via
+            # sources its token from ``~/.llauncher/agent.env`` via
             # NodeRegistry._populate_local_token; manually setting one
             # here would only create drift).
             if node.name != "local":
@@ -231,8 +231,9 @@ def render_add_node_form(registry: NodeRegistry) -> None:
             type="password",
             help=(
                 "On the remote box, run `llauncher-agent print-token` (or "
-                "`cat ~/.llauncher/agent.token` on Linux / "
-                "`Get-Content $env:USERPROFILE\\.llauncher\\agent.token` on "
+                "read the `LLAUNCHER_AGENT_TOKEN=` line from "
+                "`~/.llauncher/agent.env` on Linux / "
+                "`$env:USERPROFILE\\.llauncher\\agent.env` on "
                 "Windows) and paste the value here. Required for non-loopback "
                 "agents (per ADR-003); leave blank only for unauthenticated "
                 "loopback agents."

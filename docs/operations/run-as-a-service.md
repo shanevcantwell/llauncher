@@ -18,16 +18,46 @@ token/auth model across both planes see [`../auth.md`](../auth.md).)
 Both installers do the same work in OS-appropriate idioms:
 
 1. Render a service definition pointing at the venv's `llauncher-agent`.
-2. Create an env file at a per-user location with mode 0600 / restricted
-   ACL, seeded from `*.env.example` with a freshly generated token.
+2. Seed `agent.env` at a per-user location with mode 0600 / restricted
+   ACL, from `agent.env.example`, with a freshly generated token — but
+   **only once**. On every later run, if `agent.env` already exists the
+   installer skips the seed step and says so loudly, naming the live
+   path. Editing `agent.env.example` after first install is a silent
+   no-op; it is a template, never live config.
 3. Configure auto-restart on failure with a backoff (so a transient port
    collision doesn't lock you out, but a misconfigured token doesn't
    crash-loop forever).
 4. Enable + start.
 
-Re-running the installer is safe: env files are preserved, unit/service
+Re-running the installer is safe: `agent.env` is preserved, unit/service
 config is refreshed. This is the right way to pick up a `git pull` that
 touches the unit template.
+
+### Single live source (issue #284)
+
+`agent.env` is parsed **directly** by both the agent service and the
+Streamlit UI at their own startup (`llauncher.core.agent_token.resolve_agent_token`)
+— there is no installer-time snapshot into a separate mirror file.
+Editing `agent.env` and restarting the agent (`systemctl --user restart
+llauncher-agent`, or a Windows service restart) changes the effective
+token for **both** the service and the UI immediately; no reinstall
+needed on Linux. On Windows, NSSM holds the env in its own service config
+rather than re-reading the file live, so re-run `install.ps1` after an
+edit to push the new value into NSSM (see "Pick up env-file edits"
+below) — the UI side, which parses `agent.env` directly, picks up the
+edit immediately either way.
+
+The `agent.token` mirror file that used to exist alongside `agent.env` is
+**retired**. It was a second on-disk copy of the token that an installer
+had to keep in sync — a skipped or stale refresh of that copy was the
+direct cause of issue #281's UI-403 split-brain (operator edits the
+template or the env file; the mirror silently keeps the old value; the UI
+403s against a token the agent no longer expects). Both installers now
+delete a stale `agent.token` on sight, announcing it loudly
+("retired by #284; live source is `<path>`"). If `agent.token` exists and
+`agent.env` has **no** token line yet, the installer moves the token
+value into `agent.env` before deleting the mirror — a live credential is
+never silently discarded.
 
 ### Migrating from pre-#139 installs
 
@@ -141,9 +171,9 @@ system unit, never root.
    `/usr/local/bin`.
 
 2. **`inference`-group membership** for your account. The UI reads the
-   system agent's token (`/var/lib/llauncher/agent.token`, mode `0640`
-   `root:inference`) in place via group membership — no copy. Group
-   provisioning is a host step (harness-tools
+   system agent's live env file (`/var/lib/llauncher/agent.env`, mode
+   `0640` `root:inference`) in place via group membership — no copy.
+   Group provisioning is a host step (harness-tools
    `setup-inference-lane.sh`):
 
    ```bash
@@ -220,8 +250,16 @@ journalctl --user -u llauncher-ui -f      # live logs
 The installer:
 
 - Locates NSSM, fails fast with install instructions if missing.
-- Writes the env file to `%USERPROFILE%\.llauncher\agent.env` with an
-  ACL restricting access to the current user.
+- Seeds `%USERPROFILE%\.llauncher\agent.env` from the template with an
+  ACL restricting access to the current user — **only if it doesn't
+  already exist**; otherwise it skips the seed and says so loudly.
+- Migrates a stale `agent.token` mirror (pre-#284 installs) into
+  `agent.env`, then deletes it, announcing both steps.
+- Injects `LAUNCHER_STATE_DIR=%USERPROFILE%\.llauncher` into the NSSM
+  service environment (the **LocalSystem wrinkle**: NSSM defaults new
+  services to the LocalSystem account, whose `Path.home()` does not
+  resolve to the installing operator's profile — without this pointer
+  the service would resolve a different `agent.env` than the UI reads).
 - Registers the service via `nssm install`, pointing at
   `.\.venv\Scripts\llauncher-agent.exe`.
 - Configures auto-start, restart-on-failure with a 5 s backoff,
@@ -307,14 +345,25 @@ agent resolved to *different* tokens. Check, in order:
    `LLAUNCHER_AGENT_*`. Re-run the installer to migrate them
    automatically (see "Migrating from pre-#139 installs" above).
 2. **A self-generated token under the wrong profile.** When the agent
-   can't resolve a token from the environment, it auto-generates one at
-   `~/.llauncher/agent.token` under `Path.home()` **of the account the
-   agent process runs as** — for a Windows service that's the service
-   account, not the interactively logged-in operator. If the service is
-   silently minting its own token under a profile you never look at,
-   the UI's configured token will never match it. Confirm the service's
-   token source (env var vs. auto-generated file) and which account's
-   home directory it actually wrote to.
+   can't resolve a token from `agent.env` or the environment, it
+   auto-generates one and appends it into `agent.env` under
+   `Path.home()` **of the account the agent process runs as** — for a
+   Windows service that's the service account, not the interactively
+   logged-in operator. `install.ps1` injects `LAUNCHER_STATE_DIR` to
+   prevent this (see the LocalSystem wrinkle above), but a manually
+   configured service or a non-standard service account can still miss
+   it. If the service is silently minting its own token under a
+   profile you never look at, the UI's configured token will never
+   match it. Confirm the service's token source (env var vs.
+   auto-generated `agent.env`) and which account's home directory it
+   actually wrote to.
+3. **Editing the template instead of the live file.** `agent.env.example`
+   is a seed-once template — after first install, nothing reads it again.
+   If you edited the `.example` and re-ran the installer expecting the
+   new value to propagate, it won't: edit the live `agent.env` directly
+   (paths above), then restart the service (Linux: `systemctl --user
+   restart llauncher-agent`; Windows: re-run `install.ps1` to push the
+   change into NSSM).
 
 ## Token rotation
 

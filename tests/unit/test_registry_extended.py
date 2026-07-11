@@ -443,11 +443,11 @@ class TestLocalNodeTokenResolution:
             }
         }))
         monkeypatch.setattr("llauncher.remote.registry.NODES_FILE", nodes_file)
-        # Token file the resolver will read.
-        token_path = tmp_path / "agent.token"
-        token_path.write_text("test-token-abc123")
+        # agent.env the resolver will parse.
+        env_path = tmp_path / "agent.env"
+        env_path.write_text("LLAUNCHER_AGENT_TOKEN=test-token-abc123\n")
         monkeypatch.setattr(
-            "llauncher.core.agent_token.default_token_path", lambda: token_path
+            "llauncher.core.agent_token.default_env_path", lambda: env_path
         )
         monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
 
@@ -467,10 +467,10 @@ class TestLocalNodeTokenResolution:
             }
         }))
         monkeypatch.setattr("llauncher.remote.registry.NODES_FILE", nodes_file)
-        # No token file, no env var → resolver returns None.
-        token_path = tmp_path / "nonexistent.token"
+        # No agent.env, no env var → resolver returns None.
+        env_path = tmp_path / "nonexistent.env"
         monkeypatch.setattr(
-            "llauncher.core.agent_token.default_token_path", lambda: token_path
+            "llauncher.core.agent_token.default_env_path", lambda: env_path
         )
         monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
 
@@ -499,10 +499,10 @@ class TestLocalNodeTokenResolution:
             },
         }))
         monkeypatch.setattr("llauncher.remote.registry.NODES_FILE", nodes_file)
-        token_path = tmp_path / "agent.token"
-        token_path.write_text("local-token-only")
+        env_path = tmp_path / "agent.env"
+        env_path.write_text("LLAUNCHER_AGENT_TOKEN=local-token-only\n")
         monkeypatch.setattr(
-            "llauncher.core.agent_token.default_token_path", lambda: token_path
+            "llauncher.core.agent_token.default_env_path", lambda: env_path
         )
         monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
 
@@ -551,11 +551,11 @@ class TestRemoteNodeTokenPersistence:
         tokens_file = tmp_path / "node_tokens.json"
         monkeypatch.setattr(registry_mod, "NODES_FILE", nodes_file)
         monkeypatch.setattr(registry_mod, "NODE_TOKENS_FILE", tokens_file)
-        # Local-token resolver: no env, no on-disk agent.token in tmp.
+        # Local-token resolver: no env, no on-disk agent.env in tmp.
         # Prevents the resolver from picking up the real user's token.
-        agent_token_path = tmp_path / "agent.token-absent"
+        agent_env_path = tmp_path / "agent.env-absent"
         monkeypatch.setattr(
-            "llauncher.core.agent_token.default_token_path", lambda: agent_token_path
+            "llauncher.core.agent_token.default_env_path", lambda: agent_env_path
         )
         monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
         return nodes_file, tokens_file
@@ -625,15 +625,15 @@ class TestRemoteNodeTokenPersistence:
         assert "api_key" not in on_disk["remote-d"]
 
     def test_local_node_excluded_from_tokens_file(self, tmp_path, monkeypatch):
-        """The ``local`` entry's token belongs in ``agent.token``, NOT
+        """The ``local`` entry's token belongs in ``agent.env``, NOT
         the sidecar — duplicating it here would create drift.
         """
         nodes_file, tokens_file = self._patch_paths(monkeypatch, tmp_path)
-        # Pre-seed an agent.token so _populate_local_token has a value.
-        agent_token = tmp_path / "agent.token"
-        agent_token.write_text("local-secret")
+        # Pre-seed an agent.env so _populate_local_token has a value.
+        agent_env = tmp_path / "agent.env"
+        agent_env.write_text("LLAUNCHER_AGENT_TOKEN=local-secret\n")
         monkeypatch.setattr(
-            "llauncher.core.agent_token.default_token_path", lambda: agent_token
+            "llauncher.core.agent_token.default_env_path", lambda: agent_env
         )
 
         reg = NodeRegistry()
@@ -669,7 +669,7 @@ class TestRemoteNodeTokenPersistence:
     def test_missing_tokens_file_leaves_api_keys_none(self, tmp_path, monkeypatch):
         """nodes.json says has_api_key=True but the sidecar is missing
         → load succeeds, that remote's api_key is None. No synthesis
-        from the local agent.token (credential-confusion guard).
+        from the local agent.env (credential-confusion guard).
         """
         nodes_file, tokens_file = self._patch_paths(monkeypatch, tmp_path)
         # nodes.json claims a token for remote-h.
@@ -679,11 +679,11 @@ class TestRemoteNodeTokenPersistence:
                 "port": 8765, "timeout": 5.0, "has_api_key": True,
             }
         }))
-        # And a local agent.token exists — but it must NOT bleed through.
-        agent_token = tmp_path / "agent.token"
-        agent_token.write_text("would-be-credential-confusion")
+        # And a local agent.env exists — but it must NOT bleed through.
+        agent_env = tmp_path / "agent.env"
+        agent_env.write_text("LLAUNCHER_AGENT_TOKEN=would-be-credential-confusion\n")
         monkeypatch.setattr(
-            "llauncher.core.agent_token.default_token_path", lambda: agent_token
+            "llauncher.core.agent_token.default_env_path", lambda: agent_env
         )
         assert not tokens_file.exists()
 

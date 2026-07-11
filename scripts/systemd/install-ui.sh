@@ -85,12 +85,12 @@ fi
 
 if ! getent group inference >/dev/null 2>&1; then
     info "Group 'inference' does not exist on this host. The UI reads the system"
-    info "  agent's token (/var/lib/llauncher/agent.token, 0640 root:inference) via"
+    info "  agent's live env file (/var/lib/llauncher/agent.env, 0640 root:inference) via"
     info "  group membership; token reads will fail until the group is provisioned"
     info "  (host provisioning, out of installer scope)."
 elif ! id -nG "$USER" 2>/dev/null | tr ' ' '\n' | grep -qx inference; then
     info "$USER is not a member of group 'inference'. The UI reads the system"
-    info "  agent's token (/var/lib/llauncher/agent.token, 0640 root:inference) via"
+    info "  agent's live env file (/var/lib/llauncher/agent.env, 0640 root:inference) via"
     info "  group membership; token reads will fail until you are added"
     info "    sudo usermod -aG inference $USER   # host provisioning, then re-login"
 fi

@@ -339,9 +339,10 @@ def run_agent(config: AgentConfig) -> None:
 
     Enforces the security hardening §3 C1 guard: refuses to start
     when binding to a non-loopback interface without an authentication
-    token configured. Auto-generates a token file at
-    ``~/.llauncher/agent.token`` on the first loopback start with no
-    env-provided token.
+    token configured. Auto-generates a token and persists it into
+    ``~/.llauncher/agent.env`` on the first loopback start with no
+    env-provided token (issue #284 — single live source, no separate
+    token-mirror file).
 
     Also enforces a pre-#139 legacy-env guard (#281, defense in depth
     for deployments that bypass the installers' own migration): refuses
@@ -445,7 +446,7 @@ def main() -> None:
         choices=["print-token"],
         help=(
             "Optional subcommand. 'print-token' resolves this node's agent "
-            "token (env > stdin > ~/.llauncher/agent.token) and prints it to "
+            "token (env > stdin > ~/.llauncher/agent.env) and prints it to "
             "stdout, then exits — so an operator can copy it into the head's "
             "Add Node form without file-archaeology (issue #134)."
         ),
@@ -462,8 +463,8 @@ def main() -> None:
         if token is None:
             sys.stderr.write(
                 "[llauncher-agent] ERROR: no agent token found. Start the "
-                "agent once on loopback to generate ~/.llauncher/agent.token, "
-                "or set LLAUNCHER_AGENT_TOKEN.\n"
+                "agent once on loopback to generate one into "
+                "~/.llauncher/agent.env, or set LLAUNCHER_AGENT_TOKEN.\n"
             )
             sys.exit(1)
             return
