@@ -40,6 +40,18 @@ The allowlist is the set of paths where matches are *expected*:
       message includes the legacy token by construction (the
       split-string trick covers the search pattern but the message
       formatting may still emit the literal).
+    - ``scripts/windows/install.ps1``, ``scripts/systemd/install.sh``,
+      ``llauncher/core/agent_token.py``, ``llauncher/agent/server.py``,
+      ``tests/integration/test_agent_security_c1_c2.py``,
+      ``tests/unit/test_agent_token_legacy_env.py``, and
+      ``docs/operations/run-as-a-service.md`` are allowlisted for issue
+      #281: the pre-#139 legacy-key *migration and detection* logic
+      necessarily names the old key to recognize and rewrite/refuse it.
+      This is the opposite failure mode from the one this guard exists
+      to catch — #138 was the typo silently *reappearing as the active
+      read path*; #281's references are inert string literals used only
+      to detect and migrate away from that old shape at the door
+      (PARSE-AT-THE-DOOR), never a fallback read.
 """
 
 from __future__ import annotations
@@ -231,6 +243,15 @@ ALLOWED_PATH_PREFIXES: tuple[str, ...] = (
     "docs/v2-handoff.md",
     "CHANGELOG.md",
     "tests/unit/test_env_var_naming_regression.py",
+    # #281: pre-#139 legacy-key migration (installers) and detection
+    # (agent-side fail-loud guard) — see module docstring rationale.
+    "scripts/windows/install.ps1",
+    "scripts/systemd/install.sh",
+    "llauncher/core/agent_token.py",
+    "llauncher/agent/server.py",
+    "tests/integration/test_agent_security_c1_c2.py",
+    "tests/unit/test_agent_token_legacy_env.py",
+    "docs/operations/run-as-a-service.md",
 )
 
 

@@ -39,7 +39,36 @@ import os
 import secrets
 import stat
 import sys
+from collections.abc import Mapping
 from pathlib import Path
+
+#: Pre-rename token env var name (single-L ``LAUNCHER``), retired by the
+#: #138/#139 rename (commit 9f098d9). Nothing reads it any more; its
+#: presence is only ever a marker of a pre-rename deployment (#281).
+LEGACY_ENV_VAR = "LAUNCHER_AGENT_TOKEN"
+
+
+def legacy_token_env_misconfigured(environ: Mapping[str, str] | None = None) -> bool:
+    """Return True when only the pre-rename token env var carries a value.
+
+    Commit 9f098d9 (#138/#139) renamed ``LAUNCHER_AGENT_TOKEN`` →
+    ``LLAUNCHER_AGENT_TOKEN``, but live deployments (env files written
+    from the pre-rename template, service configs that re-inject them)
+    can still export the legacy single-L name. Since nothing reads it,
+    the agent would fall through to the token-file/auto-generate path
+    and silently mint a *different* token than the one the operator
+    configured — the UI-403 split-brain of issue #281.
+
+    True iff ``LAUNCHER_AGENT_TOKEN`` is set non-empty AND
+    ``LLAUNCHER_AGENT_TOKEN`` is absent or empty (empty counts as
+    absent). That combination only ever means a pre-#139 deployment,
+    so callers should fail loud rather than proceed.
+    """
+    if environ is None:
+        environ = os.environ
+    return bool(environ.get(LEGACY_ENV_VAR)) and not environ.get(
+        "LLAUNCHER_AGENT_TOKEN"
+    )
 
 
 def default_token_path() -> Path:

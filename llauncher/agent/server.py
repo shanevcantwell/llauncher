@@ -25,7 +25,11 @@ from fastapi import FastAPI
 
 from llauncher import __version__
 from llauncher import operations as ops
-from llauncher.agent.auth import is_loopback, resolve_agent_token
+from llauncher.agent.auth import (
+    is_loopback,
+    legacy_token_env_misconfigured,
+    resolve_agent_token,
+)
 from llauncher.agent.config import AgentConfig
 from llauncher.agent.middleware import (
     AuthenticationMiddleware,
@@ -339,15 +343,39 @@ def run_agent(config: AgentConfig) -> None:
     ``~/.llauncher/agent.token`` on the first loopback start with no
     env-provided token.
 
+    Also enforces a pre-#139 legacy-env guard (#281, defense in depth
+    for deployments that bypass the installers' own migration): refuses
+    to start when the pre-rename ``LAUNCHER_AGENT_TOKEN`` is set but the
+    current ``LLAUNCHER_AGENT_TOKEN`` is not, since that combination only
+    ever means a stale env file whose token nothing reads any more — the
+    agent would otherwise silently fall through to the token-file /
+    auto-generate path and mint a token the operator never configured.
+
     Args:
         config: Agent configuration.
 
     Raises:
         SystemExit: With code 2 when binding non-loopback without an
-            available authentication token. The error message names
-            both remediation paths (set ``LLAUNCHER_AGENT_TOKEN`` or
-            bind loopback).
+            available authentication token, or when a pre-#139 legacy
+            env var is the only token source present. The error message
+            names the remediation paths.
     """
+    if legacy_token_env_misconfigured():
+        sys.stderr.write(
+            "[llauncher-agent] ERROR: found legacy LAUNCHER_AGENT_TOKEN in "
+            "the environment but no LLAUNCHER_AGENT_TOKEN.\n"
+            "[llauncher-agent] Commit 9f098d9 (#138/#139) renamed "
+            "LAUNCHER_AGENT_* env vars to LLAUNCHER_AGENT_* (double-L); "
+            "nothing reads the old name any more, and starting anyway "
+            "would silently auto-generate a different token than the one "
+            "you configured (#281).\n"
+            "[llauncher-agent] Remediation: rename LAUNCHER_AGENT_* keys "
+            "to LLAUNCHER_AGENT_* in your env file, or re-run the "
+            "installer (install.ps1 / install.sh) to migrate them "
+            "automatically.\n"
+        )
+        raise SystemExit(2)
+
     env_token = os.environ.get("LLAUNCHER_AGENT_TOKEN")
     loopback = is_loopback(config.host)
 

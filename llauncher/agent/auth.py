@@ -25,8 +25,10 @@ from __future__ import annotations
 import sys  # noqa: F401  (re-exported for legacy ``auth_mod.sys`` patch sites)
 
 from llauncher.core.agent_token import (  # noqa: F401
+    LEGACY_ENV_VAR,
     _read_token_file,  # imported directly by tests/unit/test_agent_auth_token_file.py
     default_token_path,
+    legacy_token_env_misconfigured,
     resolve_agent_token,
 )
 

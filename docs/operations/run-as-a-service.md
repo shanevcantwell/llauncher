@@ -29,6 +29,30 @@ Re-running the installer is safe: env files are preserved, unit/service
 config is refreshed. This is the right way to pick up a `git pull` that
 touches the unit template.
 
+### Migrating from pre-#139 installs
+
+Commit `9f098d9` (#138/#139) renamed the agent's env vars from
+`LAUNCHER_AGENT_*` to `LLAUNCHER_AGENT_*` (double-L). If your env file
+(`~/.config/llauncher/agent.env` on Linux,
+`%USERPROFILE%\.llauncher\agent.env` on Windows) predates that rename,
+it still carries the old single-L keys. Both installers now detect and
+migrate these keys **in place, automatically, on re-run**: matching
+`LAUNCHER_AGENT_*` lines are rewritten to `LLAUNCHER_AGENT_*` with
+values preserved byte-for-byte, and the installer reports which keys it
+migrated. If no usable `LLAUNCHER_AGENT_TOKEN` line remains after
+migration, the installer refuses to proceed (exits non-zero) rather than
+installing a service with a broken token — see
+[#281](https://github.com/shanevcantwell/llauncher/issues/281). Simply
+re-running `install.sh` / `install.ps1` is enough to migrate an existing
+deployment; no manual edit is required unless the installer tells you
+one is missing.
+
+As defense in depth, the agent itself also refuses to start (exit code
+2) if it finds a legacy `LAUNCHER_AGENT_TOKEN` in its environment with
+no `LLAUNCHER_AGENT_TOKEN` — that combination only ever means a stale
+pre-#139 environment, and starting anyway would silently mint a token
+the operator never configured (see the troubleshooting entry below).
+
 ## Security note up front
 
 The agent's only auth layer is the `X-Api-Key` token in
@@ -260,6 +284,37 @@ curl -sS -H "X-Api-Key: $LLAUNCHER_AGENT_TOKEN" \
 A 200 on `/status` confirms the service is up, the token matches, and the
 bind interface is reachable. A 401/403 there means the token is missing or
 wrong (`/health` would still return 200 — it skips auth).
+
+## Troubleshooting
+
+### 403 on `/node-info` or `/start` while `/health` returns 200
+
+This is a token mismatch, not a reachability problem — `/health` skips
+auth entirely, so its 200 only proves the process is up and reachable.
+The distinction between 401 and 403 tells you what the client sent:
+
+- **401** = the client sent no `X-Api-Key` header at all.
+- **403** = the client sent a header, but the value doesn't match the
+  agent's token.
+
+A 403 with a working `/health` almost always means the UI/client and the
+agent resolved to *different* tokens. Check, in order:
+
+1. **Legacy env keys.** Open the agent's env file
+   (`~/.config/llauncher/agent.env` on Linux,
+   `%USERPROFILE%\.llauncher\agent.env` on Windows) and look for
+   pre-#139 `LAUNCHER_AGENT_*` (single-L) key names instead of
+   `LLAUNCHER_AGENT_*`. Re-run the installer to migrate them
+   automatically (see "Migrating from pre-#139 installs" above).
+2. **A self-generated token under the wrong profile.** When the agent
+   can't resolve a token from the environment, it auto-generates one at
+   `~/.llauncher/agent.token` under `Path.home()` **of the account the
+   agent process runs as** — for a Windows service that's the service
+   account, not the interactively logged-in operator. If the service is
+   silently minting its own token under a profile you never look at,
+   the UI's configured token will never match it. Confirm the service's
+   token source (env var vs. auto-generated file) and which account's
+   home directory it actually wrote to.
 
 ## Token rotation
 
