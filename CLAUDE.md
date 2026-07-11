@@ -58,6 +58,10 @@ trust-and-degrade on an unrecognized one (`PARSE-AT-THE-DOOR`).
 - **Gates before any merge:** full pytest; non-UI coverage ≥93%
   (`--cov-fail-under=93`); coverage profile maximized over changed paths;
   dispatched code review.
+- **Merge mechanics + ground close:** merges land via `gh pr merge --squash --delete-branch`
+  (deletes remote + local head, returns the checkout to `main`). A session that touched the
+  repo ends with the shared checkout clean on `main` and its scratch worktrees removed or
+  banked; session-start is never where the previous session's ground gets dispositioned.
 - **Runtime verification:** the live GPU runtime may be driven freely
   (start/stop/swap real servers), including alongside the resident
   :8081/:8082 services.
