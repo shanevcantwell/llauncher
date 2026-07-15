@@ -26,6 +26,8 @@ from fastapi import FastAPI
 from llauncher import __version__
 from llauncher import operations as ops
 from llauncher.agent.auth import (
+    count_env_file_token_lines,
+    default_env_path,
     is_loopback,
     legacy_token_env_misconfigured,
     resolve_agent_token,
@@ -357,8 +359,10 @@ def run_agent(config: AgentConfig) -> None:
 
     Raises:
         SystemExit: With code 2 when binding non-loopback without an
-            available authentication token, or when a pre-#139 legacy
-            env var is the only token source present. The error message
+            available authentication token, when a pre-#139 legacy
+            env var is the only token source present, or when the live
+            env file carries more than one LLAUNCHER_AGENT_TOKEN= line
+            (the #293 duplicate-token split-brain). The error message
             names the remediation paths.
     """
     if legacy_token_env_misconfigured():
@@ -374,6 +378,29 @@ def run_agent(config: AgentConfig) -> None:
             "to LLAUNCHER_AGENT_* in your env file, or re-run the "
             "installer (install.ps1 / install.sh) to migrate them "
             "automatically.\n"
+        )
+        raise SystemExit(2)
+
+    # Fail loud on a duplicate token line in the live env file (#293). All
+    # resolvers are last-wins (#284/d5f83b9) so a duplicate does not change
+    # which value wins *now*, but two token lines in one file is the
+    # split-brain footgun that reopened the UI-403 recurrence — a later
+    # hand-edit that reorders them makes server and client resolve different
+    # values. Refuse to run with the latent hazard rather than paper over
+    # it; the remediation is to leave exactly one canonical line.
+    env_path = default_env_path()
+    token_line_count = count_env_file_token_lines(env_path)
+    if token_line_count > 1:
+        sys.stderr.write(
+            "[llauncher-agent] ERROR: found "
+            f"{token_line_count} LLAUNCHER_AGENT_TOKEN= lines in {env_path}.\n"
+            "[llauncher-agent] Duplicate token lines are the split-brain "
+            "footgun behind the recurring UI-403s (#293): a later edit that "
+            "reorders them makes the agent and the UI resolve different "
+            "tokens.\n"
+            "[llauncher-agent] Remediation: edit the file to leave exactly "
+            "one LLAUNCHER_AGENT_TOKEN= line, or re-run the installer "
+            "(install.ps1 / install.sh) to migrate it.\n"
         )
         raise SystemExit(2)
 

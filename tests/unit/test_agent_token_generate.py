@@ -110,3 +110,120 @@ def test_generate_token_append_preserves_existing_file_permissions(tmp_path: Pat
 
     mode = stat_mod.S_IMODE(target.stat().st_mode)
     assert mode == 0o640, f"expected append to preserve 0640, got {oct(mode)}"
+
+
+# --- Rewrite-in-place / no-split-brain (issue #293) --------------------
+#
+# The generate/persist path is reached only when the file has no *usable*
+# token line (empty or absent value; an empty ``LLAUNCHER_AGENT_TOKEN=``
+# counts as absent). Before #293 it *appended* a token line unconditionally,
+# so an existing empty/placeholder token line was left behind alongside the
+# new one — two ``LLAUNCHER_AGENT_TOKEN=`` lines in one file. Every resolver
+# is last-wins, but two token lines is the split-brain footgun that reopened
+# the recurring UI-403: a later hand-edit reordering them makes the agent and
+# the UI resolve different values. These pin the rewrite-in-place fix: exactly
+# one canonical token line remains, and the value the *file* resolves to (what
+# a client reading agent.env would get) equals the returned token (what the
+# agent runs with) — no split.
+
+
+def _resolved_file_token(path: Path) -> str | None:
+    """The token a client would resolve by parsing agent.env (last-wins)."""
+    from llauncher.core.agent_token import _read_env_file_token
+
+    return _read_env_file_token(path)
+
+
+def test_generate_token_strips_existing_empty_token_line_no_duplicate(
+    tmp_path: Path,
+) -> None:
+    """An empty placeholder ``LLAUNCHER_AGENT_TOKEN=`` line is rewritten, not
+    duplicated.
+
+    This is the exact pre-#293 recurrence shape: a template seeded the file
+    with an empty token line, the operator never filled it, so the agent
+    reaches the generate path — and must leave the file with EXACTLY ONE
+    token line (the fresh one), never append a second.
+    """
+    from llauncher.core.agent_token import count_env_file_token_lines
+
+    target = tmp_path / "agent.env"
+    target.write_text(
+        "LLAUNCHER_AGENT_HOST=0.0.0.0\nLLAUNCHER_AGENT_TOKEN=\n"
+    )
+
+    token = _generate_and_persist_token(target)
+
+    assert count_env_file_token_lines(target) == 1
+    # Non-token lines preserved.
+    assert "LLAUNCHER_AGENT_HOST=0.0.0.0" in target.read_text(encoding="utf-8")
+    # Server-resolved (returned) == client-resolved (file parse): no split.
+    assert _resolved_file_token(target) == token
+
+
+def test_generate_token_no_split_between_server_and_client(tmp_path: Path) -> None:
+    """The returned token equals the file-resolved token — the split-brain
+    invariant.
+
+    Pre-seed a file with an empty legacy-migrated token placeholder plus
+    other keys; after generate, the value the agent runs with (return value)
+    and the value a client resolves from agent.env must be identical.
+    """
+    target = tmp_path / "agent.env"
+    target.write_text(
+        "LLAUNCHER_AGENT_HOST=127.0.0.1\n"
+        "LLAUNCHER_AGENT_TOKEN=\n"
+        "LLAUNCHER_AGENT_PORT=8765\n"
+    )
+
+    token = _generate_and_persist_token(target)
+
+    assert _resolved_file_token(target) == token
+    assert token  # non-empty
+
+
+def test_generate_token_ignores_commented_token_line(tmp_path: Path) -> None:
+    """A commented ``# LLAUNCHER_AGENT_TOKEN=`` line is not treated as a token
+    line and survives the rewrite verbatim.
+
+    Guards the key-anchored strip: only a real ``KEY=`` line (optional
+    leading whitespace) is a token line; a comment must not be stripped and
+    must not count toward the duplicate guard.
+    """
+    from llauncher.core.agent_token import count_env_file_token_lines
+
+    target = tmp_path / "agent.env"
+    target.write_text(
+        "# LLAUNCHER_AGENT_TOKEN=example-do-not-use\n"
+        "LLAUNCHER_AGENT_HOST=0.0.0.0\n"
+    )
+
+    token = _generate_and_persist_token(target)
+
+    text = target.read_text(encoding="utf-8")
+    assert "# LLAUNCHER_AGENT_TOKEN=example-do-not-use" in text
+    assert count_env_file_token_lines(target) == 1
+    assert _resolved_file_token(target) == token
+
+
+def test_generate_token_with_legacy_only_line_yields_single_canonical(
+    tmp_path: Path,
+) -> None:
+    """A legacy-only ``LAUNCHER_AGENT_TOKEN`` line (single-L) is not read by
+    the runtime, so generate is reached and writes ONE canonical line.
+
+    The runtime never reads the legacy single-L key (#138/#139), so a file
+    carrying only it has no usable canonical token — the agent generates
+    one. The legacy line is left in place (the installer migrates it; the
+    runtime is inert to it), but there must be exactly one *canonical*
+    ``LLAUNCHER_AGENT_TOKEN=`` line afterward and no server/client split.
+    """
+    from llauncher.core.agent_token import count_env_file_token_lines
+
+    target = tmp_path / "agent.env"
+    target.write_text("LAUNCHER_AGENT_TOKEN=legacy-inert-value\n")
+
+    token = _generate_and_persist_token(target)
+
+    assert count_env_file_token_lines(target) == 1  # canonical only
+    assert _resolved_file_token(target) == token

@@ -141,32 +141,37 @@ if (-not (Test-Path $EnvFile)) {
     Info "  Edits to ${EnvExample} are never read after first install;"
     Info "  edit $EnvFile directly (the live source) and re-run this script."
 
-    # --- Migrate pre-#139 legacy keys (issue #281) --------------------
+    # --- Migrate pre-#139 legacy keys (issue #281), deduped (issue #285)
     # Commit 9f098d9 (#138/#139) renamed LAUNCHER_AGENT_* to
     # LLAUNCHER_AGENT_*, but env files written from the pre-rename
     # template still carry the single-L keys — which nothing reads any
     # more, so the agent silently auto-generates its own token under the
     # SERVICE account's profile and the UI 403s on every authed endpoint.
     # PARSE-AT-THE-DOOR: rewrite the key prefix in place, once,
-    # deterministically, preserving each value byte-for-byte. Comment
-    # lines start with '#' and never match the key-anchored pattern.
-    $lines = @(Get-Content $EnvFile)
-    $migratedKeys = @()
-    for ($i = 0; $i -lt $lines.Count; $i++) {
-        if ($lines[$i] -match '^\s*LAUNCHER_AGENT_') {
-            $oldKey = ($lines[$i] -split '=', 2)[0].Trim()
-            $lines[$i] = $lines[$i] -replace '^(\s*)LAUNCHER_AGENT_', '${1}LLAUNCHER_AGENT_'
-            $newKey = ($lines[$i] -split '=', 2)[0].Trim()
-            $migratedKeys += "$oldKey -> $newKey"
-        }
-    }
-    if ($migratedKeys.Count -gt 0) {
+    # deterministically, preserving each value byte-for-byte.
+    #
+    # Issue #285: a blanket prefix rewrite created a DUPLICATE when a legacy
+    # line's migrated key already existed as a canonical line — the
+    # installer half of the "403s keep coming back" recurrence (paired with
+    # #293's runtime half). The migration now DROPS a legacy line whose
+    # migrated key already exists (the canonical line wins), loudly. Logic
+    # is extracted to MigrateEnvKeys.ps1 (mirrors migrate_env_keys.sh) so
+    # both installers resolve duplicates identically and the logic is
+    # unit-testable without install.ps1's ACL/NSSM steps.
+    . (Join-Path $ScriptDir 'MigrateEnvKeys.ps1')
+    $migration = Invoke-EnvKeyMigration -Lines @(Get-Content $EnvFile)
+    if ($migration.Migrated.Count -gt 0 -or $migration.Dropped.Count -gt 0) {
         # IMPORTANT: write WITHOUT a UTF-8 BOM — Windows PowerShell 5.1's
         # `Set-Content -Encoding utf8` prepends EF BB BF, which would
         # corrupt the first key name.
         [System.IO.File]::WriteAllLines(
-            $EnvFile, $lines, (New-Object System.Text.UTF8Encoding($false)))
-        Say ("Migrated pre-#139 legacy keys in ${EnvFile}: " + ($migratedKeys -join ', '))
+            $EnvFile, $migration.Lines, (New-Object System.Text.UTF8Encoding($false)))
+    }
+    if ($migration.Migrated.Count -gt 0) {
+        Say ("Migrated pre-#139 legacy keys in ${EnvFile}: " + ($migration.Migrated -join ', '))
+    }
+    if ($migration.Dropped.Count -gt 0) {
+        Say ("Dropped $($migration.Dropped.Count) pre-#139 legacy line(s) in ${EnvFile} whose migrated key already existed (canonical line wins; issue #285): " + ($migration.Dropped -join ', '))
     }
 }
 
