@@ -8,6 +8,7 @@ and op results into HTTP status codes.
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Response
@@ -15,6 +16,8 @@ from pydantic import BaseModel
 
 from llauncher import operations as ops
 from llauncher.state import LauncherState
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -374,8 +377,36 @@ def start_server(port: int, body: StartRequest) -> dict:
     Delegates to :func:`llauncher.operations.start`. Status code reflects
     the ``action`` discriminator (200 for ``started``/``already_running``,
     409 for ``rejected_occupied``, 500 for ``error``).
+
+    Issue #308: ``ops.start`` returning ``action="error"`` is a *handled*
+    failure with a structured body (the branch above/below this comment).
+    An *unhandled* exception escaping ``ops.start`` — e.g. an ``OSError``
+    that isn't one of the specific exceptions the op already catches — is
+    a different, worse case: left alone, Starlette turns it into a bare
+    500 with an empty body and only a stack trace in the server's own
+    logs, giving an HTTP caller nothing to act on. This wraps the call so
+    that case also gets a structured body and a logged traceback, instead
+    of a silent 500.
     """
-    result = ops.start(body.model, port, caller="agent")
+    try:
+        result = ops.start(body.model, port, caller="agent")
+    except Exception:
+        logger.exception(
+            "Unhandled exception in ops.start(model=%s, port=%d)",
+            body.model,
+            port,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "success": False,
+                "action": "error",
+                "port": port,
+                "model": body.model,
+                "message": "Unhandled exception while starting the server; see agent logs.",
+            },
+        )
+
     payload = result.to_dict()
     code = _start_status_code(result.action)
 
