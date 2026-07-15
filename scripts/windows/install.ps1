@@ -13,13 +13,13 @@
 # (values preserved; issue #281).
 #
 # Single live source (issue #284): %USERPROFILE%\.llauncher\agent.env is
-# read DIRECTLY by both the agent service and the UI at startup — there is
+# read DIRECTLY by both the agent service and the UI at startup -- there is
 # no installer-time snapshot and no agent.token mirror file any more. This
 # script's job on every run is: seed agent.env ONCE if absent, migrate a
 # stale agent.token into it if found, inject LAUNCHER_STATE_DIR into the
 # NSSM service env (see the LocalSystem note below), and pass through
 # interpreter-level vars via NSSM AppEnvironmentExtra. Editing
-# agent.env.example after first install does nothing — it is a
+# agent.env.example after first install does nothing -- it is a
 # seed-once template, not live config.
 #
 # LocalSystem wrinkle: NSSM defaults new services to the LocalSystem
@@ -105,7 +105,7 @@ if (-not (Test-Path $LogDir))  { New-Item -ItemType Directory -Path $LogDir  | O
 # still holds the operator's real, already-in-use token (e.g. agent.env
 # was deleted/never synced while the mirror survived), the seed-from-
 # template step below must NOT overwrite it with a newly generated
-# random token — that would silently orphan the live credential the
+# random token -- that would silently orphan the live credential the
 # mirror was carrying. So: if the mirror exists and carries a value,
 # seed agent.env from THAT value instead of generating a fresh one, and
 # skip the generate-new-token seed entirely.
@@ -135,23 +135,23 @@ if (-not (Test-Path $EnvFile)) {
     Info "Edit it to set LLAUNCHER_AGENT_NODE_NAME / HOST / PORT as needed."
 } else {
     # Loud on skip (issue #284): edits to the template are never read again
-    # after this first-install seed — agent.env is the only file either
+    # after this first-install seed -- agent.env is the only file either
     # process consults from here on.
-    Info "agent.env already exists at $EnvFile — skipping template seed."
+    Info "agent.env already exists at $EnvFile -- skipping template seed."
     Info "  Edits to ${EnvExample} are never read after first install;"
     Info "  edit $EnvFile directly (the live source) and re-run this script."
 
     # --- Migrate pre-#139 legacy keys (issue #281), deduped (issue #285)
     # Commit 9f098d9 (#138/#139) renamed LAUNCHER_AGENT_* to
     # LLAUNCHER_AGENT_*, but env files written from the pre-rename
-    # template still carry the single-L keys — which nothing reads any
+    # template still carry the single-L keys -- which nothing reads any
     # more, so the agent silently auto-generates its own token under the
     # SERVICE account's profile and the UI 403s on every authed endpoint.
     # PARSE-AT-THE-DOOR: rewrite the key prefix in place, once,
     # deterministically, preserving each value byte-for-byte.
     #
     # Issue #285: a blanket prefix rewrite created a DUPLICATE when a legacy
-    # line's migrated key already existed as a canonical line — the
+    # line's migrated key already existed as a canonical line -- the
     # installer half of the "403s keep coming back" recurrence (paired with
     # #293's runtime half). The migration now DROPS a legacy line whose
     # migrated key already exists (the canonical line wins), loudly. Logic
@@ -161,7 +161,7 @@ if (-not (Test-Path $EnvFile)) {
     . (Join-Path $ScriptDir 'MigrateEnvKeys.ps1')
     $migration = Invoke-EnvKeyMigration -Lines @(Get-Content $EnvFile)
     if ($migration.Migrated.Count -gt 0 -or $migration.Dropped.Count -gt 0) {
-        # IMPORTANT: write WITHOUT a UTF-8 BOM — Windows PowerShell 5.1's
+        # IMPORTANT: write WITHOUT a UTF-8 BOM -- Windows PowerShell 5.1's
         # `Set-Content -Encoding utf8` prepends EF BB BF, which would
         # corrupt the first key name.
         [System.IO.File]::WriteAllLines(
@@ -192,7 +192,7 @@ Say "Locked ACL on $EnvFile (current user only)."
 
 # --- Retire the agent.token mirror (issue #284) ------------------------
 # agent.env is now the single live source, parsed directly by both the
-# service and the UI (llauncher.core.agent_token.resolve_agent_token) — no
+# service and the UI (llauncher.core.agent_token.resolve_agent_token) -- no
 # installer-maintained mirror file. A stale agent.token from a pre-#284
 # install is migrated in place, once, at the door (PARSE-AT-THE-DOOR):
 # if agent.env has NO usable token line, the mirror's value is moved into
@@ -202,7 +202,7 @@ Say "Locked ACL on $EnvFile (current user only)."
 if (Test-Path $TokenFile) {
     # -Last 1 (not -First 1): matches systemd's EnvironmentFile= parser
     # semantics ("last wins") and llauncher.core.agent_token.parse_env_file
-    # — a duplicate-key agent.env must resolve identically across the
+    # -- a duplicate-key agent.env must resolve identically across the
     # installer's own check and the runtime the installer is validating
     # against (issue #285).
     $tokenLineExisting = (Get-Content $EnvFile) | Where-Object { $_ -match '^LLAUNCHER_AGENT_TOKEN=' } | Select-Object -Last 1
@@ -219,7 +219,7 @@ if (Test-Path $TokenFile) {
 }
 
 # --- Fail loud if agent.env still has no usable token (issue #281/#284) -
-# -Last 1: same last-wins rationale as above (issue #285) — this check
+# -Last 1: same last-wins rationale as above (issue #285) -- this check
 # must agree with what the agent process will actually resolve.
 $tokenLine = (Get-Content $EnvFile) | Where-Object { $_ -match '^LLAUNCHER_AGENT_TOKEN=' } | Select-Object -Last 1
 $tokenValue = if ($tokenLine) { ($tokenLine -replace '^LLAUNCHER_AGENT_TOKEN=', '').Trim() } else { '' }
@@ -253,7 +253,7 @@ foreach ($line in Get-Content $EnvFile) {
 # agent.env than $EnvFile above, silently diverging from what the
 # operator's UI reads. Inject the resolved state dir explicitly so both
 # processes converge on the same live file. This does NOT re-introduce a
-# token mirror — it is a pointer to the single live source, not a copy of
+# token mirror -- it is a pointer to the single live source, not a copy of
 # its contents.
 $envPairs += "LAUNCHER_STATE_DIR=$EnvDir"
 Say "Injecting LAUNCHER_STATE_DIR=$EnvDir into the service environment (LocalSystem wrinkle, #284)."
