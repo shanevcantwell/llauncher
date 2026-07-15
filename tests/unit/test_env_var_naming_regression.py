@@ -52,6 +52,13 @@ The allowlist is the set of paths where matches are *expected*:
       read path*; #281's references are inert string literals used only
       to detect and migrate away from that old shape at the door
       (PARSE-AT-THE-DOOR), never a fallback read.
+    - ``scripts/systemd/migrate_env_keys.sh``,
+      ``scripts/windows/MigrateEnvKeys.ps1``,
+      ``tests/unit/test_install_sh_dedupe.py``, and
+      ``tests/unit/test_install_ps1_dedupe.py`` are allowlisted for issue
+      #285: the migration+dedupe logic extracted from the two installers
+      (and its tests) — same inert-migration-literal rationale as the
+      installers above.
 """
 
 from __future__ import annotations
@@ -252,6 +259,17 @@ ALLOWED_PATH_PREFIXES: tuple[str, ...] = (
     "tests/integration/test_agent_security_c1_c2.py",
     "tests/unit/test_agent_token_legacy_env.py",
     "docs/operations/run-as-a-service.md",
+    # #285: the migration+dedupe logic extracted from the two installers so
+    # it is unit-testable in isolation — same legitimate migration-code home
+    # for the legacy prefix as the installers above.
+    "scripts/systemd/migrate_env_keys.sh",
+    "scripts/windows/MigrateEnvKeys.ps1",
+    "tests/unit/test_install_sh_dedupe.py",
+    "tests/unit/test_install_ps1_dedupe.py",
+    # #293: rewrite-in-place persist and the duplicate-token startup guard —
+    # their tests pre-seed legacy/collision shapes to pin the fix.
+    "tests/unit/test_agent_token_generate.py",
+    "tests/unit/test_agent_duplicate_token_guard.py",
 )
 
 
