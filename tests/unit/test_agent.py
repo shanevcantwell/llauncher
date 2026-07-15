@@ -312,6 +312,37 @@ class TestStartServerEndpoint:
         assert response.status_code == 500
         assert response.json()["detail"]["action"] == "error"
 
+    def test_start_server_unhandled_exception_returns_structured_500(
+        self, client, monkeypatch, caplog
+    ):
+        """Issue #308: an unhandled exception from ``ops.start`` (not a
+        returned ``StartResult(action="error")``) must still surface as a
+        structured 500 body, not Starlette's bare empty-body 500 -- and
+        the traceback must be logged via ``logger.exception``.
+        """
+        import logging
+
+        def raising_start(model, port, caller="agent"):
+            raise OSError("disk full")
+
+        monkeypatch.setattr("llauncher.agent.routing.ops.start", raising_start)
+
+        with caplog.at_level(logging.ERROR, logger="llauncher.agent.routing"):
+            response = client.post("/start/8081", json={"model": "test-model"})
+
+        assert response.status_code == 500
+        detail = response.json()["detail"]
+        assert detail["success"] is False
+        assert detail["action"] == "error"
+        assert detail["port"] == 8081
+        assert detail["model"] == "test-model"
+        assert detail["message"], "structured detail must carry a non-empty message"
+
+        assert any(
+            record.levelname == "ERROR" and record.exc_info is not None
+            for record in caplog.records
+        ), "logger.exception must have fired with a captured traceback"
+
 
 class TestStopServerEndpoint:
     """Tests for the port-keyed /stop/{port} endpoint."""
@@ -942,7 +973,7 @@ class TestUtilityFunctions:
         result = stop_agent(8080)
         assert result is False
 
-    def test_run_agent(self, monkeypatch):
+    def test_run_agent(self, monkeypatch, tmp_path):
         """Test run_agent calls uvicorn.run with correct parameters."""
         from llauncher.agent.server import run_agent, UVICORN_LOG_CONFIG
         from llauncher.agent.config import AgentConfig
@@ -973,6 +1004,11 @@ class TestUtilityFunctions:
         # Provide a deterministic token so the loopback start path
         # does not auto-generate a file under the real ~/.llauncher.
         monkeypatch.setenv("LLAUNCHER_AGENT_TOKEN", "test-token")
+
+        # Issue #128: run_agent now configures a FileHandler under
+        # LAUNCHER_LOG_DIR. Redirect it to tmp_path so the test never
+        # touches the real ~/.llauncher/logs.
+        monkeypatch.setattr(llauncher.agent.server, "LAUNCHER_LOG_DIR", tmp_path)
 
         # Create a config
         config = AgentConfig(host="127.0.0.1", port=9000, node_name="test-node")
@@ -1045,7 +1081,7 @@ class TestUtilityFunctions:
         assert re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}", output)
         assert "127.0.0.1:64557" in output
 
-    def test_run_agent_refuses_non_loopback_without_token(self, monkeypatch):
+    def test_run_agent_refuses_non_loopback_without_token(self, monkeypatch, tmp_path):
         """Security §3 C1: refuse to start on non-loopback without token.
 
         Replaces the previous warn-on-0.0.0.0 test now that the hardening
@@ -1054,6 +1090,11 @@ class TestUtilityFunctions:
         from llauncher.agent.server import run_agent
         from llauncher.agent.config import AgentConfig
         import llauncher.agent.server
+
+        # Issue #128: run_agent configures a FileHandler under
+        # LAUNCHER_LOG_DIR before the refusal check runs. Redirect it to
+        # tmp_path so the test never touches the real ~/.llauncher/logs.
+        monkeypatch.setattr(llauncher.agent.server, "LAUNCHER_LOG_DIR", tmp_path)
 
         # uvicorn.run must NOT be reached.
         uvicorn_called = []
@@ -1765,7 +1806,7 @@ class TestAgentServerFunctions:
 
         assert result is False
 
-    def test_run_agent_success(self, monkeypatch):
+    def test_run_agent_success(self, monkeypatch, tmp_path):
         """Test run_agent with successful uvicorn.run."""
         from llauncher.agent.server import run_agent
         from llauncher.agent.config import AgentConfig
@@ -1788,6 +1829,11 @@ class TestAgentServerFunctions:
         # auto-generate a token file under the real ~/.llauncher.
         monkeypatch.setenv("LLAUNCHER_AGENT_TOKEN", "test-token")
 
+        # Issue #128: run_agent configures a FileHandler under
+        # LAUNCHER_LOG_DIR. Redirect it to tmp_path so the test never
+        # touches the real ~/.llauncher/logs.
+        monkeypatch.setattr(llauncher.agent.server, "LAUNCHER_LOG_DIR", tmp_path)
+
         config = AgentConfig(host="127.0.0.1", port=9000, node_name="test-node")
         run_agent(config)
 
@@ -1796,7 +1842,7 @@ class TestAgentServerFunctions:
         assert captured_args["host"] == "127.0.0.1"
         assert captured_args["log_level"] == "info"
 
-    def test_run_agent_non_loopback_with_token_starts(self, monkeypatch):
+    def test_run_agent_non_loopback_with_token_starts(self, monkeypatch, tmp_path):
         """Security §3 C1: non-loopback bind succeeds when a token is set.
 
         Replaces the previous warn-on-0.0.0.0 assertion. The new contract
@@ -1820,6 +1866,9 @@ class TestAgentServerFunctions:
 
         monkeypatch.setattr("socket.gethostname", lambda: "test-host")
         monkeypatch.setenv("LLAUNCHER_AGENT_TOKEN", "lan-token")
+
+        # Issue #128: same LAUNCHER_LOG_DIR redirect as above.
+        monkeypatch.setattr(llauncher.agent.server, "LAUNCHER_LOG_DIR", tmp_path)
 
         config = AgentConfig(host="0.0.0.0", port=9000, node_name="test-node")
         run_agent(config)

@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -78,6 +80,35 @@ def _deterministic_delegation(monkeypatch):
     """
     monkeypatch.setenv("LLAUNCHER_DELEGATE_TO_LOCAL_AGENT", "0")
     monkeypatch.delenv("LLAUNCHER_IS_AGENT_PROCESS", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _restore_root_logger_handlers():
+    """Undo any ``logging.basicConfig(..., force=True)`` a test triggered.
+
+    Issue #128: ``llauncher.agent.server.run_agent`` calls
+    ``_configure_logging()``, which attaches a ``logging.FileHandler``
+    (targeting whatever ``LAUNCHER_LOG_DIR`` resolved to at that moment,
+    typically a per-test ``tmp_path``) to the *root* logger via
+    ``basicConfig(force=True)``. The root logger is process-global state
+    that outlives the test — a monkeypatch reverting ``LAUNCHER_LOG_DIR``
+    afterwards does not detach or close that handler, so every
+    subsequent test's log output (through any logger anywhere in the
+    suite) keeps flowing into that now-defunct tmp_path file, and the
+    open file descriptor itself leaks for the rest of the session.
+    Snapshot-and-restore around each test contains the blast radius to
+    the test that opened it.
+    """
+    root = logging.getLogger()
+    before = list(root.handlers)
+    before_level = root.level
+    yield
+    if root.handlers != before:
+        for handler in root.handlers:
+            if handler not in before:
+                handler.close()
+        root.handlers = before
+        root.setLevel(before_level)
 
 
 @pytest.fixture(autouse=True)

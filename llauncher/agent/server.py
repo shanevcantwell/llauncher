@@ -41,12 +41,66 @@ from llauncher.agent.routing import router, get_node_name
 from llauncher.core import delegation
 from llauncher.core import lockfile as lf
 from llauncher.core import settings
-from llauncher.core.settings import AGENT_API_KEY
+from llauncher.core.settings import AGENT_API_KEY, LAUNCHER_LOG_DIR
 
-# Configure logging
+_LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+
+def _configure_logging() -> None:
+    """Configure agent-process logging (issue #128).
+
+    Under NSSM (Windows service manager) — and any non-TTY supervisor —
+    ``sys.stdout``/``sys.stderr`` are block-buffered (typically 8 KB),
+    not line-buffered, so ``logging``'s default ``StreamHandler`` output
+    sits in the buffer indefinitely instead of reaching the redirected
+    log files. Reconfiguring both streams to line-buffering (Python 3.7+
+    ``TextIOWrapper.reconfigure``) closes that gap without requiring the
+    supervisor to set ``PYTHONUNBUFFERED`` itself.
+
+    A second, independent gap: a StreamHandler alone depends entirely on
+    the *supervisor* capturing and persisting stderr somewhere durable.
+    Adding a ``FileHandler`` targeting ``LAUNCHER_LOG_DIR / "agent.log"``
+    gives the agent its own durable log file regardless of what (if
+    anything) the supervisor does with stdout/stderr — the same posture
+    ``core.process`` already gives every managed ``llama-server`` child.
+
+    Deliberately NOT called at bare module import (contrast the
+    pre-#128 ``logging.basicConfig(...)`` that used to sit at import
+    time): touching the filesystem (``mkdir`` + opening a
+    ``FileHandler``) as an import side effect would run on every test
+    collection and every process that merely imports this module
+    (``mcp_server``, ``cli``, test suites), silently creating
+    ``LAUNCHER_LOG_DIR`` under the real ``$HOME`` regardless of test
+    isolation — the same class of defect issue #195 fixed for
+    ``LLAMA_SERVER_PATH``. Instead this is invoked once, explicitly,
+    from :func:`run_agent` — the actual production entry point —
+    before ``uvicorn.run`` starts serving.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(line_buffering=True)
+
+    LAUNCHER_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    file_handler = logging.FileHandler(
+        LAUNCHER_LOG_DIR / "agent.log", encoding="utf-8"
+    )
+    stream_handler = logging.StreamHandler()
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format=_LOG_FORMAT,
+        handlers=[stream_handler, file_handler],
+        force=True,
+    )
+
+
+# Import-time logging config: level/format only, no filesystem I/O. The
+# full configuration (line-buffering reconfigure + FileHandler under
+# LAUNCHER_LOG_DIR, issue #128) happens in :func:`run_agent` — see
+# :func:`_configure_logging`'s docstring for why it is not called here.
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    format=_LOG_FORMAT,
 )
 logger = logging.getLogger(__name__)
 
@@ -411,6 +465,13 @@ def run_agent(config: AgentConfig) -> None:
             (the #293 duplicate-token split-brain). The error message
             names the remediation paths.
     """
+    # Full logging setup (issue #128): line-buffered stdout/stderr +
+    # durable FileHandler under LAUNCHER_LOG_DIR. Done first so every
+    # subsequent line in this function — including the fail-loud exits
+    # below — reaches agent.log, not just what a supervisor happens to
+    # capture from stdout/stderr.
+    _configure_logging()
+
     if legacy_token_env_misconfigured():
         sys.stderr.write(
             "[llauncher-agent] ERROR: found legacy LAUNCHER_AGENT_TOKEN in "

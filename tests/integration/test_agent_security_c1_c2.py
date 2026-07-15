@@ -88,6 +88,11 @@ def test_run_agent_refuses_non_loopback_without_token(monkeypatch, tmp_path):
         lambda: tmp_path / "definitely-missing.env",
     )
 
+    # Issue #128: run_agent configures a FileHandler under
+    # LAUNCHER_LOG_DIR before the refusal check runs. Redirect it to
+    # tmp_path so the test never touches the real ~/.llauncher/logs.
+    monkeypatch.setattr("llauncher.agent.server.LAUNCHER_LOG_DIR", tmp_path)
+
     # uvicorn.run must never be reached.
     called = []
     monkeypatch.setattr("uvicorn.run", lambda *a, **kw: called.append((a, kw)))
@@ -122,6 +127,11 @@ def test_run_agent_refuses_legacy_only_token_env(monkeypatch, tmp_path):
 
     monkeypatch.setenv("LAUNCHER_AGENT_TOKEN", "stale-pre-rename-token")
     monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
+
+    # Issue #128: run_agent configures a FileHandler under
+    # LAUNCHER_LOG_DIR before the legacy-env check runs. Redirect it to
+    # tmp_path so the test never touches the real ~/.llauncher/logs.
+    monkeypatch.setattr("llauncher.agent.server.LAUNCHER_LOG_DIR", tmp_path)
 
     # uvicorn.run must never be reached.
     called = []
@@ -164,6 +174,15 @@ def _isolate_home(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "llauncher.core.agent_token.default_env_path",
         lambda: home / ".llauncher" / "agent.env",
+    )
+
+    # Issue #128: llauncher.core.settings.LAUNCHER_LOG_DIR is resolved
+    # from the real Path.home() at import time, long before this
+    # monkeypatch.setenv("HOME", ...) runs -- setting HOME alone does not
+    # move it. run_agent's _configure_logging() would otherwise create
+    # the real ~/.llauncher/logs/agent.log as a side effect of this test.
+    monkeypatch.setattr(
+        "llauncher.agent.server.LAUNCHER_LOG_DIR", home / ".llauncher" / "logs"
     )
     return home
 
