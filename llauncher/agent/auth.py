@@ -27,6 +27,7 @@ import sys  # noqa: F401  (re-exported for legacy ``auth_mod.sys`` patch sites)
 from llauncher.core.agent_token import (  # noqa: F401
     LEGACY_ENV_VAR,
     _read_env_file_token,  # imported directly by tests/unit/test_agent_auth_token_file.py
+    count_env_file_token_lines,
     default_env_path,
     legacy_token_env_misconfigured,
     parse_env_file,

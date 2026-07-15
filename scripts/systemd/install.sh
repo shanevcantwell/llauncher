@@ -218,24 +218,27 @@ else
     info "  Edits to $ENV_EXAMPLE are never read after first install;"
     info "  edit $ENV_FILE directly (the live source) and re-run this installer."
 
-    # --- Migrate pre-#139 legacy keys (issue #281) ----------------------
+    # --- Migrate pre-#139 legacy keys (issue #281), deduped (issue #285) --
     # Commit 9f098d9 (#138/#139) renamed LAUNCHER_AGENT_* → LLAUNCHER_AGENT_*,
     # but env files written from the pre-rename template still carry the
     # single-L keys — which nothing reads any more, so the agent silently
     # auto-generates its own token and the UI 403s on every authed endpoint.
     # PARSE-AT-THE-DOOR: rewrite the key prefix in place, once,
-    # deterministically, preserving each value byte-for-byte. Comment lines
-    # start with '#' and never match the key-anchored pattern. Line order is
-    # preserved, so systemd's last-wins EnvironmentFile semantics (and the
-    # `tail -n1` mirror below) are unaffected.
-    legacy_keys="$(grep -E '^[[:space:]]*LAUNCHER_AGENT_' "$ENV_FILE" \
-        | sed -E 's/^[[:space:]]*(LAUNCHER_AGENT_[A-Za-z0-9_]*).*/\1/' \
-        | sort -u || true)"
-    if [ -n "$legacy_keys" ]; then
-        sed -i -E 's/^([[:space:]]*)LAUNCHER_AGENT_/\1LLAUNCHER_AGENT_/' "$ENV_FILE"
-        renames="$(echo "$legacy_keys" | sed 's/^\(.*\)$/\1 -> L\1/' | paste -sd ', ' -)"
-        say "Migrated pre-#139 legacy keys in $ENV_FILE: $renames"
-    fi
+    # deterministically, preserving each value byte-for-byte.
+    #
+    # Issue #285: a blanket prefix rewrite created a DUPLICATE when a legacy
+    # line's migrated key already existed as a canonical line — the
+    # installer half of the "403s keep coming back" recurrence (paired with
+    # #293's runtime half). The migration now DROPS a legacy line whose
+    # migrated key already exists (the canonical line wins), loudly. Comment
+    # lines start with '#' and never match the key-anchored pattern; line
+    # order of surviving lines is preserved, so systemd's last-wins
+    # EnvironmentFile semantics (and the `tail -n1` reads below) are
+    # unaffected. Logic is extracted to migrate_env_keys.sh so it is
+    # unit-testable without the venv/systemctl preflight above.
+    # shellcheck source=scripts/systemd/migrate_env_keys.sh
+    . "$SCRIPT_DIR/migrate_env_keys.sh"
+    migrate_and_dedupe_env_keys "$ENV_FILE"
 fi
 
 # --- Retire the agent.token mirror (issue #284) -------------------------

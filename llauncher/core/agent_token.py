@@ -39,10 +39,13 @@ The policy in precedence order:
    both installers agree with the runtime on which line wins; see
    issue #285).
 4. Otherwise, generate a fresh ``secrets.token_urlsafe(32)`` token and
-   persist it *into* ``agent.env`` (appending a
-   ``LLAUNCHER_AGENT_TOKEN=`` line — creating the file with mode 0600,
-   parent dir 0700, if it does not yet exist), print it to stderr
-   *once*, and return it.
+   persist it *into* ``agent.env`` — rewriting in place so the file is
+   left with exactly one ``LLAUNCHER_AGENT_TOKEN=`` line (any prior
+   token line, e.g. an empty template placeholder, is stripped first;
+   issue #293), creating the file with mode 0600, parent dir 0700 if it
+   does not yet exist — print it to stderr *once*, and return it. Never
+   appends a second token line: two token lines in one file is the
+   split-brain footgun that reopened the UI-403 recurrence.
 
 The auto-generation path is only safe to silently take when the
 agent is bound to a loopback interface. The refuse-to-start guard
@@ -203,25 +206,83 @@ def _read_env_file_token(path: Path) -> str | None:
     return parse_env_file(path).get(_TOKEN_KEY) or None
 
 
+def count_env_file_token_lines(path: Path) -> int:
+    """Return how many ``LLAUNCHER_AGENT_TOKEN=`` lines ``path`` contains.
+
+    Counts physical lines whose key (after optional leading whitespace,
+    up to the first ``=``) is exactly ``LLAUNCHER_AGENT_TOKEN`` — the same
+    key-extraction :func:`parse_env_file` uses, so a commented
+    ``# LLAUNCHER_AGENT_TOKEN=`` line or a same-substring inside another
+    value never counts. Returns ``0`` for a missing file.
+
+    Two or more is the duplicate-token split-brain (#293): the resolvers
+    are all last-wins (#284/d5f83b9), so a duplicate does not by itself
+    change which value wins, but it is the footgun a later hand-edit trips
+    into a server/client mismatch — the agent's startup guard fails loud on
+    it rather than running with a latent split.
+    """
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except FileNotFoundError:
+        return 0
+    count = 0
+    for raw_line in text.splitlines():
+        stripped = raw_line.lstrip()
+        key = stripped.partition("=")[0].rstrip()
+        if key == _TOKEN_KEY:
+            count += 1
+    return count
+
+
+def _strip_token_lines(text: str) -> str:
+    """Return ``text`` with every ``LLAUNCHER_AGENT_TOKEN=`` line removed.
+
+    Anchors on the canonical token key at line start (after optional
+    leading whitespace), matching :func:`parse_env_file`'s key extraction,
+    so a commented line (``# LLAUNCHER_AGENT_TOKEN=...``) or a same-value
+    substring inside another key's value is never mistaken for a token
+    line. Preserves every other line verbatim, including blank and comment
+    lines, and preserves whether the input ended with a newline.
+    """
+    kept: list[str] = []
+    for raw_line in text.splitlines(keepends=True):
+        stripped = raw_line.lstrip()
+        key = stripped.partition("=")[0].rstrip()
+        if key == _TOKEN_KEY:
+            continue
+        kept.append(raw_line)
+    return "".join(kept)
+
+
 def _generate_and_persist_token(path: Path) -> str:
-    """Generate a fresh token and append it to the ``agent.env`` at ``path``.
+    """Generate a fresh token and rewrite it into ``agent.env`` at ``path``.
 
-    If ``path`` does not exist yet, it is created (mode 0600, parent
-    dir 0700) containing just the token line. If it already exists (but
-    has no usable ``LLAUNCHER_AGENT_TOKEN=`` line — the only way this
-    function is reached), the token line is appended, preserving every
-    existing line verbatim; the file's mode is left as-is in that case
-    since it presumably already carries whatever permissions the
-    installer or a previous run set — e.g. systemd ``--system`` mode's
-    0640/group-``inference`` ``agent.env``, which the UI's group-read
-    access depends on. Tightening it to 0600 here would silently break
-    that cross-process read path; the new-file case has no such prior
-    permission to preserve, so it gets the same 0600/0700 hardening as
-    before.
+    **Rewrite in place, never append (issue #293).** If ``path`` does not
+    exist yet, it is created (mode 0600, parent dir 0700) containing just
+    the token line. If it already exists (reached only when it has no
+    *usable* ``LLAUNCHER_AGENT_TOKEN=`` line — an empty or absent value),
+    every existing ``LLAUNCHER_AGENT_TOKEN=`` line is stripped first and
+    exactly one canonical line is written, so the file always ends with a
+    single token line. The earlier append-only behavior could leave a
+    second ``LLAUNCHER_AGENT_TOKEN=`` line behind (e.g. an empty
+    ``LLAUNCHER_AGENT_TOKEN=`` template line the operator never filled),
+    and although every resolver is last-wins as of #284/d5f83b9, two token
+    lines is the split-brain footgun that reopened the UI-403 recurrence
+    (server and client resolving different values the moment a later edit
+    reorders them). PARSE-AT-THE-DOOR: migrate to a single canonical line,
+    once — never leave two shapes of the token in one file.
 
-    The append guards against a missing trailing newline on the last
-    existing line, which would otherwise fuse onto the appended key and
-    make the file unparseable by :func:`parse_env_file`.
+    The file's mode is left as-is when it already exists, since it
+    presumably already carries whatever permissions the installer or a
+    previous run set — e.g. systemd ``--system`` mode's 0640/group-
+    ``inference`` ``agent.env``, which the UI's group-read access depends
+    on. Tightening it to 0600 here would silently break that cross-process
+    read path; the new-file case has no such prior permission to preserve,
+    so it gets the same 0600/0700 hardening as before.
+
+    A missing trailing newline on the last preserved line is repaired so
+    the appended token key lands on its own physical line and stays
+    parseable by :func:`parse_env_file`.
 
     The token is printed to stderr once so the operator can copy it
     into their client config; we deliberately avoid the regular logger
@@ -250,12 +311,14 @@ def _generate_and_persist_token(path: Path) -> str:
         except OSError:
             pass
     else:
-        existing = path.read_text(encoding="utf-8-sig")
-        needs_separator = existing and not existing.endswith("\n")
-        with path.open("a", encoding="utf-8") as fh:
-            if needs_separator:
-                fh.write("\n")
-            fh.write(line)
+        # Rewrite in place: drop any existing token line(s) so the file is
+        # left with exactly one canonical token line, then re-write the
+        # whole file (preserving its inode's permissions, since we open the
+        # existing path for write rather than replacing it).
+        preserved = _strip_token_lines(path.read_text(encoding="utf-8-sig"))
+        if preserved and not preserved.endswith("\n"):
+            preserved += "\n"
+        path.write_text(preserved + line, encoding="utf-8")
 
     print(
         f"[llauncher-agent] Generated new auth token and wrote it to {path} "
