@@ -269,6 +269,14 @@ if (Get-Service $ServiceName -ErrorAction SilentlyContinue) {
 }
 
 # (Re-)apply configuration. These are all idempotent.
+# Application MUST be re-applied here, not only in the fresh-install
+# branch above: on a refresh of an existing service, `nssm install` is
+# never called, so a write-once Application would leave the service
+# executing whichever clone's venv it was first installed from -- even
+# after AppDirectory below is repointed at a different clone (the bug
+# behind this fix; re-running from a different checkout silently ran
+# stale code).
+& $nssm set $ServiceName Application $VenvExe | Out-Null
 & $nssm set $ServiceName AppDirectory $ProjectDir | Out-Null
 & $nssm set $ServiceName DisplayName "llauncher remote management agent" | Out-Null
 & $nssm set $ServiceName Description "Local llauncher agent (see https://github.com/shanevcantwell/llauncher)." | Out-Null

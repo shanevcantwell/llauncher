@@ -59,6 +59,10 @@ The allowlist is the set of paths where matches are *expected*:
       #285: the migration+dedupe logic extracted from the two installers
       (and its tests) — same inert-migration-literal rationale as the
       installers above.
+    - ``tests/unit/test_migrate_env_keys_blank_lines.py`` is allowlisted
+      for issue #305: it seeds legacy-prefixed lines to pin
+      ``MigrateEnvKeys.ps1``'s blank-line handling — same inert-
+      migration-literal rationale as the #285 entries.
 """
 
 from __future__ import annotations
@@ -266,6 +270,11 @@ ALLOWED_PATH_PREFIXES: tuple[str, ...] = (
     "scripts/windows/MigrateEnvKeys.ps1",
     "tests/unit/test_install_sh_dedupe.py",
     "tests/unit/test_install_ps1_dedupe.py",
+    # #305: blank-line handling regression test for MigrateEnvKeys.ps1's
+    # -Lines param — seeds legacy-prefixed lines to pin the same
+    # migration+dedupe behavior under blank-line input. Same inert-
+    # migration-literal rationale as the #285 entries above.
+    "tests/unit/test_migrate_env_keys_blank_lines.py",
     # #293: rewrite-in-place persist and the duplicate-token startup guard —
     # their tests pre-seed legacy/collision shapes to pin the fix.
     "tests/unit/test_agent_token_generate.py",
