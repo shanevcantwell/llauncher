@@ -34,6 +34,7 @@ function Invoke-EnvKeyMigration {
     param(
         [Parameter(Mandatory = $true)]
         [AllowEmptyCollection()]
+        [AllowEmptyString()]
         [string[]]$Lines
     )
 
