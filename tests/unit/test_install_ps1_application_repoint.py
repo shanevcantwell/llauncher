@@ -74,6 +74,35 @@ def _common_config_block(text: str) -> str:
     return match.group(0)
 
 
+def _nssm_line(verb: str, tail: str) -> re.Pattern[str]:
+    """Compile a line-start-anchored pattern for an ACTIVE (not
+    commented-out) ``& $nssm <verb> $ServiceName <tail>`` line.
+
+    ``^[^\\S\\n]*&`` requires the line to START (re.MULTILINE) with
+    optional leading horizontal whitespace and then the ``&`` call
+    operator -- a leading ``#`` (a commented-out line) is rejected,
+    since ``#`` is not ``&`` nor horizontal whitespace. Without this
+    anchor a ``# & $nssm set ... Application $VenvExe`` comment would
+    still satisfy an unanchored ``re.search`` and green the test even
+    though the installer no longer runs the line (the Nit-2 false pass).
+
+    ``tail`` is the whitespace-joined tokens after ``$ServiceName``
+    (e.g. ``"Application $VenvExe"``); each is regex-escaped and joined
+    on ``\\s+``.
+    """
+    tokens = r"\s+".join(re.escape(tok) for tok in tail.split())
+    return re.compile(
+        r"^[^\S\n]*&\s*\$nssm\s+" + re.escape(verb) + r"\s+\$ServiceName\s+" + tokens,
+        re.MULTILINE,
+    )
+
+
+def _nssm_set(setting: str, value: str) -> re.Pattern[str]:
+    """Convenience wrapper: an ACTIVE ``& $nssm set $ServiceName
+    <setting> <value>`` line (see :func:`_nssm_line`)."""
+    return _nssm_line("set", f"{setting} {value}")
+
+
 def test_application_is_repointed_in_common_config_block() -> None:
     """Application must be set in the always-applied block, not only via
     ``nssm install`` in the fresh-install-only branch.
@@ -84,38 +113,34 @@ def test_application_is_repointed_in_common_config_block() -> None:
     """
     block = _common_config_block(_install_ps1_text())
 
-    assert re.search(
-        r"&\s*\$nssm\s+set\s+\$ServiceName\s+Application\s+\$VenvExe",
-        block,
-    ), (
+    assert _nssm_set("Application", "$VenvExe").search(block), (
         "install.ps1's common (always-applied) configuration block must "
-        "set Application on every run: "
+        "set Application on every run with an ACTIVE (non-commented) line: "
         "'& $nssm set $ServiceName Application $VenvExe'. Without it, "
         "refreshing the service from a different clone silently leaves "
         "it executing the original clone's venv exe."
     )
 
 
-def test_application_repoint_precedes_appdirectory() -> None:
-    """Application and AppDirectory should be repointed together -- both
-    describe "which clone the service runs from" and must move in
-    lockstep, or a refresh could point AppDirectory at a new clone while
-    Application still executes the old one (the exact bug this guard
-    exists to prevent).
+def test_application_and_appdirectory_both_repointed_in_common_block() -> None:
+    """Application and AppDirectory must BOTH be repointed in the common
+    (always-applied) block -- both describe "which clone the service runs
+    from" and must move together, or a refresh could point AppDirectory
+    at a new clone while Application still executes the old one (the exact
+    bug this guard exists to prevent).
+
+    Co-presence in the common block is the real invariant. Their relative
+    ORDER is not: they are independent NSSM writes against a stopped
+    service, so ordering is incidental to correctness and is deliberately
+    NOT asserted.
     """
     block = _common_config_block(_install_ps1_text())
 
-    app_match = re.search(
-        r"&\s*\$nssm\s+set\s+\$ServiceName\s+Application\s+\$VenvExe", block
+    assert _nssm_set("Application", "$VenvExe").search(block), (
+        "Application set (active line) not found in common config block."
     )
-    appdir_match = re.search(
-        r"&\s*\$nssm\s+set\s+\$ServiceName\s+AppDirectory\s+\$ProjectDir", block
-    )
-    assert app_match, "Application set not found in common config block."
-    assert appdir_match, "AppDirectory set not found in common config block."
-    assert app_match.start() < appdir_match.start(), (
-        "Application should be (re-)applied alongside/before AppDirectory "
-        "in the common config block so both always move together."
+    assert _nssm_set("AppDirectory", "$ProjectDir").search(block), (
+        "AppDirectory set (active line) not found in common config block."
     )
 
 
@@ -126,11 +151,10 @@ def test_fresh_install_still_sets_application_too() -> None:
     block set above is what makes refresh correct too).
     """
     text = _install_ps1_text()
-    assert re.search(
-        r"&\s*\$nssm\s+install\s+\$ServiceName\s+\$VenvExe", text
-    ), (
-        "install.ps1's fresh-install branch must still call "
-        "'nssm install $ServiceName $VenvExe' to register the service."
+    assert _nssm_line("install", "$VenvExe").search(text), (
+        "install.ps1's fresh-install branch must still call (as an active, "
+        "non-commented line) 'nssm install $ServiceName $VenvExe' to "
+        "register the service."
     )
 
 
