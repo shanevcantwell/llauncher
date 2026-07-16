@@ -50,6 +50,52 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# uvicorn's own default log config (uvicorn.config.LOGGING_CONFIG) formats
+# both the "default" (error/lifecycle) and "access" loggers WITHOUT a
+# timestamp — e.g. ``INFO:     127.0.0.1:64557 - "POST /start/8081..."``.
+# That makes it impossible to correlate request timing against the agent's
+# own (timestamped) log lines when diagnosing hangs/slow requests (#307).
+#
+# This is uvicorn's stock dict config with ``%(asctime)s`` prepended to both
+# formatters' ``fmt`` strings — everything else (handlers, stream targets,
+# logger levels/propagation) is left exactly as uvicorn ships it, so we pick
+# up upstream defaults/behavior otherwise unchanged.
+UVICORN_LOG_CONFIG = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "default": {
+            "()": "uvicorn.logging.DefaultFormatter",
+            "fmt": "%(asctime)s - %(levelprefix)s %(message)s",
+            "use_colors": None,
+        },
+        "access": {
+            "()": "uvicorn.logging.AccessFormatter",
+            "fmt": (
+                "%(asctime)s - %(levelprefix)s %(client_addr)s - "
+                '"%(request_line)s" %(status_code)s'
+            ),
+        },
+    },
+    "handlers": {
+        "default": {
+            "formatter": "default",
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stderr",
+        },
+        "access": {
+            "formatter": "access",
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stdout",
+        },
+    },
+    "loggers": {
+        "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
+        "uvicorn.error": {"level": "INFO"},
+        "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": False},
+    },
+}
+
 
 def find_process_on_port(port: int) -> int | None:
     """Find the PID of the process listening on the given port.
@@ -448,13 +494,15 @@ def run_agent(config: AgentConfig) -> None:
 
     # Run the server. ``lifespan="on"`` ensures the FastAPI lifespan handler
     # (which reaps llama-server children on shutdown per #65) actually fires
-    # regardless of uvicorn's auto-detection heuristics.
+    # regardless of uvicorn's auto-detection heuristics. ``log_config``
+    # carries our timestamped access/error formatters (#307).
     uvicorn.run(
         app,
         host=config.host,
         port=config.port,
         log_level="info",
         lifespan="on",
+        log_config=UVICORN_LOG_CONFIG,
     )
 
 
