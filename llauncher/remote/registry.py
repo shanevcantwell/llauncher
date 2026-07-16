@@ -50,7 +50,11 @@ class NodeRegistry:
 
         migrated = False
         try:
-            data = json.loads(NODES_FILE.read_text())
+            # utf-8-sig: PARSE-AT-THE-DOOR tolerance for a hand-edited file
+            # picking up a BOM from a Windows editor (issue #310, same class
+            # as agent.env's BOM/CRLF hardening); a strict superset of utf-8
+            # for BOM-less input so this is a no-op in the common case.
+            data = json.loads(NODES_FILE.read_text(encoding="utf-8-sig"))
             for name, node_data in data.items():
                 try:
                     # Backward compat: old files use "api_key", new files use "has_api_key"
@@ -150,7 +154,10 @@ class NodeRegistry:
         if not NODE_TOKENS_FILE.exists():
             return {}
         try:
-            data = json.loads(NODE_TOKENS_FILE.read_text())
+            # utf-8-sig: see the matching NODES_FILE read above (#310) --
+            # node_tokens.json carries credentials, so BOM-tolerance here
+            # is the same door-normalization discipline as agent.env.
+            data = json.loads(NODE_TOKENS_FILE.read_text(encoding="utf-8-sig"))
             if isinstance(data, dict):
                 # Defensive: filter out non-string values; an attacker
                 # who can write the file shouldn't be able to inject a
