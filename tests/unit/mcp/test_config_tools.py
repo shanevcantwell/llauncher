@@ -65,6 +65,80 @@ class TestUpdateModelConfig:
             assert result["success"] is True
             mock_config_store.update_model.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_update_model_config_sets_batch_parallel_family(self, mock_state):
+        """Issue #156: batch_size / ubatch_size / parallel / threads_batch are
+
+        now writable through the tool contract (previously readable-only),
+        removing the need for the silently-lossy extra_args workaround.
+        """
+        with patch("llauncher.core.config.ConfigStore"):
+            result = await update_model_config(
+                mock_state,
+                {
+                    "name": "existing-model",
+                    "config": {
+                        "batch_size": 4096,
+                        "ubatch_size": 4096,
+                        "parallel": 4,
+                        "threads_batch": 16,
+                    },
+                },
+            )
+
+        assert result["success"] is True
+        updated = mock_state.models["existing-model"]
+        assert updated.batch_size == 4096
+        assert updated.ubatch_size == 4096
+        assert updated.parallel == 4
+        assert updated.threads_batch == 16
+
+    @pytest.mark.asyncio
+    async def test_update_model_config_sets_remaining_native_fields(self, mock_state):
+        """Cover the threads / flash_attn / no_mmap / metrics apply branches so
+
+        the whole update_model_config field-apply block is exercised.
+        """
+        with patch("llauncher.core.config.ConfigStore"):
+            result = await update_model_config(
+                mock_state,
+                {
+                    "name": "existing-model",
+                    "config": {
+                        "threads": 12,
+                        "flash_attn": "off",
+                        "no_mmap": True,
+                        "metrics": False,
+                    },
+                },
+            )
+
+        assert result["success"] is True
+        updated = mock_state.models["existing-model"]
+        assert updated.threads == 12
+        assert updated.flash_attn == "off"
+        assert updated.no_mmap is True
+        assert updated.metrics is False
+
+    @pytest.mark.asyncio
+    async def test_update_model_config_rejects_colliding_extra_args(self, mock_state):
+        """Issue #156: stuffing a natively-emitted flag into extra_args via the
+
+        tool is rejected (not silently first-wins-dropped) — the operator is
+        steered to the dedicated field.
+        """
+        with patch("llauncher.core.config.ConfigStore"):
+            result = await update_model_config(
+                mock_state,
+                {
+                    "name": "existing-model",
+                    "config": {"extra_args": "--ubatch-size 4096"},
+                },
+            )
+
+        assert result["success"] is False
+        assert "issue #156" in result["error"].lower()
+
 
 class TestUpdateModelConfigValidation:
     """Tests for update_model_config edge cases and validation errors (#34-G)."""
@@ -356,3 +430,25 @@ class TestGetTools:
         assert "validate_config" in tool_names
         assert "add_model" in tool_names
         assert "delete_model" in tool_names
+
+    def test_update_model_config_schema_exposes_batch_family(self):
+        """Issue #156: the batch/parallel family must be advertised as
+
+        writable in the update_model_config input schema, not just readable.
+        """
+        tools = {t.name: t for t in get_tools()}
+        props = tools["update_model_config"].inputSchema["properties"]["config"]["properties"]
+        for field in ("batch_size", "ubatch_size", "parallel", "threads_batch"):
+            assert field in props, field
+
+    def test_metrics_field_reachable_via_mcp_config_schema(self):
+        """Issue #169: the ``metrics`` toggle must be discoverable via both
+
+        ``update_model_config`` and ``add_model`` input schemas, and typed
+        as boolean.
+        """
+        tools = {t.name: t for t in get_tools()}
+        update_props = tools["update_model_config"].inputSchema["properties"]["config"]["properties"]
+        add_props = tools["add_model"].inputSchema["properties"]["config"]["properties"]
+        assert update_props["metrics"]["type"] == "boolean"
+        assert add_props["metrics"]["type"] == "boolean"

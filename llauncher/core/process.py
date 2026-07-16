@@ -178,6 +178,20 @@ def build_command(
     if config.mlock:
         cmd.append("--mlock")
 
+    # Prometheus /metrics endpoint (issue #169). Default-on: cheap scrape
+    # surface, and the structured source for tps/kv-cache/draft-acceptance
+    # telemetry that /slots doesn't cover.
+    if config.metrics:
+        cmd.append("--metrics")
+
+    # Slots-monitoring endpoint (issue #179 SP-1, ADR-LLNCH-019). The
+    # ``llama-server`` binary defaults ``--slots`` to ENABLED (PM-2
+    # de-risk finding) — the opposite of a safe default, since /slots
+    # includes per-slot prompt text. Emit the flag explicitly in both
+    # directions so the effective policy is a pure function of
+    # ``config.slots``, never the binary's own default.
+    cmd.append("--slots" if config.slots else "--no-slots")
+
     # Extra args (parse free-form string into arguments)
     if config.extra_args:
         cmd.extend(shlex.split(config.extra_args))
@@ -585,6 +599,28 @@ def stream_logs(pid: int | None = None, model_name: str | None = None, lines: in
             return _tail_file(match, lines)
 
     return []
+
+
+def read_logs_for_port(port: int, lines: int = 100) -> list[str] | None:
+    """Return the tail of the most-recent log file for ``port``.
+
+    Resolves the freshest ``*-{port}.log`` in :data:`LOG_DIR` (mirroring
+    the port-keyed glob in :func:`stream_logs`) and tails it, **without
+    requiring a live process**. This is the read path for issue #201
+    Part 2(b): a server that spawned then exited within ~1s leaves its
+    death cause in ``logs/{stem}-{port}.log``, but the live-process lookup
+    in :func:`stream_logs` (``pid=...``) can no longer reach it. The agent's
+    ``GET /logs/{port}`` falls back here so the operator can still retrieve
+    that log after the process is gone.
+
+    Returns ``None`` when no log file exists for the port (the caller maps
+    that to 404), otherwise the tailed lines — possibly an empty list when
+    the newest file is empty, which is distinct from "no file at all."
+    """
+    match = _newest_log(LOG_DIR.glob(f"*-{port}.log"))
+    if match is None:
+        return None
+    return _tail_file(match, lines)
 
 
 def _tail_file(path: Path, lines: int) -> list[str]:

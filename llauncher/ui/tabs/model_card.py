@@ -4,9 +4,10 @@ import streamlit as st
 
 from llauncher import operations as ops
 from llauncher.state import LauncherState
+from llauncher.core import delegation
 from llauncher.core.process import stream_logs
 from llauncher.remote.state import RemoteAggregator
-from llauncher.remote.node import RemoteServerInfo
+from llauncher.remote.node import RemoteServerInfo, local_agent_node
 from llauncher.ui.components.port_picker import render_port_picker
 from llauncher.ui.utils import format_uptime
 
@@ -49,7 +50,7 @@ def render_model_card(
                 status_icon,
                 key=f"toggle_stop_{node_name}_{model_name}",
                 help=f"Stop {model_name}",
-                use_container_width=True,
+                width='stretch',
             ):
                 _handle_stop(state, aggregator, node_name, running_server.port)
         else:
@@ -93,7 +94,7 @@ def _render_start_button(
                 status_icon,
                 key=f"toggle_start_{node_name}_{model_name}",
                 help="Model config not found",
-                use_container_width=True,
+                width='stretch',
                 disabled=True,
             )
             return
@@ -111,7 +112,7 @@ def _render_start_button(
         status_icon,
         key=f"toggle_start_{node_name}_{model_name}",
         help=f"Start {model_name}",
-        use_container_width=True,
+        width='stretch',
         disabled=chosen_port is None,
     ):
         if chosen_port is None:
@@ -154,39 +155,54 @@ def _render_eviction_dialog(
         if st.button(
             "Cancel",
             key=f"evict_cancel_{node_name}_{port}_{model_name}",
-            use_container_width=True,
+            width='stretch',
         ):
             st.rerun()
     with col2:
         if st.button(
             "Confirm Eviction",
             key=f"evict_confirm_{node_name}_{port}_{model_name}",
-            use_container_width=True,
+            width='stretch',
             type="primary",
         ):
             # v2 ops migration (issue #57): route eviction through
             # ``operations.swap`` instead of the legacy
             # ``state.start_with_eviction_compat`` path. The M4 tab
             # restructure (#50) must preserve this call.
-            result = ops.swap(model_name, port, caller="ui")
-            if result.success and result.action == "swapped":
-                st.toast(f"{model_name} now running on port {port}", icon="✅")
-            elif result.success and result.action == "already_running":
-                st.toast(f"{model_name} already running on port {port}", icon="ℹ️")
-            elif result.action == "rolled_back":
-                st.toast(
-                    f"Swap failed — rolled back to {result.previous_model} "
-                    f"({result.message})",
-                    icon="⚠️",
-                )
-            elif result.action in ("failed", "rejected_stop_failed"):
-                st.toast(
-                    f"Port {port} unavailable — manual intervention required "
-                    f"({result.message})",
-                    icon="❌",
-                )
+            #
+            # Delegation gate (#200): the evict-and-start branch of a
+            # local-node launch is itself a spawn, so it routes to the
+            # agent over HTTP when one is present (or an override forces
+            # it). With no agent reachable it falls back to the in-process
+            # swap (dev/standalone), preserving the toast taxonomy below.
+            if delegation.should_delegate():
+                # ``or {}`` guards the ``dict | None`` seam (see _handle_start).
+                res = local_agent_node().swap_server(model_name, port) or {}
+                if res.get("success"):
+                    st.toast(f"{model_name} now running on port {port}", icon="✅")
+                else:
+                    msg = res.get("message") or res.get("error") or "Eviction failed"
+                    st.toast(msg, icon="❌")
             else:
-                st.toast(f"Eviction failed: {result.message}", icon="❌")
+                result = ops.swap(model_name, port, caller="ui")
+                if result.success and result.action == "swapped":
+                    st.toast(f"{model_name} now running on port {port}", icon="✅")
+                elif result.success and result.action == "already_running":
+                    st.toast(f"{model_name} already running on port {port}", icon="ℹ️")
+                elif result.action == "rolled_back":
+                    st.toast(
+                        f"Swap failed — rolled back to {result.previous_model} "
+                        f"({result.message})",
+                        icon="⚠️",
+                    )
+                elif result.action in ("failed", "rejected_stop_failed"):
+                    st.toast(
+                        f"Port {port} unavailable — manual intervention required "
+                        f"({result.message})",
+                        icon="❌",
+                    )
+                else:
+                    st.toast(f"Eviction failed: {result.message}", icon="❌")
             st.rerun()
 
 
@@ -261,15 +277,85 @@ def _render_model_details(
             else:
                 st.info("No logs available")
 
-    # Edit button (only for stopped models on local)
+    # Edit / Delete buttons (only for stopped models on local)
     st.divider()
     if not running_server and node_name == "local":
-        if st.button("✏️ Edit", use_container_width=True, key=f"edit_{node_name}_{model_name}_enabled"):
-            st.session_state[f"editing_{model_name}"] = True
-            st.rerun()
+        edit_col, delete_col = st.columns(2)
+        with edit_col:
+            if st.button("✏️ Edit", width='stretch', key=f"edit_{node_name}_{model_name}_enabled"):
+                st.session_state[f"editing_{model_name}"] = True
+                st.rerun()
+        with delete_col:
+            if st.button("🗑️ Delete", width='stretch', key=f"delete_{node_name}_{model_name}_enabled"):
+                st.session_state[f"deleting_{node_name}_{model_name}"] = True
+                st.rerun()
+        _render_delete_confirm(node_name, model_name)
     elif not running_server:
-        st.button("✏️ Edit", use_container_width=True, key=f"edit_{node_name}_{model_name}_disabled", disabled=True)
+        st.button("✏️ Edit", width='stretch', key=f"edit_{node_name}_{model_name}_disabled", disabled=True)
         st.caption("Remote model editing not yet supported")
+        st.button("🗑️ Delete", width='stretch', key=f"delete_{node_name}_{model_name}_disabled", disabled=True)
+        st.caption("Remote model deletion not yet supported")
+
+
+def _render_delete_confirm(node_name: str, model_name: str) -> None:
+    """Render the two-step delete confirmation gate for a local model.
+
+    Mirrors ``_render_eviction_dialog``'s Cancel/Confirm column layout and
+    session-state gating idiom (#276): a click on the "🗑️ Delete" button
+    upstream sets ``deleting_{node_name}_{model_name}`` in session state and
+    reruns; this function renders the warning + Cancel/Confirm row only
+    while that flag is set, and clears it on either path.
+
+    Delete goes through ``ops.delete_model`` directly (never a
+    ``state``/peer-endpoint seam) to satisfy the UI layer boundary test
+    (ADR-025) — ``llauncher.operations`` imports are allowed from the UI.
+
+    Args:
+        node_name: Name of the node (only called for ``"local"``).
+        model_name: Name of the model to delete.
+    """
+    flag_key = f"deleting_{node_name}_{model_name}"
+    if not st.session_state.get(flag_key):
+        return
+
+    st.warning(
+        f"Delete model config **{model_name}**? This cannot be undone.",
+        icon="⚠️",
+    )
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button(
+            "Cancel",
+            key=f"delete_cancel_{node_name}_{model_name}",
+            width='stretch',
+        ):
+            st.session_state[flag_key] = False
+            st.rerun()
+    with col2:
+        if st.button(
+            "Confirm Delete",
+            key=f"delete_confirm_{node_name}_{model_name}",
+            width='stretch',
+            type="primary",
+        ):
+            result = ops.delete_model(model_name, caller="ui")
+            st.session_state[flag_key] = False
+
+            if result.success:
+                st.toast(result.message, icon="✅")
+            elif result.action == "rejected_in_use":
+                # Belt-and-suspenders: the UI gate (``not running_server``)
+                # should normally prevent this, but the backend check
+                # (live lockfile scan) is the real enforcement — surface it
+                # with the same sticky-error + toast pattern
+                # ``_handle_start``/``_handle_stop`` use for failures.
+                st.error(result.message)
+                st.toast(result.message, icon="❌")
+            else:
+                st.error(result.message)
+                st.toast(result.message, icon="❌")
+            st.rerun()
 
 
 def _handle_stop(
@@ -287,7 +373,32 @@ def _handle_stop(
         port: Port of the server to stop.
     """
     if node_name == "local":
-        success, message = state.stop_server(port, caller="ui")
+        # Delegation gate (#200/#203): a stop is a mutating op, so it routes
+        # through the local agent over HTTP when one is reachable — the same
+        # gate the CLI (``cli.py::stop_server``) and MCP
+        # (``mcp_server/tools/servers.py``) stop paths use. This is what makes
+        # ``llama-server`` (running as the ``llauncher`` service account in
+        # ADR-018 system-mode) terminable from the operator-owned Streamlit UI:
+        # the agent owns the process, so no cross-uid SIGTERM (psutil
+        # AccessDenied) is attempted from the UI process. Per
+        # ``docs/ARCHITECTURE.md`` "Endpoints orchestrate — they do not
+        # reimplement them", the UI delegates rather than re-running the
+        # in-process ``core.process`` stop. With no agent reachable it falls
+        # back to the in-process op (dev/standalone), preserving prior
+        # behaviour exactly.
+        if delegation.should_delegate():
+            # ``RemoteNode.stop_server`` is ``dict | None`` (a 200 with a null
+            # body yields None); ``or {}`` makes ``.get`` None-safe without
+            # masking a real error dict (transport/non-2xx arrives as a dict).
+            res = local_agent_node().stop_server(port) or {}
+            success = bool(res.get("success"))
+            message = (
+                res.get("message")
+                or res.get("error")
+                or "Local agent returned no result"
+            )
+        else:
+            success, message = state.stop_server(port, caller="ui")
     elif aggregator:
         result = aggregator.stop_on_node(node_name, port)
         success, message = _parse_aggregator_result(result)
@@ -341,18 +452,43 @@ def _handle_start(
             resolved_port = target_port
             valid, msg = state.can_start(config, caller="ui", port=resolved_port)
             if valid:
-                # v2 ops migration (issue #57): route plain start through
-                # ``operations.start`` (which now runs ADR-005 model-health
-                # pre-flight via the same seam as ``operations.swap``). The
-                # M4 tab restructure (#50) must preserve this call.
-                result = ops.start(model_name, resolved_port, caller="ui")
-                if result.success:
-                    st.toast(result.message, icon="✅")
+                # Delegation gate (#200): with a healthy local agent present
+                # (or an explicit override), POST the launch to the agent so
+                # the ``llama-server`` is a child of the systemd-managed
+                # agent and the operator needs no exec rights on the binary.
+                # With no agent reachable, fall back to the in-process op
+                # (dev/standalone) — v2 ops migration (issue #57): plain
+                # start routes through ``operations.start`` (ADR-005
+                # model-health pre-flight via the same seam as
+                # ``operations.swap``); the M4 tab restructure (#50)
+                # preserves this call.
+                if delegation.should_delegate():
+                    # ``RemoteNode.start_server`` is ``dict | None`` (a 200
+                    # with a null body yields None); ``or {}`` makes the
+                    # ``.get`` calls None-safe without masking a real error
+                    # dict (transport/non-2xx arrives as a dict already).
+                    res = local_agent_node().start_server(
+                        model_name, resolved_port
+                    ) or {}
+                    if res.get("success"):
+                        st.toast(res.get("message") or f"Starting {model_name}", icon="✅")
+                    else:
+                        err = (
+                            res.get("message")
+                            or res.get("error")
+                            or "Local agent returned no result"
+                        )
+                        st.error(err)
+                        st.toast(err, icon="❌")
                 else:
-                    # Errors must be sticky — toasts disappear too quickly
-                    # to read on a near-instant validation failure.
-                    st.error(result.message)
-                    st.toast(result.message, icon="❌")
+                    result = ops.start(model_name, resolved_port, caller="ui")
+                    if result.success:
+                        st.toast(result.message, icon="✅")
+                    else:
+                        # Errors must be sticky — toasts disappear too quickly
+                        # to read on a near-instant validation failure.
+                        st.error(result.message)
+                        st.toast(result.message, icon="❌")
             else:
                 st.error(f"Cannot start: {msg}")
                 st.toast(f"Cannot start: {msg}", icon="❌")

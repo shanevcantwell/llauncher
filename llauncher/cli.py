@@ -1,7 +1,7 @@
 """CLI for managing llama.cpp server instances via llauncher.
 
 Provides a Typer-based command-line interface with subcommand groups:
-- model: list, info
+- model: list, info, remove
 - server: start, stop, status
 - node: add, list, remove, status
 - config: path, validate
@@ -10,6 +10,7 @@ Output uses Rich tables with color-coded status indicators and supports --json f
 """
 
 import json
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -18,17 +19,43 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from llauncher.core.config import CONFIG_PATH, ConfigStore
-from llauncher.models.config import ModelConfig
-from llauncher.remote.registry import NodeRegistry
-from llauncher.remote.node import RemoteNode
-from llauncher.state import LauncherState
-
 app = typer.Typer(
     name="llauncher",
     help="CLI for managing llama.cpp server instances",
     add_completion=False,
 )
+
+
+# ---------------------------------------------------------------------------
+# Root callback: --state-dir (issue #215)
+# ---------------------------------------------------------------------------
+#
+# ``llauncher.core.settings`` resolves ``LAUNCHER_STATE_DIR`` (and every
+# config/state path derived from it — ``config.CONFIG_PATH``,
+# ``registry.NODES_FILE``, ``LAUNCHER_RUN_DIR``, ...) at *module import
+# time*. For ``--state-dir`` to win over the env var, this callback must
+# set ``LAUNCHER_STATE_DIR`` in ``os.environ`` before any of those modules
+# are first imported in this process. That's why every command below
+# imports its config/state/registry dependencies *lazily*, inside the
+# function body, rather than at module scope: this callback always runs
+# before Typer dispatches to a subcommand, so as long as nothing above
+# this line has already imported the settings chain, the subcommand's
+# lazy import is the first one — and it sees this override.
+@app.callback()
+def main(
+    state_dir: Optional[Path] = typer.Option(
+        None,
+        "--state-dir",
+        help=(
+            "Override the llauncher state/config directory for this "
+            "invocation. Precedence: --state-dir > LAUNCHER_STATE_DIR env "
+            "> ~/.llauncher default."
+        ),
+    ),
+) -> None:
+    """CLI for managing llama.cpp server instances."""
+    if state_dir is not None:
+        os.environ["LAUNCHER_STATE_DIR"] = str(state_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +116,27 @@ def _json_output(data) -> None:
     console.print(json.dumps(data, indent=2, default=str))
 
 
+def _delegated_outcome(res: dict | None, verb: str, port: int) -> tuple[bool, str]:
+    """Reduce a delegated ``RemoteNode`` verb result to ``(success, message)``.
+
+    Mirrors the MCP server's ``_delegated_or_error`` dict|None guard
+    (``mcp_server/tools/servers.py``) but for the CLI's render contract: a
+    delegated launch returns the agent's ADR-010 envelope over HTTP (a
+    ``dict`` with ``success``/``message``); a transport or HTTP failure
+    returns ``{"success": False, "error": ...}``; and a 200-with-JSON-null
+    body surfaces as Python ``None``. Collapse all three to the ``(bool,
+    str)`` pair the CLI renders, never raising on the ``None`` seam.
+    """
+    if res is None:
+        return (
+            False,
+            f"Local agent returned an empty response for {verb} on port {port}",
+        )
+    success = bool(res.get("success"))
+    message = res.get("message") or res.get("error") or f"{verb} on port {port}"
+    return success, message
+
+
 # ---------------------------------------------------------------------------
 # model subcommands
 # ---------------------------------------------------------------------------
@@ -101,6 +149,8 @@ def list_models(
     as_json: bool = typer.Option(False, "--json", "-j", help="Output in JSON format"),
 ) -> None:
     """List all configured models."""
+    from llauncher.core.config import ConfigStore
+
     names = ConfigStore.list_models()
     if as_json:
         _json_output(names)
@@ -117,6 +167,8 @@ def model_info(
     as_json: bool = typer.Option(False, "--json", "-j", help="Output in JSON format"),
 ) -> None:
     """Show detailed information for a single model."""
+    from llauncher.core.config import ConfigStore
+
     config = ConfigStore.get_model(name)
 
     if config is None:
@@ -131,6 +183,36 @@ def model_info(
     cfg_dict = config.model_dump()
     rows = [[k, str(v)] for k, v in cfg_dict.items()]
     _print_table(headers, rows, title=f"Model: {name}")
+
+
+@model_app.command("remove")
+def remove_model(
+    name: str = typer.Argument(..., help="Name of the model config to remove"),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Skip the confirmation prompt."
+    ),
+) -> None:
+    """Remove a model configuration (mirrors ``node remove``).
+
+    Thin wrapper over :func:`llauncher.operations.delete_model` (#276) —
+    config-only; refuses (``rejected_in_use``) while the model is running
+    on any port. Prompts for confirmation unless ``--yes`` is passed, since
+    the delete has no UI/CLI undo.
+    """
+    from llauncher import operations as ops
+
+    if not yes and not typer.confirm(
+        f"Remove model config {name!r}? This cannot be undone."
+    ):
+        console.print("Aborted.")
+        raise typer.Exit(code=1)
+
+    result = ops.delete_model(name, caller="cli")
+
+    if not result.success:
+        console.print(f"[red]✗ {result.message}[/red]")
+        raise typer.Exit(code=1)
+    console.print(_color(result.message, "stopped"))
 
 
 app.add_typer(model_app)
@@ -160,12 +242,26 @@ def start_server(
     for human invocations — pick a port deliberately.
     """
     from llauncher import operations
+    from llauncher.core import delegation
+    from llauncher.remote.node import local_agent_node
 
-    result = operations.start(name, port, caller=caller)
-    if not result.success:
-        console.print(f"[red]✗ {result.message}[/red]")
+    # Delegation gate (#200/#203): with a healthy local agent present (or an
+    # explicit ``LLAUNCHER_DELEGATE_TO_LOCAL_AGENT`` override) POST the launch
+    # to the agent over HTTP so the ``llama-server`` is a child of the
+    # systemd-managed agent — the sole spawner under system-mode (#194). With
+    # no agent reachable, fall back to the in-process op (dev/standalone).
+    if delegation.should_delegate():
+        success, message = _delegated_outcome(
+            local_agent_node().start_server(name, port), "start", port
+        )
+    else:
+        result = operations.start(name, port, caller=caller)
+        success, message = result.success, result.message
+
+    if not success:
+        console.print(f"[red]✗ {message}[/red]")
         raise typer.Exit(code=1)
-    console.print(_color(result.message, "running"))
+    console.print(_color(message, "running"))
 
 
 @server_app.command("stop")
@@ -175,12 +271,24 @@ def stop_server(
 ) -> None:
     """Stop a running server on the specified port."""
     from llauncher import operations
+    from llauncher.core import delegation
+    from llauncher.remote.node import local_agent_node
 
-    result = operations.stop(port, caller=caller)
-    if not result.success:
-        console.print(f"[red]✗ {result.message}[/red]")
+    # Delegation gate (#200/#203): mirror ``start`` — delegate to the local
+    # agent over HTTP when one is reachable (sole-spawner intent, #194),
+    # else stop in-process (dev/standalone).
+    if delegation.should_delegate():
+        success, message = _delegated_outcome(
+            local_agent_node().stop_server(port), "stop", port
+        )
+    else:
+        result = operations.stop(port, caller=caller)
+        success, message = result.success, result.message
+
+    if not success:
+        console.print(f"[red]✗ {message}[/red]")
         raise typer.Exit(code=1)
-    console.print(_color(result.message, "stopped"))
+    console.print(_color(message, "stopped"))
 
 
 @server_app.command("cancel")
@@ -215,6 +323,8 @@ def server_status(
     as_json: bool = typer.Option(False, "--json", "-j", help="Output in JSON format"),
 ) -> None:
     """Show status of all running servers."""
+    from llauncher.state import LauncherState
+
     state = LauncherState()
 
     if as_json:
@@ -304,6 +414,8 @@ def add_node(
     api_key: str | None = typer.Option(None, "--api-key", "-k", help="API key for authentication"),
 ) -> None:
     """Register a new llauncher agent node."""
+    from llauncher.remote.registry import NodeRegistry
+
     registry = NodeRegistry()
     actual_port = port or 8765
     ok, msg = registry.add_node(name=name, host=host, port=actual_port, api_key=api_key)
@@ -318,6 +430,8 @@ def list_nodes(
     as_json: bool = typer.Option(False, "--json", "-j", help="Output in JSON format"),
 ) -> None:
     """List all registered nodes."""
+    from llauncher.remote.registry import NodeRegistry
+
     registry = NodeRegistry()
 
     if as_json:
@@ -338,6 +452,8 @@ def remove_node(
     name: str = typer.Argument(..., help="Name of the node to remove"),
 ) -> None:
     """Remove a registered node."""
+    from llauncher.remote.registry import NodeRegistry
+
     registry = NodeRegistry()
     ok, msg = registry.remove_node(name)
     if not ok:
@@ -352,6 +468,8 @@ def node_status(
     as_json: bool = typer.Option(False, "--json", "-j", help="Output in JSON format"),
 ) -> None:
     """Show status of registered nodes (online only by default)."""
+    from llauncher.remote.registry import NodeRegistry
+
     registry = NodeRegistry()
 
     # Ping all to refresh statuses
@@ -404,7 +522,13 @@ config_app = typer.Typer(name="config", help="Configuration management utilities
 @config_app.command("path")
 def config_path() -> None:
     """Print the path to the llauncher configuration file."""
-    console.print(f"[green]{CONFIG_PATH}[/green]")
+    from llauncher.core.config import CONFIG_PATH
+
+    # soft_wrap: a filesystem path is a single atom — never soft-wrap it. Rich's
+    # default width (80 cols, and no TTY under pytest) would otherwise insert a
+    # mid-path newline once the path exceeds the console width, corrupting the
+    # emitted value for both a narrow terminal and substring-checking callers (#256).
+    console.print(f"[green]{CONFIG_PATH}[/green]", soft_wrap=True)
 
 
 @config_app.command("validate")
@@ -412,6 +536,9 @@ def validate_config(
     name: str = typer.Argument(..., help="Name of the model to validate"),
 ) -> None:
     """Validate a model configuration without starting a server."""
+    from llauncher.core.config import ConfigStore
+    from llauncher.models.config import ModelConfig
+
     config = ConfigStore.get_model(name)
 
     if config is None:

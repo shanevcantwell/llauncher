@@ -18,7 +18,11 @@ from llauncher.core.process import (
     _tail_file,
     is_port_in_use,
 )
-from llauncher.models.config import ModelConfig
+from llauncher.models.config import (
+    DENIED_EXTRA_ARG_FLAGS,
+    MANAGED_NATIVE_FLAGS,
+    ModelConfig,
+)
 
 
 # Fixtures
@@ -84,7 +88,11 @@ class TestFindAvailablePort:
         def port_in_use(p):
             return p == 9000  # Only 9000 is in use
 
-        with patch("llauncher.core.process.is_port_in_use", side_effect=port_in_use):
+        # Pin the blacklist empty so the scan is independent of the
+        # ``BLACKLISTED_PORTS`` env var (which defaults to [] but is set on
+        # some dev hosts); 8080 is then the first allocatable port.
+        with patch("llauncher.core.process.is_port_in_use", side_effect=port_in_use), \
+             patch("llauncher.core.process.BLACKLISTED_PORTS", []):
             success, port, msg = find_available_port(preferred_port=9000, start=8080, end=8090)
             assert success is True
             assert port == 8080
@@ -111,7 +119,8 @@ class TestFindAvailablePort:
 
     def test_no_preferred_port_first_available(self):
         """No preferred port, first port in range available."""
-        with patch("llauncher.core.process.is_port_in_use", return_value=False):
+        with patch("llauncher.core.process.is_port_in_use", return_value=False), \
+             patch("llauncher.core.process.BLACKLISTED_PORTS", []):
             success, port, msg = find_available_port(start=8080, end=8090)
             assert success is True
             assert port == 8080
@@ -122,10 +131,12 @@ class TestFindAvailablePort:
         def port_in_use(p):
             return p == 8085  # Preferred port is in range and in use
 
-        with patch("llauncher.core.process.is_port_in_use", side_effect=port_in_use):
+        with patch("llauncher.core.process.is_port_in_use", side_effect=port_in_use), \
+             patch("llauncher.core.process.BLACKLISTED_PORTS", []):
             success, port, msg = find_available_port(preferred_port=8085, start=8080, end=8090)
             assert success is True
-            assert port == 8080  # Should get first available, not preferred
+            # First allocatable in range, not the preferred (8085 is in use).
+            assert port == 8080
 
 
 class TestBuildCommand:
@@ -197,10 +208,16 @@ class TestBuildCommand:
         assert "--extra2" in cmd
 
     def test_extra_args_with_quoted_strings(self, minimal_config):
-        """extra_args properly handles quoted strings with spaces."""
-        minimal_config.extra_args = '--reverse-prompt "You are helpful"'
+        """extra_args properly handles quoted strings with spaces.
+
+        Uses ``--chat-template`` (not a llauncher-managed flag) so the test
+        exercises shlex quote handling without tripping the issue #156
+        managed-flag collision guard. ``--reverse-prompt`` would now be
+        rejected on assignment because llauncher emits it natively.
+        """
+        minimal_config.extra_args = '--chat-template "You are helpful"'
         cmd = build_command(minimal_config, port=8080)
-        assert "--reverse-prompt" in cmd
+        assert "--chat-template" in cmd
         assert "You are helpful" in cmd
 
     def test_custom_host(self, minimal_config):
@@ -221,6 +238,38 @@ class TestBuildCommand:
         cmd = build_command(minimal_config, port=8080)
         assert "--repeat-penalty" in cmd
         assert "1.5" in cmd
+
+    def test_metrics_default_on(self, minimal_config):
+        """Issue #169: metrics defaults to True and emits --metrics."""
+        assert minimal_config.metrics is True
+        cmd = build_command(minimal_config, port=8080)
+        assert "--metrics" in cmd
+
+    def test_metrics_disabled_omits_flag(self, minimal_config):
+        """Issue #169: metrics=False must not emit --metrics."""
+        minimal_config.metrics = False
+        cmd = build_command(minimal_config, port=8080)
+        assert "--metrics" not in cmd
+
+    def test_slots_default_off_emits_no_slots(self, minimal_config):
+        """Issue #179 SP-1: slots defaults to False and emits --no-slots.
+
+        llama-server's own binary default for --slots is ENABLED (PM-2
+        de-risk finding) — the opposite of a safe default, since /slots
+        exposes per-slot prompt text. The launcher must emit the flag
+        explicitly rather than rely on the binary default.
+        """
+        assert minimal_config.slots is False
+        cmd = build_command(minimal_config, port=8080)
+        assert "--no-slots" in cmd
+        assert "--slots" not in cmd
+
+    def test_slots_enabled_emits_slots_flag(self, minimal_config):
+        """Issue #179 SP-1: slots=True emits --slots, not --no-slots."""
+        minimal_config.slots = True
+        cmd = build_command(minimal_config, port=8080)
+        assert "--slots" in cmd
+        assert "--no-slots" not in cmd
 
 
 def _alias_value(cmd: list[str]) -> str:
@@ -645,8 +694,15 @@ class TestIsPortInUse:
             assert result is True
 
 
-class TestFindAvailablePort:
-    """Additional tests for find_available_port edge cases."""
+class TestFindAvailablePortEdgeCases:
+    """Additional tests for find_available_port edge cases.
+
+    Renamed from ``TestFindAvailablePort`` (#coverage close-out): the
+    duplicate class name shadowed the canonical ``TestFindAvailablePort``
+    above at import time, so its six tests — including the
+    preferred-port-available (line 66) and default-start (line 61) cases
+    — were silently never collected. Renaming revives both classes.
+    """
 
     def test_blacklisted_port_skipped(self):
         """Blacklisted ports are skipped during allocation."""
@@ -1078,3 +1134,65 @@ class TestStartServerLogsLifecycle:
         # New live log contains only the banner (no previous content).
         assert "X" not in log_file.read_text(encoding="utf-8")
         assert "=== started at" in log_file.read_text(encoding="utf-8")
+
+
+class TestBuildCommandManagedFlagDriftGuard:
+    """Issue #156: keep ``MANAGED_NATIVE_FLAGS`` (the collision deny-set) in
+
+    sync with what ``build_command`` actually emits. If a future change adds a
+    native flag to ``build_command`` without registering it in
+    ``MANAGED_NATIVE_FLAGS`` / ``DENIED_EXTRA_ARG_FLAGS``, the silent
+    first-wins-loss trap would reopen for that flag — this test fails loudly
+    instead.
+    """
+
+    @staticmethod
+    def _is_flag(token: str) -> bool:
+        # A flag token starts with '-' and is not a (possibly negative) number.
+        if not token.startswith("-"):
+            return False
+        try:
+            float(token)
+        except ValueError:
+            return True
+        return False
+
+    def test_every_emitted_flag_is_registered(self) -> None:
+        # Exercise every conditional branch in build_command so all native
+        # flags are emitted. extra_args is empty so only native flags appear.
+        cfg = ModelConfig.from_dict_unvalidated({
+            "name": "drift-model",
+            "model_path": "/fake/model.gguf",
+            "mmproj_path": "/fake/mmproj.gguf",
+            "n_gpu_layers": 10,
+            "ctx_size": 4096,
+            "threads": 4,
+            "threads_batch": 8,
+            "ubatch_size": 512,
+            "batch_size": 2048,
+            "flash_attn": "on",
+            "no_mmap": True,
+            "cache_type_k": "q8_0",
+            "cache_type_v": "q8_0",
+            "n_cpu_moe": 2,
+            "parallel": 4,
+            "temperature": 0.7,
+            "top_k": 40,
+            "top_p": 0.9,
+            "min_p": 0.05,
+            "repeat_penalty": 1.1,
+            "reverse_prompt": "STOP",
+            "mlock": True,
+            "extra_args": "",
+        })
+        cmd = build_command(cfg, port=8080, host="0.0.0.0")
+
+        emitted_flags = {t for t in cmd if self._is_flag(t)}
+        registered = MANAGED_NATIVE_FLAGS | DENIED_EXTRA_ARG_FLAGS
+
+        unregistered = emitted_flags - registered
+        assert not unregistered, (
+            "build_command emits flags not registered in MANAGED_NATIVE_FLAGS "
+            f"or DENIED_EXTRA_ARG_FLAGS: {sorted(unregistered)}. Register them "
+            "so the issue #156 collision guard covers them."
+        )

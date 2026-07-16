@@ -55,6 +55,12 @@ def render_add_model(state: LauncherState) -> None:
             with col_adv2:
                 mlock = st.checkbox("Lock Memory in RAM (mlock)", value=False)
 
+            metrics = st.checkbox(
+                "Enable Prometheus Metrics (--metrics)",
+                value=True,
+                help="Exposes the /metrics endpoint for tps, kv-cache, and draft-acceptance telemetry.",
+            )
+
             col_adv3, col_adv4, col_adv5 = st.columns(3)
             with col_adv3:
                 n_cpu_moe = st.number_input(
@@ -109,12 +115,12 @@ def render_add_model(state: LauncherState) -> None:
                 help="Additional command-line arguments (e.g., '--mcp-config /path/to/file.json')",
             )
 
-        submitted = st.form_submit_button("Add Model", use_container_width=True)
+        submitted = st.form_submit_button("Add Model", width='stretch')
 
         if submitted:
             _process_add_model(state, name, model_path, mmproj_path,
                              n_gpu_layers, ctx_size, threads, flash_attn,
-                             no_mmap, parallel, mlock, n_cpu_moe, batch_size,
+                             no_mmap, parallel, mlock, metrics, n_cpu_moe, batch_size,
                              temperature, top_k, top_p, min_p, repeat_penalty,
                              reverse_prompt, extra_args)
 
@@ -131,6 +137,7 @@ def _process_add_model(
     no_mmap: bool,
     parallel: int,
     mlock: bool,
+    metrics: bool,
     n_cpu_moe: int,
     batch_size: int,
     temperature: float,
@@ -155,6 +162,7 @@ def _process_add_model(
         no_mmap: Disable memory mapping flag.
         parallel: Parallel slots.
         mlock: Lock memory in RAM flag.
+        metrics: Enable Prometheus /metrics endpoint flag.
         n_cpu_moe: CPU MOE threads.
         batch_size: Batch size.
         temperature: Temperature value.
@@ -192,6 +200,7 @@ def _process_add_model(
             no_mmap=no_mmap,
             parallel=parallel,
             mlock=mlock,
+            metrics=metrics,
             n_cpu_moe=n_cpu_moe if n_cpu_moe > 0 else None,
             batch_size=batch_size if batch_size > 0 else None,
             temperature=temperature if temperature > 0 else None,
@@ -281,6 +290,12 @@ def render_edit_model(state: LauncherState, model_name: str | None = None) -> No
             with col_adv2:
                 mlock = st.checkbox("Lock Memory in RAM (mlock)", value=config.mlock)
 
+            metrics = st.checkbox(
+                "Enable Prometheus Metrics (--metrics)",
+                value=config.metrics,
+                help="Exposes the /metrics endpoint for tps, kv-cache, and draft-acceptance telemetry.",
+            )
+
             col_adv3, col_adv4, col_adv5 = st.columns(3)
             with col_adv3:
                 n_cpu_moe = st.number_input(
@@ -338,9 +353,9 @@ def render_edit_model(state: LauncherState, model_name: str | None = None) -> No
 
         col_submit, col_cancel = st.columns(2)
         with col_submit:
-            submitted = st.form_submit_button("Save Changes", use_container_width=True)
+            submitted = st.form_submit_button("Save Changes", width='stretch')
         with col_cancel:
-            cancel_clicked = st.form_submit_button("Cancel", use_container_width=True)
+            cancel_clicked = st.form_submit_button("Cancel", width='stretch')
 
         if cancel_clicked:
             del st.session_state[f"editing_{model_name}"]
@@ -349,7 +364,7 @@ def render_edit_model(state: LauncherState, model_name: str | None = None) -> No
         if submitted:
             _process_edit_model(state, model_name, model_path, mmproj_path,
                               n_gpu_layers, ctx_size, threads, flash_attn, no_mmap,
-                              parallel, mlock, n_cpu_moe, batch_size, temperature,
+                              parallel, mlock, metrics, n_cpu_moe, batch_size, temperature,
                               top_k, top_p, min_p, repeat_penalty, reverse_prompt,
                               extra_args)
 
@@ -366,6 +381,7 @@ def _process_edit_model(
     no_mmap: bool,
     parallel: int,
     mlock: bool,
+    metrics: bool,
     n_cpu_moe: int,
     batch_size: int,
     temperature: float,
@@ -390,6 +406,7 @@ def _process_edit_model(
         no_mmap: Disable memory mapping flag.
         parallel: Parallel slots.
         mlock: Lock memory in RAM flag.
+        metrics: Enable Prometheus /metrics endpoint flag.
         n_cpu_moe: CPU MOE threads.
         batch_size: Batch size.
         temperature: Temperature value.
@@ -423,6 +440,7 @@ def _process_edit_model(
                 "no_mmap": no_mmap,
                 "parallel": parallel,
                 "mlock": mlock,
+                "metrics": metrics,
                 "n_cpu_moe": n_cpu_moe if n_cpu_moe > 0 else None,
                 "batch_size": batch_size if batch_size > 0 else None,
                 "temperature": temperature if temperature > 0 else None,

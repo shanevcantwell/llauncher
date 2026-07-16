@@ -36,7 +36,7 @@ simultaneously.
    firewall** — the boundary is enforced by import structure and PR review, not by a
    lint gate or scoped mount, so it stops cross-layer edges from being *authored*; it
    does not structurally prevent a running process from reaching across. *(→ ADR-008;
-   `.claude/architecture.md`)*
+   `docs/ARCHITECTURE.md`)*
 
 2. **`STATELESS-CORE`.** The core holds no cross-call state; resolve-use-release per
    call. State lives in the `LauncherState` facade above core, rebuilt from disk on
@@ -88,7 +88,7 @@ simultaneously.
 
 ## The layers
 
-(Per `.claude/architecture.md`; dependencies point downward.)
+(Per `docs/ARCHITECTURE.md`; dependencies point downward.)
 
 ### ENDPOINT (`agent/` HTTP · `mcp_server/` stdio · `ui/` Streamlit · `cli.py`)
 
@@ -207,7 +207,7 @@ named with evidence below.
 
 | Invariant | Verdict | Evidence (`path:symbol`) | Enforcement surface | Implemented gate? | Traced ADR(s) |
 |---|---|---|---|---|---|
-| `ONE-DOOR` | **Violated** (one known regression) | `llauncher/remote/registry.py:85` — `from llauncher.agent.auth import resolve_agent_token` inside `_resolve_local_token` is a live `remote → agent` import edge (the regression `.claude/architecture.md` documents as known) | import-boundary review; **no lint/CI gate** | No — prose-backed (review) | ADR-008; `.claude/architecture.md` forbidden edges |
+| `ONE-DOOR` | **Violated** (one known regression) | `llauncher/remote/registry.py:85` — `from llauncher.agent.auth import resolve_agent_token` inside `_resolve_local_token` is a live `remote → agent` import edge (the regression `docs/ARCHITECTURE.md` documents as known) | import-boundary review; **no lint/CI gate** | No — prose-backed (review) | ADR-008; `docs/ARCHITECTURE.md` forbidden edges |
 | `STATELESS-CORE` | **Compliant** | `llauncher/state.py:LauncherState.refresh` reloads `ConfigStore.load()` + process table each call; cross-call state lives only in the facade, not in `core/` | same-in/same-out tests (`tests/integration/test_state_integration.py`); core holds no retained instance state | Partial — tests exist; no structural "core has no module state" gate | ADR-008 |
 | `ONE-MINT` | **Compliant** | `llauncher/models/config.py:ModelConfig.name` is the sole identity field; envelopes derive from it — `llauncher/core/process.py:log_stem_for` sanitizes for *log filenames only* (injective map, #63/#146), proven not to leak into the wire alias | single typed identity; grep-gate on inline id strings | Partial — no grep-gate in CI; envelope/identity split held by review | ADR-010, ADR-016 |
 | `IDENTITY⊥ENVELOPE` | **Compliant (substance); type-split NOT-YET-IMPLEMENTED (shared pkg)** | `llauncher/models/config.py:ModelConfig` carries `name` but **no** `port`/`host` (dropped at the door, `from_dict_unvalidated`, ADR-010); port supplied at call site (`core/process.py:build_command(config, port, host)`) | the type split + type-check | Substance: yes (port absent from type). Shared `ModelRef`/`Endpoint`: no — Phase 2, upstream | ADR-010 |
@@ -228,7 +228,7 @@ named with evidence below.
 
 | Violation | Valid form |
 |---|---|
-| `remote/registry.py` imports `agent.auth` to read the local token (`remote → agent` edge) | Hoist the token *read* path into `core`; `remote` reads from core, token *materialization* stays in `agent` (`.claude/architecture.md` prescribed fix) |
+| `remote/registry.py` imports `agent.auth` to read the local token (`remote → agent` edge) | Hoist the token *read* path into `core`; `remote` reads from core, token *materialization* stays in `agent` (`docs/ARCHITECTURE.md` prescribed fix) |
 | Core module imports `state`/`operations`/`agent` to fetch a dependency | Invert: the caller (orchestration/endpoint) passes what core needs downward |
 | Read tool returns a process-start snapshot of running servers | `LauncherState.refresh()` reloads disk + process table per call (`STATELESS-CORE`) |
 | Build an id by appending `.gguf` / prefixing `Backend:` / deriving from port or path | Source the name from `ModelConfig.name`; envelopes (log filename) derive from it via `log_stem_for`, never the reverse |
@@ -252,7 +252,7 @@ named with evidence below.
 | Issue #120 / PR #158 | `EMIT-CANONICAL` keystone — `--alias = ModelConfig.name` | merged (PR #158) |
 | Issue #63 / #146 | `ONE-MINT` envelope defect — injective log-filename map (fixed in envelope space) | closed |
 | Issue #156 | `PARSE-AT-THE-DOOR` 5a — command-arg collision silent first-wins loss | **OPEN** — anchoring violation, no gate |
-| `.claude/architecture.md` | `ONE-DOOR` forbidden edges; names the `remote → agent` regression | tracked-in-repo |
+| `docs/ARCHITECTURE.md` | `ONE-DOOR` forbidden edges; names the `remote → agent` regression | tracked-in-repo |
 
 ---
 

@@ -3,10 +3,13 @@
 **Constitutions, by reference** (read before structural work; cite handles in
 PRs and commits):
 
-- `~/github/shanevcantwell/design-docs/ecosystem-ground-physics/CODE_CONSTITUTION.md`
+- `/srv/dev/shanevcantwell/operating-doctrine/ground-physics/CODE_CONSTITUTION.md`
   — ecosystem rules. The *why* is in `GROUND_PHYSICS.md` beside it; the
-  alignment plan in `ALIGNMENT_ROADMAP.md`.
-- `.claude/architecture.md` — layer map and forbidden import edges.
+  alignment plan in `ALIGNMENT_ROADMAP.md`. (Canonical home as of the
+  2026-06-22 migration; the old `design-docs/ecosystem-ground-physics/` path
+  is a `MOVED.md` tombstone.)
+- `docs/ARCHITECTURE.md` — layer map, forbidden import edges, and the audited
+  conformance rules against them.
 
 ## llauncher's position in the ecosystem physics
 
@@ -15,12 +18,16 @@ PRs and commits):
   port, adapter, log filename, process title, sanitized string — is an
   *envelope*. Envelope defects (e.g. log-filename sanitization collisions,
   #146/#63) are fixed in envelope space, never by bending the name.
-- **Keystone obligation** (`EMIT-CANONICAL`): the wire must report the
-  canonical name — `--alias = <ModelConfig.name>` at server start so
-  `/v1/models` emits it (#120; parked in `DENIED_EXTRA_ARG_FLAGS` pending
-  #87/#10). Until this lands, every downstream re-stringification dialect in
-  the ecosystem is llauncher's externalized debt
-  (`ALIGNMENT_ROADMAP.md` Phase 1 — the single highest-leverage fix).
+- **Keystone obligation** (`EMIT-CANONICAL`) — **satisfied**: the wire reports
+  the canonical name. llauncher starts every server with
+  `--alias = <ModelConfig.name>` (`core/process.py::build_command`) and keeps
+  `--alias` on `DENIED_EXTRA_ARG_FLAGS` so no config can override the minted
+  identity (#120/#87/#10, all closed). Verified live 2026-06-19: the resident
+  embedding server reports `embeddinggemma-300M-F32-pooled` on `/v1/models` —
+  a canonical name, not a path/port-derived string. This was the ecosystem's
+  highest-leverage fix (`ALIGNMENT_ROADMAP.md` Phase 1); with it landed,
+  downstream re-stringification dialects no longer have llauncher debt as their
+  excuse. Audited conformance: `docs/ARCHITECTURE.md` rule 5.
 
 ## Local rule: no backwards-compatibility shims
 
@@ -51,6 +58,10 @@ trust-and-degrade on an unrecognized one (`PARSE-AT-THE-DOOR`).
 - **Gates before any merge:** full pytest; non-UI coverage ≥93%
   (`--cov-fail-under=93`); coverage profile maximized over changed paths;
   dispatched code review.
+- **Merge mechanics + ground close:** merges land via `gh pr merge --squash --delete-branch`
+  (deletes remote + local head, returns the checkout to `main`). A session that touched the
+  repo ends with the shared checkout clean on `main` and its scratch worktrees removed or
+  banked; session-start is never where the previous session's ground gets dispositioned.
 - **Runtime verification:** the live GPU runtime may be driven freely
   (start/stop/swap real servers), including alongside the resident
   :8081/:8082 services.

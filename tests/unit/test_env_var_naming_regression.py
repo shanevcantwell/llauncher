@@ -40,6 +40,29 @@ The allowlist is the set of paths where matches are *expected*:
       message includes the legacy token by construction (the
       split-string trick covers the search pattern but the message
       formatting may still emit the literal).
+    - ``scripts/windows/install.ps1``, ``scripts/systemd/install.sh``,
+      ``llauncher/core/agent_token.py``, ``llauncher/agent/server.py``,
+      ``tests/integration/test_agent_security_c1_c2.py``,
+      ``tests/unit/test_agent_token_legacy_env.py``, and
+      ``docs/operations/run-as-a-service.md`` are allowlisted for issue
+      #281: the pre-#139 legacy-key *migration and detection* logic
+      necessarily names the old key to recognize and rewrite/refuse it.
+      This is the opposite failure mode from the one this guard exists
+      to catch — #138 was the typo silently *reappearing as the active
+      read path*; #281's references are inert string literals used only
+      to detect and migrate away from that old shape at the door
+      (PARSE-AT-THE-DOOR), never a fallback read.
+    - ``scripts/systemd/migrate_env_keys.sh``,
+      ``scripts/windows/MigrateEnvKeys.ps1``,
+      ``tests/unit/test_install_sh_dedupe.py``, and
+      ``tests/unit/test_install_ps1_dedupe.py`` are allowlisted for issue
+      #285: the migration+dedupe logic extracted from the two installers
+      (and its tests) — same inert-migration-literal rationale as the
+      installers above.
+    - ``tests/unit/test_migrate_env_keys_blank_lines.py`` is allowlisted
+      for issue #305: it seeds legacy-prefixed lines to pin
+      ``MigrateEnvKeys.ps1``'s blank-line handling — same inert-
+      migration-literal rationale as the #285 entries.
 """
 
 from __future__ import annotations
@@ -61,7 +84,7 @@ def test_resolve_uses_new_env_var_name(monkeypatch, tmp_path):
     monkeypatch.setenv("LLAUNCHER_AGENT_TOKEN", "correct-horse-battery-staple")
     monkeypatch.delenv("LAUNCHER_AGENT_TOKEN", raising=False)
 
-    result = resolve_agent_token(token_path=tmp_path / "agent.token")
+    result = resolve_agent_token(env_path=tmp_path / "agent.env")
 
     assert result == "correct-horse-battery-staple"
 
@@ -77,10 +100,10 @@ def test_resolve_ignores_old_env_var_name(monkeypatch, tmp_path):
 
     monkeypatch.setenv("LAUNCHER_AGENT_TOKEN", "stale-typo-value")
     monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
-    token_path = tmp_path / "agent.token"
-    assert not token_path.exists()
+    env_path_local = tmp_path / "agent.env"
+    assert not env_path_local.exists()
 
-    result = resolve_agent_token(token_path=token_path, allow_generate=False)
+    result = resolve_agent_token(env_path=env_path_local, allow_generate=False)
 
     assert result is None
 
@@ -92,7 +115,7 @@ def test_resolve_prefers_new_when_both_set(monkeypatch, tmp_path):
     monkeypatch.setenv("LAUNCHER_AGENT_TOKEN", "stale")
     monkeypatch.setenv("LLAUNCHER_AGENT_TOKEN", "fresh")
 
-    result = resolve_agent_token(token_path=tmp_path / "agent.token")
+    result = resolve_agent_token(env_path=tmp_path / "agent.env")
 
     assert result == "fresh"
 
@@ -105,7 +128,7 @@ def test_resolve_stdin_trigger_uses_new_name(monkeypatch, tmp_path):
     monkeypatch.delenv("LAUNCHER_AGENT_TOKEN", raising=False)
     monkeypatch.setattr(auth_mod.sys, "stdin", io.StringIO("piped-token\n"))
 
-    result = auth_mod.resolve_agent_token(token_path=tmp_path / "agent.token")
+    result = auth_mod.resolve_agent_token(env_path=tmp_path / "agent.env")
 
     assert result == "piped-token"
 
@@ -122,10 +145,10 @@ def test_resolve_stdin_trigger_old_name_does_not_fire(monkeypatch, tmp_path):
 
     monkeypatch.setenv("LAUNCHER_AGENT_TOKEN", "-")
     monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
-    token_path = tmp_path / "agent.token"
-    assert not token_path.exists()
+    env_path_local = tmp_path / "agent.env"
+    assert not env_path_local.exists()
 
-    result = resolve_agent_token(token_path=token_path, allow_generate=False)
+    result = resolve_agent_token(env_path=env_path_local, allow_generate=False)
 
     assert result is None
 
@@ -231,6 +254,31 @@ ALLOWED_PATH_PREFIXES: tuple[str, ...] = (
     "docs/v2-handoff.md",
     "CHANGELOG.md",
     "tests/unit/test_env_var_naming_regression.py",
+    # #281: pre-#139 legacy-key migration (installers) and detection
+    # (agent-side fail-loud guard) — see module docstring rationale.
+    "scripts/windows/install.ps1",
+    "scripts/systemd/install.sh",
+    "llauncher/core/agent_token.py",
+    "llauncher/agent/server.py",
+    "tests/integration/test_agent_security_c1_c2.py",
+    "tests/unit/test_agent_token_legacy_env.py",
+    "docs/operations/run-as-a-service.md",
+    # #285: the migration+dedupe logic extracted from the two installers so
+    # it is unit-testable in isolation — same legitimate migration-code home
+    # for the legacy prefix as the installers above.
+    "scripts/systemd/migrate_env_keys.sh",
+    "scripts/windows/MigrateEnvKeys.ps1",
+    "tests/unit/test_install_sh_dedupe.py",
+    "tests/unit/test_install_ps1_dedupe.py",
+    # #305: blank-line handling regression test for MigrateEnvKeys.ps1's
+    # -Lines param — seeds legacy-prefixed lines to pin the same
+    # migration+dedupe behavior under blank-line input. Same inert-
+    # migration-literal rationale as the #285 entries above.
+    "tests/unit/test_migrate_env_keys_blank_lines.py",
+    # #293: rewrite-in-place persist and the duplicate-token startup guard —
+    # their tests pre-seed legacy/collision shapes to pin the fix.
+    "tests/unit/test_agent_token_generate.py",
+    "tests/unit/test_agent_duplicate_token_guard.py",
 )
 
 

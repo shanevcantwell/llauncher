@@ -268,9 +268,7 @@ def test_cross_surface_orphan_dicts_agree(http_client, monkeypatch) -> None:
     # MCP
     mcp_state = MagicMock()
     mcp_state.orphans = list(orphans)
-    mcp_result = asyncio.get_event_loop().run_until_complete(
-        mcp_list(mcp_state, {})
-    )
+    mcp_result = asyncio.run(mcp_list(mcp_state, {}))
     mcp_orphans = mcp_result["orphans"]
 
     # CLI

@@ -17,7 +17,7 @@ Canonical surface for LLM agents and automation. Stdio transport; full read + mu
 - **Configuration CRUD**: `add_model`, `update_model_config`, `delete_model`, `validate_config`
 
 ### HTTP Agent
-Same verbs over REST for multi-node setups (ADR-009 hub-spoke). Port-keyed routes (`/start/{port}`, `/swap/{port}`, `/stop/{port}`, `/cancel/{port}`, `/footer-context/{port}`) plus `/status`, `/models`, `/models/health`. Token-protected when bound off-loopback (ADR-003).
+Same verbs over REST for multi-node setups (ADR-009 hub-spoke). Port-keyed routes (`/start/{port}`, `/swap/{port}`, `/stop/{port}`, `/cancel/{port}`, `/footer-context/{port}`) plus `/status`, `/models`, `/models/health`. **Always** token-protected via an `X-Api-Key` header — including on loopback, where the token is auto-generated rather than operator-supplied (ADR-003). A non-loopback bind additionally *refuses to start* without a pre-existing token. Unlike the agent, the MCP server and local CLI are in-process and tokenless. See [`docs/auth.md`](docs/auth.md) for the full token/auth model.
 
 ### Streamlit UI
 Web dashboard for human operators. Four tabs: Dashboard (read-only running view), Models (config CRUD + per-model start/stop/swap with explicit port picker), Nodes (peer registry), Audit (local audit-log tail).
@@ -191,6 +191,14 @@ Tails the local audit log at `LAUNCHER_AUDIT_PATH` (`~/.llauncher/audit.jsonl` b
 
 The `llauncher` Typer CLI is a co-equal consumer of `llauncher/operations/` alongside the MCP server, HTTP Agent, and Streamlit UI. Every group supports a `--json` / `-j` flag for machine-readable output; the default is a Rich-rendered color table for human use.
 
+A global `--state-dir` option (before the subcommand) points a single invocation at a config/state directory other than the default, with precedence `--state-dir` > `LAUNCHER_STATE_DIR` env > `~/.llauncher`:
+
+```bash
+llauncher --state-dir /var/lib/llauncher model list
+```
+
+This is the mechanism for a non-login/non-interactive caller (an automation harness, a service account) to read a shared multiuser state dir without exporting `LAUNCHER_STATE_DIR` or symlinking `~/.llauncher`.
+
 **Subcommand groups:**
 
 ```bash
@@ -259,6 +267,31 @@ Example config entry:
 
 Per ADR-010, port is supplied at every call site (UI port picker, CLI `--port`, MCP `port` arg, HTTP `/start/{port}` route) and is **not** persisted in the config. Legacy `default_port` entries in `config.json` are silently dropped on load.
 
+### State Paths & Volume Mounts (Docker)
+
+Per ADR-008, the lockfile directory and audit log are env-configurable so a container can mount host state as a volume — letting an in-container agent (e.g. `pi-coding-agent`) introspect the state of llauncher running on the host.
+
+| Env var | Default | Holds |
+|---------|---------|-------|
+| `LAUNCHER_STATE_DIR` | `~/.llauncher` | Base for every derived path below |
+| `LAUNCHER_RUN_DIR` | `$LAUNCHER_STATE_DIR/run` | Per-server lockfiles (`{port}.lock`) and swap markers |
+| `LAUNCHER_AUDIT_PATH` | `$LAUNCHER_STATE_DIR/audit.jsonl` | Append-only JSON Lines audit log |
+
+Precedence for each path is the explicit per-path var (`LAUNCHER_RUN_DIR` / `LAUNCHER_AUDIT_PATH`) > the `LAUNCHER_STATE_DIR`-derived default. With every var unset the paths are byte-identical to the legacy `~/.llauncher/*` layout, so setting them is opt-in.
+
+To let a container read the host's live llauncher state, mount the host paths in read-only and point the in-container env vars at the mount:
+
+```bash
+docker run \
+  -v "$HOME/.llauncher/run:/host-llauncher/run:ro" \
+  -v "$HOME/.llauncher/audit.jsonl:/host-llauncher/audit.jsonl:ro" \
+  -e LAUNCHER_RUN_DIR=/host-llauncher/run \
+  -e LAUNCHER_AUDIT_PATH=/host-llauncher/audit.jsonl \
+  my-agent-image
+```
+
+Mount read-only (`:ro`) when the container only introspects; drop `:ro` if the containerized process is the one commanding llauncher and must write lockfiles/audit entries. The audit log is a single file, so bind-mount the file itself (not its parent dir) to avoid masking sibling state.
+
 ## Change Management
 
 llauncher includes validation rules to prevent problematic actions:
@@ -267,6 +300,12 @@ llauncher includes validation rules to prevent problematic actions:
 - **Blacklisted ports**: Default blacklist includes port 8080 (commonly used by other services)
 - **Model whitelists**: Optionally restrict which models can be started
 - **Caller blacklists**: Restrict which callers (UI, MCP, etc.) can perform actions
+
+## Versioning
+
+`vN` (`v1`, `v2`, `v3` …) denotes the architecture generation; `0.x`
+(`0.4.0a0` / `v0.4.0-alpha`) denotes the semver release. They are independent
+axes and do not map to each other — see [`docs/VERSIONING.md`](docs/VERSIONING.md).
 
 ## Project Structure
 
@@ -427,7 +466,7 @@ run.bat agent
 - `LLAUNCHER_AGENT_HOST`: Host to bind to (default: `127.0.0.1`). Set to `0.0.0.0` or a specific LAN IP to expose the agent to other hosts — see "Security Notes" below.
 - `LLAUNCHER_AGENT_PORT`: Port to listen on (default: `8765`)
 - `LLAUNCHER_AGENT_NODE_NAME`: Friendly name for the node
-- `LLAUNCHER_AGENT_TOKEN`: Required when binding to anything other than loopback. The agent refuses to start on a non-loopback host without it. Special value `-` reads the token from stdin (one line). On a loopback start with no value set, a fresh token is auto-generated and written to `~/.llauncher/agent.token` (mode 0600).
+- `LLAUNCHER_AGENT_TOKEN`: The agent's `X-Api-Key` token. The agent **always** enforces a token (auth is never off, even on loopback); this var lets you supply it explicitly and always wins over the file below. *Required* when binding to anything other than loopback — the agent refuses to start on a non-loopback host without it. Special value `-` reads the token from stdin (one line). On a loopback start with no value set (and no `LLAUNCHER_AGENT_TOKEN=` line in `agent.env`), a fresh token is auto-generated and appended into `~/.llauncher/agent.env` (mode 0600 if newly created). For the full token/auth model (which consumers need a token, exempt paths, resolution order), see [`docs/auth.md`](docs/auth.md).
 
 #### 3. Start the Dashboard on the Head Machine
 
@@ -454,8 +493,50 @@ In the dashboard:
    - **Node Name**: Friendly name (e.g., `linux-box`, `windows-server`)
    - **Host**: IP address or hostname (e.g., `192.168.1.100`)
    - **Port**: Agent port (default: `8765`)
+   - **API Key**: the remote agent's token (see *Adding a remote node* below)
 4. Click **🔍 Test Connection** to verify
 5. Click **➕ Add Node** to register
+
+##### Adding a remote node (token walkthrough)
+
+A remote agent **always** enforces a token (auth is never off, even on
+loopback). To pair the head with a remote node you copy that token by hand —
+it currently is **not** issued automatically (session-token issuance is
+tracked under #137). The token lives in a single live file per platform —
+`agent.env`, parsed directly by the agent and the local UI (issue #284):
+
+| Platform | Live source (`agent.env`) | Seeded (once) by |
+| --- | --- | --- |
+| Linux | `~/.config/llauncher/agent.env` | `scripts/systemd/install.sh` |
+| Windows | `%USERPROFILE%\.llauncher\agent.env` | `scripts/windows/install.ps1` |
+
+Step by step:
+
+1. **Get on the remote box.** SSH to a Linux node, or RDP to a Windows node.
+2. **Read the token.** The portable way is the agent's own subcommand, which
+   resolves the token from env / stdin / `agent.env` and prints it to
+   stdout:
+   ```bash
+   llauncher-agent print-token
+   ```
+   If you prefer to read the file directly, look for the
+   `LLAUNCHER_AGENT_TOKEN=` line:
+   ```bash
+   # Linux
+   grep LLAUNCHER_AGENT_TOKEN= ~/.config/llauncher/agent.env
+   ```
+   ```powershell
+   # Windows (PowerShell)
+   Select-String LLAUNCHER_AGENT_TOKEN= $env:USERPROFILE\.llauncher\agent.env
+   ```
+   Over SSH you can do both in one shot: `ssh windows-box llauncher-agent print-token`.
+3. **Copy the value.** It is a single `secrets.token_urlsafe(32)` string on
+   one line.
+4. **Paste it into the head's UI.** Back on the head machine, paste the value
+   into the **API Key** field of the **Add New Node** form (step 3 above).
+
+The token is stored on the head at `~/.llauncher/node_tokens.json` (mode 0600);
+the `local` node is excluded because its token already lives in `agent.env`.
 
 ### Network Configuration
 
@@ -482,9 +563,10 @@ New-NetFirewallRule -DisplayName "llauncher Agent" -Direction Inbound -LocalPort
 #### Security Notes
 
 - **Loopback by default**: The agent binds to `127.0.0.1` unless `LLAUNCHER_AGENT_HOST` is set explicitly. Set it to a LAN IP (or `0.0.0.0`) to expose the agent to other hosts on the network.
-- **Token required for non-loopback binds**: Binding to anything other than `127.0.0.1` / `::1` / `localhost` requires `LLAUNCHER_AGENT_TOKEN` to be set. The agent refuses to start otherwise. On loopback first-run with no token configured, a fresh token is generated at `~/.llauncher/agent.token` (mode 0600) and printed once to stderr.
+- **Token required for non-loopback binds**: Binding to anything other than `127.0.0.1` / `::1` / `localhost` requires `LLAUNCHER_AGENT_TOKEN` to be set. The agent refuses to start otherwise. On loopback first-run with no token configured, a fresh token is generated and appended into `~/.llauncher/agent.env` (mode 0600 if newly created) and printed once to stderr.
 - **Trusted LAN Only**: Even with a token, only expose the agent on networks you trust — the transport is plain HTTP (no TLS). Tailscale is the recommended option for cross-host trust.
 - **Firewall**: Restrict port 8765 to your LAN subnet.
+- **Full auth model**: For the token/auth reference — the two planes (token-bearing HTTP agent vs. tokenless local MCP/CLI), the `X-Api-Key` header, exempt paths, resolution precedence, and file locations/modes — see [`docs/auth.md`](docs/auth.md).
 
 ### Usage
 

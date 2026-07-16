@@ -18,14 +18,12 @@ def mock_state():
         "name": "running-model",
         "model_path": "/path/to/running.gguf",
         "ctx_size": 32768,
-        "np": 4,
     })
 
     stopped_config = ModelConfig.from_dict_unvalidated({
         "name": "stopped-model",
         "model_path": "/path/to/stopped.gguf",
         "ctx_size": 65536,
-        "np": None,
     })
 
     state.models = {
@@ -97,22 +95,13 @@ class TestListModels:
 
     @pytest.mark.asyncio
     async def test_get_model_config_returns_full_config(self, mock_state):
-        """get_model_config returns configuration dict with ctx_size and np."""
+        """get_model_config returns configuration dict with ctx_size."""
         result = await get_model_config(mock_state, {"name": "running-model"})
 
         config = result["configuration"]
         assert "ctx_size" in config
-        assert "np" in config
+        assert "np" not in config  # Removed per #235
         assert config["ctx_size"] == 32768
-        assert config["np"] == 4
-
-    @pytest.mark.asyncio
-    async def test_get_model_config_np_none(self, mock_state):
-        """get_model_config handles np=None correctly."""
-        result = await get_model_config(mock_state, {"name": "stopped-model"})
-
-        config = result["configuration"]
-        assert config["np"] is None
 
 
 class TestGetModelConfig:

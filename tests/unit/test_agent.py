@@ -143,7 +143,7 @@ class TestStatusEndpoint:
         assert data["total_running"] == len(data["running_servers"])
 
     def test_status_includes_model_config_per_server(self, client):
-        """Test that /status includes model_config with ctx_size and np per server."""
+        """Test that /status includes model_config with ctx_size per server."""
         from llauncher.agent import routing
 
         # Clear any state from other tests
@@ -155,7 +155,6 @@ class TestStatusEndpoint:
                 name='test-model',
                 model_path='/fake/model.gguf',
                 ctx_size=2048,
-                np=4,
                 n_gpu_layers=32,
             ),
         }
@@ -178,14 +177,13 @@ class TestStatusEndpoint:
         assert data["total_running"] == 1
         server = data["running_servers"][0]
 
-        # model_config should be present with np and ctx_size
+        # model_config should be present with ctx_size
         assert "model_config" in server
         assert server["model_config"] is not None
         mc = server["model_config"]
         assert "ctx_size" in mc
-        assert "np" in mc
+        assert "np" not in mc
         assert mc["ctx_size"] == 2048
-        assert mc["np"] == 4
 
     def test_status_model_config_none_for_unknown_server(self, client):
         """Test that model_config is None when config lookup fails."""
@@ -216,6 +214,47 @@ class TestStatusEndpoint:
         assert server["model_config"] is None
 
 
+class TestStatusGpuBranches:
+    """/status GPU-health branch coverage (routing.py:190-195)."""
+
+    def test_status_gpu_no_backends_reports_not_degraded(self, client, monkeypatch):
+        """A collector that reports no backends yields a non-degraded GPU block.
+
+        Covers routing.py:193 — the ``else`` arm when ``get_health()`` returns
+        a payload with a falsy ``backends`` entry (no GPU backend present).
+        """
+        import llauncher.core.gpu as gpu_mod
+
+        class FakeCollector:
+            def get_health(self):
+                return {"backends": []}  # falsy → not-degraded else branch
+
+        monkeypatch.setattr(gpu_mod, "GPUHealthCollector", FakeCollector)
+
+        response = client.get("/status")
+        assert response.status_code == 200
+        assert response.json()["gpu"] == {"degraded": False, "error": None}
+
+    def test_status_gpu_collector_exception_reports_degraded(self, client, monkeypatch):
+        """A collector that raises degrades the GPU block instead of 500-ing.
+
+        Covers routing.py:194-195 — any exception from the GPU collector is
+        caught and surfaced as ``{"degraded": True, "error": <ExcType>}`` so
+        the status poll stays healthy.
+        """
+        import llauncher.core.gpu as gpu_mod
+
+        class BoomCollector:
+            def __init__(self):
+                raise RuntimeError("no gpu backend")
+
+        monkeypatch.setattr(gpu_mod, "GPUHealthCollector", BoomCollector)
+
+        response = client.get("/status")
+        assert response.status_code == 200
+        assert response.json()["gpu"] == {"degraded": True, "error": "RuntimeError"}
+
+
 class TestModelsEndpoint:
     """Tests for the /models endpoint."""
 
@@ -242,9 +281,9 @@ class TestModelsEndpoint:
             assert "kind" in model  # Per ADR-010 + #42 scaffolding
             assert "n_gpu_layers" in model
             assert "ctx_size" in model
-            assert "np" in model
             assert "running" in model
             assert "default_port" not in model  # Removed per ADR-010
+            assert "np" not in model  # Removed per #235 (dead, mislabeled duplicate of `parallel`)
 
 
 class TestStartServerEndpoint:
@@ -354,10 +393,90 @@ class TestStopServerEndpoint:
 class TestLogsEndpoint:
     """Tests for the /logs/{port} endpoint."""
 
-    def test_logs_nonexistent_port_returns_404(self, client):
-        """Test that logs for nonexistent port returns 404."""
-        response = client.get("/logs/99999")
+    def test_logs_nonexistent_port_returns_404(self, client, tmp_path, monkeypatch):
+        """No live server AND no log file on disk → 404 (issue #201 Part 2b)."""
+        monkeypatch.setattr(
+            "llauncher.core.process.LOG_DIR", (tmp_path / "logs").resolve()
+        )
+        (tmp_path / "logs").mkdir()
+        response = client.get("/logs/49999")
         assert response.status_code == 404
+
+    def test_logs_dead_port_serves_most_recent_log(
+        self, client, tmp_path, monkeypatch
+    ):
+        """A server that spawned then exited leaves no live pid but its log
+        on disk; /logs/{port} must serve it instead of 404-ing (#201 2b)."""
+        log_dir = (tmp_path / "logs").resolve()
+        log_dir.mkdir()
+        monkeypatch.setattr("llauncher.core.process.LOG_DIR", log_dir)
+        # Point the lockfile run dir at an empty tmp so no stale claim leaks
+        # the config name in; we assert the None fallback explicitly.
+        monkeypatch.setattr(
+            "llauncher.core.lockfile.LAUNCHER_RUN_DIR", tmp_path / "run"
+        )
+        # Port 49998 is not a live llama-server; write its death log.
+        (log_dir / "BrokenModel-deadbeef-49998.log").write_text(
+            "=== started ===\nerror while loading shared libraries: libfoo.so\n",
+            encoding="utf-8",
+        )
+
+        response = client.get("/logs/49998")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["port"] == 49998
+        assert data["config_name"] is None
+        assert any("shared libraries" in ln for ln in data["lines"])
+        assert data["total_lines"] == len(data["lines"])
+
+
+    def test_logs_live_server_tails_by_pid(self, client, monkeypatch):
+        """When a server is live, /logs tails its log by pid (unchanged path)."""
+        from llauncher.agent import routing
+
+        mock_state = _MockState()
+        mock_state.running = {
+            8081: _MockServerInfo(
+                pid=4242, port=8081, config_name="mistral-7b"
+            )
+        }
+        monkeypatch.setattr(routing, "get_state", lambda: mock_state)
+        monkeypatch.setattr(
+            "llauncher.core.process.stream_logs",
+            lambda pid, lines: ["server is listening"],
+        )
+
+        response = client.get("/logs/8081")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["config_name"] == "mistral-7b"
+        assert data["lines"] == ["server is listening"]
+        assert data["total_lines"] == 1
+
+
+class TestStatusReconcile:
+    """`/status` prunes stale lockfiles for dead processes (issue #201 2a)."""
+
+    def test_status_prunes_stale_lockfile(self, client, tmp_path, monkeypatch):
+        """A lockfile claiming a dead pid is removed by the status sweep."""
+        from llauncher.core import lockfile as lf
+
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        monkeypatch.setattr("llauncher.core.lockfile.LAUNCHER_RUN_DIR", run_dir)
+        monkeypatch.setattr(
+            "llauncher.core.settings.LAUNCHER_RUN_DIR", run_dir
+        )
+        monkeypatch.setattr(
+            "llauncher.core.audit_log.LAUNCHER_AUDIT_PATH",
+            tmp_path / "audit.jsonl",
+        )
+        lf.write_lockfile(49997, "dead-model", 999_999, run_dir=run_dir)
+        assert (run_dir / "49997.lock").exists()
+
+        response = client.get("/status")
+        assert response.status_code == 200
+        assert not (run_dir / "49997.lock").exists()
 
     def test_logs_returns_correct_structure(self, client):
         """Test that logs return correct structure."""
@@ -767,6 +886,62 @@ class TestUtilityFunctions:
         assert result is False
         assert "Error stopping agent: test" in error_msg
 
+    def test_stop_agent_psutil_race_returns_false(self, monkeypatch):
+        """psutil fallback: a NoSuchProcess/AccessDenied race is swallowed.
+
+        Covers server.py:117-124 — ``find_process_on_port`` returns None so
+        we enter the psutil fallback, find a LISTEN connection on the port,
+        but ``psutil.Process``/``terminate`` loses a race against the process
+        exiting (NoSuchProcess). The ``except`` ``continue``s, the loop
+        exhausts, and the function logs the warning and returns False.
+        """
+        from llauncher.agent.server import stop_agent
+        import psutil
+        from unittest.mock import MagicMock
+
+        class MockResponse:
+            status_code = 200
+
+        monkeypatch.setattr("httpx.get", lambda url, timeout: MockResponse())
+        # Not found via /proc → drop into the psutil fallback loop.
+        monkeypatch.setattr(
+            "llauncher.agent.server.find_process_on_port", lambda port: None
+        )
+
+        mock_conn = MagicMock()
+        mock_conn.laddr.port = 8080
+        mock_conn.status = "LISTEN"
+        mock_conn.pid = 5678
+        monkeypatch.setattr("psutil.net_connections", lambda kind: [mock_conn])
+
+        def raise_nosuch(proc):
+            raise psutil.NoSuchProcess(proc)
+
+        monkeypatch.setattr("psutil.Process", raise_nosuch)
+
+        result = stop_agent(8080)
+
+        # The race was swallowed (continue), the loop found nothing live to
+        # terminate, and the function reported failure.
+        assert result is False
+
+    def test_stop_agent_non_200_health_returns_false(self, monkeypatch):
+        """A non-200 health response means no live agent → False.
+
+        Covers server.py:123-124 — the ``else`` arm when the health probe
+        answers with a non-200 status (something is on the port but it is
+        not a healthy llauncher agent), so we do not attempt a kill.
+        """
+        from llauncher.agent.server import stop_agent
+
+        class MockResponse:
+            status_code = 503
+
+        monkeypatch.setattr("httpx.get", lambda url, timeout: MockResponse())
+
+        result = stop_agent(8080)
+        assert result is False
+
     def test_run_agent(self, monkeypatch):
         """Test run_agent calls uvicorn.run with correct parameters."""
         from llauncher.agent.server import run_agent
@@ -812,15 +987,16 @@ class TestUtilityFunctions:
 
         # No token anywhere.
         monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
-        # Force the on-disk token file lookup to a missing path so the
+        # Force the on-disk env-file lookup to a missing path so the
         # refuse-to-start branch is exercised even if the operator's real
         # home has a file present.
-        from llauncher.agent import auth as agent_auth
         from pathlib import Path
 
+        # Token resolution was hoisted to core.agent_token (#171); patch the
+        # canonical home so run_agent's resolver honors the missing path.
         monkeypatch.setattr(
-            agent_auth, "default_token_path",
-            lambda: Path("/nonexistent/llauncher/agent.token"),
+            "llauncher.core.agent_token.default_env_path",
+            lambda: Path("/nonexistent/llauncher/agent.env"),
         )
 
         monkeypatch.setattr("socket.gethostname", lambda: "test-host")
@@ -951,6 +1127,87 @@ class TestUtilityFunctions:
         # Should exit with 1
         assert exited_with == 1
         assert "test error" in error_msg
+
+    def test_main_print_token_from_env(self, monkeypatch, capsys):
+        """print-token resolves the env token, prints it, and exits 0 (#134)."""
+        from llauncher.agent.server import main
+        import sys
+
+        monkeypatch.setattr("sys.argv", ["llauncher-agent", "print-token"])
+        monkeypatch.setenv("LLAUNCHER_AGENT_TOKEN", "sekret-from-env")
+
+        exited_with = None
+
+        def mock_exit(code):
+            nonlocal exited_with
+            exited_with = code
+
+        monkeypatch.setattr(sys, "exit", mock_exit)
+
+        main()
+
+        out = capsys.readouterr().out
+        assert out.strip() == "sekret-from-env"
+        assert exited_with == 0
+
+    def test_main_print_token_from_file(self, monkeypatch, capsys, tmp_path):
+        """print-token falls back to the on-disk agent.env (#134)."""
+        from llauncher.agent.server import main
+        import sys
+
+        monkeypatch.setattr("sys.argv", ["llauncher-agent", "print-token"])
+        monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
+
+        env_file = tmp_path / "agent.env"
+        env_file.write_text("LLAUNCHER_AGENT_TOKEN=sekret-from-file\n", encoding="utf-8")
+        monkeypatch.setattr(
+            "llauncher.core.agent_token.default_env_path",
+            lambda: env_file,
+        )
+
+        exited_with = None
+
+        def mock_exit(code):
+            nonlocal exited_with
+            exited_with = code
+
+        monkeypatch.setattr(sys, "exit", mock_exit)
+
+        main()
+
+        out = capsys.readouterr().out
+        assert out.strip() == "sekret-from-file"
+        assert exited_with == 0
+
+    def test_main_print_token_missing_fails_loud(self, monkeypatch, capsys, tmp_path):
+        """print-token exits 1 with a clear stderr message when no token exists (#134)."""
+        from llauncher.agent.server import main
+        import sys
+
+        monkeypatch.setattr("sys.argv", ["llauncher-agent", "print-token"])
+        monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
+
+        # Point at a non-existent env file so resolution returns None
+        # (allow_generate=False is enforced by the subcommand).
+        monkeypatch.setattr(
+            "llauncher.core.agent_token.default_env_path",
+            lambda: tmp_path / "does-not-exist.env",
+        )
+
+        exited_with = None
+
+        def mock_exit(code):
+            nonlocal exited_with
+            exited_with = code
+
+        monkeypatch.setattr(sys, "exit", mock_exit)
+
+        main()
+
+        captured = capsys.readouterr()
+        assert exited_with == 1
+        assert captured.out == ""  # token never printed
+        assert "no agent token found" in captured.err
 
     def test_main_entry_point(self):
         """Test the if __name__ == "__main__" block."""

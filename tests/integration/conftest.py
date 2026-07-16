@@ -208,11 +208,19 @@ def _real_mode_available() -> tuple[bool, str]:
 
 
 @pytest.fixture
-def real_binary_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def real_binary_env(mcp_env: dict, monkeypatch: pytest.MonkeyPatch):
     """Real ``llama-server`` + GGUF fixture.
 
     Tests using this fixture must be marked ``@pytest.mark.integration_real``
     and will skip unless opted in via env. Do NOT download anything.
+
+    Depends on ``mcp_env`` rather than re-deriving its own run/log/config
+    dirs from ``tmp_path``: a test that requests both fixtures (directly, or
+    transitively via ``mcp_dispatch``/``agent_client``) shares ONE run
+    context, so the dirs must be created exactly once. ``mcp_env`` already
+    isolates every disk-bound seam onto ``tmp_path``; this fixture layers on
+    top of it and swaps only what differs for real-binary mode — the server
+    binary itself (the stub path back to the real ``llama-server``).
     """
     ok, reason = _real_mode_available()
     if not ok:
@@ -221,24 +229,8 @@ def real_binary_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     real_bin = Path(os.environ["LLAMA_SERVER_PATH"]).resolve()
     gguf = Path(os.environ["LLAMA_SMALL_GGUF"]).resolve()
 
-    run_dir = tmp_path / "run"
-    log_dir = tmp_path / "logs"
-    audit_path = tmp_path / "audit.jsonl"
-    config_dir = tmp_path / "cfg"
-    run_dir.mkdir()
-    log_dir.mkdir()
-    config_dir.mkdir()
-
-    monkeypatch.setattr("llauncher.core.settings.LAUNCHER_RUN_DIR", run_dir)
-    monkeypatch.setattr("llauncher.core.lockfile.LAUNCHER_RUN_DIR", run_dir)
-    monkeypatch.setattr("llauncher.core.marker.LAUNCHER_RUN_DIR", run_dir)
-    monkeypatch.setattr("llauncher.core.settings.LAUNCHER_LOG_DIR", log_dir)
-    monkeypatch.setattr("llauncher.core.process.LOG_DIR", log_dir)
-    monkeypatch.setattr("llauncher.core.settings.LAUNCHER_AUDIT_PATH", audit_path)
-    monkeypatch.setattr("llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path)
-    monkeypatch.setattr("llauncher.core.config.CONFIG_DIR", config_dir)
-    monkeypatch.setattr("llauncher.core.config.CONFIG_PATH", config_dir / "config.json")
     monkeypatch.setattr("llauncher.core.settings.LLAMA_SERVER_PATH", real_bin)
     monkeypatch.setattr("llauncher.core.process.DEFAULT_SERVER_BINARY", real_bin)
+    monkeypatch.setattr("llauncher.core.process.LLAMA_SERVER_PATH", real_bin)
 
-    return {"binary": real_bin, "gguf": gguf, "run_dir": run_dir}
+    return {"binary": real_bin, "gguf": gguf, "run_dir": mcp_env["run_dir"]}

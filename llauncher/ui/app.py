@@ -123,7 +123,7 @@ def main():
         st.header("Controls")
 
         # Refresh button
-        if st.button("🔄 Refresh All", use_container_width=True):
+        if st.button("🔄 Refresh All", width='stretch'):
             state.refresh()
             registry.refresh_all()
             st.toast("Refreshed all nodes", icon="🔄")

@@ -74,7 +74,7 @@ class TestStartWithEviction:
         # AND refresh_running_servers (which would otherwise wipe self.running)
         with patch("llauncher.state.process_start_server") as mock_start, \
              patch("llauncher.state.process_stop_server", return_value=True), \
-             patch("llauncher.state.wait_for_server_ready", return_value=True), \
+             patch("llauncher.state.wait_for_server_ready", return_value=(True, [])), \
              patch.object(mock_state, "refresh_running_servers"):
 
             mock_process = MagicMock()
@@ -126,7 +126,7 @@ class TestStartWithEviction:
         mock_state.running = {}
 
         with patch("llauncher.state.process_start_server") as mock_start, \
-             patch("llauncher.state.wait_for_server_ready", return_value=True), \
+             patch("llauncher.state.wait_for_server_ready", return_value=(True, [])), \
              patch.object(mock_state, "refresh_running_servers"):
 
             mock_process = MagicMock()
@@ -222,7 +222,7 @@ class TestStartWithEviction:
 
         with patch("llauncher.state.process_start_server") as mock_start, \
              patch("llauncher.state.process_stop_server", return_value=True), \
-             patch("llauncher.state.wait_for_server_ready", return_value=True), \
+             patch("llauncher.state.wait_for_server_ready", return_value=(True, [])), \
              patch.object(mock_state, "refresh_running_servers"):
 
             mock_process = MagicMock()
@@ -319,7 +319,7 @@ class TestEvictionRollback:
         # Mock: stop succeeds, new start fails, rollback succeeds + ready
         with patch("llauncher.state.process_stop_server", return_value=True), \
              patch("llauncher.state.process_start_server") as mock_start, \
-             patch("llauncher.state.wait_for_server_ready", return_value=True):
+             patch("llauncher.state.wait_for_server_ready", return_value=(True, [])):
             # First call = new model start (fails), second call = rollback start (succeeds)
             mock_start.side_effect = [Exception("OOM kill"), MagicMock(pid=54321)]
 
@@ -332,67 +332,16 @@ class TestEvictionRollback:
         assert result.rolled_back is True
         assert result.restored_model == "old_model"
 
-    # ─── Test 3: New starts but readiness times out → rollback succeeds → restored ───
-    def test_evict_start_success_readiness_timeout_rollback_succeeds(self, tmp_path):
-        """Phase 4 readiness failure + Phase 4 rollback → restored."""
-        state = self._make_mock_state(tmp_path)
-
-        old_config = self._make_model("old_model", 8080)
-        new_config = self._make_model("new_model", 9999)
-        state.models = {"old_model": old_config, "new_model": new_config}
-        state.running[8080] = self._make_running_server(old_config, port=8080, pid=12345)
-
-        with patch("llauncher.state.process_stop_server", return_value=True), \
-             patch("llauncher.state.process_start_server") as mock_start, \
-             patch("llauncher.state.stop_server_by_pid"), \
-             patch("llauncher.state.wait_for_server_ready") as mock_ready:
-            # Phase 4 readiness returns False (timeout) → rollback → ready=True
-            mock_ready.side_effect = [False, True]
-            mock_start.side_effect = [MagicMock(pid=111), MagicMock(pid=222)]
-
-            result = state._start_with_eviction_impl(
-                "new_model", 8080, caller="test",
-                readiness_timeout=5, strict_rollback=True,
-            )
-
-        assert result.success is False
-        assert result.port_state == "restored"
-        assert result.rolled_back is True
-        assert "Readiness timeout" in result.error
-
-    # ─── Test 4: Non-strict mode, old config missing → port_state=unavailable (no rollback) ───
-    def test_evict_start_success_then_ready_timeout_no_rollback(self, tmp_path):
-        """Non-strict rollback: readiness fails, no rollback attempt → unavailable."""
-        state = self._make_mock_state(tmp_path)
-
-        new_config = self._make_model("new_model", 9999)
-        state.models = {"new_model": new_config}
-        # Old model is running but NOT in config (deleted from disk)
-        old_deleted_config = ModelConfig.from_dict_unvalidated({
-            "name": "old_deleted",
-            "model_path": "/nonexistent/old.gguf",
-            "n_gpu_layers": 255,
-            "ctx_size": 4096,
-        })
-        state.running[8080] = RunningServer(
-            pid=12345, port=8080, config_name="old_deleted",
-            start_time=datetime.now(),
-        )
-
-        with patch("llauncher.state.process_stop_server", return_value=True), \
-             patch("llauncher.state.process_start_server", return_value=MagicMock(pid=111)), \
-             patch("llauncher.state.stop_server_by_pid"), \
-             patch("llauncher.state.wait_for_server_ready", return_value=False):
-
-            result = state._start_with_eviction_impl(
-                "new_model", 8080, caller="test",
-                readiness_timeout=5, strict_rollback=False,
-            )
-
-        assert result.success is False
-        assert result.port_state == "unavailable"
-        assert result.rolled_back is False
-        assert "Readiness timeout" in result.error
+    # ─── Tests 3 & 4 removed as false coverage (#244 → corrective for #249) ───
+    # `test_evict_start_success_readiness_timeout_rollback_succeeds` and
+    # `test_evict_start_success_then_ready_timeout_no_rollback` both drove the
+    # readiness-failure rollback block (state.py ~520-562) by mocking
+    # `wait_for_server_ready` with bare bools (`side_effect=[False, True]` /
+    # `return_value=False`). The real function returns `tuple[bool, list[str]]`,
+    # which state.py:519 binds without unpacking, so `not ready` is always False
+    # and that block is dead. It is now honestly `# pragma: no cover`; the genuine
+    # fix (unpack the tuple + a real readiness-failure test using a true 2-tuple)
+    # lands under #249.
 
     # ─── Test 5: Both new start and rollback fail → port_state=unavailable ───
     def test_both_fail_unavailable(self, tmp_path):
@@ -427,7 +376,7 @@ class TestEvictionRollback:
         # No servers running — port is free
 
         with patch("llauncher.state.process_start_server", return_value=MagicMock(pid=789)), \
-             patch("llauncher.state.wait_for_server_ready", return_value=True):
+             patch("llauncher.state.wait_for_server_ready", return_value=(True, [])):
 
             result = state._start_with_eviction_impl("test_model", 9999, caller="test")
 

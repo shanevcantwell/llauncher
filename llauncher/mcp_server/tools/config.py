@@ -27,9 +27,14 @@ def get_tools() -> list[Tool]:
                             "n_gpu_layers": {"type": "integer"},
                             "ctx_size": {"type": "integer"},
                             "threads": {"type": "integer"},
+                            "threads_batch": {"type": "integer"},
+                            "ubatch_size": {"type": "integer"},
+                            "batch_size": {"type": "integer"},
+                            "parallel": {"type": "integer"},
                             "flash_attn": {"type": "string", "enum": ["on", "off", "auto"]},
                             "no_mmap": {"type": "boolean"},
-                            "extra_args": {"type": "string", "description": "Additional command-line arguments (space-separated)"},
+                            "metrics": {"type": "boolean", "description": "Enable llama-server's Prometheus /metrics endpoint (--metrics). Defaults to true."},
+                            "extra_args": {"type": "string", "description": "Additional command-line arguments (space-separated). Flags llauncher emits natively (e.g. --batch-size, --ubatch-size, --parallel, --threads-batch) are rejected here — set the dedicated field instead (issue #156)."},
                         },
                     },
                 },
@@ -74,6 +79,7 @@ def get_tools() -> list[Tool]:
                             "threads": {"type": "integer"},
                             "flash_attn": {"type": "string"},
                             "no_mmap": {"type": "boolean"},
+                            "metrics": {"type": "boolean", "description": "Enable llama-server's Prometheus /metrics endpoint (--metrics). Defaults to true."},
                             "extra_args": {"type": "string", "description": "Additional command-line arguments (space-separated, use quotes for args with spaces)"},
                         },
                         "required": ["name", "model_path"],
@@ -149,10 +155,20 @@ async def update_model_config(state: LauncherState, args: dict) -> dict:
             updated_config.ctx_size = updates["ctx_size"]
         if "threads" in updates:
             updated_config.threads = updates["threads"]
+        if "threads_batch" in updates:
+            updated_config.threads_batch = updates["threads_batch"]
+        if "ubatch_size" in updates:
+            updated_config.ubatch_size = updates["ubatch_size"]
+        if "batch_size" in updates:
+            updated_config.batch_size = updates["batch_size"]
+        if "parallel" in updates:
+            updated_config.parallel = updates["parallel"]
         if "flash_attn" in updates:
             updated_config.flash_attn = updates["flash_attn"]
         if "no_mmap" in updates:
             updated_config.no_mmap = updates["no_mmap"]
+        if "metrics" in updates:
+            updated_config.metrics = updates["metrics"]
         if "extra_args" in updates:
             updated_config.extra_args = updates["extra_args"]
 
