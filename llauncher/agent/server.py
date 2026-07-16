@@ -388,6 +388,15 @@ def run_agent(config: AgentConfig) -> None:
     # hand-edit that reorders them makes server and client resolve different
     # values. Refuse to run with the latent hazard rather than paper over
     # it; the remediation is to leave exactly one canonical line.
+    #
+    # count_env_file_token_lines only counts CANONICAL (double-L)
+    # LLAUNCHER_AGENT_TOKEN= lines, so this guard only ever fires on two
+    # canonical lines — never on a legacy/canonical pair (that case is
+    # handled, and remediated by re-running the installer, above and by
+    # #285's installer-side dedupe). Re-running the installer cannot fix
+    # two canonical lines: the installer's migration only touches legacy
+    # `LAUNCHER_AGENT_*` lines and leaves canonical ones untouched (#298).
+    # The only remediation here is a hand-edit.
     env_path = default_env_path()
     token_line_count = count_env_file_token_lines(env_path)
     if token_line_count > 1:
@@ -398,9 +407,11 @@ def run_agent(config: AgentConfig) -> None:
             "footgun behind the recurring UI-403s (#293): a later edit that "
             "reorders them makes the agent and the UI resolve different "
             "tokens.\n"
-            "[llauncher-agent] Remediation: edit the file to leave exactly "
-            "one LLAUNCHER_AGENT_TOKEN= line, or re-run the installer "
-            "(install.ps1 / install.sh) to migrate it.\n"
+            "[llauncher-agent] Remediation: these are canonical "
+            "LLAUNCHER_AGENT_TOKEN= lines, so re-running the installer will "
+            "not fix this (it only migrates legacy LAUNCHER_AGENT_* lines) "
+            f"— hand-edit {env_path} to leave exactly one "
+            "LLAUNCHER_AGENT_TOKEN= line.\n"
         )
         raise SystemExit(2)
 

@@ -78,6 +78,32 @@ def test_legacy_token_colliding_with_canonical_is_dropped(tmp_path: Path) -> Non
     assert "#285" in (result.stdout + result.stderr)
 
 
+def test_samepass_legacy_collision_with_no_canonical_line_is_deduped(
+    tmp_path: Path,
+) -> None:
+    """Issue #298: two legacy same-key lines with NO pre-existing canonical
+    line must still dedupe down to exactly one canonical line — the
+    collision produced WITHIN this migration pass, not just against a
+    pre-existing canonical line."""
+    env = tmp_path / "agent.env"
+    env.write_text(
+        "LAUNCHER_AGENT_TOKEN=first\n"
+        "LAUNCHER_AGENT_TOKEN=second\n"
+        "LAUNCHER_AGENT_HOST=1.2.3.4\n"
+    )
+
+    result = _run_migration(env)
+
+    lines = env.read_text().splitlines()
+    token_lines = [ln for ln in lines if ln.strip().startswith("LLAUNCHER_AGENT_TOKEN=")]
+    # Exactly one canonical line results; the first occurrence wins.
+    assert token_lines == ["LLAUNCHER_AGENT_TOKEN=first"], token_lines
+    assert "second" not in env.read_text()
+    assert "LLAUNCHER_AGENT_HOST=1.2.3.4" in lines
+    # The drop is reported loudly, same as the pre-existing-canonical case.
+    assert "Dropped" in result.stdout or "Dropped" in result.stderr
+
+
 def test_legacy_only_migrates_without_dropping(tmp_path: Path) -> None:
     """No canonical collision: legacy keys migrate in place, none dropped,
     exactly one canonical token line results."""
