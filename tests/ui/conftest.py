@@ -29,6 +29,7 @@ Usage::
 from __future__ import annotations
 
 from contextlib import contextmanager
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -259,6 +260,109 @@ def mock_config_store():
         from llauncher.core.config import ConfigStore
 
         yield ConfigStore
+
+
+# ---------------------------------------------------------------------------
+# Model-card dispatch seams (SP-6, #328): ``ui/tabs/model_card.py`` is the
+# UI's verb-dispatch surface. Per the #330 parity matrix, every mutating verb
+# leaves the card through exactly one of two doors — the delegation gate
+# (``core.delegation.should_delegate()``) routes it to
+# ``local_agent_node().<verb>_server(...)`` over HTTP, else to the in-process
+# ``ops.<verb>(..., caller="ui")`` twin (``delete`` is the ratified ungated
+# exception: always ``ops.delete_model``). These three fixtures double both
+# doors and the gate itself, patched where ``model_card.py`` looks them up,
+# so tests assert *which* orchestration call fired with *what* arguments —
+# never widget cosmetics.
+# ---------------------------------------------------------------------------
+def make_op_result(
+    *,
+    success: bool = True,
+    action: str = "",
+    message: str = "",
+    previous_model: str | None = None,
+):
+    """Build an ADR-010 result-envelope double for the ``ops.*`` verbs.
+
+    ``model_card.py`` reads only ``.success`` / ``.action`` / ``.message`` /
+    ``.previous_model`` off the ``StartResult`` / ``StopResult`` /
+    ``SwapResult`` / ``DeleteModelResult`` dataclasses, so a plain namespace
+    with those four fields is a faithful (and frozen-safe) stand-in.
+    """
+    return SimpleNamespace(
+        success=success,
+        action=action,
+        message=message,
+        previous_model=previous_model,
+    )
+
+
+@pytest.fixture
+def mock_ops():
+    """Patch the four ``ops`` verbs the model card dispatches in-process.
+
+    Patches ``start``/``stop``/``swap``/``delete_model`` on the
+    ``llauncher.operations`` package *through* ``model_card.py``'s own
+    ``ops`` alias (``from llauncher import operations as ops``), so the
+    doubles are exactly what the card's fallback branches call. Yields a
+    namespace of the four ``MagicMock``s; each defaults to a success
+    envelope (override ``.return_value`` with :func:`make_op_result` for
+    failure-shape tests). Assert dispatch with e.g.
+    ``mock_ops.stop.assert_called_once_with(8123, caller="ui")``.
+    """
+    with patch("llauncher.ui.tabs.model_card.ops.start") as start, patch(
+        "llauncher.ui.tabs.model_card.ops.stop"
+    ) as stop, patch("llauncher.ui.tabs.model_card.ops.swap") as swap, patch(
+        "llauncher.ui.tabs.model_card.ops.delete_model"
+    ) as delete_model:
+        start.return_value = make_op_result(action="started", message="started")
+        stop.return_value = make_op_result(action="stopped", message="stopped")
+        swap.return_value = make_op_result(action="swapped", message="swapped")
+        delete_model.return_value = make_op_result(
+            action="deleted", message="deleted"
+        )
+        yield SimpleNamespace(
+            start=start, stop=stop, swap=swap, delete_model=delete_model
+        )
+
+
+@pytest.fixture
+def mock_should_delegate():
+    """Patch ``core.delegation.should_delegate`` — the gate between the two
+    dispatch doors (#200/#203).
+
+    Defaults to ``False`` (no agent reachable → the in-process ``ops.*``
+    fallback). Set ``.return_value = True`` to drive the delegated branch,
+    where the verb must leave via ``local_agent_node().<verb>_server``
+    instead. Patched on the ``delegation`` module attribute ``model_card.py``
+    calls through (``from llauncher.core import delegation``).
+    """
+    with patch(
+        "llauncher.ui.tabs.model_card.delegation.should_delegate",
+        return_value=False,
+    ) as fn:
+        yield fn
+
+
+@pytest.fixture
+def mock_local_agent_node():
+    """Patch ``remote.node.local_agent_node`` — the delegated dispatch door.
+
+    ``model_card.py`` imports the factory by name, so the patch targets its
+    module attribute. Yields the node double the factory returns; its
+    ``start_server`` / ``stop_server`` / ``swap_server`` default to
+    ``{"success": True, ...}`` dicts (the ``RemoteNode`` verbs return
+    ``dict | None`` — set ``.return_value = None`` to exercise the card's
+    ``or {}`` null-body seam). Assert delegation with e.g.
+    ``mock_local_agent_node.stop_server.assert_called_once_with(8123)``.
+    """
+    node = MagicMock(name="LocalAgentNode")
+    node.start_server.return_value = {"success": True, "message": "started via agent"}
+    node.stop_server.return_value = {"success": True, "message": "stopped via agent"}
+    node.swap_server.return_value = {"success": True, "message": "swapped via agent"}
+    with patch(
+        "llauncher.ui.tabs.model_card.local_agent_node", return_value=node
+    ):
+        yield node
 
 
 # ---------------------------------------------------------------------------
