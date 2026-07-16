@@ -89,6 +89,44 @@ def test_legacy_token_colliding_with_canonical_is_dropped() -> None:
     assert any("LLAUNCHER_AGENT_TOKEN" in d for d in dropped)
 
 
+def test_legacy_line_preceding_canonical_is_dropped() -> None:
+    """PR #325 review (regression pinned): the canonical line wins even when
+    a legacy line appears BEFORE it in line order — the pre-scan seeds the
+    canonical-key set from ALL lines before any drop/migrate decision."""
+    result = _invoke(
+        [
+            "LAUNCHER_AGENT_TOKEN=legacy1",
+            "LLAUNCHER_AGENT_TOKEN=canon",
+            "LAUNCHER_AGENT_TOKEN=legacy2",
+        ]
+    )
+    lines = _as_list(result["Lines"])
+    token_lines = [ln for ln in lines if ln.startswith("LLAUNCHER_AGENT_TOKEN=")]
+    assert token_lines == ["LLAUNCHER_AGENT_TOKEN=canon"]
+    assert not any("legacy1" in ln or "legacy2" in ln for ln in lines)
+    dropped = _as_list(result["Dropped"])
+    assert len(dropped) == 2
+
+
+def test_samepass_legacy_collision_with_no_canonical_line_is_deduped() -> None:
+    """Issue #298: two legacy same-key lines with NO pre-existing canonical
+    line must still dedupe down to exactly one canonical line."""
+    result = _invoke(
+        [
+            "LAUNCHER_AGENT_TOKEN=first",
+            "LAUNCHER_AGENT_TOKEN=second",
+            "LAUNCHER_AGENT_HOST=1.2.3.4",
+        ]
+    )
+    lines = _as_list(result["Lines"])
+    token_lines = [ln for ln in lines if ln.startswith("LLAUNCHER_AGENT_TOKEN=")]
+    assert token_lines == ["LLAUNCHER_AGENT_TOKEN=first"]
+    assert not any("second" in ln for ln in lines)
+    assert "LLAUNCHER_AGENT_HOST=1.2.3.4" in lines
+    dropped = _as_list(result["Dropped"])
+    assert any("LLAUNCHER_AGENT_TOKEN" in d for d in dropped)
+
+
 def test_legacy_only_migrates_without_dropping() -> None:
     result = _invoke(
         ["LAUNCHER_AGENT_TOKEN=only-legacy", "LAUNCHER_AGENT_HOST=1.2.3.4"]

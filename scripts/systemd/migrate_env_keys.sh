@@ -15,6 +15,16 @@
 # operator can trip by hand-editing). PARSE-AT-THE-DOOR: migrate in place
 # once, and a legacy line colliding with an existing canonical key is
 # DROPPED (never rewritten into a second line), loudly.
+#
+# Issue #298 (follow-up from #296 review): the collision set above must
+# also catch a collision produced WITHIN the same migration pass — two
+# legacy same-key lines (e.g. two ``LAUNCHER_AGENT_TOKEN=`` lines) with NO
+# pre-existing canonical line. The original snapshot-once ``canonical_keys``
+# only knew about canonical lines already in the file, so both legacy lines
+# migrated and the pass itself produced two canonical lines. The fix walks
+# legacy lines in file order and grows the canonical set as each one
+# migrates, so the second occurrence of a same-pass collision is caught and
+# dropped just like a pre-existing one.
 
 # migrate_and_dedupe_env_keys <env_file>
 #
@@ -36,13 +46,6 @@
 migrate_and_dedupe_env_keys() {
     local env_file="$1"
 
-    # Canonical keys already present (post-rename form) — these win any
-    # collision with a migrated legacy line.
-    local canonical_keys
-    canonical_keys="$(grep -E '^[[:space:]]*LLAUNCHER_AGENT_[A-Za-z0-9_]*[[:space:]]*=' "$env_file" 2>/dev/null \
-        | sed -E 's/^[[:space:]]*(LLAUNCHER_AGENT_[A-Za-z0-9_]*).*/\1/' \
-        | sort -u || true)"
-
     local legacy_keys
     legacy_keys="$(grep -E '^[[:space:]]*LAUNCHER_AGENT_[A-Za-z0-9_]*[[:space:]]*=' "$env_file" 2>/dev/null \
         | sed -E 's/^[[:space:]]*(LAUNCHER_AGENT_[A-Za-z0-9_]*).*/\1/' \
@@ -50,56 +53,66 @@ migrate_and_dedupe_env_keys() {
 
     [ -z "$legacy_keys" ] && return 0
 
-    local migrated=() dropped=() legacy_key migrated_key
-    while IFS= read -r legacy_key; do
-        [ -z "$legacy_key" ] && continue
-        migrated_key="L$legacy_key"  # LAUNCHER_ -> LLAUNCHER_
-        if printf '%s\n' "$canonical_keys" | grep -qxF "$migrated_key"; then
-            dropped+=("$legacy_key -> $migrated_key")
-        else
-            migrated+=("$legacy_key -> $migrated_key")
-        fi
-    done <<EOF
-$legacy_keys
-EOF
-
-    # Rewrite the file in a single awk pass so the read and the write never
-    # race and the temp swap is atomic. For each legacy line: drop if its
-    # migrated key is in the collision set, else migrate the prefix.
-    local tmp drop_keys=""
-    if [ "${#dropped[@]}" -gt 0 ]; then
-        drop_keys="$(printf '%s\n' "${dropped[@]}" | sed -E 's/ -> .*//')"
-    fi
+    # Two-phase seed-then-grow, mirroring MigrateEnvKeys.ps1 exactly: the
+    # file is read TWICE by one awk program. Pass 1 (NR == FNR) only seeds
+    # `seen` with every pre-existing canonical key in the WHOLE file — so a
+    # canonical line wins the collision regardless of whether it appears
+    # before or after its legacy twin in file order (#285). Pass 2 rewrites:
+    # each migrated legacy key is added to `seen` the instant it migrates,
+    # so a LATER same-key legacy line — a same-pass collision, no
+    # pre-existing canonical line required — is dropped identically (#298).
+    # Emits two summary lines on fd 3/4 (migrated/dropped, "OLD -> NEW"
+    # pairs) for the caller to report.
+    local tmp
     tmp="$(mktemp "${env_file}.migrate.XXXXXX")"
-    DROP_KEYS="$drop_keys" \
-        awk '
-        BEGIN {
-            n = split(ENVIRON["DROP_KEYS"], arr, "\n")
-            for (i = 1; i <= n; i++) if (arr[i] != "") drop[arr[i]] = 1
-        }
-        {
-            line = $0
-            if (line ~ /^[[:space:]]*LAUNCHER_AGENT_[A-Za-z0-9_]*[[:space:]]*=/) {
-                k = line
+    exec 3>"${tmp}.migrated" 4>"${tmp}.dropped"
+    awk '
+        NR == FNR {
+            if ($0 ~ /^[[:space:]]*LLAUNCHER_AGENT_[A-Za-z0-9_]*[[:space:]]*=/) {
+                k = $0
                 sub(/^[[:space:]]*/, "", k)
                 sub(/[[:space:]]*=.*/, "", k)
-                if (k in drop) next        # collides with canonical -> drop
-                lead = line; sub(/[^[:space:]].*/, "", lead)
-                rest = line; sub(/^[[:space:]]*LAUNCHER_AGENT_/, "", rest)
-                print lead "LLAUNCHER_AGENT_" rest
+                seen[k] = 1
+            }
+            next
+        }
+        /^[[:space:]]*LAUNCHER_AGENT_[A-Za-z0-9_]*[[:space:]]*=/ {
+            k = $0
+            sub(/^[[:space:]]*/, "", k)
+            sub(/[[:space:]]*=.*/, "", k)
+            newk = "L" k
+            if (newk in seen) {
+                print k " -> " newk > "/dev/fd/4"
                 next
             }
-            print line
+            seen[newk] = 1
+            print k " -> " newk > "/dev/fd/3"
+            lead = $0; sub(/[^[:space:]].*/, "", lead)
+            rest = $0; sub(/^[[:space:]]*LAUNCHER_AGENT_/, "", rest)
+            print lead "LLAUNCHER_AGENT_" rest
+            next
         }
-        ' "$env_file" > "$tmp"
+        { print }
+        ' "$env_file" "$env_file" > "$tmp"
+    exec 3>&- 4>&-
     cat "$tmp" > "$env_file"  # preserve inode/perms of $env_file
-    rm -f "$tmp"
+
+    local migrated=() dropped=() line
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        migrated+=("$line")
+    done < "${tmp}.migrated"
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        dropped+=("$line")
+    done < "${tmp}.dropped"
+    rm -f "$tmp" "${tmp}.migrated" "${tmp}.dropped"
 
     if [ "${#migrated[@]}" -gt 0 ]; then
         _env_migrate_say "Migrated pre-#139 legacy keys in $env_file: $(_join_comma "${migrated[@]}")"
     fi
     if [ "${#dropped[@]}" -gt 0 ]; then
-        _env_migrate_say "Dropped ${#dropped[@]} pre-#139 legacy line(s) in $env_file whose migrated key already existed (canonical line wins; issue #285): $(_join_comma "${dropped[@]}")"
+        _env_migrate_say "Dropped ${#dropped[@]} pre-#139 legacy line(s) in $env_file whose migrated key already existed (canonical line wins, including a same-pass collision; issue #285/#298): $(_join_comma "${dropped[@]}")"
     fi
 }
 

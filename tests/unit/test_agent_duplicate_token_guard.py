@@ -76,6 +76,13 @@ def test_run_agent_fails_loud_on_duplicate_token_lines(
     err = capsys.readouterr().err
     assert "2 LLAUNCHER_AGENT_TOKEN=" in err
     assert str(env) in err
+    # #298: the guard only ever fires on two CANONICAL lines (the counter
+    # only counts double-L lines), so "re-run the installer" is never a
+    # correct remediation here — the message must say so and point at a
+    # hand-edit instead.
+    assert "will not fix this" in err
+    assert "hand-edit" in err
+    assert "re-run the installer" not in err
 
 
 def test_run_agent_allows_single_token_line(
