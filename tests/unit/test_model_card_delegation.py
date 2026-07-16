@@ -109,30 +109,37 @@ class TestHandleStopDelegation:
     """A stop is mutating, so it must route through the delegation gate like
     start/swap (#200/#203). Mirrors ``TestHandleStartDelegation``: delegate →
     POST via the local agent node and never touch the in-process path; no agent
-    → in-process ``state.stop_server``; ``None`` delegated result → failure
-    toast, not an ``AttributeError`` (the cross-uid SIGTERM bug, ADR-018)."""
+    → in-process ``ops.stop`` (#332: the legacy ``state.stop_server`` fallback
+    skipped lockfile removal and durable audit — replaced with the same
+    ``operations.stop`` seam CLI/MCP already use); ``None`` delegated result →
+    failure toast, not an ``AttributeError`` (the cross-uid SIGTERM bug,
+    ADR-018)."""
 
     def test_local_stop_delegates_over_http(self):
         node = MagicMock()
         node.stop_server.return_value = {"success": True, "message": "stopped"}
         state = MagicMock()
 
-        with patch.object(model_card, "st", _mock_st()), _delegate(node):
+        with patch.object(model_card, "st", _mock_st()), patch.object(
+            model_card.ops, "stop"
+        ) as mock_ops_stop, _delegate(node):
             model_card._handle_stop(state, None, "local", 8080)
 
         node.stop_server.assert_called_once_with(8080)
         state.stop_server.assert_not_called()
+        mock_ops_stop.assert_not_called()
 
     def test_local_stop_in_process_when_no_agent(self):
         state = MagicMock()
-        state.stop_server.return_value = (True, "stopped")
+        result = MagicMock(success=True, message="stopped")
 
-        with patch.object(model_card, "st", _mock_st()), _delegate(
-            MagicMock(), enabled=False
-        ) as factory:
+        with patch.object(model_card, "st", _mock_st()), patch.object(
+            model_card.ops, "stop", return_value=result
+        ) as mock_ops_stop, _delegate(MagicMock(), enabled=False) as factory:
             model_card._handle_stop(state, None, "local", 8080)
 
-        state.stop_server.assert_called_once_with(8080, caller="ui")
+        mock_ops_stop.assert_called_once_with(8080, caller="ui")
+        state.stop_server.assert_not_called()
         factory.assert_not_called()
 
     def test_local_stop_none_result_is_safe(self):
