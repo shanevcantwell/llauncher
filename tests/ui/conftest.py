@@ -34,6 +34,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from llauncher.core import audit_log
 from llauncher.remote.node import NodeStatus
 
 
@@ -95,6 +96,58 @@ def mock_aggregator():
     return agg
 
 
+def make_audit_entry(
+    *,
+    action: audit_log.AuditAction = audit_log.AuditAction.STARTED,
+    result: audit_log.AuditResult = audit_log.AuditResult.SUCCESS,
+    caller: str = "ui",
+    port: int | None = 8000,
+    model: str | None = "test-model",
+    message: str = "",
+    timestamp: str = "2026-07-16T00:00:00+00:00",
+) -> audit_log.AuditEntry:
+    """Build a real ``AuditEntry`` for local-path audit-tab tests.
+
+    ``ui/tabs/audit.py``'s local branch reads ``AuditEntry`` objects (not
+    dicts) straight from ``core.audit_log.read_entries`` and calls
+    ``.action.value`` / ``.result.value`` on them, so the double here is a
+    real dataclass instance rather than a ``MagicMock`` — cheaper to build
+    correctly and it exercises the same enum-coercion path production does.
+    """
+    return audit_log.AuditEntry(
+        timestamp=timestamp,
+        action=action,
+        result=result,
+        caller=caller,
+        port=port,
+        model=model,
+        message=message,
+    )
+
+
+@pytest.fixture
+def make_entry():
+    """Expose :func:`make_audit_entry` as a fixture-style factory."""
+    return make_audit_entry
+
+
+@pytest.fixture
+def mock_read_entries():
+    """Patch ``llauncher.core.audit_log.read_entries`` for the audit tab's
+    local-target dispatch path (``ui/tabs/audit.py`` calls it directly, with
+    no HTTP hop — see the module docstring's "ADR-013 hook" / "Scope"
+    sections).
+
+    Returns the ``MagicMock`` standing in for ``read_entries`` so a test can
+    set ``.return_value`` (a list of :func:`make_audit_entry` results) and
+    later assert on ``.call_args`` (e.g. the ``limit=`` the tab forwarded).
+    Defaults to an empty list — the tab's "no entries yet" branch.
+    """
+    with patch("llauncher.core.audit_log.read_entries") as mock_fn:
+        mock_fn.return_value = []
+        yield mock_fn
+
+
 def make_remote_node(
     name: str = "gpu-rig",
     host: str = "192.168.1.50",
@@ -104,6 +157,7 @@ def make_remote_node(
     online: bool = True,
     node_info: dict | None = None,
     error_message: str | None = None,
+    read_audit_result: list[dict] | None = None,
 ):
     """Build a ``RemoteNode`` double for registry-backed tab tests.
 
@@ -112,6 +166,12 @@ def make_remote_node(
     ``_error_message`` plus the I/O verbs ``ping`` and ``get_node_info``.
     Because it is a mock, *no real HTTP happens* — which is the point: the tab's
     node I/O is observed at this seam, not on the wire.
+
+    ``read_audit_result`` seeds the ``RemoteNode.read_audit`` return value for
+    ``ui/tabs/audit.py``'s remote dispatch path (issue #64): pass a list of
+    ``AuditEntry.to_dict()``-shaped dicts for a successful read, or leave the
+    default ``None`` to model "node offline or unreachable" (the tab's own
+    unreachable branch — see ``ui/tabs/audit.py::render_audit_tab``).
     """
     node = MagicMock(name=f"RemoteNode[{name}]")
     node.name = name
@@ -127,6 +187,7 @@ def make_remote_node(
         "python_version": "3.12.3",
         "ip_addresses": [host],
     }
+    node.read_audit.return_value = read_audit_result
     return node
 
 
