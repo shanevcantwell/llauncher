@@ -5,14 +5,8 @@ from llauncher.state import LauncherState
 from llauncher.models.config import ModelConfig
 
 
-def pytest_configure(config):
-    """Register custom markers used by the suite."""
-    config.addinivalue_line(
-        "markers",
-        "real_model_health: opt out of the autouse "
-        "``_patch_model_health`` mock and exercise the real "
-        "``llauncher.core.model_health.check_model_health``.",
-    )
+# ``real_model_health`` is declared in pytest.ini's markers= block (single
+# source of truth per #318); no dynamic pytest_configure registration needed.
 
 
 @pytest.fixture(autouse=True)

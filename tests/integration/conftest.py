@@ -37,14 +37,8 @@ HERE = Path(__file__).parent
 STUB_PATH = HERE / "_stubs" / "llama-server-stub"
 
 
-# Mark registrations live here in addition to pytest.ini so coverage runs
-# do not error on unknown markers. (Phase C adds ``integration_real``.)
-def pytest_configure(config):  # noqa: D401
-    config.addinivalue_line(
-        "markers",
-        "integration_real: integration tests that require a real llama-server "
-        "binary + GGUF (opt-in via LLAUNCHER_INTEGRATION_REAL=1)",
-    )
+# ``integration_real`` is declared in pytest.ini's markers= block (single
+# source of truth per #318); no dynamic pytest_configure registration needed.
 
 
 # ─────────────────────────── Stub / env fixtures ────────────────────────────
