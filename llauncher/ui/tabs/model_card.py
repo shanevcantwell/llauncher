@@ -398,7 +398,14 @@ def _handle_stop(
                 or "Local agent returned no result"
             )
         else:
-            success, message = state.stop_server(port, caller="ui")
+            # v2 ops migration (issue #57/#332): route the non-delegated
+            # fallback through ``operations.stop`` instead of the legacy
+            # ``state.stop_server`` path — lockfile removal + durable
+            # audit-log entry, at parity with CLI (``cli.py::stop_server``)
+            # and MCP (``mcp_server/tools/servers.py``), which both already
+            # dispatch ``ops.stop``/``operations.stop`` here.
+            result = ops.stop(port, caller="ui")
+            success, message = result.success, result.message
     elif aggregator:
         result = aggregator.stop_on_node(node_name, port)
         success, message = _parse_aggregator_result(result)
