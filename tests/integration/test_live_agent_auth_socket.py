@@ -107,7 +107,7 @@ class _ServerThread(threading.Thread):
 
 
 @pytest.fixture
-def live_agent(tmp_path: Path) -> Iterator[_LiveAgent]:
+def live_agent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[_LiveAgent]:
     """Bind a real ``llauncher`` agent app on a real loopback socket.
 
     Builds the token via :func:`llauncher.core.agent_token.resolve_agent_token`
@@ -118,6 +118,13 @@ def live_agent(tmp_path: Path) -> Iterator[_LiveAgent]:
     """
     from llauncher.agent.server import create_app
     from llauncher.core.agent_token import resolve_agent_token
+
+    # ``env_value=None`` means resolve_agent_token reads the env at call
+    # time (precedence 1 beats the file read) — clear any ambient token so
+    # the fixture always resolves against the isolated tmp_path env file,
+    # never an unrelated real token. Suite-wide convention (see
+    # test_agent_security_c1_c2.py, test_agent_env_single_source.py).
+    monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
 
     env_path = tmp_path / "agent.env"
     token = resolve_agent_token(env_value=None, env_path=env_path, allow_generate=True)
@@ -137,7 +144,7 @@ def live_agent(tmp_path: Path) -> Iterator[_LiveAgent]:
 
 
 @pytest.fixture
-def live_agent_crlf_bom(tmp_path: Path) -> Iterator[_LiveAgent]:
+def live_agent_crlf_bom(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[_LiveAgent]:
     """Same as ``live_agent``, but the token is read back from a
     CRLF+BOM-contaminated ``agent.env`` — the Windows-authored-file shape
     #310 fixed. Exercises the real read-from-disk path
@@ -149,6 +156,11 @@ def live_agent_crlf_bom(tmp_path: Path) -> Iterator[_LiveAgent]:
     """
     from llauncher.agent.server import create_app
     from llauncher.core.agent_token import resolve_agent_token
+
+    # Critical for AC(c): an ambient LLAUNCHER_AGENT_TOKEN would win the
+    # precedence chain (env beats file) and the test would pass without
+    # ever exercising the CRLF/BOM decode path this fixture exists to pin.
+    monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
 
     env_path = tmp_path / "agent.env"
     clean_token = "windows-issued-token-abc123"
