@@ -14,14 +14,14 @@
 # installers resolve duplicates identically (issue #285).
 #
 # Issue #298 (follow-up from #296 review): the collision set must also
-# catch a collision produced WITHIN the same migration pass — two legacy
+# catch a collision produced WITHIN the same migration pass -- two legacy
 # same-key lines (e.g. two ``LAUNCHER_AGENT_TOKEN=`` lines) with NO
 # pre-existing canonical line. The original snapshot-once $canonicalKeys
 # only knew about canonical lines already present, so both legacy lines
 # migrated and the pass itself produced two canonical lines. The fix grows
 # $canonicalKeys as each legacy line migrates (in file order), so a second
-# same-key legacy line — whether colliding with a pre-existing canonical
-# line or with the first line of a same-pass pair — is dropped identically.
+# same-key legacy line -- whether colliding with a pre-existing canonical
+# line or with the first line of a same-pass pair -- is dropped identically.
 
 function Invoke-EnvKeyMigration {
     <#
@@ -75,8 +75,8 @@ function Invoke-EnvKeyMigration {
             $out.Add($newLine)
             $migrated += "$oldKey -> $newKey"
             # Grow the canonical set immediately (#298) so a LATER legacy
-            # line with this same key — a same-pass collision, no
-            # pre-existing canonical line required — is dropped too.
+            # line with this same key -- a same-pass collision, no
+            # pre-existing canonical line required -- is dropped too.
             [void]$canonicalKeys.Add($newKey)
         }
         else {
