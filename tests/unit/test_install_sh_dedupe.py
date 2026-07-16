@@ -78,6 +78,31 @@ def test_legacy_token_colliding_with_canonical_is_dropped(tmp_path: Path) -> Non
     assert "#285" in (result.stdout + result.stderr)
 
 
+def test_legacy_line_preceding_canonical_is_dropped(tmp_path: Path) -> None:
+    """PR #325 review (regression pinned): the canonical line wins the
+    collision even when a legacy line appears BEFORE it in file order. The
+    canonical-key set must be seeded from the WHOLE file before any
+    drop/migrate decision — a single top-to-bottom pass that grows the set
+    as it reads would migrate the leading legacy line and leave two
+    canonical lines."""
+    env = tmp_path / "agent.env"
+    env.write_text(
+        "LAUNCHER_AGENT_TOKEN=legacy1\n"
+        "LLAUNCHER_AGENT_TOKEN=canon\n"
+        "LAUNCHER_AGENT_TOKEN=legacy2\n"
+    )
+
+    result = _run_migration(env)
+
+    lines = env.read_text().splitlines()
+    token_lines = [ln for ln in lines if ln.strip().startswith("LLAUNCHER_AGENT_TOKEN=")]
+    # Exactly one canonical line survives — the pre-existing canonical value.
+    assert token_lines == ["LLAUNCHER_AGENT_TOKEN=canon"], token_lines
+    assert "legacy1" not in env.read_text()
+    assert "legacy2" not in env.read_text()
+    assert "Dropped" in (result.stdout + result.stderr)
+
+
 def test_samepass_legacy_collision_with_no_canonical_line_is_deduped(
     tmp_path: Path,
 ) -> None:

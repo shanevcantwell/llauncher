@@ -53,25 +53,27 @@ migrate_and_dedupe_env_keys() {
 
     [ -z "$legacy_keys" ] && return 0
 
-    # Single awk pass does BOTH the collision decision and the rewrite, so
-    # the "canonical key" set grows as lines are seen in file order (#298):
-    # it seeds from pre-existing canonical lines, then adds each migrated
-    # key the instant its first legacy occurrence is migrated. A second
-    # same-key legacy line — whether it collides with a pre-existing
-    # canonical line or with the FIRST line of a same-pass legacy pair — is
-    # dropped identically. Emits two summary lines on fd 3/4 (migrated/
-    # dropped, "OLD -> NEW" pairs) for the caller to report.
+    # Two-phase seed-then-grow, mirroring MigrateEnvKeys.ps1 exactly: the
+    # file is read TWICE by one awk program. Pass 1 (NR == FNR) only seeds
+    # `seen` with every pre-existing canonical key in the WHOLE file — so a
+    # canonical line wins the collision regardless of whether it appears
+    # before or after its legacy twin in file order (#285). Pass 2 rewrites:
+    # each migrated legacy key is added to `seen` the instant it migrates,
+    # so a LATER same-key legacy line — a same-pass collision, no
+    # pre-existing canonical line required — is dropped identically (#298).
+    # Emits two summary lines on fd 3/4 (migrated/dropped, "OLD -> NEW"
+    # pairs) for the caller to report.
     local tmp
     tmp="$(mktemp "${env_file}.migrate.XXXXXX")"
-    local migrated_summary dropped_summary
     exec 3>"${tmp}.migrated" 4>"${tmp}.dropped"
     awk '
-        /^[[:space:]]*LLAUNCHER_AGENT_[A-Za-z0-9_]*[[:space:]]*=/ {
-            k = $0
-            sub(/^[[:space:]]*/, "", k)
-            sub(/[[:space:]]*=.*/, "", k)
-            seen[k] = 1
-            print
+        NR == FNR {
+            if ($0 ~ /^[[:space:]]*LLAUNCHER_AGENT_[A-Za-z0-9_]*[[:space:]]*=/) {
+                k = $0
+                sub(/^[[:space:]]*/, "", k)
+                sub(/[[:space:]]*=.*/, "", k)
+                seen[k] = 1
+            }
             next
         }
         /^[[:space:]]*LAUNCHER_AGENT_[A-Za-z0-9_]*[[:space:]]*=/ {
@@ -91,7 +93,7 @@ migrate_and_dedupe_env_keys() {
             next
         }
         { print }
-        ' "$env_file" > "$tmp"
+        ' "$env_file" "$env_file" > "$tmp"
     exec 3>&- 4>&-
     cat "$tmp" > "$env_file"  # preserve inode/perms of $env_file
 
