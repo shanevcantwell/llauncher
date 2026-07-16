@@ -230,6 +230,38 @@ def registry_factory():
 
 
 # ---------------------------------------------------------------------------
+# ``ConfigStore`` mock (SP-4, #328): the add/edit-model forms in
+# ``ui/tabs/forms.py`` are the "no orchestration verb" special case flagged
+# by the #330 parity audit — they call ``ConfigStore.add_model`` /
+# ``update_model`` / ``load`` directly rather than through an ``ops.*``
+# verb. Patch those three classmethods where ``forms.py`` looks them up
+# (its own module attribute, since it does ``from llauncher.core.config
+# import ConfigStore`` at import time) so tests observe exactly the calls
+# the form makes without touching the real on-disk config store.
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def mock_config_store():
+    """Patch ``ConfigStore.add_model``/``update_model``/``load`` for forms.py.
+
+    Yields the ``ConfigStore`` class (patched in place) so tests can both
+    drive return values (e.g. ``mock_config_store.load.return_value = {...}``)
+    and assert on call args (``mock_config_store.add_model.assert_called_once_with(...)``).
+    ``load`` defaults to an empty dict — the common "brand new model" shape.
+    """
+    with patch(
+        "llauncher.ui.tabs.forms.ConfigStore.add_model"
+    ) as add_model, patch(
+        "llauncher.ui.tabs.forms.ConfigStore.update_model"
+    ) as update_model, patch(
+        "llauncher.ui.tabs.forms.ConfigStore.load"
+    ) as load:
+        load.return_value = {}
+        from llauncher.core.config import ConfigStore
+
+        yield ConfigStore
+
+
+# ---------------------------------------------------------------------------
 # Runtime complement to the static import guard: prove that rendering a tab
 # opens no real network transport. If the UI ever regressed to doing its own
 # HTTP (instead of going through the mocked ``remote/`` facade), one of these
