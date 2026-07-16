@@ -179,7 +179,7 @@ def test_loopback_first_run_generates_token_file(monkeypatch, tmp_path):
     # Capture the token-handed-to-create_app by intercepting uvicorn.run
     # AND by re-running create_app with the same env state.
     captured: dict = {}
-    def fake_uvicorn_run(app, host=None, port=None, log_level="info", lifespan="auto"):
+    def fake_uvicorn_run(app, host=None, port=None, log_level="info", lifespan="auto", log_config=None):
         captured["app"] = app
         captured["host"] = host
     monkeypatch.setattr("uvicorn.run", fake_uvicorn_run)

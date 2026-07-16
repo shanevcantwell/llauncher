@@ -944,12 +944,24 @@ class TestUtilityFunctions:
 
     def test_run_agent(self, monkeypatch):
         """Test run_agent calls uvicorn.run with correct parameters."""
-        from llauncher.agent.server import run_agent
+        from llauncher.agent.server import run_agent, UVICORN_LOG_CONFIG
         from llauncher.agent.config import AgentConfig
         import llauncher.agent.server
 
         # Mock uvicorn.run to capture the arguments
-        mock_run = lambda app, host=None, port=None, log_level="info", lifespan="auto": None
+        captured_kwargs = {}
+
+        def mock_run(app, host=None, port=None, log_level="info", lifespan="auto", log_config=None):
+            captured_kwargs.update(
+                {
+                    "host": host,
+                    "port": port,
+                    "log_level": log_level,
+                    "lifespan": lifespan,
+                    "log_config": log_config,
+                }
+            )
+
         monkeypatch.setattr("uvicorn.run", mock_run)
 
         # Mock logging.info to avoid output
@@ -968,8 +980,70 @@ class TestUtilityFunctions:
         # Call the function
         run_agent(config)
 
-        # If we get here without exception, the test passes
-        # For simplicity, we just ensure no exception.
+        # run_agent must hand uvicorn our timestamped log config (#307) so
+        # access AND error lines both carry asctime, rather than falling
+        # back to uvicorn's un-timestamped stock formatters.
+        assert captured_kwargs["log_config"] is UVICORN_LOG_CONFIG
+
+    def test_uvicorn_log_config_access_formatter_has_timestamp(self):
+        """Access-log lines must carry an asctime timestamp (#307).
+
+        Regression guard for the original bug: uvicorn's stock ``access``
+        formatter renders lines like
+        ``INFO:     127.0.0.1:64557 - "POST /start/8081 HTTP/1.1" 500``
+        with no timestamp, making request timing impossible to correlate.
+        """
+        from llauncher.agent.server import UVICORN_LOG_CONFIG
+
+        access_fmt = UVICORN_LOG_CONFIG["formatters"]["access"]["fmt"]
+        assert "%(asctime)s" in access_fmt
+
+    def test_uvicorn_log_config_default_formatter_has_timestamp(self):
+        """Error/lifecycle-log lines must also carry an asctime timestamp (#307)."""
+        from llauncher.agent.server import UVICORN_LOG_CONFIG
+
+        default_fmt = UVICORN_LOG_CONFIG["formatters"]["default"]["fmt"]
+        assert "%(asctime)s" in default_fmt
+
+    def test_uvicorn_log_config_renders_timestamped_access_line(self):
+        """End-to-end: dictConfig-ing UVICORN_LOG_CONFIG and logging through
+        ``uvicorn.access`` actually emits a line with a real timestamp,
+        not just a format string that mentions asctime.
+        """
+        import io
+        import logging
+        import logging.config
+        import re
+
+        from llauncher.agent.server import UVICORN_LOG_CONFIG
+
+        logging.config.dictConfig(UVICORN_LOG_CONFIG)
+        access_logger = logging.getLogger("uvicorn.access")
+
+        buf = io.StringIO()
+        # Swap in a stream handler pointed at our buffer, keeping the
+        # configured (timestamped) formatter, so we can inspect output
+        # without depending on stdout capture.
+        handler = logging.StreamHandler(buf)
+        handler.setFormatter(access_logger.handlers[0].formatter)
+        access_logger.handlers = [handler]
+
+        # Matches uvicorn's own call convention (h11_impl.py /
+        # httptools_impl.py): a 5-arg tuple that AccessFormatter.formatMessage
+        # unpacks as (client_addr, method, full_path, http_version, status_code).
+        access_logger.info(
+            '%s - "%s %s HTTP/%s" %d',
+            "127.0.0.1:64557",
+            "POST",
+            "/start/8081",
+            "1.1",
+            500,
+        )
+
+        output = buf.getvalue()
+        # e.g. "2026-07-16 11:46:42,789 - INFO:     127.0.0.1:64557 - ..."
+        assert re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}", output)
+        assert "127.0.0.1:64557" in output
 
     def test_run_agent_refuses_non_loopback_without_token(self, monkeypatch):
         """Security §3 C1: refuse to start on non-loopback without token.
@@ -1699,8 +1773,8 @@ class TestAgentServerFunctions:
 
         # Mock uvicorn.run to capture arguments
         captured_args = {}
-        def mock_run(app, host=None, port=None, log_level="info", lifespan="auto"):
-            captured_args.update({"app": app, "host": host, "port": port, "log_level": log_level, "lifespan": lifespan})
+        def mock_run(app, host=None, port=None, log_level="info", lifespan="auto", log_config=None):
+            captured_args.update({"app": app, "host": host, "port": port, "log_level": log_level, "lifespan": lifespan, "log_config": log_config})
 
         monkeypatch.setattr("uvicorn.run", mock_run)
 
@@ -1735,7 +1809,7 @@ class TestAgentServerFunctions:
 
         # Mock uvicorn.run
         captured: dict = {}
-        def mock_run(app, host=None, port=None, log_level="info", lifespan="auto"):
+        def mock_run(app, host=None, port=None, log_level="info", lifespan="auto", log_config=None):
             captured["host"] = host
             captured["port"] = port
         monkeypatch.setattr("uvicorn.run", mock_run)
