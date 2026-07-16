@@ -467,7 +467,9 @@ class TestStaleDataElimination:
             mock_path = MagicMock()
             mock_path.exists.return_value = True
 
-            def read_text_side_effect():
+            def read_text_side_effect(*args, **kwargs):
+                # Accepts the encoding="utf-8-sig" kwarg the production
+                # read passes since the #310 BOM-tolerance fix.
                 return json.dumps(_config_data)
 
             mock_path.read_text.side_effect = read_text_side_effect
