@@ -25,6 +25,12 @@ Scope, matching the issue's audit:
   ``utf-8-sig``) before this fix; a BOM there raised
   ``json.JSONDecodeError`` rather than silently corrupting a value, but it
   is the same "assumes no BOM" defect class this issue calls out.
+- ``llauncher.core.config``: ``CONFIG_PATH`` (``config.json``) — the third
+  hand-editable state file under ``LAUNCHER_STATE_DIR``, surfaced by the
+  dispatched review of PR #326 as missed by the first audit pass. A BOM
+  there was swallowed by ``ConfigStore.load``'s ``JSONDecodeError`` handler
+  and silently returned ``{}`` — an *empty model list*, worse than a loud
+  failure. Same fix (``utf-8-sig`` at the door).
 """
 
 from __future__ import annotations
@@ -215,3 +221,41 @@ class TestRegistryJsonCrlfBom:
         assert node is not None
         assert node.api_key == "tok-bom"
         assert "﻿" not in node.api_key
+
+
+class TestConfigStoreCrlfBom:
+    """``ConfigStore.load`` tolerates a BOM-prefixed ``config.json``.
+
+    Surfaced by the dispatched review of PR #326: ``config.json`` lives
+    under the same ``LAUNCHER_STATE_DIR`` as ``nodes.json`` /
+    ``node_tokens.json`` and is equally hand-editable, but its bare
+    ``read_text()`` was missed by the first audit pass. The failure mode
+    here is the nastiest of the three: ``load()`` swallows the
+    ``JSONDecodeError`` and returns ``{}``, silently presenting an empty
+    model store instead of failing loud.
+    """
+
+    _PAYLOAD = {
+        "bom-model": {
+            "name": "bom-model",
+            "model_path": "/models/bom-model.gguf",
+        }
+    }
+
+    def test_bom_prefixed_config_loads_models(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from llauncher.core.config import ConfigStore
+
+        config_path = tmp_path / "config.json"
+        config_path.write_bytes(
+            b"\xef\xbb\xbf" + json.dumps(self._PAYLOAD).encode("utf-8")
+        )
+        monkeypatch.setattr("llauncher.core.config.CONFIG_PATH", config_path)
+
+        models = ConfigStore.load()
+
+        # Before the fix this was {} -- the BOM tripped json.loads and the
+        # except-branch silently returned an empty store.
+        assert set(models) == {"bom-model"}
+        assert models["bom-model"].model_path == "/models/bom-model.gguf"
