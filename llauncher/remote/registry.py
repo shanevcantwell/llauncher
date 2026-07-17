@@ -48,24 +48,67 @@ class NodeRegistry:
             self._populate_local_token()
             return
 
+        migrated = False
         try:
-            data = json.loads(NODES_FILE.read_text())
+            # utf-8-sig: PARSE-AT-THE-DOOR tolerance for a hand-edited file
+            # picking up a BOM from a Windows editor (issue #310, same class
+            # as agent.env's BOM/CRLF hardening); a strict superset of utf-8
+            # for BOM-less input so this is a no-op in the common case.
+            data = json.loads(NODES_FILE.read_text(encoding="utf-8-sig"))
             for name, node_data in data.items():
-                # Backward compat: old files use "api_key", new files use "has_api_key"
-                raw_key = node_data.get("api_key")
-                self._nodes[name] = RemoteNode(
-                    name=node_data["name"],
-                    host=node_data["host"],
-                    port=node_data.get("port", 8765),
-                    timeout=node_data.get("timeout", 5.0),
-                    api_key=raw_key,
-                )
-        except (json.JSONDecodeError, KeyError):
-            # Corrupted file, start fresh
+                try:
+                    # Backward compat: old files use "api_key", new files use "has_api_key"
+                    raw_key = node_data.get("api_key")
+                    host = node_data["host"]
+                    port = node_data.get("port", 8765)
+                    if isinstance(host, str) and host.count(":") == 1:
+                        # Issue #27: a prior UI bug let an embedded port slip
+                        # into the host field (e.g. "192.168.137.2:8765") on
+                        # top of a separate port field, producing a malformed
+                        # base_url. Migrate once, at the door (PARSE-AT-THE-DOOR):
+                        # split the embedded port out and prefer it as the
+                        # real port, then persist the corrected shape below.
+                        fixed_host, _, port_str = host.rpartition(":")
+                        if port_str.isdigit():
+                            port = int(port_str)
+                        logger.warning(
+                            f"Migrated corrupted host for node '{name}': "
+                            f"{host!r} -> host={fixed_host!r}, port={port}"
+                        )
+                        host = fixed_host
+                        migrated = True
+                    self._nodes[name] = RemoteNode(
+                        name=node_data["name"],
+                        host=host,
+                        port=port,
+                        timeout=node_data.get("timeout", 5.0),
+                        api_key=raw_key,
+                    )
+                except (KeyError, ValueError) as e:
+                    # Issue #273: a single entry that fails NodeConfig
+                    # validation (or is missing a required key) after the
+                    # embedded-port migration above must not take the
+                    # whole pass down with it. Scope the failure to this
+                    # entry — log and drop only ``name``, keep the rest.
+                    logger.warning(
+                        f"Skipping node '{name}' in {NODES_FILE}: {e}"
+                    )
+                    continue
+        except (json.JSONDecodeError, KeyError, ValueError):
+            # Whole-file corruption (bad JSON, or a non-dict top-level
+            # shape whose per-entry iteration itself raises before the
+            # inner try can scope it) — start fresh rather than crash UI
+            # startup.
             self._nodes.clear()
+            migrated = False
 
         self._populate_local_token()
         self._populate_remote_tokens()
+
+        if migrated:
+            # Persist the corrected shape once so the migration doesn't
+            # re-run (and re-log) on every subsequent load.
+            self._save()
 
     def _resolve_local_token(self) -> str | None:
         """Resolve the local agent's auth token, or return ``None``.
@@ -76,9 +119,10 @@ class NodeRegistry:
         environment. We source via
         :func:`llauncher.core.agent_token.resolve_agent_token` with
         ``allow_generate=False`` — that reads the env var first, then
-        the on-disk ``~/.llauncher/agent.token``. ``allow_generate=False``
-        because only the agent itself should ever materialize a fresh
-        token; the UI must be a pure consumer.
+        parses the on-disk ``~/.llauncher/agent.env`` directly (issue
+        #284 — single live source, no separate token-mirror file).
+        ``allow_generate=False`` because only the agent itself should
+        ever materialize a fresh token; the UI must be a pure consumer.
 
         The token resolver lives in :mod:`llauncher.core.agent_token`
         (issue #171) precisely so ``remote`` can read it without
@@ -110,7 +154,10 @@ class NodeRegistry:
         if not NODE_TOKENS_FILE.exists():
             return {}
         try:
-            data = json.loads(NODE_TOKENS_FILE.read_text())
+            # utf-8-sig: see the matching NODES_FILE read above (#310) --
+            # node_tokens.json carries credentials, so BOM-tolerance here
+            # is the same door-normalization discipline as agent.env.
+            data = json.loads(NODE_TOKENS_FILE.read_text(encoding="utf-8-sig"))
             if isinstance(data, dict):
                 # Defensive: filter out non-string values; an attacker
                 # who can write the file shouldn't be able to inject a
@@ -129,20 +176,20 @@ class NodeRegistry:
         each match onto the corresponding ``RemoteNode.api_key``.
 
         Missing entries leave ``api_key=None`` — we do NOT synthesize
-        from ``agent.token`` (which is the local agent's token);
+        from ``agent.env`` (which carries the local agent's token);
         cross-pollinating a local token onto a remote node would be a
         credential-confusion bug, symmetric to
         :meth:`_populate_local_token`'s "only touches ``local``" guard.
 
         The ``local`` entry is also skipped here even if it happens to
         appear in ``node_tokens.json``: its canonical source is
-        ``agent.token`` via ``_populate_local_token``, and trusting
+        ``agent.env`` via ``_populate_local_token``, and trusting
         ``node_tokens.json`` for ``local`` would create a drift
         opportunity.
         """
         tokens = self._load_node_tokens()
         for name, token in tokens.items():
-            if name == "local":
+            if name == "local":  # pragma: no cover - C10 security guard: 'local' token is never sourced from the sidecar (canonical source is agent.env); skip to prevent credential confusion
                 continue
             node = self._nodes.get(name)
             if node is not None and not node.api_key:
@@ -154,11 +201,11 @@ class NodeRegistry:
         Full rewrite each call: any node that was removed from
         ``self._nodes`` or whose ``api_key`` was cleared automatically
         falls out of the file. The ``local`` entry is excluded
-        unconditionally — its token lives in ``agent.token``;
+        unconditionally — its token lives in ``agent.env``;
         duplicating it here would create drift.
 
         Mode 0600 on the file, 0700 on the parent dir — matching the
-        ``nodes.json`` and ``agent.token`` conventions.
+        ``nodes.json`` and ``agent.env`` conventions.
         """
         data = {
             name: node.api_key
@@ -233,7 +280,7 @@ class NodeRegistry:
         NODES_FILE.parent.mkdir(parents=True, exist_ok=True)
         try:
             NODES_FILE.parent.chmod(0o700)
-        except OSError:
+        except OSError:  # pragma: no cover - best-effort dir chmod; no-op/failure on exotic FS (WSL-on-NTFS, some cloud mounts) is swallowed, the 0600 on the file is the load-bearing protection
             # Best-effort; chmod is a no-op on some filesystems (e.g.
             # WSL-on-NTFS). The 0600 on the file itself is the
             # load-bearing protection.
@@ -253,7 +300,7 @@ class NodeRegistry:
 
         try:
             os.chmod(NODES_FILE, 0o600)
-        except OSError as e:
+        except OSError as e:  # pragma: no cover - best-effort re-tighten; chmod failure on exotic FS (WSL-on-NTFS, cloud mounts) is logged-and-swallowed, not fatal
             logger.warning(f"Could not set restrictive permissions on {NODES_FILE}: {e}")
 
         # Sidecar tokens file (issue #132). Wrapped so a token-write
@@ -261,7 +308,7 @@ class NodeRegistry:
         # succeeded — the two files are independent on purpose.
         try:
             self._save_node_tokens()
-        except Exception as e:  # noqa: BLE001 — defensive isolation
+        except Exception as e:  # noqa: BLE001 — defensive isolation  # pragma: no cover - isolates a sidecar token-write failure from the just-succeeded nodes.json write (#132); the two files are independent on purpose
             logger.warning(f"Could not write {NODE_TOKENS_FILE}: {e}")
 
     def add_node(
@@ -289,13 +336,21 @@ class NodeRegistry:
         if name in self._nodes and not overwrite:
             return False, f"Node '{name}' already exists. Use overwrite=True to replace."
 
-        self._nodes[name] = RemoteNode(
-            name=name,
-            host=host,
-            port=port,
-            timeout=timeout,
-            api_key=api_key,
-        )
+        try:
+            node = RemoteNode(
+                name=name,
+                host=host,
+                port=port,
+                timeout=timeout,
+                api_key=api_key,
+            )
+        except ValueError as e:
+            # NodeConfig validation failure (issue #27) — surface as a
+            # normal (success, message) failure rather than an
+            # exception, matching the rest of this method's contract.
+            return False, str(e)
+
+        self._nodes[name] = node
         self._save()
         return True, f"Node '{name}' added successfully"
 

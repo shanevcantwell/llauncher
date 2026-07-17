@@ -111,3 +111,120 @@ def test_exempt_paths_match_documented_set():
     # Read endpoints that must NOT be exempt (the security-cohort posture).
     for read_path in ("/status", "/models", "/models/health", "/node-info"):
         assert read_path not in _AUTH_EXEMPT_PATHS
+
+
+# ---------------------------------------------------------------------------
+# BodySizeLimitMiddleware — ASGI-level edge branches (INTERFACE close-out)
+# ---------------------------------------------------------------------------
+import pytest  # noqa: E402
+
+from llauncher.agent.middleware import BodySizeLimitMiddleware  # noqa: E402
+
+
+@pytest.mark.asyncio
+async def test_limited_receive_forwards_non_request_message():
+    """``limited_receive`` forwards non-``http.request`` messages verbatim.
+
+    Covers middleware.py:141: a downstream app that keeps draining
+    ``receive`` past the body will eventually get a non-request message
+    (e.g. ``http.disconnect``); the wrapper must return it unchanged
+    without touching the byte accumulator.
+    """
+    seen: list[str] = []
+
+    async def inner_app(scope, receive, send):
+        # Drain until the disconnect — this pulls the non-request message
+        # through ``limited_receive`` (middleware.py:140-141).
+        while True:
+            msg = await receive()
+            seen.append(msg["type"])
+            if msg["type"] == "http.disconnect":
+                return
+
+    mw = BodySizeLimitMiddleware(inner_app, max_bytes=1024)
+
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/x",
+        "headers": [],  # no content-length → streaming path
+    }
+
+    messages = iter(
+        [
+            {"type": "http.request", "body": b"hi", "more_body": False},
+            {"type": "http.disconnect"},
+        ]
+    )
+
+    async def receive():
+        try:
+            return next(messages)
+        except StopIteration:
+            return {"type": "http.disconnect"}
+
+    async def send(message):
+        pass
+
+    await mw(scope, receive, send)
+
+    # The under-cap request flowed through, and the non-request disconnect
+    # was forwarded to the downstream app (the line-141 branch).
+    assert "http.request" in seen
+    assert "http.disconnect" in seen
+
+
+@pytest.mark.asyncio
+async def test_guarded_send_suppresses_late_response_after_rejection():
+    """A send attempted *after* the cap trips is suppressed.
+
+    Covers middleware.py:159: once ``rejected`` is set (body exceeded the
+    cap, surfaced to the app as a sentinel ``http.disconnect``), a
+    downstream app that still tries to emit a response has those messages
+    swallowed by ``guarded_send`` — only the middleware's own 413 reaches
+    the wire.
+    """
+
+    async def inner_app(scope, receive, send):
+        # Consume until the cap-trip sentinel, then (mis)behave by emitting
+        # a 200 anyway — guarded_send must drop it.
+        while True:
+            msg = await receive()
+            if msg["type"] == "http.disconnect":
+                break
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"late"})
+
+    mw = BodySizeLimitMiddleware(inner_app, max_bytes=1024)
+
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/x",
+        "headers": [(b"content-type", b"application/json")],  # streaming path
+    }
+
+    chunks = iter(
+        [
+            {"type": "http.request", "body": b"a" * 2048, "more_body": False},
+        ]
+    )
+
+    async def receive():
+        try:
+            return next(chunks)
+        except StopIteration:
+            return {"type": "http.disconnect"}
+
+    sent: list[dict] = []
+
+    async def send(message):
+        sent.append(message)
+
+    await mw(scope, receive, send)
+
+    # The downstream 200 was suppressed; the only response.start on the wire
+    # is the middleware's 413.
+    starts = [m for m in sent if m["type"] == "http.response.start"]
+    assert len(starts) == 1
+    assert starts[0]["status"] == 413

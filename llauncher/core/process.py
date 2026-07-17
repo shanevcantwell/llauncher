@@ -178,6 +178,20 @@ def build_command(
     if config.mlock:
         cmd.append("--mlock")
 
+    # Prometheus /metrics endpoint (issue #169). Default-on: cheap scrape
+    # surface, and the structured source for tps/kv-cache/draft-acceptance
+    # telemetry that /slots doesn't cover.
+    if config.metrics:
+        cmd.append("--metrics")
+
+    # Slots-monitoring endpoint (issue #179 SP-1, ADR-LLNCH-019). The
+    # ``llama-server`` binary defaults ``--slots`` to ENABLED (PM-2
+    # de-risk finding) — the opposite of a safe default, since /slots
+    # includes per-slot prompt text. Emit the flag explicitly in both
+    # directions so the effective policy is a pure function of
+    # ``config.slots``, never the binary's own default.
+    cmd.append("--slots" if config.slots else "--no-slots")
+
     # Extra args (parse free-form string into arguments)
     if config.extra_args:
         cmd.extend(shlex.split(config.extra_args))

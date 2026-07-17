@@ -143,7 +143,7 @@ class TestStatusEndpoint:
         assert data["total_running"] == len(data["running_servers"])
 
     def test_status_includes_model_config_per_server(self, client):
-        """Test that /status includes model_config with ctx_size and np per server."""
+        """Test that /status includes model_config with ctx_size per server."""
         from llauncher.agent import routing
 
         # Clear any state from other tests
@@ -155,7 +155,6 @@ class TestStatusEndpoint:
                 name='test-model',
                 model_path='/fake/model.gguf',
                 ctx_size=2048,
-                np=4,
                 n_gpu_layers=32,
             ),
         }
@@ -178,14 +177,13 @@ class TestStatusEndpoint:
         assert data["total_running"] == 1
         server = data["running_servers"][0]
 
-        # model_config should be present with np and ctx_size
+        # model_config should be present with ctx_size
         assert "model_config" in server
         assert server["model_config"] is not None
         mc = server["model_config"]
         assert "ctx_size" in mc
-        assert "np" in mc
+        assert "np" not in mc
         assert mc["ctx_size"] == 2048
-        assert mc["np"] == 4
 
     def test_status_model_config_none_for_unknown_server(self, client):
         """Test that model_config is None when config lookup fails."""
@@ -216,6 +214,47 @@ class TestStatusEndpoint:
         assert server["model_config"] is None
 
 
+class TestStatusGpuBranches:
+    """/status GPU-health branch coverage (routing.py:190-195)."""
+
+    def test_status_gpu_no_backends_reports_not_degraded(self, client, monkeypatch):
+        """A collector that reports no backends yields a non-degraded GPU block.
+
+        Covers routing.py:193 — the ``else`` arm when ``get_health()`` returns
+        a payload with a falsy ``backends`` entry (no GPU backend present).
+        """
+        import llauncher.core.gpu as gpu_mod
+
+        class FakeCollector:
+            def get_health(self):
+                return {"backends": []}  # falsy → not-degraded else branch
+
+        monkeypatch.setattr(gpu_mod, "GPUHealthCollector", FakeCollector)
+
+        response = client.get("/status")
+        assert response.status_code == 200
+        assert response.json()["gpu"] == {"degraded": False, "error": None}
+
+    def test_status_gpu_collector_exception_reports_degraded(self, client, monkeypatch):
+        """A collector that raises degrades the GPU block instead of 500-ing.
+
+        Covers routing.py:194-195 — any exception from the GPU collector is
+        caught and surfaced as ``{"degraded": True, "error": <ExcType>}`` so
+        the status poll stays healthy.
+        """
+        import llauncher.core.gpu as gpu_mod
+
+        class BoomCollector:
+            def __init__(self):
+                raise RuntimeError("no gpu backend")
+
+        monkeypatch.setattr(gpu_mod, "GPUHealthCollector", BoomCollector)
+
+        response = client.get("/status")
+        assert response.status_code == 200
+        assert response.json()["gpu"] == {"degraded": True, "error": "RuntimeError"}
+
+
 class TestModelsEndpoint:
     """Tests for the /models endpoint."""
 
@@ -242,9 +281,9 @@ class TestModelsEndpoint:
             assert "kind" in model  # Per ADR-010 + #42 scaffolding
             assert "n_gpu_layers" in model
             assert "ctx_size" in model
-            assert "np" in model
             assert "running" in model
             assert "default_port" not in model  # Removed per ADR-010
+            assert "np" not in model  # Removed per #235 (dead, mislabeled duplicate of `parallel`)
 
 
 class TestStartServerEndpoint:
@@ -847,14 +886,82 @@ class TestUtilityFunctions:
         assert result is False
         assert "Error stopping agent: test" in error_msg
 
+    def test_stop_agent_psutil_race_returns_false(self, monkeypatch):
+        """psutil fallback: a NoSuchProcess/AccessDenied race is swallowed.
+
+        Covers server.py:117-124 — ``find_process_on_port`` returns None so
+        we enter the psutil fallback, find a LISTEN connection on the port,
+        but ``psutil.Process``/``terminate`` loses a race against the process
+        exiting (NoSuchProcess). The ``except`` ``continue``s, the loop
+        exhausts, and the function logs the warning and returns False.
+        """
+        from llauncher.agent.server import stop_agent
+        import psutil
+        from unittest.mock import MagicMock
+
+        class MockResponse:
+            status_code = 200
+
+        monkeypatch.setattr("httpx.get", lambda url, timeout: MockResponse())
+        # Not found via /proc → drop into the psutil fallback loop.
+        monkeypatch.setattr(
+            "llauncher.agent.server.find_process_on_port", lambda port: None
+        )
+
+        mock_conn = MagicMock()
+        mock_conn.laddr.port = 8080
+        mock_conn.status = "LISTEN"
+        mock_conn.pid = 5678
+        monkeypatch.setattr("psutil.net_connections", lambda kind: [mock_conn])
+
+        def raise_nosuch(proc):
+            raise psutil.NoSuchProcess(proc)
+
+        monkeypatch.setattr("psutil.Process", raise_nosuch)
+
+        result = stop_agent(8080)
+
+        # The race was swallowed (continue), the loop found nothing live to
+        # terminate, and the function reported failure.
+        assert result is False
+
+    def test_stop_agent_non_200_health_returns_false(self, monkeypatch):
+        """A non-200 health response means no live agent → False.
+
+        Covers server.py:123-124 — the ``else`` arm when the health probe
+        answers with a non-200 status (something is on the port but it is
+        not a healthy llauncher agent), so we do not attempt a kill.
+        """
+        from llauncher.agent.server import stop_agent
+
+        class MockResponse:
+            status_code = 503
+
+        monkeypatch.setattr("httpx.get", lambda url, timeout: MockResponse())
+
+        result = stop_agent(8080)
+        assert result is False
+
     def test_run_agent(self, monkeypatch):
         """Test run_agent calls uvicorn.run with correct parameters."""
-        from llauncher.agent.server import run_agent
+        from llauncher.agent.server import run_agent, UVICORN_LOG_CONFIG
         from llauncher.agent.config import AgentConfig
         import llauncher.agent.server
 
         # Mock uvicorn.run to capture the arguments
-        mock_run = lambda app, host=None, port=None, log_level="info", lifespan="auto": None
+        captured_kwargs = {}
+
+        def mock_run(app, host=None, port=None, log_level="info", lifespan="auto", log_config=None):
+            captured_kwargs.update(
+                {
+                    "host": host,
+                    "port": port,
+                    "log_level": log_level,
+                    "lifespan": lifespan,
+                    "log_config": log_config,
+                }
+            )
+
         monkeypatch.setattr("uvicorn.run", mock_run)
 
         # Mock logging.info to avoid output
@@ -873,8 +980,70 @@ class TestUtilityFunctions:
         # Call the function
         run_agent(config)
 
-        # If we get here without exception, the test passes
-        # For simplicity, we just ensure no exception.
+        # run_agent must hand uvicorn our timestamped log config (#307) so
+        # access AND error lines both carry asctime, rather than falling
+        # back to uvicorn's un-timestamped stock formatters.
+        assert captured_kwargs["log_config"] is UVICORN_LOG_CONFIG
+
+    def test_uvicorn_log_config_access_formatter_has_timestamp(self):
+        """Access-log lines must carry an asctime timestamp (#307).
+
+        Regression guard for the original bug: uvicorn's stock ``access``
+        formatter renders lines like
+        ``INFO:     127.0.0.1:64557 - "POST /start/8081 HTTP/1.1" 500``
+        with no timestamp, making request timing impossible to correlate.
+        """
+        from llauncher.agent.server import UVICORN_LOG_CONFIG
+
+        access_fmt = UVICORN_LOG_CONFIG["formatters"]["access"]["fmt"]
+        assert "%(asctime)s" in access_fmt
+
+    def test_uvicorn_log_config_default_formatter_has_timestamp(self):
+        """Error/lifecycle-log lines must also carry an asctime timestamp (#307)."""
+        from llauncher.agent.server import UVICORN_LOG_CONFIG
+
+        default_fmt = UVICORN_LOG_CONFIG["formatters"]["default"]["fmt"]
+        assert "%(asctime)s" in default_fmt
+
+    def test_uvicorn_log_config_renders_timestamped_access_line(self):
+        """End-to-end: dictConfig-ing UVICORN_LOG_CONFIG and logging through
+        ``uvicorn.access`` actually emits a line with a real timestamp,
+        not just a format string that mentions asctime.
+        """
+        import io
+        import logging
+        import logging.config
+        import re
+
+        from llauncher.agent.server import UVICORN_LOG_CONFIG
+
+        logging.config.dictConfig(UVICORN_LOG_CONFIG)
+        access_logger = logging.getLogger("uvicorn.access")
+
+        buf = io.StringIO()
+        # Swap in a stream handler pointed at our buffer, keeping the
+        # configured (timestamped) formatter, so we can inspect output
+        # without depending on stdout capture.
+        handler = logging.StreamHandler(buf)
+        handler.setFormatter(access_logger.handlers[0].formatter)
+        access_logger.handlers = [handler]
+
+        # Matches uvicorn's own call convention (h11_impl.py /
+        # httptools_impl.py): a 5-arg tuple that AccessFormatter.formatMessage
+        # unpacks as (client_addr, method, full_path, http_version, status_code).
+        access_logger.info(
+            '%s - "%s %s HTTP/%s" %d',
+            "127.0.0.1:64557",
+            "POST",
+            "/start/8081",
+            "1.1",
+            500,
+        )
+
+        output = buf.getvalue()
+        # e.g. "2026-07-16 11:46:42,789 - INFO:     127.0.0.1:64557 - ..."
+        assert re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}", output)
+        assert "127.0.0.1:64557" in output
 
     def test_run_agent_refuses_non_loopback_without_token(self, monkeypatch):
         """Security §3 C1: refuse to start on non-loopback without token.
@@ -892,7 +1061,7 @@ class TestUtilityFunctions:
 
         # No token anywhere.
         monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
-        # Force the on-disk token file lookup to a missing path so the
+        # Force the on-disk env-file lookup to a missing path so the
         # refuse-to-start branch is exercised even if the operator's real
         # home has a file present.
         from pathlib import Path
@@ -900,8 +1069,8 @@ class TestUtilityFunctions:
         # Token resolution was hoisted to core.agent_token (#171); patch the
         # canonical home so run_agent's resolver honors the missing path.
         monkeypatch.setattr(
-            "llauncher.core.agent_token.default_token_path",
-            lambda: Path("/nonexistent/llauncher/agent.token"),
+            "llauncher.core.agent_token.default_env_path",
+            lambda: Path("/nonexistent/llauncher/agent.env"),
         )
 
         monkeypatch.setattr("socket.gethostname", lambda: "test-host")
@@ -1032,6 +1201,87 @@ class TestUtilityFunctions:
         # Should exit with 1
         assert exited_with == 1
         assert "test error" in error_msg
+
+    def test_main_print_token_from_env(self, monkeypatch, capsys):
+        """print-token resolves the env token, prints it, and exits 0 (#134)."""
+        from llauncher.agent.server import main
+        import sys
+
+        monkeypatch.setattr("sys.argv", ["llauncher-agent", "print-token"])
+        monkeypatch.setenv("LLAUNCHER_AGENT_TOKEN", "sekret-from-env")
+
+        exited_with = None
+
+        def mock_exit(code):
+            nonlocal exited_with
+            exited_with = code
+
+        monkeypatch.setattr(sys, "exit", mock_exit)
+
+        main()
+
+        out = capsys.readouterr().out
+        assert out.strip() == "sekret-from-env"
+        assert exited_with == 0
+
+    def test_main_print_token_from_file(self, monkeypatch, capsys, tmp_path):
+        """print-token falls back to the on-disk agent.env (#134)."""
+        from llauncher.agent.server import main
+        import sys
+
+        monkeypatch.setattr("sys.argv", ["llauncher-agent", "print-token"])
+        monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
+
+        env_file = tmp_path / "agent.env"
+        env_file.write_text("LLAUNCHER_AGENT_TOKEN=sekret-from-file\n", encoding="utf-8")
+        monkeypatch.setattr(
+            "llauncher.core.agent_token.default_env_path",
+            lambda: env_file,
+        )
+
+        exited_with = None
+
+        def mock_exit(code):
+            nonlocal exited_with
+            exited_with = code
+
+        monkeypatch.setattr(sys, "exit", mock_exit)
+
+        main()
+
+        out = capsys.readouterr().out
+        assert out.strip() == "sekret-from-file"
+        assert exited_with == 0
+
+    def test_main_print_token_missing_fails_loud(self, monkeypatch, capsys, tmp_path):
+        """print-token exits 1 with a clear stderr message when no token exists (#134)."""
+        from llauncher.agent.server import main
+        import sys
+
+        monkeypatch.setattr("sys.argv", ["llauncher-agent", "print-token"])
+        monkeypatch.delenv("LLAUNCHER_AGENT_TOKEN", raising=False)
+
+        # Point at a non-existent env file so resolution returns None
+        # (allow_generate=False is enforced by the subcommand).
+        monkeypatch.setattr(
+            "llauncher.core.agent_token.default_env_path",
+            lambda: tmp_path / "does-not-exist.env",
+        )
+
+        exited_with = None
+
+        def mock_exit(code):
+            nonlocal exited_with
+            exited_with = code
+
+        monkeypatch.setattr(sys, "exit", mock_exit)
+
+        main()
+
+        captured = capsys.readouterr()
+        assert exited_with == 1
+        assert captured.out == ""  # token never printed
+        assert "no agent token found" in captured.err
 
     def test_main_entry_point(self):
         """Test the if __name__ == "__main__" block."""
@@ -1523,8 +1773,8 @@ class TestAgentServerFunctions:
 
         # Mock uvicorn.run to capture arguments
         captured_args = {}
-        def mock_run(app, host=None, port=None, log_level="info", lifespan="auto"):
-            captured_args.update({"app": app, "host": host, "port": port, "log_level": log_level, "lifespan": lifespan})
+        def mock_run(app, host=None, port=None, log_level="info", lifespan="auto", log_config=None):
+            captured_args.update({"app": app, "host": host, "port": port, "log_level": log_level, "lifespan": lifespan, "log_config": log_config})
 
         monkeypatch.setattr("uvicorn.run", mock_run)
 
@@ -1559,7 +1809,7 @@ class TestAgentServerFunctions:
 
         # Mock uvicorn.run
         captured: dict = {}
-        def mock_run(app, host=None, port=None, log_level="info", lifespan="auto"):
+        def mock_run(app, host=None, port=None, log_level="info", lifespan="auto", log_config=None):
             captured["host"] = host
             captured["port"] = port
         monkeypatch.setattr("uvicorn.run", mock_run)

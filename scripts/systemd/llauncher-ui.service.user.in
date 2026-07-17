@@ -1,0 +1,67 @@
+; llauncher Streamlit UI — systemd *user* unit template.
+;
+; Do not install this file directly. Run `scripts/systemd/install-ui.sh`
+; (as your own operator account, NOT root), which copies this template to
+; ${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/llauncher-ui.service and
+; runs `systemctl --user enable --now`.
+;
+; This unit has NO @…@ placeholders: every value is fixed. The UI runs as the
+; caller's own uid (no User=/Group=/EnvironmentFile=) — it is an unprivileged,
+; loopback-only (127.0.0.1) per-operator front-end, not machine infrastructure.
+; See ADR-022 (narrows ADR-018's UI posture): the agent is a system service,
+; the UI is a per-operator `systemd --user` unit.
+;
+; The /usr/local/bin/llauncher-ui symlink is placed by
+; scripts/systemd/install-cli.sh (root). Group `inference` membership for the
+; caller is host provisioning. Neither is the installer's job.
+
+[Unit]
+Description=llauncher Streamlit UI (per-operator user service)
+Documentation=https://github.com/shanevcantwell/llauncher
+After=network-online.target
+Wants=network-online.target
+; Crash-loop guard mirrors the agent unit
+; (scripts/systemd/llauncher-agent.service.system.in): restart aggressively,
+; but if the unit fails 10 times inside a minute treat it as a config problem
+; and give up. ADR-022 §Open Questions deferred this policy to the build; the
+; UI and agent share the same supervised-process failure shape, so the agent's
+; values carry over unchanged.
+; (StartLimit* live in [Unit] since systemd 230; [Service] is deprecated.)
+StartLimitBurst=10
+StartLimitIntervalSec=60
+
+[Service]
+Type=simple
+; The single non-negotiable line: without it the UI reads ~/.llauncher and
+; misses the system agent's /var/lib/llauncher/agent.env (0640 root:inference,
+; single live source of the token as of #284), which the caller reads in
+; place via `inference`-group membership. The value is fixed at process
+; start — exactly when systemd injects the unit env. See ADR-022 §Open
+; Questions and core/agent_token.py::default_env_path().
+Environment=LAUNCHER_STATE_DIR=/var/lib/llauncher
+
+; ADR-023 Phase B (issue #228): fail-loud backstop. ExecStart resolves
+; /usr/local/bin/llauncher-ui -> /opt/llauncher/venv/bin/llauncher-ui, the
+; shared, ROOT-owned venv that the operator's disk-hygiene policy treats as
+; non-durable (freely reaped by a sweep). This is a `systemd --user` unit running
+; as the operator uid: it CANNOT write or recompose that root tree, and it CANNOT
+; Requires=/After= the system ensure unit (cross-scope dependency forbidden). So
+; it only DETECTS-and-FAILS-LOUD — if the shared venv or its llauncher-ui entry
+; point is missing/unusable, exit nonzero so the unit enters `failed` with an
+; actionable journal line, rather than starting a broken UI. Recompose stays a
+; ROOT action (OQ1 Fork B-shared): the operator runs the real, existing recompose
+; command named below. Invariant VENV-OWNED-OR-GUARANTEED / PARSE-AT-THE-DOOR:
+; guarantee or fail loud at the door; never start a degraded service.
+; (No leading `-`: a nonzero exit here MUST fail the unit — that is the point.)
+ExecStartPre=/bin/sh -c 'test -d /opt/llauncher/venv && test -x /opt/llauncher/venv/bin/llauncher-ui || { echo "llauncher-ui backstop (ADR-023): shared venv /opt/llauncher/venv or its llauncher-ui entry point is missing or not executable. A --user unit cannot recompose this root-owned venv (cross-scope recompose is forbidden). Recompose it as root from the repo checkout: sudo bash scripts/systemd/install-cli.sh" >&2; exit 1; }'
+ExecStart=/usr/local/bin/llauncher-ui
+
+Restart=on-failure
+RestartSec=5
+
+; journald (per-user) captures stdout/stderr by default — view with
+;   journalctl --user -u llauncher-ui -f
+
+[Install]
+; User units want default.target, NOT multi-user.target.
+WantedBy=default.target

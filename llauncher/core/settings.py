@@ -170,3 +170,9 @@ LLAUNCHER_STOP_GRACE_S = float(os.getenv("LLAUNCHER_STOP_GRACE_S", "5.0"))
 # redraws per second collapse into one lockfile + ConfigStore read).
 # ``<= 0`` disables caching — every request hits disk.
 LAUNCHER_FOOTER_CACHE_S = float(os.getenv("LAUNCHER_FOOTER_CACHE_S", "1.0"))
+
+# TTL in seconds for the ``/server-metrics/{port}`` aggregate-tier cache
+# (ADR-LLNCH-019, issue #179). Absorbs poll cadence so a burst of
+# consumer polls collapses into one round-trip to the model server's
+# ``/health`` + ``/metrics`` endpoints. ``<= 0`` disables caching.
+LLAUNCHER_METRICS_CACHE_S = float(os.getenv("LLAUNCHER_METRICS_CACHE_S", "2.0"))

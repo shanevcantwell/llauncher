@@ -39,6 +39,8 @@ class StartResult:
     pid: int | None = None
     message: str = ""
     cancel_ignored_post_commit: bool = False
+    ctx_size: int | None = None
+    parallel: int | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -75,6 +77,10 @@ def start(
         recon = lf.reconcile_lockfile(existing)
         if recon.pid_alive:
             if existing.model == model_name:
+                # Idempotent short-circuit predates the config lookup below;
+                # fetch it here too so a consumer folding this result still
+                # sees ctx_size/parallel refreshed on a no-op start (issue #267).
+                existing_config = ConfigStore.get_model(model_name)
                 return StartResult(
                     success=True,
                     action="already_running",
@@ -82,6 +88,12 @@ def start(
                     model=model_name,
                     pid=existing.pid,
                     message=f"{model_name} already running on port {port}",
+                    ctx_size=(
+                        existing_config.ctx_size if existing_config is not None else None
+                    ),
+                    parallel=(
+                        existing_config.parallel if existing_config is not None else None
+                    ),
                 )
             # Different model — caller should use swap, not start.
             al.record(
@@ -278,6 +290,8 @@ def start(
             pid=popen.pid,
             message=f"{model_name} started on port {port}",
             cancel_ignored_post_commit=cancel_ignored,
+            ctx_size=config.ctx_size,
+            parallel=config.parallel,
         )
     finally:
         mk.release_marker(port)

@@ -1,7 +1,7 @@
 """Tests for the single LAUNCHER_STATE_DIR durable-state base (issue #196).
 
 The durable-state paths (config.json, nodes.json, node_tokens.json,
-agent.token, run/, audit.jsonl, logs/) all derive from one
+agent.env, run/, audit.jsonl, logs/) all derive from one
 env-configurable base, ``LAUNCHER_STATE_DIR``, defined in
 ``llauncher.core.settings``.
 
@@ -10,7 +10,7 @@ import time** (``settings.LAUNCHER_RUN_DIR``, ``config.CONFIG_DIR``,
 ``registry.NODES_FILE``, ...). They cannot be re-resolved by merely
 setting an env var after import, so these tests use
 ``importlib.reload`` under a patched environment to re-execute the
-module bodies. ``llauncher.agent.auth.default_token_path`` is the
+module bodies. ``llauncher.agent.auth.default_env_path`` is the
 exception — it resolves the base lazily at call time, so it picks up a
 ``monkeypatch.setattr`` on ``settings.LAUNCHER_STATE_DIR`` without a
 reload.
@@ -77,7 +77,7 @@ def test_defaults_under_home_llauncher_when_unset(monkeypatch, tmp_path):
     assert registry_mod.NODE_TOKENS_FILE == base / "node_tokens.json"
     # auth resolves lazily at call time
     monkeypatch.setattr(settings_mod, "LAUNCHER_STATE_DIR", base)
-    assert auth_mod.default_token_path() == base / "agent.token"
+    assert auth_mod.default_env_path() == base / "agent.env"
 
 
 # --- (b) LAUNCHER_STATE_DIR redirects every derived path ----------------
@@ -100,7 +100,7 @@ def test_state_dir_redirects_all_paths(monkeypatch, tmp_path):
     assert registry_mod.NODES_FILE == base / "nodes.json"
     assert registry_mod.NODE_TOKENS_FILE == base / "node_tokens.json"
     monkeypatch.setattr(settings_mod, "LAUNCHER_STATE_DIR", base)
-    assert auth_mod.default_token_path() == base / "agent.token"
+    assert auth_mod.default_env_path() == base / "agent.env"
 
 
 def test_state_dir_is_not_home_relative(monkeypatch, tmp_path):

@@ -6,6 +6,20 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 
 ## [Unreleased]
 
+### Added
+
+- **Remote-node provisioning is now discoverable (#134).** The README's
+  Multi-Node section gained an *Adding a remote node* walkthrough naming the
+  token file on each platform (`~/.llauncher/agent.token` on Linux,
+  `%USERPROFILE%\.llauncher\agent.token` on Windows) and the SSH/RDP →
+  read → copy → paste steps. The UI's Add Node form gained an info banner and
+  platform-specific API-key help text. A new `llauncher-agent print-token`
+  subcommand resolves and prints the local agent token to stdout, so
+  `ssh <box> llauncher-agent print-token` replaces file-archaeology. UI auth
+  is restored end-to-end after the security-hardening cohort
+  (#131, #132, #134). The manual copy itself is eliminated by session-token
+  issuance in a later phase (#137).
+
 ### Breaking changes
 
 - **Agent env-var family renamed (#138).** The four service-facing agent

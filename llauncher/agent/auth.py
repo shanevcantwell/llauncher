@@ -8,10 +8,10 @@ public token-resolution names are re-exported below so existing
 ``from llauncher.agent.auth import resolve_agent_token`` callers keep
 working unchanged.
 
-Note for test authors: monkeypatching ``default_token_path`` /
+Note for test authors: monkeypatching ``default_env_path`` /
 ``resolve_agent_token`` must target the canonical home
 (``llauncher.core.agent_token``), because the implementations resolve their
-collaborators (e.g. ``default_token_path``) through *that* module's
+collaborators (e.g. ``default_env_path``) through *that* module's
 namespace. Patching the re-exported name here has no effect on the
 implementation's internal lookups.
 """
@@ -25,8 +25,12 @@ from __future__ import annotations
 import sys  # noqa: F401  (re-exported for legacy ``auth_mod.sys`` patch sites)
 
 from llauncher.core.agent_token import (  # noqa: F401
-    _read_token_file,  # imported directly by tests/unit/test_agent_auth_token_file.py
-    default_token_path,
+    LEGACY_ENV_VAR,
+    _read_env_file_token,  # imported directly by tests/unit/test_agent_auth_token_file.py
+    count_env_file_token_lines,
+    default_env_path,
+    legacy_token_env_misconfigured,
+    parse_env_file,
     resolve_agent_token,
 )
 

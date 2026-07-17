@@ -3,10 +3,13 @@
 **Constitutions, by reference** (read before structural work; cite handles in
 PRs and commits):
 
-- `~/github/shanevcantwell/design-docs/ecosystem-ground-physics/CODE_CONSTITUTION.md`
+- `/srv/dev/shanevcantwell/operating-doctrine/ground-physics/CODE_CONSTITUTION.md`
   — ecosystem rules. The *why* is in `GROUND_PHYSICS.md` beside it; the
-  alignment plan in `ALIGNMENT_ROADMAP.md`.
-- `.claude/architecture.md` — layer map and forbidden import edges.
+  alignment plan in `ALIGNMENT_ROADMAP.md`. (Canonical home as of the
+  2026-06-22 migration; the old `design-docs/ecosystem-ground-physics/` path
+  is a `MOVED.md` tombstone.)
+- `docs/ARCHITECTURE.md` — layer map, forbidden import edges, and the audited
+  conformance rules against them.
 
 ## llauncher's position in the ecosystem physics
 
@@ -55,6 +58,10 @@ trust-and-degrade on an unrecognized one (`PARSE-AT-THE-DOOR`).
 - **Gates before any merge:** full pytest; non-UI coverage ≥93%
   (`--cov-fail-under=93`); coverage profile maximized over changed paths;
   dispatched code review.
+- **Merge mechanics + ground close:** merges land via `gh pr merge --squash --delete-branch`
+  (deletes remote + local head, returns the checkout to `main`). A session that touched the
+  repo ends with the shared checkout clean on `main` and its scratch worktrees removed or
+  banked; session-start is never where the previous session's ground gets dispositioned.
 - **Runtime verification:** the live GPU runtime may be driven freely
   (start/stop/swap real servers), including alongside the resident
   :8081/:8082 services.
