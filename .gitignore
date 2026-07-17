@@ -147,3 +147,6 @@ agentdb.rvf
 agentdb.rvf.lock
 ruvector.db
 scripts/windows/agent.env
+
+# operator-local systemd env (may carry a token; live copy lives in ~/.config/llauncher)
+scripts/systemd/agent.env

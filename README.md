@@ -88,13 +88,22 @@ run.bat agent-bg     :: Start agent detached (logs to agent.log)
 run.bat discover     :: List discovered launch scripts
 ```
 
-### Running the agent as a service
+### Running as a service
 
 For a persistent install that survives reboots and restarts on crash,
 the agent ships with installers for systemd (Linux, user-mode) and NSSM
 (Windows). See [`docs/operations/run-as-a-service.md`](docs/operations/run-as-a-service.md).
-The UI is not service-managed by design — it's interactive and you
-launch it on demand.
+
+The UI supports two postures — pick whichever fits how you work:
+
+- **On demand:** `llauncher-ui` (or `./run.sh ui`) starts the dashboard in
+  the foreground for the session; close the terminal and it's gone.
+- **Per-operator `systemd --user` service** ([ADR-022](docs/adrs/accepted/022-llauncher-ui-user-service.md)):
+  install with [`scripts/systemd/install-ui.sh`](scripts/systemd/install-ui.sh)
+  for a unit that restarts on crash (`Restart=on-failure`) and logs to
+  journald (`journalctl --user -u llauncher-ui -f`). See
+  [`docs/operations/run-as-a-service.md`](docs/operations/run-as-a-service.md)
+  for the full install steps.
 
 ## Usage
 
