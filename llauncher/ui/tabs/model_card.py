@@ -19,6 +19,7 @@ def render_model_card(
     node_name: str,
     model: dict,
     running_server: RemoteServerInfo | None = None,
+    widget_key_suffix: str = "",
 ) -> None:
     """Render a model card with inline toggle button and collapsed details.
 
@@ -48,7 +49,7 @@ def render_model_card(
         if is_running and running_server:
             if st.button(
                 status_icon,
-                key=f"toggle_stop_{node_name}_{model_name}",
+                key=f"toggle_stop_{node_name}_{model_name}{widget_key_suffix}",
                 help=f"Stop {model_name}",
                 width='stretch',
             ):
@@ -60,7 +61,15 @@ def render_model_card(
 
     # Collapsed expander for details (port, logs, edit button)
     with st.expander("📋 Details", expanded=False):
-        _render_model_details(state, aggregator, node_name, model_name, model, running_server)
+        _render_model_details(
+            state,
+            aggregator,
+            node_name,
+            model_name,
+            model,
+            running_server,
+            widget_key_suffix,
+        )
 
 
 def _render_start_button(
@@ -213,6 +222,7 @@ def _render_model_details(
     model_name: str,
     model: dict,
     running_server: RemoteServerInfo | None = None,
+    widget_key_suffix: str = "",
 ) -> None:
     """Render the model details in the expander.
 
@@ -262,7 +272,10 @@ def _render_model_details(
     if running_server:
         st.divider()
         with st.expander("📄 Logs (last 100 lines)", expanded=False):
-            if st.button("🔄 Refresh", key=f"refresh_logs_{node_name}_{model_name}"):
+            if st.button(
+                "🔄 Refresh",
+                key=f"refresh_logs_{node_name}_{model_name}{widget_key_suffix}",
+            ):
                 st.rerun()
 
             if node_name == "local":

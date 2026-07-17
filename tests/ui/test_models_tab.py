@@ -329,6 +329,26 @@ class TestModelCardLoop:
         # The lookup consumed a *fresh* process scan, not a stale snapshot.
         mock_state.refresh.assert_called_once_with()
 
+    def test_same_model_running_on_two_ports_gets_two_controllable_cards(
+        self, tab_harness, mock_state, mock_registry, mock_aggregator,
+        mock_sub_renders,
+    ):
+        mock_state.models["alpha"] = _model_config("alpha")
+        mock_state.running[PORT] = _local_server("alpha")
+        mock_state.running[PORT + 1] = _local_server(
+            "alpha", port=PORT + 1, pid=PID + 1
+        )
+
+        at = _tab(tab_harness, mock_state, mock_registry, mock_aggregator, "local")
+
+        assert not at.exception
+        calls = mock_sub_renders.render_model_card.call_args_list
+        assert [call.args[5].port for call in calls] == [PORT, PORT + 1]
+        assert [call.kwargs["widget_key_suffix"] for call in calls] == [
+            f"_{PORT}",
+            f"_{PORT + 1}",
+        ]
+
     def test_remote_target_cards_come_from_the_aggregator_not_local_state(
         self, tab_harness, mock_state, mock_registry, mock_aggregator,
         mock_sub_renders,

@@ -107,8 +107,23 @@ def render_models_tab(
 
     sorted_models = sorted(models_for_target, key=lambda m: m["name"].lower())
     for model in sorted_models:
-        running_server = running_map.get((target, model["name"]))
-        render_model_card(state, registry, aggregator, target, model, running_server)
+        running_servers = running_map.get((target, model["name"]), [])
+        if not running_servers:
+            render_model_card(state, registry, aggregator, target, model, None)
+            continue
+        for running_server in running_servers:
+            widget_key_suffix = (
+                f"_{running_server.port}" if len(running_servers) > 1 else ""
+            )
+            render_model_card(
+                state,
+                registry,
+                aggregator,
+                target,
+                model,
+                running_server,
+                widget_key_suffix=widget_key_suffix,
+            )
 
 
 def _get_editing_model(state: LauncherState) -> str | None:
@@ -128,9 +143,9 @@ def _build_running_map(
     state: LauncherState,
     aggregator: RemoteAggregator,
     target: str,
-) -> dict[tuple[str, str], RemoteServerInfo]:
-    """Index running servers by ``(node_name, config_name)`` for ``target``."""
-    running_map: dict[tuple[str, str], RemoteServerInfo] = {}
+) -> dict[tuple[str, str], list[RemoteServerInfo]]:
+    """Group running servers by ``(node_name, config_name)`` for ``target``."""
+    running_map: dict[tuple[str, str], list[RemoteServerInfo]] = {}
 
     if target == LOCAL_NODE:
         state.refresh()
@@ -144,10 +159,12 @@ def _build_running_map(
                 uptime_seconds=server.uptime_seconds(),
                 logs_path=server.logs_path,
             )
-            running_map[(LOCAL_NODE, server.config_name)] = info
+            running_map.setdefault((LOCAL_NODE, server.config_name), []).append(info)
     else:
         for server in aggregator.get_all_servers():
             if server.node_name == target:
-                running_map[(server.node_name, server.config_name)] = server
+                running_map.setdefault(
+                    (server.node_name, server.config_name), []
+                ).append(server)
 
     return running_map
