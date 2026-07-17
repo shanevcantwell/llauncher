@@ -3,7 +3,10 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from llauncher.agent.middleware import AuthenticationMiddleware
+from llauncher.agent.middleware import (
+    AuthenticationMiddleware,
+    _AUTH_EXEMPT_PATHS,
+)
 
 
 def _make_app(token=None) -> tuple[FastAPI, TestClient]:
@@ -91,6 +94,23 @@ def test_health_exempt_with_empty_key(self=None):
     # Exempt paths bypass auth entirely — empty or wrong key doesn't matter
     response = client.get("/health", headers={"X-Api-Key": ""})
     assert response.status_code == 200
+
+
+def test_exempt_paths_match_documented_set():
+    """Pin the exempt set to ADR-003's narrowed contract (#126 drift guard).
+
+    ADR-003 Decision §3 / docs/auth.md document exactly four auth-exempt
+    paths. Every read endpoint (`/status`, `/models`, `/node-info`, …) must
+    require the token because each leaks something. This guard fails loudly
+    if code widens the set without a matching doc update, re-opening the
+    drift that #126 closed.
+    """
+    assert _AUTH_EXEMPT_PATHS == frozenset(
+        {"/health", "/docs", "/redoc", "/openapi.json"}
+    )
+    # Read endpoints that must NOT be exempt (the security-cohort posture).
+    for read_path in ("/status", "/models", "/models/health", "/node-info"):
+        assert read_path not in _AUTH_EXEMPT_PATHS
 
 
 # ---------------------------------------------------------------------------
