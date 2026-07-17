@@ -86,6 +86,49 @@ def test_log_stem_for_is_glob_safe(log_dir):
         assert re.fullmatch(r"[\w\-]+", proc.log_stem_for(name))
 
 
+# ──────────────────── read_logs_for_port (#201) ───────────────────
+
+
+def test_read_logs_for_port_returns_none_when_no_file(log_dir):
+    """No ``*-{port}.log`` on disk → None, so the agent can map it to 404."""
+    assert proc.read_logs_for_port(8089) is None
+
+
+def test_read_logs_for_port_tails_without_a_live_process(log_dir):
+    """The death cause of an immediately-exited server is retrievable from
+    disk with no live pid — the heart of #201 Part 2b."""
+    f = proc.log_path_for("BrokenModel", 8081)
+    _write(f, "=== started ===", "error while loading shared libraries: libfoo.so")
+    lines = proc.read_logs_for_port(8081, lines=20)
+    assert lines is not None
+    assert any("shared libraries" in ln for ln in lines)
+
+
+def test_read_logs_for_port_prefers_freshest_file(log_dir):
+    """Across a swap two ``*-{port}.log`` may coexist; serve the newest."""
+    import os
+    import time
+
+    old = log_dir / "OldModel-8082.log"
+    new = log_dir / "NewModel-8082.log"
+    _write(old, "old occupant line")
+    _write(new, "new occupant line")
+    now = time.time()
+    os.utime(old, (now - 100, now - 100))
+    os.utime(new, (now, now))
+
+    lines = proc.read_logs_for_port(8082, lines=20)
+    assert any("new occupant" in ln for ln in lines)
+    assert all("old occupant" not in ln for ln in lines)
+
+
+def test_read_logs_for_port_empty_file_is_empty_list_not_none(log_dir):
+    """An existing but empty log → [] (200 with no lines), distinct from a
+    missing file (None → 404)."""
+    (log_dir / "EmptyModel-8083.log").write_text("", encoding="utf-8")
+    assert proc.read_logs_for_port(8083) == []
+
+
 # ─────────────────────── stream_logs ─────────────────────────────
 
 

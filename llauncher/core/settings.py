@@ -17,19 +17,44 @@ _llama_server_path = Path(os.getenv(
     str(Path.home() / ".local" / "bin" / "llama-server")
 ))
 
-# If the path is a directory, try to auto-detect llama-server binary
-if _llama_server_path.is_dir():
-    # Try llama-server first, then llama-server.exe (Windows)
+# If the path is a directory, try to auto-detect llama-server binary.
+#
+# Every filesystem probe here (`.is_dir()`, `.exists()`) is guarded
+# against OSError (incl. PermissionError / FileNotFoundError on the
+# parent). A stale, unreadable, or migrated LLAMA_SERVER_PATH must never
+# raise at *import* time — that would brick the entire package (issue
+# #195: `import llauncher`, `llauncher --help`, and test collection all
+# fail). On any probe failure we fall back to the configured path as a
+# plain Path — the same graceful fallback the happy path already takes
+# when the path isn't a directory — so the failure surfaces with a clear
+# message at point-of-use (start/preflight), not at import.
+def _resolve_llama_server_path(configured: Path) -> Path:
+    try:
+        is_dir = configured.is_dir()
+    except OSError:
+        logger.warning(
+            "Could not probe LLAMA_SERVER_PATH %r (%s); deferring "
+            "validation to start/preflight.",
+            str(configured),
+            "unreadable",
+        )
+        return configured
+    if not is_dir:
+        return configured
+    # Directory: try llama-server first, then llama-server.exe (Windows).
     for candidate in ["llama-server", "llama-server.exe"]:
-        binary_path = _llama_server_path / candidate
-        if binary_path.exists():
-            LLAMA_SERVER_PATH = binary_path
-            break
-    else:
-        # Fallback: use the directory path (will fail later with FileNotFoundError)
-        LLAMA_SERVER_PATH = _llama_server_path
-else:
-    LLAMA_SERVER_PATH = _llama_server_path
+        binary_path = configured / candidate
+        try:
+            exists = binary_path.exists()
+        except OSError:
+            continue
+        if exists:
+            return binary_path
+    # Fallback: use the directory path (will fail later with a clear error).
+    return configured
+
+
+LLAMA_SERVER_PATH = _resolve_llama_server_path(_llama_server_path)
 
 # Path to launch scripts directory
 SCRIPTS_PATH = Path(os.getenv(
@@ -64,19 +89,45 @@ AGENT_API_KEY: str | None = os.getenv("LLAUNCHER_AGENT_TOKEN")
 if AGENT_API_KEY == "":
     AGENT_API_KEY = None
 
+# Port the local llauncher agent binds (env: LLAUNCHER_AGENT_PORT, default
+# 8765). Mirrors ``agent.config.AgentConfig.from_env``'s port read so the
+# delegation gate (``core.delegation``) and the remote-node client share a
+# single source of truth rather than each re-reading the env inline. Only
+# the ``LLAUNCHER_``-prefixed name is honored — the legacy single-``L``
+# spelling is intentionally NOT a fallback (issue #151 naming direction;
+# see test_env_var_naming_regression).
+AGENT_PORT = int(os.getenv("LLAUNCHER_AGENT_PORT", "8765"))
+
+# Base directory for all durable launcher state (issue #196). Every
+# per-actor state path (config, run lockfiles, audit log, per-server
+# logs, node registry + token sidecars, agent token) derives from this
+# single base so a multiuser deployment can point every actor at a
+# shared, non-home-relative location via one env var. Each per-dir env
+# override below still wins when set explicitly; otherwise the path is
+# derived from this base. The legacy ``~/.llauncher`` default is the
+# base's default, so with ``LAUNCHER_STATE_DIR`` unset every resolved
+# path is byte-identical to before this var existed. Pure getenv + Path
+# — no filesystem probing at import (cf. issue #195).
+LAUNCHER_STATE_DIR = Path(os.getenv(
+    "LAUNCHER_STATE_DIR",
+    str(Path.home() / ".llauncher"),
+))
+
 # Lockfile directory for running servers (per ADR-008).
 # Configurable via env so container deployments can volume-mount it,
 # enabling in-container agents to read host-side llauncher state.
+# Precedence: explicit ``LAUNCHER_RUN_DIR`` > ``LAUNCHER_STATE_DIR``/run.
 LAUNCHER_RUN_DIR = Path(os.getenv(
     "LAUNCHER_RUN_DIR",
-    str(Path.home() / ".llauncher" / "run"),
+    str(LAUNCHER_STATE_DIR / "run"),
 ))
 
 # Audit log path (per ADR-008). JSON Lines, append-only.
 # Same volume-mount story as LAUNCHER_RUN_DIR.
+# Precedence: explicit ``LAUNCHER_AUDIT_PATH`` > ``LAUNCHER_STATE_DIR``/audit.jsonl.
 LAUNCHER_AUDIT_PATH = Path(os.getenv(
     "LAUNCHER_AUDIT_PATH",
-    str(Path.home() / ".llauncher" / "audit.jsonl"),
+    str(LAUNCHER_STATE_DIR / "audit.jsonl"),
 ))
 
 # Per-server log directory (ADR-013). Files inside are
@@ -86,7 +137,7 @@ LAUNCHER_AUDIT_PATH = Path(os.getenv(
 # same way as ``LAUNCHER_RUN_DIR`` and ``LAUNCHER_AUDIT_PATH``.
 LAUNCHER_LOG_DIR = Path(os.getenv(
     "LAUNCHER_LOG_DIR",
-    str(Path.home() / ".llauncher" / "logs"),
+    str(LAUNCHER_STATE_DIR / "logs"),
 ))
 
 # Size cap for a single live log file before rotation kicks in (ADR-013).
@@ -119,3 +170,9 @@ LLAUNCHER_STOP_GRACE_S = float(os.getenv("LLAUNCHER_STOP_GRACE_S", "5.0"))
 # redraws per second collapse into one lockfile + ConfigStore read).
 # ``<= 0`` disables caching — every request hits disk.
 LAUNCHER_FOOTER_CACHE_S = float(os.getenv("LAUNCHER_FOOTER_CACHE_S", "1.0"))
+
+# TTL in seconds for the ``/server-metrics/{port}`` aggregate-tier cache
+# (ADR-LLNCH-019, issue #179). Absorbs poll cadence so a burst of
+# consumer polls collapses into one round-trip to the model server's
+# ``/health`` + ``/metrics`` endpoints. ``<= 0`` disables caching.
+LLAUNCHER_METRICS_CACHE_S = float(os.getenv("LLAUNCHER_METRICS_CACHE_S", "2.0"))

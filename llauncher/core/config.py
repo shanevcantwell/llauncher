@@ -8,14 +8,17 @@ don't pass one are recorded as ``"unknown"``.
 """
 
 import json
-from pathlib import Path
 
 from llauncher.core import audit_log as al
 from llauncher.core.audit_log import AuditAction, AuditResult
+from llauncher.core.settings import LAUNCHER_STATE_DIR
 from llauncher.models.config import ModelConfig
 
 
-CONFIG_DIR = Path.home() / ".llauncher"
+# Derived from the single LAUNCHER_STATE_DIR base (issue #196). With
+# LAUNCHER_STATE_DIR unset, this resolves to ~/.llauncher exactly as
+# before.
+CONFIG_DIR = LAUNCHER_STATE_DIR
 CONFIG_PATH = CONFIG_DIR / "config.json"
 
 
@@ -33,7 +36,10 @@ class ConfigStore:
             return {}
 
         try:
-            data = json.loads(CONFIG_PATH.read_text())
+            # utf-8-sig: PARSE-AT-THE-DOOR tolerance for a hand-edited
+            # config.json carrying a Windows-editor UTF-8 BOM (#310) --
+            # same defect class, and same fix, as the registry.py reads.
+            data = json.loads(CONFIG_PATH.read_text(encoding="utf-8-sig"))
             # Use from_dict_unvalidated to skip path validation for persisted configs
             return {
                 name: ModelConfig.from_dict_unvalidated(cfg)

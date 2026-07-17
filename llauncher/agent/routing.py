@@ -8,7 +8,6 @@ and op results into HTTP status codes.
 
 from __future__ import annotations
 
-import socket
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Response
@@ -35,10 +34,16 @@ def get_state() -> LauncherState:
 
 
 def get_node_name() -> str:
-    """Get the node name from environment or hostname."""
-    import os
+    """Get the node name from environment or hostname.
 
-    return os.getenv("LLAUNCHER_AGENT_NODE_NAME", socket.gethostname())
+    Delegates to :func:`llauncher.core.node_info.get_node_name` — the
+    single resolution point shared with the in-process self-loop path
+    (issue #125). Re-exported here so callers and tests that import it
+    from ``agent.routing`` keep working.
+    """
+    from llauncher.core import node_info as _node_info
+
+    return _node_info.get_node_name()
 
 
 # ─────────── Request body schemas ────────────────────────────────
@@ -121,25 +126,15 @@ async def health_check() -> dict:
 
 @router.get("/node-info")
 def node_info() -> dict:
-    """Get information about this node."""
-    import platform
+    """Get information about this node.
 
-    ips: list[str] = []
-    try:
-        hostname = socket.gethostname()
-        addr_info = socket.getaddrinfo(hostname, None)
-        ips = list(set(str(addr[4][0]) for addr in addr_info))
-    except Exception:
-        pass
+    The payload is built by :func:`llauncher.core.node_info.get_node_info`
+    — the single source shared with the in-process self-loop path so the
+    HTTP endpoint and ``RemoteNode.get_node_info`` never drift (issue #125).
+    """
+    from llauncher.core import node_info as _node_info
 
-    return {
-        "node_name": get_node_name(),
-        "hostname": socket.gethostname(),
-        "os": platform.system(),
-        "os_version": platform.version(),
-        "python_version": platform.python_version(),
-        "ip_addresses": ips,
-    }
+    return _node_info.get_node_info()
 
 
 @router.get("/status")
@@ -149,6 +144,14 @@ def get_status() -> dict:
     Returns GPU health data (ADR-006) when a GPU backend is available.
     """
     from llauncher.core.gpu import GPUHealthCollector
+
+    # Reconcile stale lockfiles before reporting (issue #201 Part 2a). A
+    # server that spawned then died immediately leaves total_running correct
+    # (it's gone from the process table) but its {port}.lock behind, which
+    # would block a future start on that port. The sweep prunes dead claims
+    # and emits one OBSERVED_STOPPED audit entry each; it is idempotent and
+    # cheap, so running it on every status poll is safe.
+    ops.reconcile_stale_lockfiles(caller="status")
 
     state = get_state()
     state.refresh_running_servers()
@@ -236,6 +239,40 @@ def get_footer_context(port: int) -> dict:
     return ctx.to_dict()
 
 
+@router.get("/server-metrics/{port}")
+def get_server_metrics(port: int) -> dict:
+    """Aggregate live-telemetry snapshot for ``port`` (ADR-LLNCH-019).
+
+    Response shape is **pinned** by the ADR; do not extend without
+    amending it. Safe tier — no prompt text. Always ``200``: an
+    unreachable/loading/no-metrics-flag server is a degraded envelope
+    (``{"available": false, "reason": ...}``), not an HTTP error —
+    matching the ADR's PARSE-AT-THE-DOOR posture. Same auth as
+    ``/status`` (not exempt, see ``agent.middleware``).
+    """
+    from llauncher.core import server_metrics
+
+    return server_metrics.get_aggregate_metrics(port)
+
+
+@router.get("/server-slots/{port}")
+def get_server_slots(port: int) -> dict:
+    """Sensitive per-slot snapshot for ``port`` — includes prompt text.
+
+    Returns ``404 slots_disabled`` when the server was not started with
+    ``--slots`` (the launcher's default posture, issue #179 SP-1).
+    Other degraded states (unreachable) return ``200`` with a degraded
+    envelope, matching :func:`get_server_metrics`. Same auth as
+    ``/status`` (not exempt).
+    """
+    from llauncher.core import server_metrics
+
+    result = server_metrics.get_slots(port)
+    if result.get("reason") == "slots_disabled":
+        raise HTTPException(status_code=404, detail="slots_disabled")
+    return result
+
+
 @router.get("/models")
 def list_models() -> list[dict]:
     """List all configured models on this node."""
@@ -258,7 +295,6 @@ def list_models() -> list[dict]:
                 "mmproj_path": config.mmproj_path,
                 "n_gpu_layers": config.n_gpu_layers,
                 "ctx_size": config.ctx_size,
-                "np": config.np,
                 "running": running_port is not None,
                 "running_port": running_port,
             }
@@ -443,24 +479,47 @@ def delete_model(model_name: str) -> dict:
 
 @router.get("/logs/{port}")
 def get_logs(port: int, lines: Annotated[int, None] = None) -> dict:
-    """Get recent log lines for a server."""
-    from llauncher.core.process import stream_logs
+    """Get recent log lines for a server on ``port``.
+
+    When a server is live, tail its log by pid. When no server is live
+    (issue #201 Part 2b), fall back to the most-recent ``*-{port}.log`` on
+    disk so the operator can still retrieve the death cause of a server that
+    spawned then exited immediately — the previous behavior 404'd in that
+    case, hiding exactly the log that explains the failure. Only when no log
+    file exists for the port at all do we 404.
+    """
+    from llauncher.core import lockfile as lf
+    from llauncher.core.process import read_logs_for_port, stream_logs
 
     state = get_state()
     state.refresh()
 
-    if port not in state.running:
+    num_lines = lines or 100
+
+    if port in state.running:
+        server = state.running[port]
+        log_lines = stream_logs(pid=server.pid, lines=num_lines)
+        return {
+            "port": port,
+            "config_name": server.config_name,
+            "lines": log_lines,
+            "total_lines": len(log_lines),
+        }
+
+    # No live server — serve the most recent log file for the port.
+    log_lines = read_logs_for_port(port, num_lines)
+    if log_lines is None:
         raise HTTPException(
-            status_code=404, detail=f"No server running on port {port}"
+            status_code=404,
+            detail=f"No server running on port {port} and no log file found",
         )
 
-    server = state.running[port]
-    num_lines = lines or 100
-    log_lines = stream_logs(pid=server.pid, lines=num_lines)
-
+    # Best-effort model name from a lingering lockfile (the status-path
+    # reconcile may not have run yet); None when the claim is already gone.
+    claim = lf.read_lockfile(port)
     return {
         "port": port,
-        "config_name": server.config_name,
+        "config_name": claim.model if claim is not None else None,
         "lines": log_lines,
         "total_lines": len(log_lines),
     }

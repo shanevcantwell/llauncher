@@ -17,8 +17,30 @@ from __future__ import annotations
 from mcp import Tool
 
 from llauncher import operations as ops
+from llauncher.core import delegation
 from llauncher.core.process import stream_logs
+from llauncher.remote.node import local_agent_node
 from llauncher.state import LauncherState
+
+
+def _delegated_or_error(result: dict | None, verb: str, port: int) -> dict:
+    """Normalize a delegated verb result, guarding the ``dict | None`` seam.
+
+    ``RemoteNode`` verb methods are typed ``dict | None``: a 200 with a
+    JSON-null body yields Python ``None``. The MCP framework expects a
+    dict, so map that one case to a coherent error envelope. A genuine
+    agent error (transport failure, non-2xx) already arrives as
+    ``{"success": False, "error": ...}`` and is passed through unchanged —
+    we do NOT swallow it.
+    """
+    if result is None:
+        return {
+            "success": False,
+            "action": "error",
+            "port": port,
+            "error": f"Local agent returned an empty response for {verb}",
+        }
+    return result
 
 
 def get_tools() -> list[Tool]:
@@ -165,6 +187,48 @@ def get_tools() -> list[Tool]:
                 "required": ["port"],
             },
         ),
+        Tool(
+            name="server_metrics",
+            description=(
+                "Live in-server inference telemetry for a running server "
+                "(ADR-LLNCH-019): phase (idle/prompt/generating), "
+                "gen_tok_s, prompt_tok_s, slot counts, started_at. Safe "
+                "tier — no prompt text. Local-node only. Returns a "
+                "degraded envelope ({'available': false, 'reason': "
+                "'loading'|'no-metrics-flag'|'unreachable'}) rather than "
+                "erroring when the target server can't be read."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "port": {
+                        "type": "integer",
+                        "description": "Port number of the server",
+                    },
+                },
+                "required": ["port"],
+            },
+        ),
+        Tool(
+            name="server_slots",
+            description=(
+                "Per-slot detail for a running server, including prompt "
+                "text (ADR-LLNCH-019). Sensitive tier — grant separately "
+                "from server_metrics. Local-node only. Returns "
+                "{'available': false, 'reason': 'slots_disabled'} when "
+                "the server was not started with --slots."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "port": {
+                        "type": "integer",
+                        "description": "Port number of the server",
+                    },
+                },
+                "required": ["port"],
+            },
+        ),
     ]
 
 
@@ -193,6 +257,14 @@ async def start_server(args: dict) -> dict:
             "error": "Missing required argument: port",
         }
 
+    # Delegation gate (#200): with a healthy local agent present (or an
+    # explicit override), POST the launch to the agent over HTTP so the
+    # ``llama-server`` is a child of the systemd-managed agent. With no
+    # agent reachable, fall back to the in-process op (dev/standalone).
+    if delegation.should_delegate():
+        res = local_agent_node().start_server(model_name, port)
+        return _delegated_or_error(res, "start", port)
+
     result = ops.start(model_name, port, caller="mcp")
     return result.to_dict()
 
@@ -210,6 +282,11 @@ async def stop_server(args: dict) -> dict:
             "action": "error",
             "error": "Missing required argument: port",
         }
+
+    # Delegation gate (#200): see ``start_server``.
+    if delegation.should_delegate():
+        res = local_agent_node().stop_server(port)
+        return _delegated_or_error(res, "stop", port)
 
     result = ops.stop(port, caller="mcp")
     return result.to_dict()
@@ -237,6 +314,11 @@ async def swap_server(args: dict) -> dict:
             "action": "error",
             "error": "Missing required argument: model_name",
         }
+
+    # Delegation gate (#200): see ``start_server``.
+    if delegation.should_delegate():
+        res = local_agent_node().swap_server(model_name, port)
+        return _delegated_or_error(res, "swap", port)
 
     result = ops.swap(model_name, port, caller="mcp")
     return result.to_dict()
@@ -266,6 +348,43 @@ async def cancel_server(args: dict) -> dict:
         "marker_existed": delivered,
         "port": port,
     }
+
+
+# ─── Stateless collector tools (core.server_metrics, ADR-LLNCH-019) ──
+#
+# Unlike ``get_server_logs`` these don't consult ``LauncherState`` —
+# ``core.server_metrics`` reads the lockfile directly and polls the
+# target server itself (peer to ``core.gpu``, issue #179). Tier
+# separation is which tool a client is granted, not a flag: a client
+# holding ``server_metrics`` need not also hold ``server_slots``.
+
+
+async def server_metrics(args: dict) -> dict:
+    """Aggregate live-telemetry snapshot for ``args['port']`` (safe tier).
+
+    Thin wrapper over :func:`llauncher.core.server_metrics.get_aggregate_metrics`.
+    """
+    port = args.get("port")
+    if port is None:
+        return {"error": "Missing required argument: port"}
+
+    from llauncher.core import server_metrics as sm
+
+    return sm.get_aggregate_metrics(port)
+
+
+async def server_slots(args: dict) -> dict:
+    """Per-slot snapshot for ``args['port']``, including prompt text (sensitive tier).
+
+    Thin wrapper over :func:`llauncher.core.server_metrics.get_slots`.
+    """
+    port = args.get("port")
+    if port is None:
+        return {"error": "Missing required argument: port"}
+
+    from llauncher.core import server_metrics as sm
+
+    return sm.get_slots(port)
 
 
 # ───────────────── Read tools (state-backed) ───────────────────────

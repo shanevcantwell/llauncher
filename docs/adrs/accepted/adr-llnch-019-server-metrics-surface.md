@@ -1,7 +1,8 @@
 # ADR-LLNCH-019: Server-Metrics Surface — Live In-Server Inference Telemetry
 
-**Status:** Accepted (ratified 2026-06-19; implementation not yet begun)
+**Status:** Accepted (ratified 2026-06-19; implementation SP-1–SP-6 landed via #179 — `core/server_metrics.py`, `--slots`/`--no-slots` flag policy, `/server-metrics`+`/server-slots` agent endpoints, `server_metrics`/`server_slots` MCP tools, coverage + stub/real integration tests. SP-7 cross-repo handshake is a written finding, tracked on harness-tools#45, not a build blocker here.)
 **Date:** 2026-06-19
+**Amendment (2026-06-22):** `kv_cache_pct` is removed from the aggregate shape (§2 and §Testing). It is a *consumer-side derivation* — the footer computes context-fill locally from its token budget ÷ `ctx_size` — not server telemetry; and the observed `llama-server` build exposes **no** KV-cache metric on `/metrics` (#179 de-risk). Per `EMIT-CANONICAL / PARSE-AT-THE-DOOR`, llauncher surfaces only authoritative reads and **mints no derived metric**. No new invariant introduced.
 **Relationship to other ADRs:**
 - **ADR-012 (Footer Context Endpoint)** is the *static* sibling: it serves model/ctx_size/parallel from the lockfile + ConfigStore and **deliberately never contacts the live server**. ADR-LLNCH-019 supplies the *live* telemetry ADR-012 explicitly excludes. They **compose** — static context + live activity = the full footer view. ADR-LLNCH-019 does not modify ADR-012's pinned `/footer-context/{port}` contract.
 - **ADR-006 (GPU Resource Monitoring)** is the collector-pattern precedent: `core/server_metrics.py` is a peer to `core/gpu.py` (stateless collector, short TTL cache, degraded envelope, injectable backend seam).
@@ -19,7 +20,7 @@ llauncher has three monitoring layers; two exist, the third is the gap:
 | Hardware | `nvidia-smi` | ADR-006 (exists) |
 | **In-server inference telemetry** | the model server's own HTTP endpoints | **this ADR** |
 
-llama-server exposes `/health` (ready/loading/error), `/metrics` (Prometheus: prompt & generation tok/s, KV-cache usage, requests processing/deferred — only when started with `--metrics`), and `/slots` (per-slot state + prompt text, gated by `--slots`). Nothing in llauncher reads them.
+llama-server exposes `/health` (ready/loading/error), `/metrics` (Prometheus: prompt & generation tok/s, requests processing/deferred — only when started with `--metrics`; the observed build exposes no KV-cache metric), and `/slots` (per-slot state + prompt text, gated by `--slots`). Nothing in llauncher reads them.
 
 **Driving use case (read-only reference; consumer lives in another repo).** Replace "tail three folders of per-model logs to confirm the active model is doing something" with a minimal **activity indicator**: phase (idle → prompt-processing → generating), prediction tok/s, a coarse timer, and the canonical model name. The v1 consumer is the pi footer extension (canonical home: the harness-tools repo), which reaches llauncher's **agent at port 8765** (host derived from the active provider's baseUrl; squid already whitelists 8765). Per the repo boundary, that consumer is **read-only reference here** — llauncher builds the surface; the consumer is built from its own repo against this contract.
 
@@ -37,7 +38,7 @@ llama-server exposes `/health` (ready/loading/error), `/metrics` (Prometheus: pr
 
 | Tier | Reads | Returns | Sensitivity |
 |---|---|---|---|
-| **aggregate** | `/health` + `/metrics`, + lockfile `started_at` | `{state, phase: idle\|prompt\|generating, gen_tok_s, prompt_tok_s, kv_cache_pct, slots_busy, slots_total, requests_deferred, started_at}` | safe — no prompt text |
+| **aggregate** | `/health` + `/metrics`, + lockfile `started_at` | `{state, phase: idle\|prompt\|generating, gen_tok_s, prompt_tok_s, slots_busy, slots_total, requests_deferred, started_at}` | safe — no prompt text |
 | **slots** | `/slots` | per-slot detail **including prompt text** | sensitive |
 
 Sensitivity is enforced by *which method/endpoint/tool* you call, never by a `include_prompts=true` argument on a shared call. `started_at` is sourced from the lockfile (the field ADR-012 deferred) and folded into the aggregate payload — a coarse uptime/timer at no extra probe cost.
@@ -96,7 +97,7 @@ Each shortcut ships the simple path, stubs the extensible shape, carries an in-c
 
 ## Testing
 
-- **Unit:** Prometheus-text parser via injected fetch seam (no live server) — phase derivation, tok/s, `kv_cache_pct`, slot counts; mirrors `gpu.py` mock tests.
+- **Unit:** Prometheus-text parser via injected fetch seam (no live server) — phase derivation, tok/s, slot counts; mirrors `gpu.py` mock tests.
 - **Unit:** degraded envelope per reason (loading 503, no `--metrics`, unreachable); `404 slots_disabled` when `--slots` absent.
 - **Unit:** identity stamping — canonical name + `node_identity()` resolver.
 - **Unit:** flag policy — `--metrics` always emitted; `--slots` only when configured; both rejected from `extra_args`.

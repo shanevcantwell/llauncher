@@ -516,7 +516,7 @@ class LauncherState:
         # ── Phase 4: Readiness poll ─────────────────────────────────────
 
         try:
-            ready = wait_for_server_ready(port, timeout=readiness_timeout)
+            ready, _logs = wait_for_server_ready(port, timeout=readiness_timeout)
             if not ready:
                 # Terminate new process
                 stop_server_by_pid(new_pid)

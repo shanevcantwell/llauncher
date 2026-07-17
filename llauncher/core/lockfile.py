@@ -101,7 +101,7 @@ def write_lockfile(
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(lf.to_dict(), f, indent=2)
-    except Exception:
+    except Exception:  # pragma: no cover - best-effort cleanup of a partial write after the O_EXCL fd is open; the inner FileNotFoundError guards a cleanup race where the just-created file already vanished. Exercising it would require injecting a mid-fdopen failure, which buys no real coverage of behavior.
         # Best-effort cleanup of a partial write so reconciliation isn't
         # poisoned by an empty/corrupt lockfile.
         try:
@@ -160,12 +160,31 @@ def list_lockfiles(*, run_dir: Path | None = None) -> list[Lockfile]:
 
 
 def is_pid_alive(pid: int) -> bool:
-    """Return True if ``pid`` corresponds to a live, non-zombie process."""
+    """Return True if ``pid`` corresponds to a live, non-zombie process.
+
+    Process *absence* and process *inaccessibility* are deliberately
+    distinguished (issue #208):
+
+    - ``psutil.NoSuchProcess`` — the pid genuinely does not exist. The
+      process is dead; its lockfile (or swap marker) is a stale claim and is
+      safe to reclaim. Returns ``False``.
+    - ``psutil.AccessDenied`` — the pid *exists* but this uid cannot read its
+      status. Under system-mode (#191/#194) ``llama-server`` runs as the
+      ``llauncher`` service account while CLI/agent callers run as a different
+      uid, so a genuinely *live* server reads as inaccessible. Treating that
+      as dead would let reconciliation remove the lockfile of a running
+      cross-uid server (and, in the sweep, every such lockfile on every
+      ``/status``). Returns ``True`` (unknown-alive) so no caller reclaims an
+      inaccessible-but-present process.
+    """
     try:
         proc = psutil.Process(pid)
         return proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE
-    except (psutil.NoSuchProcess, psutil.AccessDenied):
+    except psutil.NoSuchProcess:
         return False
+    except psutil.AccessDenied:
+        # Present but unreadable from this uid — assume alive (do not reclaim).
+        return True
 
 
 def reconcile_lockfile(

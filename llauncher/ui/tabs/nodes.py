@@ -104,7 +104,7 @@ def render_node_list(registry: NodeRegistry, aggregator) -> None:
             st.divider()
 
             # Rotate API key (remote nodes only — the ``local`` entry
-            # sources its token from ``~/.llauncher/agent.token`` via
+            # sources its token from ``~/.llauncher/agent.env`` via
             # NodeRegistry._populate_local_token; manually setting one
             # here would only create drift).
             if node.name != "local":
@@ -187,6 +187,14 @@ def render_add_node_form(registry: NodeRegistry) -> None:
     Args:
         registry: NodeRegistry instance.
     """
+    st.info(
+        "Adding a remote node currently requires copying the remote agent's "
+        "API token by hand. See the README section **Adding a remote node** "
+        "for the step-by-step walkthrough. Automatic session-token issuance "
+        "(#137) will eliminate this manual step in a future release.",
+        icon="🔑",
+    )
+
     with st.form("add_node_form", clear_on_submit=True):
         node_name = st.text_input(
             "Node Name",
@@ -194,7 +202,11 @@ def render_add_node_form(registry: NodeRegistry) -> None:
         )
         node_host = st.text_input(
             "Host",
-            help="Hostname or IP address (e.g., '192.168.1.100' or 'server.local')",
+            help=(
+                "Hostname or IP address only — no port (e.g., '192.168.1.100' "
+                "or 'server.local'). Set the port separately below; "
+                "'192.168.1.100:8765' will be rejected."
+            ),
         )
         col1, col2 = st.columns(2)
         with col1:
@@ -218,9 +230,13 @@ def render_add_node_form(registry: NodeRegistry) -> None:
             "API Key",
             type="password",
             help=(
-                "Token from the remote agent's LLAUNCHER_AGENT_TOKEN / "
-                "agent.token. Required for non-loopback agents (per ADR-003). "
-                "Leave blank for unauthenticated loopback agents."
+                "On the remote box, run `llauncher-agent print-token` (or "
+                "read the `LLAUNCHER_AGENT_TOKEN=` line from "
+                "`~/.llauncher/agent.env` on Linux / "
+                "`$env:USERPROFILE\\.llauncher\\agent.env` on "
+                "Windows) and paste the value here. Required for non-loopback "
+                "agents (per ADR-003); leave blank only for unauthenticated "
+                "loopback agents."
             ),
         )
 
@@ -245,13 +261,17 @@ def render_add_node_form(registry: NodeRegistry) -> None:
             else:
                 from llauncher.remote.node import RemoteNode
 
-                test_node = RemoteNode(
-                    node_name,
-                    node_host,
-                    node_port,
-                    timeout,
-                    api_key=api_key or None,
-                )
+                try:
+                    test_node = RemoteNode(
+                        node_name,
+                        node_host,
+                        node_port,
+                        timeout,
+                        api_key=api_key or None,
+                    )
+                except ValueError as e:
+                    st.error(str(e))
+                    return
                 result = test_node.ping()
                 if result:
                     st.success(

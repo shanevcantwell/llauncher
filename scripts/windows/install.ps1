@@ -8,7 +8,26 @@
 #   - This script must run elevated (right-click "Run as Administrator").
 #
 # Idempotent: re-running picks up env-file edits and a new venv path.
-# Will NOT overwrite an existing env file (your token survives).
+# Will NOT overwrite an existing env file (your token survives), but pre-#139
+# legacy LAUNCHER_AGENT_* key names ARE migrated in place to LLAUNCHER_AGENT_*
+# (values preserved; issue #281).
+#
+# Single live source (issue #284): %USERPROFILE%\.llauncher\agent.env is
+# read DIRECTLY by both the agent service and the UI at startup -- there is
+# no installer-time snapshot and no agent.token mirror file any more. This
+# script's job on every run is: seed agent.env ONCE if absent, migrate a
+# stale agent.token into it if found, inject LAUNCHER_STATE_DIR into the
+# NSSM service env (see the LocalSystem note below), and pass through
+# interpreter-level vars via NSSM AppEnvironmentExtra. Editing
+# agent.env.example after first install does nothing -- it is a
+# seed-once template, not live config.
+#
+# LocalSystem wrinkle: NSSM defaults new services to the LocalSystem
+# account, whose Path.home() does NOT resolve to the installing operator's
+# profile. Without help, the service process would resolve a DIFFERENT
+# agent.env than the one the operator's UI reads. This script injects
+# LAUNCHER_STATE_DIR=<installing user's %USERPROFILE%\.llauncher> into
+# AppEnvironmentExtra so the service converges on the same file.
 #
 # Usage:
 #   .\scripts\windows\install.ps1
@@ -32,7 +51,7 @@ $EnvDir      = Join-Path $env:USERPROFILE '.llauncher'
 $EnvFile     = Join-Path $EnvDir 'agent.env'
 $TokenFile   = Join-Path $EnvDir 'agent.token'
 $LogDir      = Join-Path $env:USERPROFILE '.llauncher\logs'
-$EnvExample  = Join-Path $ScriptDir 'llauncher-agent.env.example'
+$EnvExample  = Join-Path $ScriptDir 'agent.env.example'
 
 function Say  ($msg) { Write-Host "[OK]  $msg" -ForegroundColor Green }
 function Info ($msg) { Write-Host "[..]  $msg" -ForegroundColor Yellow }
@@ -81,16 +100,79 @@ if (-not (Test-Path $VenvExe)) {
 if (-not (Test-Path $EnvDir))  { New-Item -ItemType Directory -Path $EnvDir  | Out-Null }
 if (-not (Test-Path $LogDir))  { New-Item -ItemType Directory -Path $LogDir  | Out-Null }
 
+# --- Migrate a pre-#284 agent.token mirror BEFORE any fresh seed ------
+# Ordering matters: if agent.env is absent but a stale agent.token mirror
+# still holds the operator's real, already-in-use token (e.g. agent.env
+# was deleted/never synced while the mirror survived), the seed-from-
+# template step below must NOT overwrite it with a newly generated
+# random token -- that would silently orphan the live credential the
+# mirror was carrying. So: if the mirror exists and carries a value,
+# seed agent.env from THAT value instead of generating a fresh one, and
+# skip the generate-new-token seed entirely.
+$migratedMirrorToken = $null
+if (Test-Path $TokenFile) {
+    $mirrorToken = (Get-Content $TokenFile -Raw).Trim()
+    if ($mirrorToken) {
+        $migratedMirrorToken = $mirrorToken
+    }
+}
+
 if (-not (Test-Path $EnvFile)) {
-    Info "Generating $EnvFile with a fresh token..."
-    $token = & $VenvPython -c "import secrets; print(secrets.token_urlsafe(32))"
-    (Get-Content $EnvExample) `
-        -replace 'replace-me-with-a-random-token', $token.Trim() `
-        | Set-Content -Path $EnvFile -Encoding utf8
-    Say "Wrote $EnvFile with a generated 32-byte token."
+    if ($migratedMirrorToken) {
+        Info "Seeding $EnvFile from the template using the live token found in the stale agent.token mirror..."
+        (Get-Content $EnvExample) `
+            -replace 'replace-me-with-a-random-token', $migratedMirrorToken `
+            | Set-Content -Path $EnvFile -Encoding utf8
+        Say "Wrote $EnvFile, carrying forward the token from $TokenFile (not overwritten with a fresh one)."
+    } else {
+        Info "Seeding $EnvFile from the template (one-time; see agent.env.example header)..."
+        $token = & $VenvPython -c "import secrets; print(secrets.token_urlsafe(32))"
+        (Get-Content $EnvExample) `
+            -replace 'replace-me-with-a-random-token', $token.Trim() `
+            | Set-Content -Path $EnvFile -Encoding utf8
+        Say "Wrote $EnvFile with a generated 32-byte token."
+    }
     Info "Edit it to set LLAUNCHER_AGENT_NODE_NAME / HOST / PORT as needed."
 } else {
-    Say "Env file already exists at $EnvFile - leaving it untouched."
+    # Loud on skip (issue #284): edits to the template are never read again
+    # after this first-install seed -- agent.env is the only file either
+    # process consults from here on.
+    Info "agent.env already exists at $EnvFile -- skipping template seed."
+    Info "  Edits to ${EnvExample} are never read after first install;"
+    Info "  edit $EnvFile directly (the live source) and re-run this script."
+
+    # --- Migrate pre-#139 legacy keys (issue #281), deduped (issue #285)
+    # Commit 9f098d9 (#138/#139) renamed LAUNCHER_AGENT_* to
+    # LLAUNCHER_AGENT_*, but env files written from the pre-rename
+    # template still carry the single-L keys -- which nothing reads any
+    # more, so the agent silently auto-generates its own token under the
+    # SERVICE account's profile and the UI 403s on every authed endpoint.
+    # PARSE-AT-THE-DOOR: rewrite the key prefix in place, once,
+    # deterministically, preserving each value byte-for-byte.
+    #
+    # Issue #285: a blanket prefix rewrite created a DUPLICATE when a legacy
+    # line's migrated key already existed as a canonical line -- the
+    # installer half of the "403s keep coming back" recurrence (paired with
+    # #293's runtime half). The migration now DROPS a legacy line whose
+    # migrated key already exists (the canonical line wins), loudly. Logic
+    # is extracted to MigrateEnvKeys.ps1 (mirrors migrate_env_keys.sh) so
+    # both installers resolve duplicates identically and the logic is
+    # unit-testable without install.ps1's ACL/NSSM steps.
+    . (Join-Path $ScriptDir 'MigrateEnvKeys.ps1')
+    $migration = Invoke-EnvKeyMigration -Lines @(Get-Content $EnvFile)
+    if ($migration.Migrated.Count -gt 0 -or $migration.Dropped.Count -gt 0) {
+        # IMPORTANT: write WITHOUT a UTF-8 BOM -- Windows PowerShell 5.1's
+        # `Set-Content -Encoding utf8` prepends EF BB BF, which would
+        # corrupt the first key name.
+        [System.IO.File]::WriteAllLines(
+            $EnvFile, $migration.Lines, (New-Object System.Text.UTF8Encoding($false)))
+    }
+    if ($migration.Migrated.Count -gt 0) {
+        Say ("Migrated pre-#139 legacy keys in ${EnvFile}: " + ($migration.Migrated -join ', '))
+    }
+    if ($migration.Dropped.Count -gt 0) {
+        Say ("Dropped $($migration.Dropped.Count) pre-#139 legacy line(s) in ${EnvFile} whose migrated key already existed (canonical line wins; issue #285): " + ($migration.Dropped -join ', '))
+    }
 }
 
 # Lock the env file: remove inheritance, grant current user only.
@@ -108,34 +190,51 @@ function Set-OwnerOnlyAcl($path) {
 Set-OwnerOnlyAcl $EnvFile
 Say "Locked ACL on $EnvFile (current user only)."
 
-# Mirror the token to ~/.llauncher/agent.token so the UI process
-# (separate from the NSSM service) can authenticate against the local
-# agent via llauncher.agent.auth.resolve_agent_token(). The UI does
-# not inherit LLAUNCHER_AGENT_TOKEN from the service's environment, so
-# without this file the UI sees 401 on every non-exempt endpoint
-# (/node-info, etc.). Issue #125 (self-loop short-circuit for
-# /node-info) would obviate the auth path for the local node entirely,
-# but the auth source still needs to be discoverable for other reads
-# /writes and for the remote-node case.
-$tokenLine = (Get-Content $EnvFile) | Where-Object { $_ -match '^LLAUNCHER_AGENT_TOKEN=' } | Select-Object -First 1
-if ($tokenLine) {
-    $tokenValue = ($tokenLine -replace '^LLAUNCHER_AGENT_TOKEN=', '').Trim()
-    # IMPORTANT: write WITHOUT a UTF-8 BOM. Windows PowerShell 5.1's
-    # `Set-Content -Encoding utf8` prepends EF BB BF, which decodes to
-    # U+FEFF and (since str.strip() doesn't strip it) leaks into the
-    # X-Api-Key header on the UI side, blowing up httpx's ascii-only
-    # header encoder. The reader in llauncher/agent/auth.py is also
-    # being widened to utf-8-sig as belt-and-braces, but the file
-    # should not contain a BOM in the first place — the token is pure
-    # ASCII (secrets.token_urlsafe), so a no-BOM UTF-8 (== ASCII)
-    # write is the right shape. Using .NET WriteAllText with an
-    # explicit UTF8Encoding($false) works across both PS 5.1 and 7+.
-    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText($TokenFile, $tokenValue, $utf8NoBom)
-    Set-OwnerOnlyAcl $TokenFile
-    Say "Mirrored token to $TokenFile (ACL: current user only) so the UI can authenticate."
-} else {
-    Info "No LLAUNCHER_AGENT_TOKEN line found in ${EnvFile}; skipping token file mirror."
+# --- Retire the agent.token mirror (issue #284) ------------------------
+# agent.env is now the single live source, parsed directly by both the
+# service and the UI (llauncher.core.agent_token.resolve_agent_token) -- no
+# installer-maintained mirror file. A stale agent.token from a pre-#284
+# install is migrated in place, once, at the door (PARSE-AT-THE-DOOR):
+# if agent.env has NO usable token line, the mirror's value is moved into
+# agent.env before the mirror is deleted, so a live credential already in
+# use is never silently discarded. If agent.env already has a token, the
+# mirror is simply retired (deleted) since it is no longer read by anything.
+if (Test-Path $TokenFile) {
+    # -Last 1 (not -First 1): matches systemd's EnvironmentFile= parser
+    # semantics ("last wins") and llauncher.core.agent_token.parse_env_file
+    # -- a duplicate-key agent.env must resolve identically across the
+    # installer's own check and the runtime the installer is validating
+    # against (issue #285).
+    $tokenLineExisting = (Get-Content $EnvFile) | Where-Object { $_ -match '^LLAUNCHER_AGENT_TOKEN=' } | Select-Object -Last 1
+    $tokenValueExisting = if ($tokenLineExisting) { ($tokenLineExisting -replace '^LLAUNCHER_AGENT_TOKEN=', '').Trim() } else { '' }
+    if (-not $tokenValueExisting) {
+        $mirrorToken = (Get-Content $TokenFile -Raw).Trim()
+        if ($mirrorToken) {
+            Add-Content -Path $EnvFile -Value "LLAUNCHER_AGENT_TOKEN=$mirrorToken" -Encoding utf8
+            Say "Migrated live token from $TokenFile into $EnvFile (agent.env has no token line)."
+        }
+    }
+    Remove-Item -Path $TokenFile -Force
+    Info "Retired by #284; live source is $EnvFile. Removed stale mirror $TokenFile."
+}
+
+# --- Fail loud if agent.env still has no usable token (issue #281/#284) -
+# -Last 1: same last-wins rationale as above (issue #285) -- this check
+# must agree with what the agent process will actually resolve.
+$tokenLine = (Get-Content $EnvFile) | Where-Object { $_ -match '^LLAUNCHER_AGENT_TOKEN=' } | Select-Object -Last 1
+$tokenValue = if ($tokenLine) { ($tokenLine -replace '^LLAUNCHER_AGENT_TOKEN=', '').Trim() } else { '' }
+if (-not $tokenValue) {
+    # Fail loud, never trust-and-degrade (issue #281): without a usable
+    # token line in the live source the service comes up "green" but the
+    # agent silently auto-generates its own token under the SERVICE
+    # account's profile, and the UI gets 403 on every authed endpoint.
+    Die @"
+No usable LLAUNCHER_AGENT_TOKEN line found in ${EnvFile} (missing or empty value).
+Refusing to install the service without a usable token in the live source. Fix one of:
+  - Add a line to ${EnvFile}:  LLAUNCHER_AGENT_TOKEN=<token>
+    (generate one:  python -c "import secrets; print(secrets.token_urlsafe(32))")
+  - Or delete ${EnvFile} and re-run this script to regenerate it from the template.
+"@
 }
 
 # --- Parse env file into NSSM AppEnvironmentExtra format --------------
@@ -146,6 +245,18 @@ foreach ($line in Get-Content $EnvFile) {
     if (-not $trim -or $trim.StartsWith('#')) { continue }
     $envPairs += $trim
 }
+
+# --- LocalSystem wrinkle (issue #284) -----------------------------------
+# NSSM defaults new services to the LocalSystem account, whose Path.home()
+# does NOT resolve to the installing operator's %USERPROFILE%. Without
+# this, the service process would resolve a DIFFERENT (or nonexistent)
+# agent.env than $EnvFile above, silently diverging from what the
+# operator's UI reads. Inject the resolved state dir explicitly so both
+# processes converge on the same live file. This does NOT re-introduce a
+# token mirror -- it is a pointer to the single live source, not a copy of
+# its contents.
+$envPairs += "LAUNCHER_STATE_DIR=$EnvDir"
+Say "Injecting LAUNCHER_STATE_DIR=$EnvDir into the service environment (LocalSystem wrinkle, #284)."
 
 # --- Install or refresh service ---------------------------------------
 if (Get-Service $ServiceName -ErrorAction SilentlyContinue) {
@@ -158,6 +269,14 @@ if (Get-Service $ServiceName -ErrorAction SilentlyContinue) {
 }
 
 # (Re-)apply configuration. These are all idempotent.
+# Application MUST be re-applied here, not only in the fresh-install
+# branch above: on a refresh of an existing service, `nssm install` is
+# never called, so a write-once Application would leave the service
+# executing whichever clone's venv it was first installed from -- even
+# after AppDirectory below is repointed at a different clone (the bug
+# behind this fix; re-running from a different checkout silently ran
+# stale code).
+& $nssm set $ServiceName Application $VenvExe | Out-Null
 & $nssm set $ServiceName AppDirectory $ProjectDir | Out-Null
 & $nssm set $ServiceName DisplayName "llauncher remote management agent" | Out-Null
 & $nssm set $ServiceName Description "Local llauncher agent (see https://github.com/shanevcantwell/llauncher)." | Out-Null

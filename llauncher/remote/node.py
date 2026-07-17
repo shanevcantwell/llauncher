@@ -13,15 +13,55 @@ intentionally skips it.
 """
 
 import logging
-import os
 import socket
 from datetime import datetime
 from enum import Enum
-from typing import Literal
 
 import httpx
+from pydantic import BaseModel, Field, ValidationError, field_validator
+
+from llauncher.core.delegation import is_agent_process
 
 logger = logging.getLogger(__name__)
+
+
+class NodeConfig(BaseModel):
+    """Validated connection parameters for a :class:`RemoteNode` (issue #27).
+
+    Single source of truth for the shape a node's connection parameters
+    must satisfy — host/port/timeout — so ``RemoteNode`` and
+    ``NodeRegistry`` validate identically instead of each hand-rolling
+    checks. The bug this closes: a host field with an embedded port
+    (``"192.168.137.2:8765"``) plus a *separate* port field produced a
+    malformed ``base_url`` (``http://192.168.137.2:8765:8765``) with no
+    error until the request failed.
+    """
+
+    name: str = Field(min_length=1)
+    host: str = Field(min_length=1)
+    port: int = Field(default=8765, ge=1024, le=65535)
+    timeout: float = Field(default=5.0, gt=0)
+
+    @field_validator("host")
+    @classmethod
+    def _reject_embedded_port(cls, value: str) -> str:
+        """Reject a host carrying a single embedded ``:port`` suffix.
+
+        Exactly one colon is the ``host:port`` shape (the #27 bug);
+        IPv6 literals (``::1``, ``2001:db8::1``) carry two-or-more and
+        are left alone rather than mis-flagged.
+        """
+        if value.count(":") == 1:
+            raise ValueError(
+                f"host {value!r} must not embed a port — use the separate "
+                "port field instead"
+            )
+        return value
+
+    @property
+    def base_url(self) -> str:
+        """Base URL for this node's agent."""
+        return f"http://{self.host}:{self.port}"
 
 
 def _local_host_names() -> frozenset[str]:
@@ -39,8 +79,17 @@ def _local_host_names() -> frozenset[str]:
 
 
 def _local_agent_port() -> int:
-    """The agent port the local node is configured to bind."""
-    return int(os.getenv("LLAUNCHER_AGENT_PORT", "8765"))
+    """The agent port the local node is configured to bind.
+
+    Sourced from :data:`llauncher.core.settings.AGENT_PORT` (issue #200,
+    SP-2) rather than re-reading ``LLAUNCHER_AGENT_PORT`` inline, so the
+    agent port has a single source of truth shared with the delegation
+    gate. Read at call time (via attribute access on the settings module)
+    so test patches / reloaded settings take effect.
+    """
+    from llauncher.core import settings
+
+    return settings.AGENT_PORT
 
 
 class NodeStatus(Enum):
@@ -104,10 +153,18 @@ class RemoteNode:
         timeout: float = 5.0,
         api_key: str | None = None,
     ):
-        self.name = name
-        self.host = host
-        self.port = port
-        self.timeout = timeout
+        try:
+            config = NodeConfig(name=name, host=host, port=port, timeout=timeout)
+        except ValidationError as e:
+            # Collapse pydantic's multi-line error into the first,
+            # most-relevant message so callers (registry, UI) can
+            # surface a single readable line rather than a traceback.
+            raise ValueError(e.errors()[0]["msg"]) from e
+        self._config = config
+        self.name = config.name
+        self.host = config.host
+        self.port = config.port
+        self.timeout = config.timeout
         self.api_key: str | None = api_key if api_key else None
         self.status = NodeStatus.OFFLINE
         self.last_seen: datetime | None = None
@@ -116,7 +173,7 @@ class RemoteNode:
     @property
     def base_url(self) -> str:
         """Get the base URL for this node's agent."""
-        return f"http://{self.host}:{self.port}"
+        return self._config.base_url
 
     def __str__(self) -> str:
         return f"RemoteNode({self.name}@{self.host}:{self.port}, status={self.status.value})"
@@ -136,13 +193,10 @@ class RemoteNode:
         """Create an HTTP client configured for this node."""
         return httpx.Client(timeout=self.timeout)
 
-    def _is_self_loop(self) -> bool:
-        """Return True if this node points back at the local agent.
+    def _targets_local_node(self) -> bool:
+        """Return True if this node points at the *local* node/agent.
 
-        The detection is conservative — over-reporting "self" would
-        route remote calls in-process and silently lose multi-node
-        isolation, which is much worse than the cost of one extra
-        loopback HTTP call. Two independent signals are accepted:
+        The original (#62) self-loop predicate. Two independent signals:
 
         * ``self.name == "local"`` — the registry convention from
           :mod:`llauncher.remote.registry`.
@@ -150,8 +204,9 @@ class RemoteNode:
           machine's hostname}`` AND ``self.port`` matches the local
           agent's bind port.
 
-        The host+port conjunction guards against the case where a
-        user has renamed the local node away from ``"local"``.
+        Conservative on purpose: over-reporting "local" would route
+        genuinely-remote calls in-process and silently lose multi-node
+        isolation, which is worse than one extra loopback HTTP call.
         """
         if self.name == "local":
             return True
@@ -159,6 +214,29 @@ class RemoteNode:
             self.host in _local_host_names()
             and self.port == _local_agent_port()
         )
+
+    def _is_self_loop(self) -> bool:
+        """Return True only when the agent is calling its *own* local node.
+
+        This is the #62 self-loop optimization, narrowed per issue #200.
+        Pre-#200 the predicate was just :meth:`_targets_local_node` — which
+        correctly captured the agent talking to itself but *also* captured
+        operator front-ends (MCP, UI) pointing a ``RemoteNode`` at the
+        local agent. Those front-ends are NOT the agent and, under the
+        system-mode deployment (#194), must defer launches *to* the agent
+        over HTTP rather than spawning in-process.
+
+        The narrowing ANDs in
+        :func:`llauncher.core.delegation.is_agent_process`: the short-
+        circuit fires only when *this* process is the agent AND the target
+        is the local node. So:
+
+        * agent → local node  → in-process (the preserved #62 optimization);
+        * agent → remote peer → HTTP (multi-node isolation intact);
+        * front-end → anything → HTTP (where the delegation gate decides,
+          before a ``RemoteNode`` is even built).
+        """
+        return is_agent_process() and self._targets_local_node()
 
     def ping(self) -> bool:
         """Check if the node's agent is reachable.
@@ -195,9 +273,23 @@ class RemoteNode:
     def get_node_info(self) -> dict | None:
         """Get detailed information about the node.
 
+        On the #62 self-loop (this process *is* the agent, target is the
+        local node) the payload is pure local-state introspection, so we
+        build it in-process via :func:`llauncher.core.node_info.get_node_info`
+        rather than burning a loopback HTTP round-trip, the auth hop, and
+        the FastAPI middleware chain to read data this process already has
+        (issue #125). The endpoint handler sources the *same* builder, so
+        the in-process and over-the-wire payloads cannot drift.
+
         Returns:
             Node info dictionary or None if unavailable.
         """
+        if self._is_self_loop():
+            from llauncher.core import node_info as _node_info
+
+            self.status = NodeStatus.ONLINE
+            self.last_seen = datetime.now()
+            return _node_info.get_node_info()
         try:
             with self._get_client() as client:
                 response = client.get(
@@ -505,3 +597,28 @@ class RemoteNode:
             "last_seen": self.last_seen.isoformat() if self.last_seen else None,
             "error_message": self._error_message,
         }
+
+
+def local_agent_node() -> RemoteNode:
+    """Construct a ``RemoteNode`` aimed at the local agent (#200 delegation).
+
+    Single construction point for the delegation target — host, port, and
+    token live here rather than being copy-pasted into each front-end. The
+    node is named ``"local"`` and carries the resolved ``X-Api-Key``;
+    because a front-end is not the agent process, its :meth:`_is_self_loop`
+    is False, so verb calls go over HTTP to ``127.0.0.1:AGENT_PORT``.
+
+    This factory lives in the ``remote`` layer rather than
+    :mod:`llauncher.core.delegation` (issue #200 follow-up): it constructs a
+    ``RemoteNode``, so its natural home is alongside that class. ``core``
+    owns only the *decision* (``should_delegate``); ``remote`` owns *building
+    the target*, keeping ``core`` free of any edge to ``remote`` or
+    ``agent``. ``settings``/``agent_token`` are imported at call time —
+    downward (``remote → core``) edges, read late so test patches and
+    reloaded settings take effect.
+    """
+    from llauncher.core import settings
+    from llauncher.core.agent_token import resolve_agent_token
+
+    token = resolve_agent_token(allow_generate=False)
+    return RemoteNode("local", "127.0.0.1", port=settings.AGENT_PORT, api_key=token)

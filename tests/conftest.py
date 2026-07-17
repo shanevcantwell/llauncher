@@ -5,14 +5,8 @@ from llauncher.state import LauncherState
 from llauncher.models.config import ModelConfig
 
 
-def pytest_configure(config):
-    """Register custom markers used by the suite."""
-    config.addinivalue_line(
-        "markers",
-        "real_model_health: opt out of the autouse "
-        "``_patch_model_health`` mock and exercise the real "
-        "``llauncher.core.model_health.check_model_health``.",
-    )
+# ``real_model_health`` is declared in pytest.ini's markers= block (single
+# source of truth per #318); no dynamic pytest_configure registration needed.
 
 
 @pytest.fixture(autouse=True)
@@ -63,6 +57,27 @@ def _patch_model_health(request):
         return_value=mock_result,
     ):
         yield
+
+
+@pytest.fixture(autouse=True)
+def _deterministic_delegation(monkeypatch):
+    """Force the #200 delegation gate to in-process for the whole suite.
+
+    A real llauncher agent may be listening on ``LLAUNCHER_AGENT_PORT``
+    (8765) on the developer/CI host. Without pinning the gate, the
+    auto-detect health probe would find it and the MCP/UI launch tests
+    (test_mcp_flows, test_self_swap, ...) would POST real start/stop verbs
+    to that live agent — spawning real models and breaking isolation.
+
+    Pinning ``LLAUNCHER_DELEGATE_TO_LOCAL_AGENT=0`` makes every front-end
+    take the in-process path by default, matching the legacy behavior the
+    bulk of the suite was written against. We also clear the
+    ``LLAUNCHER_IS_AGENT_PROCESS`` stamp so no ambient value leaks in.
+    Gate-specific tests override these via their own ``monkeypatch`` (which
+    wins, being applied inside the test body after this autouse setup).
+    """
+    monkeypatch.setenv("LLAUNCHER_DELEGATE_TO_LOCAL_AGENT", "0")
+    monkeypatch.delenv("LLAUNCHER_IS_AGENT_PROCESS", raising=False)
 
 
 @pytest.fixture(autouse=True)

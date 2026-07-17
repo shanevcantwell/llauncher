@@ -1,0 +1,59 @@
+; llauncher remote management agent — systemd *system* unit template.
+;
+; Do not install this file directly. Run `scripts/systemd/install.sh --system`
+; (as root), which substitutes the @TOKENS@ below and drops the rendered unit
+; at /etc/systemd/system/llauncher-agent.service.
+;
+; This unit runs the agent as the dedicated, non-login `llauncher` account with
+; primary group `inference`, with all mutable state under /var/lib/llauncher —
+; outside any user's home. See ADR-018 (supersedes ADR-009): the agent is a
+; system service a non-admin agent user can drive, not a user-started peer.
+; Host provisioning (user/group/dir/ACLs/polkit) is created separately by
+; harness-tools `claude/host-config/setup-inference-lane.sh`; this installer only
+; renders the unit and writes config.
+
+[Unit]
+Description=llauncher remote management agent (system service)
+Documentation=https://github.com/shanevcantwell/llauncher
+After=network-online.target
+Wants=network-online.target
+; ADR-023 (issue #227): never start against a missing/broken venv. The ensure
+; oneshot recomposes @PROJECT_DIR@/.venv from pyproject.toml and fails loud if
+; it can't; Requires= propagates that failure (the agent does NOT start), After=
+; orders us strictly after the venv is guaranteed (invariant
+; VENV-OWNED-OR-GUARANTEED).
+Requires=llauncher-agent-ensure-venv.service
+After=llauncher-agent-ensure-venv.service
+; Crash-loop guard: restart aggressively, but if the unit fails 10
+; times inside a minute treat it as a config problem and give up.
+; (StartLimit* live in [Unit] since systemd 230; [Service] is deprecated.)
+StartLimitBurst=10
+StartLimitIntervalSec=60
+
+[Service]
+Type=simple
+User=llauncher
+Group=inference
+; EnvironmentFile is read with 0640 perms (group inference) enforced by
+; install.sh. LLAUNCHER_AGENT_TOKEN, _HOST, _PORT, _NODE_NAME live there so
+; `systemctl cat llauncher-agent` does not leak the token.
+EnvironmentFile=@ENV_FILE@
+; Single relocation knob: moves config/nodes/token/run/audit/logs under
+; /var/lib/llauncher (state-dir support lands in PR #197; this branch only
+; sets the env var). Keeps all mutable state outside any user home (#191).
+Environment=LAUNCHER_STATE_DIR=/var/lib/llauncher
+ExecStart=@VENV_BIN@/llauncher-agent
+WorkingDirectory=@PROJECT_DIR@
+
+; Graceful: uvicorn (llauncher/agent/server.py:136) handles SIGTERM
+; with an in-flight-request drain. Default KillSignal=SIGTERM is fine.
+TimeoutStopSec=30
+
+Restart=on-failure
+RestartSec=5
+
+; journald captures stdout/stderr by default — view with
+;   journalctl -u llauncher-agent -f
+
+[Install]
+WantedBy=multi-user.target

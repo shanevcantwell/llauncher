@@ -6,12 +6,15 @@ Covers all four subcommand groups: model, server, node, config.
 
 import json
 import pytest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import typer
+from rich.console import Console
 from typer.testing import CliRunner
 
+from llauncher import cli
 from llauncher.cli import app, console
 from llauncher.core.config import ConfigStore
 from llauncher.models.config import ModelConfig
@@ -136,6 +139,69 @@ def test_model_info_json(mock_config_store):
 
 
 # ---------------------------------------------------------------------------
+# model remove (#276)
+# ---------------------------------------------------------------------------
+
+
+def test_model_remove_rejected_in_use(mock_config_store):
+    """``model remove`` refuses (non-zero exit) when the model is in use.
+
+    Patches ``ops.delete_model`` at ``llauncher.operations.delete_model`` —
+    ``cli.remove_model`` does ``from llauncher import operations as ops``
+    lazily inside the function body, so the module-level attribute on
+    ``llauncher.operations`` is what's resolved at call time.
+    """
+    from llauncher.operations import DeleteModelResult
+
+    envelope = DeleteModelResult(
+        success=False,
+        action="rejected_in_use",
+        name="busy-model",
+        in_use_port=8080,
+        message="Model 'busy-model' is running on port 8080 (pid 123); stop it before deleting.",
+    )
+    with patch("llauncher.operations.delete_model", return_value=envelope) as mock_delete:
+        result = runner.invoke(app, ["model", "remove", "busy-model", "--yes"])
+
+    assert result.exit_code != 0
+    assert "running on port 8080" in result.stdout
+    mock_delete.assert_called_once_with("busy-model", caller="cli")
+
+
+def test_model_remove_happy_path(mock_config_store):
+    """``model remove --yes`` deletes an existing, not-in-use model end to end.
+
+    Uses the real ``ConfigStore`` (via ``mock_config_store``) rather than
+    mocking ``ops.delete_model``, so the CLI-to-operations wiring is
+    genuinely exercised for at least one case.
+    """
+    _dir, _path = mock_config_store
+    ConfigStore.add_model(ModelConfig.from_dict_unvalidated({
+        "name": "removable", "model_path": "/fake/removable.gguf",
+    }))
+    assert "removable" in ConfigStore.list_models()
+
+    result = runner.invoke(app, ["model", "remove", "removable", "--yes"])
+
+    assert result.exit_code == 0
+    assert "removable" not in ConfigStore.list_models()
+
+
+def test_model_remove_without_yes_aborts_on_no(mock_config_store):
+    """Omitting ``--yes`` and answering ``n`` aborts without deleting."""
+    _dir, _path = mock_config_store
+    ConfigStore.add_model(ModelConfig.from_dict_unvalidated({
+        "name": "keep-me", "model_path": "/fake/keep-me.gguf",
+    }))
+
+    result = runner.invoke(app, ["model", "remove", "keep-me"], input="n\n")
+
+    assert result.exit_code != 0
+    assert "aborted" in result.stdout.lower()
+    assert "keep-me" in ConfigStore.list_models()
+
+
+# ---------------------------------------------------------------------------
 # server subcommands
 # ---------------------------------------------------------------------------
 
@@ -143,7 +209,7 @@ def test_server_status_no_servers(mock_config_store, sample_model_config):
     """Server status with no running servers should show informational message."""
     _dir, _path = mock_config_store
 
-    with patch("llauncher.cli.LauncherState") as MockState:
+    with patch("llauncher.state.LauncherState") as MockState:
         instance = MagicMock()
         instance.running = {}
         MockState.return_value = instance
@@ -157,7 +223,7 @@ def test_server_status_json_empty(mock_config_store):
     """Server status --json with no servers should return empty JSON object."""
     _dir, _path = mock_config_store
 
-    with patch("llauncher.cli.LauncherState") as MockState:
+    with patch("llauncher.state.LauncherState") as MockState:
         instance = MagicMock()
         instance.running = {}
         MockState.return_value = instance
@@ -285,6 +351,164 @@ def test_stop_nonexistent_port(mock_config_store):
 
 
 # ---------------------------------------------------------------------------
+# server delegation gate (#203, mirrors MCP/UI #200 delegation tests)
+# ---------------------------------------------------------------------------
+#
+# The autouse ``_deterministic_delegation`` fixture (tests/conftest.py) pins
+# ``LLAUNCHER_DELEGATE_TO_LOCAL_AGENT=0`` and clears the agent stamp, so the
+# CLI's gate takes the in-process path unless a test overrides it. These tests
+# mirror ``TestDelegationRouting`` (mcp) / ``test_model_card_delegation`` (ui):
+# the gate decision is patched (or env-forced), the local-agent-node factory is
+# mocked, and we assert delegate → HTTP via the node, in-process → ``ops.*``.
+
+
+@contextmanager
+def _cli_delegate(node, *, enabled=True):
+    """Patch the gate decision and the local-agent-node factory the CLI uses.
+
+    ``cli.start_server`` / ``cli.stop_server`` import ``delegation`` and
+    ``local_agent_node`` at call time, so patch them at their definition
+    sites (``llauncher.core.delegation.should_delegate`` and
+    ``llauncher.remote.node.local_agent_node``).
+    """
+    with patch(
+        "llauncher.core.delegation.should_delegate", return_value=enabled
+    ), patch(
+        "llauncher.remote.node.local_agent_node", return_value=node
+    ) as factory:
+        yield factory
+
+
+class TestCliStartDelegation:
+    def test_start_delegates_over_http_when_agent_present(self, mock_config_store):
+        node = MagicMock()
+        node.start_server.return_value = {
+            "success": True,
+            "action": "started",
+            "port": 8080,
+            "message": "Started m on port 8080",
+        }
+        with patch("llauncher.operations.start") as mock_ops_start, _cli_delegate(node):
+            result = runner.invoke(app, ["server", "start", "m", "--port", "8080"])
+
+        assert result.exit_code == 0
+        node.start_server.assert_called_once_with("m", 8080)
+        mock_ops_start.assert_not_called()
+
+    def test_start_in_process_when_no_agent(self, mock_config_store):
+        from llauncher.operations import StartResult
+
+        result_obj = StartResult(
+            success=True, action="started", port=8080, model="m",
+            pid=7, message="Started m on port 8080",
+        )
+        with patch(
+            "llauncher.operations.start", return_value=result_obj
+        ) as mock_ops_start, _cli_delegate(MagicMock(), enabled=False) as factory:
+            result = runner.invoke(app, ["server", "start", "m", "--port", "8080"])
+
+        assert result.exit_code == 0
+        mock_ops_start.assert_called_once_with("m", 8080, caller="cli")
+        factory.assert_not_called()
+
+    def test_start_env_override_forces_delegation(self, mock_config_store, monkeypatch):
+        """Real gate: ``LLAUNCHER_DELEGATE_TO_LOCAL_AGENT=1`` → HTTP, no probe."""
+        monkeypatch.setenv("LLAUNCHER_DELEGATE_TO_LOCAL_AGENT", "1")
+        monkeypatch.delenv("LLAUNCHER_IS_AGENT_PROCESS", raising=False)
+        node = MagicMock()
+        node.start_server.return_value = {"success": True, "message": "ok"}
+        with patch("llauncher.operations.start") as mock_ops_start, patch(
+            "llauncher.remote.node.local_agent_node", return_value=node
+        ):
+            result = runner.invoke(app, ["server", "start", "m", "--port", "8080"])
+
+        assert result.exit_code == 0
+        node.start_server.assert_called_once_with("m", 8080)
+        mock_ops_start.assert_not_called()
+
+    def test_start_delegated_failure_exits_nonzero(self, mock_config_store):
+        node = MagicMock()
+        node.start_server.return_value = {
+            "success": False, "error": "agent refused", "port": 8080,
+        }
+        with patch("llauncher.operations.start"), _cli_delegate(node):
+            result = runner.invoke(app, ["server", "start", "m", "--port", "8080"])
+
+        assert result.exit_code == 1
+        assert "agent refused" in result.stdout
+
+    def test_start_delegated_none_result_is_safe(self, mock_config_store):
+        """A ``None`` delegated body must surface as an error, not raise."""
+        node = MagicMock()
+        node.start_server.return_value = None
+        with patch("llauncher.operations.start"), _cli_delegate(node):
+            result = runner.invoke(app, ["server", "start", "m", "--port", "8080"])
+
+        assert result.exit_code == 1
+        assert "empty response" in result.stdout.lower()
+
+
+class TestCliStopDelegation:
+    def test_stop_delegates_over_http_when_agent_present(self, mock_config_store):
+        node = MagicMock()
+        node.stop_server.return_value = {
+            "success": True, "action": "stopped", "port": 8080,
+            "message": "Stopped server on port 8080",
+        }
+        with patch("llauncher.operations.stop") as mock_ops_stop, _cli_delegate(node):
+            result = runner.invoke(app, ["server", "stop", "8080"])
+
+        assert result.exit_code == 0
+        node.stop_server.assert_called_once_with(8080)
+        mock_ops_stop.assert_not_called()
+
+    def test_stop_in_process_when_no_agent(self, mock_config_store):
+        from llauncher.operations import StopResult
+
+        result_obj = StopResult(
+            success=True, action="stopped", port=8080,
+            message="Stopped server on port 8080",
+        )
+        with patch(
+            "llauncher.operations.stop", return_value=result_obj
+        ) as mock_ops_stop, _cli_delegate(MagicMock(), enabled=False) as factory:
+            result = runner.invoke(app, ["server", "stop", "8080"])
+
+        assert result.exit_code == 0
+        mock_ops_stop.assert_called_once_with(8080, caller="cli")
+        factory.assert_not_called()
+
+    def test_stop_delegated_failure_exits_nonzero(self, mock_config_store):
+        node = MagicMock()
+        node.stop_server.return_value = {
+            "success": False, "error": "No server running on port 8080",
+        }
+        with patch("llauncher.operations.stop"), _cli_delegate(node):
+            result = runner.invoke(app, ["server", "stop", "8080"])
+
+        assert result.exit_code == 1
+        assert "no server running" in result.stdout.lower()
+
+    def test_stop_delegated_message_fallback(self, mock_config_store):
+        """Envelope lacking message/error/success → synthesized 'stop on port'."""
+        node = MagicMock()
+        node.stop_server.return_value = {"port": 8080}
+        with patch("llauncher.operations.stop"), _cli_delegate(node):
+            result = runner.invoke(app, ["server", "stop", "8080"])
+
+        # success defaults False (no 'success' key) → exit 1, synthesized msg.
+        assert result.exit_code == 1
+        assert "stop on port 8080" in result.stdout
+
+
+def test_delegated_outcome_none_seam():
+    """Unit-level guard on the dict|None reducer (mirrors MCP ``_delegated_or_error``)."""
+    ok, msg = cli._delegated_outcome(None, "start", 8080)
+    assert ok is False
+    assert "empty response" in msg.lower()
+
+
+# ---------------------------------------------------------------------------
 # node subcommands
 # ---------------------------------------------------------------------------
 
@@ -323,7 +547,7 @@ def test_node_add_duplicate_fails(tmp_path):
 
     nodes_file = tmp_path / ".llauncher" / "nodes.json"
 
-    with patch("llauncher.cli.NodeRegistry", spec=NodeRegistry) as MockReg:
+    with patch("llauncher.remote.registry.NodeRegistry", spec=NodeRegistry) as MockReg:
         reg_instance = MagicMock()
         MockReg.return_value = reg_instance
         reg_instance.add_node.return_value = (False, "Node 'my-node' already exists")
@@ -353,7 +577,7 @@ def test_node_remove(node_config_file):
 
 def test_node_remove_not_found():
     """Removing a non-existent node should error."""
-    with patch("llauncher.cli.NodeRegistry") as MockReg:
+    with patch("llauncher.remote.registry.NodeRegistry") as MockReg:
         reg_instance = MagicMock()
         MockReg.return_value = reg_instance
         reg_instance.remove_node.return_value = (False, "Node 'ghost' not found")
@@ -367,7 +591,7 @@ def test_node_status_json(node_config_file):
     # Add a node first
     runner.invoke(app, ["node", "add", "jstatus-node", "--host", "9.8.7.6"])
 
-    with patch("llauncher.cli.NodeRegistry") as MockReg:
+    with patch("llauncher.remote.registry.NodeRegistry") as MockReg:
         reg_instance = MagicMock()
         MockReg.return_value = reg_instance
 
@@ -396,10 +620,32 @@ def test_config_path_printed(mock_config_store):
     """Config path should print the path to the configuration file."""
     _dir, cfg_path = mock_config_store
 
-    with patch("llauncher.cli.CONFIG_PATH", cfg_path):
+    with patch("llauncher.core.config.CONFIG_PATH", cfg_path):
         result = runner.invoke(app, ["config", "path"])
     assert result.exit_code == 0
     assert str(cfg_path) in result.stdout
+
+
+def test_config_path_not_wrapped_when_wider_than_console():
+    """Path output must not be soft-wrapped: a long path on a narrow console
+    must still emit as a single unbroken atom (#256).
+
+    Regression guard — with a forced 80-column, non-TTY console (Rich's default
+    under pytest) and a path longer than 80 chars, the pre-fix code inserted a
+    mid-path newline, so the full path was no longer a substring of stdout.
+    """
+    long_path = Path(
+        "/tmp/pytest-of-someuser/pytest-999999/"
+        "test_config_path_not_wrapped0/.llauncher/config.json"
+    )
+    assert len(str(long_path)) > 80  # must exceed the default console width to bite
+
+    with patch("llauncher.core.config.CONFIG_PATH", long_path), \
+            patch.object(cli, "console", Console(width=80)):
+        result = runner.invoke(app, ["config", "path"])
+
+    assert result.exit_code == 0
+    assert str(long_path) in result.stdout
 
 
 def test_config_validate_valid(mock_config_store):
@@ -442,3 +688,212 @@ def test_invalid_subcommand():
     """Unknown subcommand should produce a helpful error."""
     result = runner.invoke(app, ["bogus"])
     assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# INTERFACE coverage close-out (issue: coverage close-out, INTERFACE cluster)
+# ---------------------------------------------------------------------------
+
+
+def test_print_table_colours_status_keywords():
+    """``_print_table`` routes status keywords through ``_color``, others through ``Text``.
+
+    Exercises the per-cell status-keyword branches (cli.py:75-80) *and*
+    asserts the routing so a branch swap or a misspelled keyword would fail:
+    every recognised status (``online``/``serving``/``running`` → green
+    branch line 76; ``stopped`` → yellow branch line 78; ``offline`` → line
+    79-80) must be handed to ``_color`` with its lowercased status, while a
+    non-status value must NOT be (it falls to the plain-``Text`` else arm).
+    """
+    from unittest.mock import patch as _patch
+
+    rows = [["online"], ["serving"], ["running"], ["stopped"], ["offline"], ["other"]]
+    with _patch("llauncher.cli._color", wraps=cli._color) as color_spy:
+        cli._print_table(["STATUS"], rows, title="Styling")
+
+    routed = {call.args for call in color_spy.call_args_list}
+    # Each recognised keyword reached its colour branch with (value, status).
+    for kw in ("online", "serving", "running", "stopped", "offline"):
+        assert (kw, kw) in routed, f"{kw} did not route through _color"
+    # The non-status value took the plain-Text else branch, never _color.
+    assert all(
+        call.args[0] != "other" for call in color_spy.call_args_list
+    ), "non-status value should not be colourised"
+
+
+def test_node_status_ping_failure_is_swallowed(node_config_file):
+    """A node whose ``ping()`` raises does not abort the status render (cli.py:407-409).
+
+    The ping refresh loop swallows a transient failure and keeps the node's
+    prior status so one flaky node cannot blank the whole status table.
+    """
+    node = _mock_node("10.0.0.9", 8765, "online")
+
+    with patch("llauncher.remote.registry.NodeRegistry") as MockReg:
+        reg_instance = MagicMock()
+        reg_instance._nodes = {"flaky": node}
+        pinger = MagicMock()
+        pinger.ping.side_effect = RuntimeError("transient transport hiccup")
+        reg_instance.get_node.return_value = pinger
+        MockReg.return_value = reg_instance
+
+        result = runner.invoke(app, ["node", "status"])
+
+    # The swallow kept the loop alive; the node still renders from its prior
+    # (online) status rather than the command aborting.
+    assert result.exit_code == 0
+    assert "flaky" in result.stdout
+    pinger.ping.assert_called_once()
+
+
+def test_server_status_json_with_running_server(mock_config_store):
+    """``server status --json`` exports each running server via ``to_dict``.
+
+    Covers the JSON export loop body (cli.py:270): with at least one entry
+    in ``state.running`` the command serializes ``srv.to_dict()`` keyed by
+    port string.
+    """
+    _dir, _path = mock_config_store
+
+    srv = MagicMock()
+    srv.to_dict.return_value = {"port": 8080, "config_name": "m", "pid": 7}
+
+    with patch("llauncher.state.LauncherState") as MockState:
+        instance = MagicMock()
+        instance.running = {8080: srv}
+        MockState.return_value = instance
+
+        result = runner.invoke(app, ["server", "status", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data == {"8080": {"port": 8080, "config_name": "m", "pid": 7}}
+
+
+def test_server_status_table_uptime_boundaries(mock_config_store):
+    """``server status`` table renders hour/minute/second uptime formats.
+
+    Covers the uptime-formatting boundaries (cli.py:283 hours branch, 285
+    minutes branch; the sub-minute branch is already covered elsewhere). We
+    seed three running servers whose ``uptime_seconds`` land in each band.
+    """
+    _dir, _path = mock_config_store
+
+    def _srv(name, pid, secs):
+        s = MagicMock()
+        s.config_name = name
+        s.pid = pid
+        s.uptime_seconds.return_value = secs
+        return s
+
+    running = {
+        8001: _srv("hours", 11, 7265),    # >= 3600 → "2h 1m"  (line 283)
+        8002: _srv("minutes", 12, 125),   # >= 60   → "2m 5s"  (line 285)
+        8003: _srv("seconds", 13, 42),    # < 60    → "42s"
+    }
+
+    with patch("llauncher.state.LauncherState") as MockState:
+        instance = MagicMock()
+        instance.running = running
+        MockState.return_value = instance
+
+        result = runner.invoke(app, ["server", "status"])
+        assert result.exit_code == 0
+        # Rich may wrap the table, but the model names anchor the rows.
+        assert "hours" in result.stdout
+        assert "minutes" in result.stdout
+        assert "seconds" in result.stdout
+
+
+def test_list_nodes_json(node_config_file):
+    """``node list --json`` emits ``registry.to_dict()`` (cli.py:371-372)."""
+    with patch("llauncher.remote.registry.NodeRegistry") as MockReg:
+        reg_instance = MagicMock()
+        reg_instance.to_dict.return_value = {"nodeA": {"host": "1.2.3.4", "port": 8765}}
+        MockReg.return_value = reg_instance
+
+        result = runner.invoke(app, ["node", "list", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data == {"nodeA": {"host": "1.2.3.4", "port": 8765}}
+        reg_instance.to_dict.assert_called_once()
+
+
+def _mock_node(host, port, status_value):
+    node = MagicMock()
+    node.host = host
+    node.port = port
+    node.status.value = status_value
+    return node
+
+
+def test_node_status_table_online_only(node_config_file):
+    """``node status`` (no ``--all``) renders only online nodes (cli.py:427-433,439)."""
+    online = _mock_node("10.0.0.1", 8765, "online")
+    offline = _mock_node("10.0.0.2", 8765, "offline")
+
+    with patch("llauncher.remote.registry.NodeRegistry") as MockReg:
+        reg_instance = MagicMock()
+        reg_instance._nodes = {"up": online, "down": offline}
+        # get_node(...).ping() is a no-op MagicMock — the ping loop's try
+        # branch runs without raising.
+        MockReg.return_value = reg_instance
+
+        result = runner.invoke(app, ["node", "status"])
+        assert result.exit_code == 0
+        assert "up" in result.stdout
+        # Offline node filtered out of the default (online-only) view.
+        assert "down" not in result.stdout
+
+
+def test_node_status_table_all_includes_offline(node_config_file):
+    """``node status --all`` includes offline/error nodes (cli.py:427 True branch)."""
+    online = _mock_node("10.0.0.1", 8765, "online")
+    offline = _mock_node("10.0.0.2", 8765, "offline")
+
+    with patch("llauncher.remote.registry.NodeRegistry") as MockReg:
+        reg_instance = MagicMock()
+        reg_instance._nodes = {"up": online, "down": offline}
+        MockReg.return_value = reg_instance
+
+        result = runner.invoke(app, ["node", "status", "--all"])
+        assert result.exit_code == 0
+        assert "up" in result.stdout
+        assert "down" in result.stdout
+
+
+def test_node_status_table_empty_roster(node_config_file):
+    """``node status`` with no registered nodes prints the empty notice (cli.py:435-436)."""
+    with patch("llauncher.remote.registry.NodeRegistry") as MockReg:
+        reg_instance = MagicMock()
+        reg_instance._nodes = {}
+        MockReg.return_value = reg_instance
+
+        result = runner.invoke(app, ["node", "status"])
+        assert result.exit_code == 0
+        assert "no nodes registered" in result.stdout.lower()
+
+
+def test_config_validate_schema_exception(mock_config_store):
+    """``config validate`` reports a schema failure on the exception path.
+
+    Covers cli.py:472-474: ``get_model`` returns a config (so we pass the
+    not-found guard) but the re-validation via ``ModelConfig.model_validate``
+    raises, taking the ``except`` branch that prints the failure and exits 1.
+    """
+    _dir, _path = mock_config_store
+
+    cfg = ModelConfig.from_dict_unvalidated({
+        "name": "broken-model",
+        "model_path": "/fake/path/model.gguf",
+    })
+
+    with patch("llauncher.core.config.ConfigStore.get_model", return_value=cfg):
+        with patch(
+            "llauncher.models.config.ModelConfig.model_validate",
+            side_effect=ValueError("schema boom"),
+        ):
+            result = runner.invoke(app, ["config", "validate", "broken-model"])
+
+    assert result.exit_code == 1
+    assert "validation failed" in result.stdout.lower()
+    assert "schema boom" in result.stdout

@@ -9,9 +9,47 @@ from unittest.mock import MagicMock, patch
 import pytest
 import httpx
 
-from llauncher.remote.node import RemoteNode, NodeStatus, RemoteServerInfo
+from llauncher.remote.node import NodeConfig, RemoteNode, NodeStatus, RemoteServerInfo
 from llauncher.remote.registry import NodeRegistry, NODES_FILE
 from llauncher.remote.state import RemoteAggregator
+
+
+class TestNodeConfig:
+    """Tests for the ``NodeConfig`` pydantic model (issue #27)."""
+
+    def test_defaults(self):
+        config = NodeConfig(name="n", host="192.168.1.100")
+
+        assert config.port == 8765
+        assert config.timeout == 5.0
+
+    def test_base_url(self):
+        config = NodeConfig(name="n", host="192.168.1.100", port=9000)
+
+        assert config.base_url == "http://192.168.1.100:9000"
+
+    def test_rejects_host_with_embedded_port(self):
+        with pytest.raises(ValueError, match="must not embed a port"):
+            NodeConfig(name="n", host="192.168.137.2:8765")
+
+    def test_allows_ipv6_literal_with_multiple_colons(self):
+        # "::1" and full IPv6 literals carry 2+ colons — the #27 bug
+        # was specifically the *single*-colon host:port shape.
+        config = NodeConfig(name="n", host="::1")
+
+        assert config.host == "::1"
+
+    def test_rejects_port_out_of_range(self):
+        with pytest.raises(ValueError):
+            NodeConfig(name="n", host="192.168.1.100", port=80)
+
+    def test_rejects_non_positive_timeout(self):
+        with pytest.raises(ValueError):
+            NodeConfig(name="n", host="192.168.1.100", timeout=0)
+
+    def test_rejects_empty_host(self):
+        with pytest.raises(ValueError):
+            NodeConfig(name="n", host="")
 
 
 class TestRemoteNode:
@@ -40,6 +78,12 @@ class TestRemoteNode:
         node = RemoteNode("test-node", "192.168.1.100", port=9000)
 
         assert node.base_url == "http://192.168.1.100:9000"
+
+    def test_rejects_host_with_embedded_port(self):
+        """Issue #27: constructing a node with a corrupted host raises
+        a single-line ``ValueError``, not a raw pydantic traceback."""
+        with pytest.raises(ValueError, match="must not embed a port"):
+            RemoteNode("test-node", "192.168.137.2:8765")
 
     def test_str_representation(self):
         """Test string representation."""
@@ -496,7 +540,10 @@ class TestRemoteNodeReadAudit:
             message="started",
         )
 
-        # ``name == "local"`` triggers the self-loop short-circuit.
+        # Post-#200: the self-loop short-circuit fires only when the caller
+        # IS the agent process (env stamp), not merely because the target
+        # is local. Stamp this process as the agent to exercise it.
+        monkeypatch.setenv("LLAUNCHER_IS_AGENT_PROCESS", "1")
         node = RemoteNode("local", "127.0.0.1", port=8765)
 
         with patch("httpx.Client") as mock_client_class:
@@ -530,6 +577,7 @@ class TestRemoteNodeReadAudit:
             caller="t",
         )
 
+        monkeypatch.setenv("LLAUNCHER_IS_AGENT_PROCESS", "1")
         node = RemoteNode("local", "127.0.0.1", port=8765)
         entries = node.read_audit(action_filter="stopped")
         assert len(entries) == 1
@@ -625,6 +673,18 @@ class TestNodeRegistry:
         assert success is False
         assert "already exists" in message
 
+    def test_add_node_rejects_embedded_port_host(self, temp_nodes_file):
+        """Issue #27: NodeConfig validation failures surface as a normal
+        ``(False, message)`` result, not an uncaught exception, and the
+        node is not registered."""
+        registry = NodeRegistry()
+
+        success, message = registry.add_node("test-node", "192.168.1.100:8765", 8765)
+
+        assert success is False
+        assert "port" in message
+        assert registry.get_node("test-node") is None
+
     def test_add_node_overwrite(self, temp_nodes_file):
         """Test adding duplicate node with overwrite."""
         registry = NodeRegistry()
@@ -672,6 +732,117 @@ class TestNodeRegistry:
         assert node is not None
         assert node.host == "192.168.1.100"
         assert node.port == 9000
+
+    def test_load_migrates_corrupted_embedded_port_host(self, temp_nodes_file):
+        """Issue #27: a pre-existing corrupted ``nodes.json`` entry with a
+        host carrying an embedded port is migrated once, at load time,
+        rather than producing a broken ``RemoteNode`` or crashing.
+        """
+        temp_nodes_file.parent.mkdir(parents=True, exist_ok=True)
+        temp_nodes_file.write_text(
+            json.dumps(
+                {
+                    "gpu-rig": {
+                        "name": "gpu-rig",
+                        "host": "192.168.137.2:8765",
+                        "port": 8765,
+                        "timeout": 5.0,
+                    }
+                }
+            )
+        )
+
+        registry = NodeRegistry()
+
+        node = registry.get_node("gpu-rig")
+        assert node is not None
+        assert node.host == "192.168.137.2"
+        assert node.port == 8765
+        assert node.base_url == "http://192.168.137.2:8765"
+
+        # The migration is persisted so a reload doesn't need to re-fix it.
+        on_disk = json.loads(temp_nodes_file.read_text())
+        assert on_disk["gpu-rig"]["host"] == "192.168.137.2"
+
+    def test_load_unrecoverable_entry_starts_fresh(self, temp_nodes_file):
+        """An entry that still fails validation after migration (e.g. an
+        out-of-range port) falls back to the existing corrupted-file
+        behavior — start fresh — rather than crashing UI startup."""
+        temp_nodes_file.parent.mkdir(parents=True, exist_ok=True)
+        temp_nodes_file.write_text(
+            json.dumps(
+                {
+                    "bad-node": {
+                        "name": "bad-node",
+                        "host": "192.168.1.100",
+                        "port": 80,
+                    }
+                }
+            )
+        )
+
+        registry = NodeRegistry()
+
+        assert registry.get_node("bad-node") is None
+
+    def test_load_skips_invalid_entry_keeps_valid_siblings(self, temp_nodes_file, caplog):
+        """Issue #273: NodeRegistry._load() used to fold a single bad
+        entry's ``ValueError`` into the whole-file-corruption ``except``,
+        silently discarding every other valid node in the pass. A
+        multi-node file with one invalid entry (out-of-range port) must
+        drop only that entry — all valid nodes survive — and a WARN
+        naming the offending node is logged."""
+        temp_nodes_file.parent.mkdir(parents=True, exist_ok=True)
+        temp_nodes_file.write_text(
+            json.dumps(
+                {
+                    "good-node": {
+                        "name": "good-node",
+                        "host": "192.168.1.50",
+                        "port": 8765,
+                    },
+                    "bad-node": {
+                        "name": "bad-node",
+                        "host": "192.168.1.100",
+                        # Out-of-range port (NodeConfig requires 1024-65535).
+                        "port": 80,
+                    },
+                    "another-good-node": {
+                        "name": "another-good-node",
+                        "host": "192.168.1.51",
+                        "port": 9000,
+                    },
+                }
+            )
+        )
+
+        with caplog.at_level("WARNING", logger="llauncher.remote.registry"):
+            registry = NodeRegistry()
+
+        assert registry.get_node("bad-node") is None
+        good = registry.get_node("good-node")
+        assert good is not None
+        assert good.host == "192.168.1.50"
+        another_good = registry.get_node("another-good-node")
+        assert another_good is not None
+        assert another_good.host == "192.168.1.51"
+
+        assert any(
+            "bad-node" in record.message for record in caplog.records
+        ), "expected a WARN naming the dropped 'bad-node' entry"
+
+    def test_load_whole_file_corruption_starts_fresh(self, temp_nodes_file):
+        """Whole-file corruption (malformed JSON) is a distinct concern
+        from a single bad entry (issue #273): it still falls back to
+        starting fresh with an empty registry, rather than crashing UI
+        startup or being conflated with the now per-entry-scoped
+        validation failure path."""
+        temp_nodes_file.parent.mkdir(parents=True, exist_ok=True)
+        temp_nodes_file.write_text("{not valid json")
+
+        registry = NodeRegistry()
+
+        assert len(registry) == 0
 
     def test_refresh_all(self, temp_nodes_file):
         """Test refreshing all nodes."""
@@ -1005,48 +1176,73 @@ class TestRemoteAggregator:
 
 
 # ---------------------------------------------------------------------------
-# Issue #62 — RemoteNode self-loop short-circuit per ADR-009
+# Issue #62 — RemoteNode self-loop short-circuit per ADR-009, NARROWED by #200
 #
-# When a RemoteNode resolves to the local agent, verb methods should
-# bypass HTTP entirely and call the in-process operations layer. Auth
-# is enforced only at the network boundary; the in-process path
+# Pre-#200 the short-circuit fired whenever the target host/port looked
+# local (or the node was named "local"). That captured operator front-ends
+# pointing at the local agent, forcing their launches in-process — the #200
+# defect. The narrowed rule: the short-circuit fires *only* when the caller
+# IS the agent process (the ``LLAUNCHER_IS_AGENT_PROCESS`` env stamp), so
+# the agent keeps its loopback-HTTP-avoiding in-process path while every
+# front-end routes over HTTP (where the delegation gate decides).
+#
+# Auth is enforced only at the network boundary; the in-process path
 # intentionally skips it.
 # ---------------------------------------------------------------------------
 
 
 class TestSelfLoopDetection:
-    """``_is_self_loop`` covers two independent signals."""
+    """``_is_self_loop`` = caller-is-agent AND target-is-local (#200)."""
 
-    def test_name_local_is_self_loop_regardless_of_host(self):
+    # ── caller IS the agent ────────────────────────────────────────────
+    def test_agent_calling_name_local_is_self_loop(self, monkeypatch):
+        monkeypatch.setenv("LLAUNCHER_IS_AGENT_PROCESS", "1")
         node = RemoteNode("local", "192.168.1.100", port=9000)
         assert node._is_self_loop() is True
 
-    def test_localhost_host_and_default_port_is_self_loop(self):
-        node = RemoteNode("anything", "localhost", port=8765)
-        assert node._is_self_loop() is True
-
-    def test_127_0_0_1_with_default_port_is_self_loop(self):
+    def test_agent_calling_localhost_default_port_is_self_loop(self, monkeypatch):
+        monkeypatch.setenv("LLAUNCHER_IS_AGENT_PROCESS", "1")
         node = RemoteNode("anything", "127.0.0.1", port=8765)
         assert node._is_self_loop() is True
 
-    def test_localhost_with_different_port_is_NOT_self_loop(self):
-        # Same host, different port — different process. Not local.
-        node = RemoteNode("anything", "localhost", port=9999)
-        assert node._is_self_loop() is False
-
-    def test_remote_host_with_default_port_is_NOT_self_loop(self):
+    def test_agent_calling_remote_peer_is_NOT_self_loop(self, monkeypatch):
+        # Multi-node isolation: even as the agent, a genuinely remote peer
+        # must go over HTTP — never run the peer's launch in-process.
+        monkeypatch.setenv("LLAUNCHER_IS_AGENT_PROCESS", "1")
         node = RemoteNode("peer", "192.168.1.100", port=8765)
         assert node._is_self_loop() is False
 
-    def test_hostname_match_with_default_port_is_self_loop(self, monkeypatch):
-        import socket
-        monkeypatch.setattr(socket, "gethostname", lambda: "my-workstation")
-        node = RemoteNode("renamed", "my-workstation", port=8765)
-        assert node._is_self_loop() is True
+    def test_agent_calling_localhost_other_port_is_NOT_self_loop(self, monkeypatch):
+        monkeypatch.setenv("LLAUNCHER_IS_AGENT_PROCESS", "1")
+        node = RemoteNode("anything", "localhost", port=9999)
+        assert node._is_self_loop() is False
+
+    # ── caller is a FRONT-END (no agent stamp) ──────────────────────────
+    def test_frontend_local_target_is_NOT_self_loop(self, monkeypatch):
+        # The #200 narrowing: a front-end pointing at the local agent must
+        # NOT short-circuit — it delegates over HTTP via the gate instead.
+        monkeypatch.delenv("LLAUNCHER_IS_AGENT_PROCESS", raising=False)
+        node = RemoteNode("local", "127.0.0.1", port=8765)
+        assert node._is_self_loop() is False
+
+    def test_frontend_name_local_is_NOT_self_loop(self, monkeypatch):
+        monkeypatch.delenv("LLAUNCHER_IS_AGENT_PROCESS", raising=False)
+        node = RemoteNode("local", "192.168.1.100", port=9000)
+        assert node._is_self_loop() is False
+
+    def test_falsy_stamp_is_NOT_self_loop(self, monkeypatch):
+        monkeypatch.setenv("LLAUNCHER_IS_AGENT_PROCESS", "0")
+        node = RemoteNode("local", "127.0.0.1", port=8765)
+        assert node._is_self_loop() is False
 
 
 class TestSelfLoopShortCircuit:
-    """Verb methods bypass HTTP when self-loop is detected."""
+    """Verb methods bypass HTTP when the caller IS the agent (#200)."""
+
+    @pytest.fixture(autouse=True)
+    def _stamp_agent(self, monkeypatch):
+        """Every test in this class runs as the agent process."""
+        monkeypatch.setenv("LLAUNCHER_IS_AGENT_PROCESS", "1")
 
     def test_ping_self_loop_skips_http_and_returns_true(self):
         node = RemoteNode("local", "localhost", port=8765)
@@ -1108,6 +1304,47 @@ class TestSelfLoopShortCircuit:
         mock_client_class.assert_not_called()
         mock_del.assert_called_once_with("qwen", caller="local")
         assert result["success"] is True
+
+    def test_get_node_info_self_loop_reads_in_process(self):
+        """Self-loop branch builds the payload in-process, no HTTP (#125)."""
+        node = RemoteNode("local", "localhost", port=8765)
+        canned = {
+            "node_name": "this-host",
+            "hostname": "this-host",
+            "os": "Linux",
+            "os_version": "6.x",
+            "python_version": "3.12.0",
+            "ip_addresses": ["127.0.0.1"],
+        }
+        with patch("httpx.Client") as mock_client_class, \
+             patch(
+                 "llauncher.core.node_info.get_node_info", return_value=canned
+             ) as mock_info:
+            result = node.get_node_info()
+
+        mock_client_class.assert_not_called()
+        mock_info.assert_called_once_with()
+        assert result == canned
+        assert node.status == NodeStatus.ONLINE
+        assert node.last_seen is not None
+
+    def test_get_node_info_remote_node_still_uses_http(self):
+        """Regression guard: a genuinely remote node still goes over HTTP."""
+        node = RemoteNode("peer", "192.168.1.100", port=8765)
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"node_name": "peer", "os": "Linux"}
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client.get.return_value = mock_response
+        with patch("httpx.Client", return_value=mock_client) as mock_client_class, \
+             patch("llauncher.core.node_info.get_node_info") as mock_info:
+            result = node.get_node_info()
+
+        mock_client_class.assert_called_once()
+        mock_info.assert_not_called()
+        assert result == {"node_name": "peer", "os": "Linux"}
 
     def test_self_loop_skips_auth_header_check(self):
         """In-process path is not subject to LLAUNCHER_AGENT_TOKEN — auth is a
