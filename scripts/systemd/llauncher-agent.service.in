@@ -14,6 +14,16 @@
 ;
 ; To autostart at boot without an active login session, run once:
 ;   sudo loginctl enable-linger "$USER"
+;
+; ADR-023 (#357 ratified Option A, issue #360): ExecStart resolves through
+; /usr/local/bin/llauncher-agent -> /opt/llauncher/venv/bin/llauncher-agent,
+; a PINNED venv independent of any dev checkout's working-tree state — never
+; @PROJECT_DIR@/.venv. The symlink is placed by scripts/systemd/install-cli.sh
+; (root; the single named owner of /opt/llauncher/venv per ADR-023). This unit
+; runs as the operator uid and CANNOT recompose that root-owned tree
+; (cross-scope recompose is forbidden), so it only DETECTS-and-FAILS-LOUD —
+; see the ExecStartPre backstop below, mirroring the UI unit's (ADR-023
+; Phase B / issue #228).
 
 [Unit]
 Description=llauncher remote management agent
@@ -32,7 +42,24 @@ Type=simple
 ; LLAUNCHER_AGENT_TOKEN, _HOST, _PORT, _NODE_NAME live there so
 ; `systemctl --user cat llauncher-agent` does not leak the token.
 EnvironmentFile=@ENV_FILE@
-ExecStart=@VENV_BIN@/llauncher-agent
+
+; Fail-loud backstop (ADR-023, issue #360): ExecStart resolves
+; /usr/local/bin/llauncher-agent -> /opt/llauncher/venv/bin/llauncher-agent,
+; the shared, ROOT-owned venv the operator's disk-hygiene policy treats as
+; non-durable (freely reaped by a sweep). A `systemd --user` unit CANNOT
+; write or recompose that root tree, and CANNOT Requires=/After= a system
+; ensure unit (cross-scope dependency forbidden) — so it only
+; DETECTS-and-FAILS-LOUD: if the shared venv or its llauncher-agent entry
+; point is missing/unusable, exit nonzero so the unit enters `failed` with
+; an actionable journal line, rather than starting a broken agent.
+; Recompose is a ROOT action: the operator re-runs the compose ritual
+; documented in docs/operations/run-as-a-service.md
+; ("Composing the pinned runtime venv"), which wraps
+; scripts/systemd/install-cli.sh. Invariant VENV-OWNED-OR-GUARANTEED /
+; PARSE-AT-THE-DOOR: guarantee or fail loud at the door; never start a
+; degraded service. (No leading `-`: a nonzero exit here MUST fail the unit.)
+ExecStartPre=/bin/sh -c 'test -d /opt/llauncher/venv && test -x /opt/llauncher/venv/bin/llauncher-agent || { echo "llauncher-agent backstop (ADR-023): shared venv /opt/llauncher/venv or its llauncher-agent entry point is missing or not executable. A --user unit cannot recompose this root-owned venv (cross-scope recompose is forbidden). Recompose it as root: sudo bash scripts/systemd/install-cli.sh (see docs/operations/run-as-a-service.md, \"Composing the pinned runtime venv\")" >&2; exit 1; }'
+ExecStart=/usr/local/bin/llauncher-agent
 WorkingDirectory=@PROJECT_DIR@
 
 ; Graceful: uvicorn (llauncher/agent/server.py:136) handles SIGTERM

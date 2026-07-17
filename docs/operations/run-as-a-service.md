@@ -226,6 +226,71 @@ journalctl --user -u llauncher-ui -f      # live logs
 
 ---
 
+## Composing the pinned runtime venv
+
+**#357 ratified (2026-07-16): the systemd deployment runs from a unique,
+PINNED venv — `/opt/llauncher/venv` — independent of any operator's shell
+state and of any clone's working-tree state.** [ADR-023](../adrs/accepted/023-service-owned-venv-recomposition.md)'s
+service-owned-venv shape governs this; the repo `.venv` is dev-only and is
+**never** what a systemd `--user` unit's `ExecStart` resolves into (both the
+agent's and the UI's `--user` unit templates resolve through
+`/usr/local/bin` symlinks into `/opt/llauncher/venv` — see the sections
+above). Recomposing this venv **is** the deploy event: there is no
+auto-recompose (tracked separately, [#233](https://github.com/shanevcantwell/llauncher/issues/233))
+and no version-tag pin yet (tracked separately,
+[harness-tools#195](https://github.com/shanevcantwell/harness-tools/issues/195)) —
+today's ritual composes from a git ref (default `main`), records exactly
+what it installed, and is safe to re-run any time you want to redeploy.
+
+The ritual is a **root-owned, read-exec group `inference`** artifact,
+composed inside a deliberate sudo grant window and nothing else. It is one
+script, `scripts/systemd/install-cli.sh`, which performs every step below in
+sequence — the grant/revoke bracket is the operator's, the composition
+itself is not hand-typed:
+
+```bash
+# 1. Open your sudo grant window (however your host does that), then:
+
+# 2. Compose the pinned venv from the current default ref (main), or pin
+#    an explicit tag/branch/SHA with REF=:
+sudo bash scripts/systemd/install-cli.sh
+# sudo REF=v0.4.0-alpha bash scripts/systemd/install-cli.sh   # pin instead of `main`
+
+# 3. Confirm the pin — the manifest answers "what is this venv running"
+#    at any later time without re-deriving it:
+cat /opt/llauncher/venv-manifest.txt
+
+# 4. Restart the services so they pick up the recomposed venv:
+systemctl --user restart llauncher-agent
+systemctl --user restart llauncher-ui
+
+# 5. Revoke your sudo grant window.
+```
+
+What step 2 does, in order (so a failure is legible against a known
+sequence, not a black box): creates `/opt/llauncher/venv` if absent;
+`pip install`s `llauncher[ui]` **non-editable** from
+`git+https://github.com/shanevcantwell/llauncher.git@$REF` (never `-e`,
+never a local checkout path — the whole point is independence from any
+clone's working-tree state); records `pip freeze` plus the ref and a UTC
+timestamp to `/opt/llauncher/venv-manifest.txt`; symlinks
+`llauncher`, `llauncher-agent`, `llauncher-mcp`, and `llauncher-ui` into
+`/usr/local/bin`; and `chmod -R a+rX`s the whole tree (world read-exec,
+which is a superset of — and satisfies — group-`inference` read-exec; only
+root can write/recompose it).
+
+**Recompose = re-run the same script.** There is no separate "update" path:
+running `install-cli.sh` again refreshes the venv to the current `$REF` and
+overwrites the manifest to describe exactly what is now installed. If the
+pin was never composed on a host, both `install.sh` (the agent's `--user`
+installer) and `install-ui.sh` preflight for
+`/opt/llauncher/venv/bin/llauncher-agent` /
+`/opt/llauncher/venv/bin/llauncher-ui` respectively and **fail loud**,
+pointing back at this section — neither installer silently falls back to a
+repo venv.
+
+---
+
 ## Windows (NSSM)
 
 ### Prerequisites
