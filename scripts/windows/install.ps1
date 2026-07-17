@@ -258,6 +258,18 @@ foreach ($line in Get-Content $EnvFile) {
 $envPairs += "LAUNCHER_STATE_DIR=$EnvDir"
 Say "Injecting LAUNCHER_STATE_DIR=$EnvDir into the service environment (LocalSystem wrinkle, #284)."
 
+# --- Unbuffered stdout/stderr (issue #128) ------------------------------
+# NSSM captures agent stdout/stderr to AppStdout/AppStderr files (below),
+# but a redirected (non-TTY) Python stream is block-buffered by default,
+# so runtime log lines sit in an in-process buffer indefinitely instead of
+# reaching those files. PYTHONUNBUFFERED must be set BEFORE the
+# interpreter starts (NSSM AppEnvironmentExtra, not agent.env, which
+# load_dotenv() only reads after Python is already running) -- unconditional
+# because there is no scenario where an operator wants the pre-#128
+# buffering bug back.
+$envPairs += "PYTHONUNBUFFERED=1"
+Say "Injecting PYTHONUNBUFFERED=1 into the service environment (unbuffered agent logging, #128)."
+
 # --- Install or refresh service ---------------------------------------
 if (Get-Service $ServiceName -ErrorAction SilentlyContinue) {
     Info "Service exists - stopping for refresh..."

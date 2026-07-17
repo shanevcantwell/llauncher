@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -239,7 +240,9 @@ def test_create_app_wires_lifespan() -> None:
     assert app.router.lifespan_context is not None
 
 
-def test_run_agent_passes_lifespan_on(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_agent_passes_lifespan_on(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """``run_agent()`` must pass ``lifespan="on"`` so the handler actually fires."""
     from llauncher.agent.config import AgentConfig
 
@@ -252,6 +255,11 @@ def test_run_agent_passes_lifespan_on(monkeypatch: pytest.MonkeyPatch) -> None:
     # Silence the startup banner log calls.
     monkeypatch.setattr(agent_server.logger, "info", lambda *a, **k: None)
     monkeypatch.setattr(agent_server.logger, "warning", lambda *a, **k: None)
+    # Issue #128: run_agent configures a FileHandler under
+    # LAUNCHER_LOG_DIR. Redirect it to tmp_path so the test never
+    # touches the real ~/.llauncher/logs.
+    monkeypatch.setattr(agent_server, "LAUNCHER_LOG_DIR", tmp_path)
+    monkeypatch.setenv("LLAUNCHER_AGENT_TOKEN", "test-token")
 
     agent_server.run_agent(AgentConfig(host="127.0.0.1", port=8000))
 

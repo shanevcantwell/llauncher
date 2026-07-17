@@ -160,6 +160,9 @@ def start(
         )
     except FileExistsError:
         # Another op is already in flight on this port. Refuse to start.
+        # NOTE: FileExistsError is an OSError subclass, so this except
+        # must precede the bare OSError clause below (Python matches the
+        # first applicable except in source order).
         al.record(
             AuditAction.STARTED,
             AuditResult.REJECTED_IN_PROGRESS,
@@ -177,6 +180,29 @@ def start(
                 f"Another op is in flight on port {port}; "
                 "try again shortly or cancel it."
             ),
+        )
+    except OSError as e:
+        # issue #308: a marker-write failure (disk full, permissions,
+        # missing/unwritable LAUNCHER_RUN_DIR, ...) previously propagated
+        # out of `start` uncaught, surfacing to the HTTP layer as an
+        # unhandled exception -- a silent 500 with no audit trail and no
+        # structured error body. Mirrors the existing
+        # `except (FileNotFoundError, OSError)` pattern around
+        # `proc.start_server` below.
+        al.record(
+            AuditAction.STARTED,
+            AuditResult.ERROR,
+            caller=caller,
+            port=port,
+            model=model_name,
+            message=f"failed to write in-flight marker: {e}",
+        )
+        return StartResult(
+            success=False,
+            action="error",
+            port=port,
+            model=model_name,
+            message=f"Failed to write in-flight marker: {e}",
         )
 
     try:
