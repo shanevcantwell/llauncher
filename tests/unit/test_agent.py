@@ -1016,10 +1016,26 @@ class TestUtilityFunctions:
         # Call the function
         run_agent(config)
 
-        # run_agent must hand uvicorn our timestamped log config (#307) so
-        # access AND error lines both carry asctime, rather than falling
-        # back to uvicorn's un-timestamped stock formatters.
-        assert captured_kwargs["log_config"] is UVICORN_LOG_CONFIG
+        # run_agent must hand uvicorn a log config derived from our
+        # timestamped template (#307) so access AND error lines both carry
+        # asctime, rather than falling back to uvicorn's un-timestamped
+        # stock formatters. It is no longer the *same object* as the
+        # module-level UVICORN_LOG_CONFIG: run_agent now builds a per-call
+        # copy (via _build_uvicorn_log_config) with a FileHandler pair
+        # injected so uvicorn's own request/access/error traffic reaches
+        # agent.log too, not just the three startup lines this module logs
+        # directly — the module-level template must therefore stay a pure
+        # in-memory constant with no filesystem path baked in.
+        log_config = captured_kwargs["log_config"]
+        assert log_config is not UVICORN_LOG_CONFIG
+        assert (
+            log_config["formatters"]["access"]["fmt"]
+            == UVICORN_LOG_CONFIG["formatters"]["access"]["fmt"]
+        )
+        assert (
+            log_config["formatters"]["default"]["fmt"]
+            == UVICORN_LOG_CONFIG["formatters"]["default"]["fmt"]
+        )
 
     def test_uvicorn_log_config_access_formatter_has_timestamp(self):
         """Access-log lines must carry an asctime timestamp (#307).

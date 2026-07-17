@@ -12,6 +12,7 @@ Usage:
 """
 
 import argparse
+import copy
 import logging
 import os
 import signal
@@ -19,6 +20,7 @@ import socket
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI
@@ -149,6 +151,56 @@ UVICORN_LOG_CONFIG = {
         "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": False},
     },
 }
+
+
+def _build_uvicorn_log_config(log_dir: Path) -> dict:
+    """Build a per-call uvicorn ``log_config`` with agent.log wired in.
+
+    Verified defect: ``UVICORN_LOG_CONFIG`` sets ``propagate: False`` on the
+    ``uvicorn`` and ``uvicorn.access`` loggers with stream-only handlers, so
+    none of uvicorn's request/access/error traffic ever reaches the root
+    logger's ``FileHandler`` that :func:`_configure_logging` attaches — it
+    only sees the three startup lines this module itself logs. Under a
+    non-TTY supervisor (NSSM, issue #128's original case) that means
+    ``agent.log`` is missing exactly the traffic an operator needs when
+    diagnosing a hang or an error after the fact.
+
+    This deep-copies the module-level ``UVICORN_LOG_CONFIG`` template and
+    adds two ``FileHandler`` entries — one per existing formatter, so file
+    lines carry the same timestamped format as their stream counterparts —
+    targeting ``log_dir / "agent.log"``, then appends them to the
+    ``uvicorn`` and ``uvicorn.access`` loggers' handler lists alongside the
+    existing stream handlers (stdout/stderr behavior is unchanged; nothing
+    is removed). ``uvicorn.error`` needs no separate entry: it has no
+    handlers of its own and propagates (default) up to ``uvicorn``, so it
+    rides the same "default" file handler.
+
+    Built fresh on every call — never at import time — so the resolved
+    path always reflects the current ``LAUNCHER_LOG_DIR`` (env/test
+    overrides included) rather than whatever it was when this module was
+    first imported. Mirrors the runtime-only-filesystem-work discipline
+    :func:`_configure_logging`'s docstring documents for issue #195; the
+    module-level ``UVICORN_LOG_CONFIG`` itself stays a pure in-memory
+    template with no filesystem I/O of its own.
+    """
+    config = copy.deepcopy(UVICORN_LOG_CONFIG)
+    log_path = str(Path(log_dir) / "agent.log")
+
+    config["handlers"]["default_file"] = {
+        "formatter": "default",
+        "class": "logging.FileHandler",
+        "filename": log_path,
+        "encoding": "utf-8",
+    }
+    config["handlers"]["access_file"] = {
+        "formatter": "access",
+        "class": "logging.FileHandler",
+        "filename": log_path,
+        "encoding": "utf-8",
+    }
+    config["loggers"]["uvicorn"]["handlers"].append("default_file")
+    config["loggers"]["uvicorn.access"]["handlers"].append("access_file")
+    return config
 
 
 def find_process_on_port(port: int) -> int | None:
@@ -567,14 +619,19 @@ def run_agent(config: AgentConfig) -> None:
     # Run the server. ``lifespan="on"`` ensures the FastAPI lifespan handler
     # (which reaps llama-server children on shutdown per #65) actually fires
     # regardless of uvicorn's auto-detection heuristics. ``log_config``
-    # carries our timestamped access/error formatters (#307).
+    # carries our timestamped access/error formatters (#307) AND, via
+    # :func:`_build_uvicorn_log_config`, a FileHandler pair targeting the
+    # same ``agent.log`` that :func:`_configure_logging` set up above —
+    # otherwise uvicorn's own loggers (propagate=False, stream-only
+    # handlers) never reach the durable file at all, defeating this
+    # function's own #128 purpose.
     uvicorn.run(
         app,
         host=config.host,
         port=config.port,
         log_level="info",
         lifespan="on",
-        log_config=UVICORN_LOG_CONFIG,
+        log_config=_build_uvicorn_log_config(LAUNCHER_LOG_DIR),
     )
 
 
