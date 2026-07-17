@@ -119,7 +119,20 @@ def record(
     message: str = "",
     path: Path | None = None,
 ) -> AuditEntry:
-    """Convenience: build an entry with current UTC timestamp, append, and return it."""
+    """Convenience: build an entry with current UTC timestamp, append, and return it.
+
+    Audit logging is best-effort observability, never a gate on the
+    operation it records (issue #308). Every ``operations/*`` verb calls
+    ``record()`` as a side-channel record of what it did; a write failure
+    here (disk full, permissions, missing/unwritable
+    ``LAUNCHER_AUDIT_PATH``, ...) must never propagate up and abort the
+    operation itself -- that would turn an observability outage into a
+    functional outage. This is the single choke-point behind every
+    ``al.record()`` call site, so the try/except lives here once rather
+    than at each of them. The entry is still returned (unpersisted) so
+    callers that inspect the return value (tests, in-memory chaining)
+    keep working identically to the success path.
+    """
     entry = AuditEntry(
         timestamp=datetime.now(timezone.utc).isoformat(),
         action=action,
@@ -131,7 +144,10 @@ def record(
         pid=pid,
         message=message,
     )
-    append_entry(entry, path=path)
+    try:
+        append_entry(entry, path=path)
+    except OSError as exc:
+        logger.error("Failed to write audit log entry (%s/%s): %s", action, result, exc)
     return entry
 
 

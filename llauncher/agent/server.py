@@ -12,6 +12,7 @@ Usage:
 """
 
 import argparse
+import copy
 import logging
 import os
 import signal
@@ -19,6 +20,7 @@ import socket
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI
@@ -41,12 +43,66 @@ from llauncher.agent.routing import router, get_node_name
 from llauncher.core import delegation
 from llauncher.core import lockfile as lf
 from llauncher.core import settings
-from llauncher.core.settings import AGENT_API_KEY
+from llauncher.core.settings import AGENT_API_KEY, LAUNCHER_LOG_DIR
 
-# Configure logging
+_LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+
+def _configure_logging() -> None:
+    """Configure agent-process logging (issue #128).
+
+    Under NSSM (Windows service manager) — and any non-TTY supervisor —
+    ``sys.stdout``/``sys.stderr`` are block-buffered (typically 8 KB),
+    not line-buffered, so ``logging``'s default ``StreamHandler`` output
+    sits in the buffer indefinitely instead of reaching the redirected
+    log files. Reconfiguring both streams to line-buffering (Python 3.7+
+    ``TextIOWrapper.reconfigure``) closes that gap without requiring the
+    supervisor to set ``PYTHONUNBUFFERED`` itself.
+
+    A second, independent gap: a StreamHandler alone depends entirely on
+    the *supervisor* capturing and persisting stderr somewhere durable.
+    Adding a ``FileHandler`` targeting ``LAUNCHER_LOG_DIR / "agent.log"``
+    gives the agent its own durable log file regardless of what (if
+    anything) the supervisor does with stdout/stderr — the same posture
+    ``core.process`` already gives every managed ``llama-server`` child.
+
+    Deliberately NOT called at bare module import (contrast the
+    pre-#128 ``logging.basicConfig(...)`` that used to sit at import
+    time): touching the filesystem (``mkdir`` + opening a
+    ``FileHandler``) as an import side effect would run on every test
+    collection and every process that merely imports this module
+    (``mcp_server``, ``cli``, test suites), silently creating
+    ``LAUNCHER_LOG_DIR`` under the real ``$HOME`` regardless of test
+    isolation — the same class of defect issue #195 fixed for
+    ``LLAMA_SERVER_PATH``. Instead this is invoked once, explicitly,
+    from :func:`run_agent` — the actual production entry point —
+    before ``uvicorn.run`` starts serving.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(line_buffering=True)
+
+    LAUNCHER_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    file_handler = logging.FileHandler(
+        LAUNCHER_LOG_DIR / "agent.log", encoding="utf-8"
+    )
+    stream_handler = logging.StreamHandler()
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format=_LOG_FORMAT,
+        handlers=[stream_handler, file_handler],
+        force=True,
+    )
+
+
+# Import-time logging config: level/format only, no filesystem I/O. The
+# full configuration (line-buffering reconfigure + FileHandler under
+# LAUNCHER_LOG_DIR, issue #128) happens in :func:`run_agent` — see
+# :func:`_configure_logging`'s docstring for why it is not called here.
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    format=_LOG_FORMAT,
 )
 logger = logging.getLogger(__name__)
 
@@ -95,6 +151,56 @@ UVICORN_LOG_CONFIG = {
         "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": False},
     },
 }
+
+
+def _build_uvicorn_log_config(log_dir: Path) -> dict:
+    """Build a per-call uvicorn ``log_config`` with agent.log wired in.
+
+    Verified defect: ``UVICORN_LOG_CONFIG`` sets ``propagate: False`` on the
+    ``uvicorn`` and ``uvicorn.access`` loggers with stream-only handlers, so
+    none of uvicorn's request/access/error traffic ever reaches the root
+    logger's ``FileHandler`` that :func:`_configure_logging` attaches — it
+    only sees the three startup lines this module itself logs. Under a
+    non-TTY supervisor (NSSM, issue #128's original case) that means
+    ``agent.log`` is missing exactly the traffic an operator needs when
+    diagnosing a hang or an error after the fact.
+
+    This deep-copies the module-level ``UVICORN_LOG_CONFIG`` template and
+    adds two ``FileHandler`` entries — one per existing formatter, so file
+    lines carry the same timestamped format as their stream counterparts —
+    targeting ``log_dir / "agent.log"``, then appends them to the
+    ``uvicorn`` and ``uvicorn.access`` loggers' handler lists alongside the
+    existing stream handlers (stdout/stderr behavior is unchanged; nothing
+    is removed). ``uvicorn.error`` needs no separate entry: it has no
+    handlers of its own and propagates (default) up to ``uvicorn``, so it
+    rides the same "default" file handler.
+
+    Built fresh on every call — never at import time — so the resolved
+    path always reflects the current ``LAUNCHER_LOG_DIR`` (env/test
+    overrides included) rather than whatever it was when this module was
+    first imported. Mirrors the runtime-only-filesystem-work discipline
+    :func:`_configure_logging`'s docstring documents for issue #195; the
+    module-level ``UVICORN_LOG_CONFIG`` itself stays a pure in-memory
+    template with no filesystem I/O of its own.
+    """
+    config = copy.deepcopy(UVICORN_LOG_CONFIG)
+    log_path = str(Path(log_dir) / "agent.log")
+
+    config["handlers"]["default_file"] = {
+        "formatter": "default",
+        "class": "logging.FileHandler",
+        "filename": log_path,
+        "encoding": "utf-8",
+    }
+    config["handlers"]["access_file"] = {
+        "formatter": "access",
+        "class": "logging.FileHandler",
+        "filename": log_path,
+        "encoding": "utf-8",
+    }
+    config["loggers"]["uvicorn"]["handlers"].append("default_file")
+    config["loggers"]["uvicorn.access"]["handlers"].append("access_file")
+    return config
 
 
 def find_process_on_port(port: int) -> int | None:
@@ -411,6 +517,13 @@ def run_agent(config: AgentConfig) -> None:
             (the #293 duplicate-token split-brain). The error message
             names the remediation paths.
     """
+    # Full logging setup (issue #128): line-buffered stdout/stderr +
+    # durable FileHandler under LAUNCHER_LOG_DIR. Done first so every
+    # subsequent line in this function — including the fail-loud exits
+    # below — reaches agent.log, not just what a supervisor happens to
+    # capture from stdout/stderr.
+    _configure_logging()
+
     if legacy_token_env_misconfigured():
         sys.stderr.write(
             "[llauncher-agent] ERROR: found legacy LAUNCHER_AGENT_TOKEN in "
@@ -506,14 +619,19 @@ def run_agent(config: AgentConfig) -> None:
     # Run the server. ``lifespan="on"`` ensures the FastAPI lifespan handler
     # (which reaps llama-server children on shutdown per #65) actually fires
     # regardless of uvicorn's auto-detection heuristics. ``log_config``
-    # carries our timestamped access/error formatters (#307).
+    # carries our timestamped access/error formatters (#307) AND, via
+    # :func:`_build_uvicorn_log_config`, a FileHandler pair targeting the
+    # same ``agent.log`` that :func:`_configure_logging` set up above —
+    # otherwise uvicorn's own loggers (propagate=False, stream-only
+    # handlers) never reach the durable file at all, defeating this
+    # function's own #128 purpose.
     uvicorn.run(
         app,
         host=config.host,
         port=config.port,
         log_level="info",
         lifespan="on",
-        log_config=UVICORN_LOG_CONFIG,
+        log_config=_build_uvicorn_log_config(LAUNCHER_LOG_DIR),
     )
 
 

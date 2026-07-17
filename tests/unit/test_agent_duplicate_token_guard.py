@@ -56,6 +56,10 @@ def test_run_agent_fails_loud_on_duplicate_token_lines(
         "LLAUNCHER_AGENT_TOKEN=first\nLLAUNCHER_AGENT_TOKEN=second\n"
     )
     monkeypatch.setattr(agent_server, "default_env_path", lambda: env)
+    # Issue #128: run_agent configures a FileHandler under
+    # LAUNCHER_LOG_DIR before the duplicate-token check runs. Redirect
+    # it to tmp_path so the test never touches the real ~/.llauncher/logs.
+    monkeypatch.setattr(agent_server, "LAUNCHER_LOG_DIR", tmp_path)
 
     started = {"uvicorn": False}
 
@@ -93,6 +97,9 @@ def test_run_agent_allows_single_token_line(
     env = tmp_path / "agent.env"
     env.write_text("LLAUNCHER_AGENT_TOKEN=only-one\n")
     monkeypatch.setattr(agent_server, "default_env_path", lambda: env)
+    # Issue #128: same LAUNCHER_LOG_DIR redirect as the duplicate-token
+    # test above.
+    monkeypatch.setattr(agent_server, "LAUNCHER_LOG_DIR", tmp_path)
 
     started = {"uvicorn": False}
 

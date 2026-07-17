@@ -228,6 +228,41 @@ def test_start_errors_when_process_launch_fails(
     assert entries[0].result == AuditResult.ERROR
 
 
+def test_start_errors_when_marker_write_fails(
+    run_dir: Path, audit_path: Path, sample_config: ModelConfig
+) -> None:
+    """Issue #308: a marker-write failure (disk full, permissions, ...)
+    must surface as a structured ``action="error"`` result with an audit
+    trail, not propagate uncaught out of ``ops.start`` -- which is what
+    produced the "silent 500" the HTTP layer previously emitted for any
+    unhandled exception. ``FileExistsError`` (a distinct OSError subclass,
+    the concurrent-marker-conflict path) must still be routed to
+    ``rejected_in_progress``, not this ``error`` path -- mirrors
+    ``test_start_errors_when_process_launch_fails``.
+    """
+    with patch("llauncher.operations.ConfigStore.get_model", return_value=sample_config), \
+         patch(
+             "llauncher.operations.start.mk.take_marker",
+             side_effect=OSError("disk full"),
+         ), \
+         patch("llauncher.operations.proc.start_server") as start_proc:
+        result = ops.start("mistral-7b", 8081, caller="test")
+
+    assert result.success is False
+    assert result.action == "error"
+    assert "disk full" in result.message.lower() or "marker" in result.message.lower()
+    start_proc.assert_not_called()
+
+    # No lockfile was written.
+    assert lf.read_lockfile(8081, run_dir=run_dir) is None
+
+    # Exactly one audit entry: STARTED / ERROR.
+    entries = al.read_entries(path=audit_path)
+    assert len(entries) == 1
+    assert entries[0].action == AuditAction.STARTED
+    assert entries[0].result == AuditResult.ERROR
+
+
 def test_start_rejects_when_preflight_health_check_fails(
     run_dir: Path, audit_path: Path, sample_config: ModelConfig
 ) -> None:
