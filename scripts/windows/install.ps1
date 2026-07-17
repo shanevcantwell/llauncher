@@ -1,9 +1,13 @@
 # Install / refresh the llauncher-agent Windows service via NSSM.
 #
 # Prerequisites:
-#   - NSSM (Non-Sucking Service Manager) on PATH, or set $env:NSSM
-#     to the absolute path of nssm.exe. Download from https://nssm.cc/
-#     or `choco install nssm` / `scoop install nssm`.
+#   - NSSM (Non-Sucking Service Manager), resolved via a fallback chain
+#     (issue #352): $env:NSSM override -> PATH -> choco bin shim -> choco
+#     lib payload -> scoop shim. PATH is not required if nssm is findable
+#     via one of the other locations (e.g. a Windows Update dropped the
+#     choco bin dir from PATH but nssm.exe is still sitting right there).
+#     Download from https://nssm.cc/ or `choco install nssm` / `scoop
+#     install nssm`.
 #   - Project venv created via `scripts\run.bat install`.
 #   - This script must run elevated (right-click "Run as Administrator").
 #
@@ -55,6 +59,7 @@ $EnvExample  = Join-Path $ScriptDir 'agent.env.example'
 
 function Say  ($msg) { Write-Host "[OK]  $msg" -ForegroundColor Green }
 function Info ($msg) { Write-Host "[..]  $msg" -ForegroundColor Yellow }
+function Warn ($msg) { Write-Host "[WARN]  $msg" -ForegroundColor Red }
 function Die  ($msg) { Write-Host "[!!]  $msg" -ForegroundColor Red; exit 1 }
 
 # --- Elevation check --------------------------------------------------
@@ -64,17 +69,101 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     Die "This script must be run from an elevated (Administrator) PowerShell."
 }
 
-# --- Locate nssm ------------------------------------------------------
-$nssm = if ($env:NSSM) { $env:NSSM } else { (Get-Command nssm.exe -ErrorAction SilentlyContinue).Source }
+# --- Locate nssm --------------------------------------------------------
+# PATH is not the only place nssm legitimately lives (issue #352): a
+# Windows Update can silently drop C:\ProgramData\chocolatey\bin from the
+# system PATH without touching choco's own install -- nssm.exe (and choco
+# itself) keep working fine from an elevated prompt that still has the
+# entry, but a fresh/other shell's `Get-Command nssm.exe` comes back empty
+# and the pre-#352 installer misdiagnosed that as "nssm not installed",
+# sending operators to reinstall tooling that was never missing (the bogus
+# precondition behind PR #345). Resolve through a fallback chain instead,
+# first match wins, and probe every candidate so a genuine absence can name
+# everywhere it looked:
+#   1. $env:NSSM override (explicit operator escape hatch, pre-#352)
+#   2. nssm.exe on PATH (Get-Command)
+#   3. the choco shim: C:\ProgramData\chocolatey\bin\nssm.exe
+#   4. the newest nssm.exe under choco's package payload:
+#      C:\ProgramData\chocolatey\lib\nssm\tools\**\nssm.exe
+#   5. scoop shim: %USERPROFILE%\scoop\shims\nssm.exe
+$nssmCandidates = [System.Collections.Generic.List[string]]::new()
+$nssm = $null
+$nssmSource = $null
+
+if ($env:NSSM) {
+    $nssmCandidates.Add($env:NSSM)
+    if (Test-Path $env:NSSM) {
+        $nssm = $env:NSSM; $nssmSource = '$env:NSSM override'
+    } else {
+        # Loud, not silent (#352 review): an operator who set $env:NSSM
+        # expected it to be used. Falling through to the next candidate
+        # without a word would leave them wondering why their override was
+        # ignored -- name the invalid path before continuing the chain.
+        Warn "`$env:NSSM is set to '$($env:NSSM)' but that path does not exist -- falling through to the next candidate."
+    }
+}
+
+if (-not $nssm) {
+    $onPath = (Get-Command nssm.exe -ErrorAction SilentlyContinue).Source
+    if ($onPath) {
+        $nssmCandidates.Add($onPath)
+        $nssm = $onPath
+        $nssmSource = 'PATH'
+    } else {
+        $nssmCandidates.Add('nssm.exe (via PATH / Get-Command)')
+    }
+}
+
+$chocoBinNssm = 'C:\ProgramData\chocolatey\bin\nssm.exe'
+if (-not $nssm) {
+    $nssmCandidates.Add($chocoBinNssm)
+    if (Test-Path $chocoBinNssm) { $nssm = $chocoBinNssm; $nssmSource = 'chocolatey bin shim' }
+}
+
+$chocoLibNssmGlob = 'C:\ProgramData\chocolatey\lib\nssm\tools\**\nssm.exe'
+if (-not $nssm) {
+    $nssmCandidates.Add($chocoLibNssmGlob)
+    $chocoLibRoot = 'C:\ProgramData\chocolatey\lib\nssm\tools'
+    if (Test-Path $chocoLibRoot) {
+        # The choco nssm package ships both win32 and win64 payloads with
+        # identical (or near-identical, within filesystem timestamp
+        # resolution) LastWriteTime -- Sort-Object -Descending alone leaves
+        # that tie's winner up to PowerShell 5.1's unstable sort, which can
+        # silently pick the 32-bit binary on one run and the 64-bit binary
+        # on the next. Prefer win64 deterministically as the primary sort
+        # key, falling back to LastWriteTime to break any remaining tie.
+        $newestLibNssm = Get-ChildItem -Path $chocoLibRoot -Filter 'nssm.exe' -Recurse -ErrorAction SilentlyContinue |
+            Sort-Object -Property @(
+                @{ Expression = { if ($_.FullName -match 'win64') { 0 } else { 1 } }; Descending = $false },
+                @{ Expression = 'LastWriteTime'; Descending = $true }
+            ) |
+            Select-Object -First 1
+        if ($newestLibNssm) { $nssm = $newestLibNssm.FullName; $nssmSource = 'chocolatey lib payload' }
+    }
+}
+
+$scoopShimNssm = Join-Path $env:USERPROFILE 'scoop\shims\nssm.exe'
+if (-not $nssm) {
+    $nssmCandidates.Add($scoopShimNssm)
+    if (Test-Path $scoopShimNssm) { $nssm = $scoopShimNssm; $nssmSource = 'scoop shim' }
+}
+
 if (-not $nssm -or -not (Test-Path $nssm)) {
+    $tried = ($nssmCandidates | ForEach-Object { "  - $_" }) -join "`n"
     Die @"
-nssm.exe not found. Install via one of:
+nssm.exe not found. Probed, in order (first match wins):
+$tried
+
+If nssm IS installed but off PATH (e.g. a Windows Update dropped
+C:\ProgramData\chocolatey\bin from PATH -- issue #352), either restore that
+PATH entry or set `$env:NSSM = '<path>\nssm.exe'` and re-run. Only install
+fresh tooling if none of the above actually resolves:
   choco install nssm
   scoop install nssm
-  https://nssm.cc/download (then add to PATH, or set `$env:NSSM = '<path>\nssm.exe'`)
+  https://nssm.cc/download (then add to PATH, or set `$env:NSSM`)
 "@
 }
-Say "Using NSSM at $nssm"
+Say "Using NSSM at $nssm (resolved via $nssmSource)"
 
 # --- Uninstall path ---------------------------------------------------
 if ($Uninstall) {
