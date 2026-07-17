@@ -9,7 +9,10 @@
 # Run as your OWN operator account — NOT root. The token-read path works in
 # place via your `inference`-group membership (host provisioning); the
 # /usr/local/bin/llauncher-ui symlink is placed by install-cli.sh (root).
-# Neither is this installer's job — it only warns if they are missing.
+# Neither is this installer's job. The pinned venv itself
+# (/opt/llauncher/venv, ADR-023, issue #360) is a hard preflight — this
+# installer FAILS LOUD if it is absent (no repo-venv fallback exists). The
+# symlink and group-membership preconditions remain soft warnings.
 #
 # LAUNCHER_STATE_DIR comes from the template (fixed at /var/lib/llauncher); it
 # is intentionally NOT overridable from this installer's caller environment.
@@ -71,14 +74,30 @@ uninstall() {
 
 [ "$DO_UNINSTALL" -eq 1 ] && uninstall
 
+# --- Preflight: the pinned venv is a hard requirement (issue #360) -----
+# #357 ratified Option A: the systemd deployment runs from a unique, PINNED
+# venv (/opt/llauncher/venv) independent of any operator's or clone's
+# working-tree state. There is no repo-venv fallback to degrade to — if the
+# pin was never composed, fail loud here and point at the ritual, rather
+# than rendering a unit doomed to fail at systemd's ExecStartPre backstop.
+PINNED_VENV="/opt/llauncher/venv"
+if [ ! -x "$PINNED_VENV/bin/llauncher-ui" ]; then
+    err "$PINNED_VENV/bin/llauncher-ui not found — the pinned runtime venv has"
+    err "not been composed on this host (ADR-023, issue #360). There is no"
+    err "fallback to a repo venv. Compose it (root, one-time or to recompose):"
+    err "  sudo bash $SCRIPT_DIR/install-cli.sh"
+    err "See docs/operations/run-as-a-service.md, \"Composing the pinned runtime venv\"."
+    exit 1
+fi
+
 # --- Preflight (warn, do NOT block) ------------------------------------
-# Both conditions are operator/host provisioning, out of this installer's
-# scope (ADR-022 §installer-vs-host-provisioning). Warn loudly so the cause
-# of a later failure is legible, but proceed — the unit can be rendered and
+# Host-provisioning conditions, out of this installer's scope (ADR-022
+# §installer-vs-host-provisioning). Warn loudly so the cause of a later
+# 403/token failure is legible, but proceed — the unit can be rendered and
 # enabled now; it will become functional once provisioning is in place.
 if [ ! -x "$UI_BIN" ]; then
-    info "[user:gate] $UI_BIN is absent. The unit's ExecStart points there."
-    info "  Run the CLI installer as root first:"
+    info "[user:gate] $UI_BIN is absent even though the pinned venv exists."
+    info "  Re-run the CLI installer as root to re-place the symlink:"
     info "    sudo bash $SCRIPT_DIR/install-cli.sh"
     info "  Until then the service will fail to start."
 fi
