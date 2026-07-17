@@ -40,24 +40,24 @@ build-backend = "hatchling.build"
 # Coverage configuration
 # ---------------------------------------------------------------------------
 #
-# The aggregate line-coverage number is misleading for this project: the
-# Streamlit UI tabs (``llauncher/ui/*``) sit at 5–8% pending the AppTest
-# harness in #69, while the non-UI code base sits above 90%. A single
-# ``--cov-fail-under`` floor against the full source mixes those two
-# populations and either becomes vacuous (low) or blocks legitimate UI
-# work (high).
-#
-# Resolution: scope coverage measurement to non-UI sources via ``omit``
-# below, then enforce a meaningful floor in ``pytest.ini`` ``addopts``.
-# When #69 lands the UI harness, drop the ``llauncher/ui/*`` omit and
-# re-baseline the floor against the combined measurement.
+# The Streamlit UI is measured alongside everything else: the AppTest
+# harness landed via #328 (all 7 tabs driven behaviorally, per-module
+# 96–100%), so the old UI/non-UI split — and its ``llauncher/ui/*``
+# omit — is gone (#329). The ``--cov-fail-under`` floor in ``pytest.ini``
+# ``addopts`` is the *measured combined* number rounded down, not a
+# per-population compromise. Only genuine entry-point shims remain
+# omitted below, each with its rationale inline.
 
 [tool.coverage.run]
 source = ["llauncher"]
 branch = false
 omit = [
-    # UI tabs — deferred to #69 (Streamlit AppTest harness).
-    "llauncher/ui/*",
+    # Console-script entry shim for ``llauncher-ui`` that subprocess-execs
+    # ``python -m streamlit run`` (no cross-layer import, by design). Same
+    # entry-shim category as ``agent/__main__.py`` / ``mcp_server/__main__.py``
+    # below: its pure helpers are separable, but the module as a whole is not
+    # unit-import-testable. The rest of ``llauncher/ui/`` is measured (#329).
+    "llauncher/ui/launch.py",
     # CLI entry-point shim for ``python -m llauncher.agent``; covered
     # indirectly through integration runs of the agent, not unit tests.
     "llauncher/agent/__main__.py",
