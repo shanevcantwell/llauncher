@@ -269,7 +269,7 @@ systemctl --user restart llauncher-ui
 
 What step 2 does, in order (so a failure is legible against a known
 sequence, not a black box): creates `/opt/llauncher/venv` if absent;
-`pip install`s `llauncher[ui]` **non-editable** from
+`pip install`s `llauncher` **non-editable** from
 `git+https://github.com/shanevcantwell/llauncher.git@$REF` (never `-e`,
 never a local checkout path — the whole point is independence from any
 clone's working-tree state); records `pip freeze` plus the ref and a UTC

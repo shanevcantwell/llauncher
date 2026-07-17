@@ -98,8 +98,8 @@ def main() -> int:
         import streamlit  # noqa: F401
     except ImportError:
         sys.stderr.write(
-            "Streamlit is not installed. Install the UI extra:\n"
-            '    pip install "llauncher[ui]"\n'
+            "Streamlit is not installed. Reinstall llauncher:\n"
+            '    pip install "llauncher"\n'
         )
         return 1
 

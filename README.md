@@ -36,8 +36,8 @@ Typer command-line surface, co-equal with MCP and UI. Subcommand groups: `model`
 git clone https://github.com/shanevcantwell/llauncher
 cd llauncher
 
-# Install in development mode (with UI)
-pip install -e ".[ui]"
+# Install in development mode (includes UI)
+pip install -e .
 
 # Optional: Install test dependencies
 pip install -e ".[test]"
@@ -53,7 +53,7 @@ cd github\llauncher
 rmdir /s /q .venv
 python -m venv .venv
 \.venv\Scripts\activate
-pip install -e ".[ui]"
+pip install -e .
 ```
 
 ## Quick Start

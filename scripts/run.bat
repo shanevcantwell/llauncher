@@ -50,9 +50,9 @@ goto :help
     echo [INFO] Upgrading pip...
     "%PROJECT_DIR%\.venv\Scripts\python.exe" -m pip install --upgrade pip >nul 2>&1
 
-    echo [INFO] Installing llauncher with UI dependencies...
+    echo [INFO] Installing llauncher...
     cd /d "%PROJECT_DIR%"
-    "%PROJECT_DIR%\.venv\Scripts\python.exe" -m pip install -e ".[ui]"
+    "%PROJECT_DIR%\.venv\Scripts\python.exe" -m pip install -e .
     if errorlevel 1 (
         echo [ERROR] Installation failed
         exit /b 1

@@ -18,7 +18,7 @@ llauncher exposes 13 MCP tools across three categories:
 
 ```bash
 # Install llauncher with MCP support
-pip install -e ".[ui]"  # Includes all dependencies
+pip install -e .  # Includes all dependencies
 ```
 
 The MCP server is installed as a console script:

@@ -84,7 +84,7 @@ case "${1:-}" in
         print_error "run.sh install is disabled: it installed into a repo-local .venv,"
         print_error "disconnected from your global commands. For a global install"
         print_error "(puts llauncher / llauncher-ui on your PATH):"
-        echo "    pip install --user -e \".[ui]\"   # from this repo, with no venv active"
+        echo "    pip install --user -e .   # from this repo, with no venv active"
         exit 1
         ;;
     mcp)
@@ -112,7 +112,7 @@ case "${1:-}" in
     stop)
         # Do NOT call ensure_venv here: `stop` must not bootstrap a ~500MB
         # venv as a side effect on a machine that installed globally
-        # (`pip install --user -e ".[ui]"`) with no local .venv (issue #229).
+        # (`pip install --user -e .`) with no local .venv (issue #229).
         # If a repo-local venv exists, activate it so the agent already
         # running from it is reachable; otherwise rely on PATH.
         if [ -d "$PROJECT_DIR/.venv" ]; then
@@ -146,6 +146,6 @@ case "${1:-}" in
         echo "  LLAUNCHER_AGENT_NODE_NAME Friendly name for this node"
         echo ""
         echo "First time setup (puts llauncher / llauncher-ui on your PATH):"
-        echo "  pip install --user -e \".[ui]\"   # from this repo, with no venv active"
+        echo "  pip install --user -e .   # from this repo, with no venv active"
         ;;
 esac

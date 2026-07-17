@@ -16,10 +16,10 @@
 
 | Category | Files | Tests |
 |----------|-------|-------|
-| Unit | 82 | 1328 |
+| Unit | 89 | 1381 |
 | Integration | 14 | 94 |
-| Other | 17 | 177 |
-| **Total** | **113** | **1599** |
+| Other | 18 | 181 |
+| **Total** | **121** | **1656** |
 
 ## Tests carrying special markers
 
@@ -286,7 +286,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_returns_slots_disabled_envelope_verbatim`**
   - *No HTTP-status mapping at the MCP layer — the tool call returns*
 
-#### `tests/unit/test_agent.py` (84 tests)
+#### `tests/unit/test_agent.py` (85 tests)
 
 - **`test_health_returns_200`**
   - *Test that health endpoint returns 200.*
@@ -320,6 +320,8 @@ ad-hoc markers used in the suite without declaration.
   - *Posting without a body fails FastAPI validation.*
 - **`test_start_nonexistent_model_returns_500`**
   - *Unknown model surfaces ops.start's ``error`` action as 500.*
+- **`test_start_server_unhandled_exception_returns_structured_500`**
+  - *Issue #308: an unhandled exception from ``ops.start`` (not a*
 - **`test_stop_empty_port_is_idempotent_200`**
   - *Idempotent stop: 200 with ``already_empty`` action.*
 - **`test_stop_live_port_responds_while_termination_pending`**
@@ -567,7 +569,30 @@ ad-hoc markers used in the suite without declaration.
 - **`test_run_agent_passes_lifespan_on`**
   - *``run_agent()`` must pass ``lifespan="on"`` so the handler actually fires.*
 
-#### `tests/unit/test_agent_middleware.py` (9 tests)
+#### `tests/unit/test_agent_logging_setup.py` (10 tests)
+
+- **`test_configure_logging_adds_file_handler_targeting_log_dir`**
+  - *A FileHandler pointed at LAUNCHER_LOG_DIR/agent.log is configured.*
+- **`test_configure_logging_creates_log_dir`**
+  - *The log directory is created if it does not already exist.*
+- **`test_configure_logging_reconfigures_streams_when_supported`**
+  - *stdout/stderr are reconfigured to line-buffering when the stream*
+- **`test_configure_logging_skips_reconfigure_when_unsupported`**
+  - *A stream without ``reconfigure`` (e.g. a plain buffer / StringIO*
+- **`test_configure_logging_preserves_format_string`**
+  - *The existing timestamp/name/level/message format is preserved.*
+- **`test_returned_config_is_not_the_module_level_template`**
+  - *Must be a fresh dict per call, not the shared module constant —*
+- **`test_uvicorn_logger_handlers_include_a_file_handler_for_agent_log`**
+  - *The 'uvicorn' logger (which 'uvicorn.error' propagates into)*
+- **`test_uvicorn_access_logger_handlers_include_a_file_handler`**
+  - *Same guarantee for 'uvicorn.access' (request logging).*
+- **`test_access_and_error_records_actually_land_in_agent_log`**
+  - *Integration-style: dictConfig the built config, log through both*
+- **`test_configure_logging_root_file_handler_and_uvicorn_file_handlers_target_same_file`**
+  - *Belt-and-suspenders: the root logger's FileHandler (from*
+
+#### `tests/unit/test_agent_middleware.py` (10 tests)
 
 - **`test_no_token_allows_all_requests`**
   - *When no auth token is configured, all requests pass through.*
@@ -583,6 +608,8 @@ ad-hoc markers used in the suite without declaration.
   - *Empty string X-Api-Key is present but wrong — should return 403 (not 401).*
 - **`test_health_exempt_with_empty_key`**
   - */health remains accessible even when a wrong/empty key is sent (exempt path).*
+- **`test_exempt_paths_match_documented_set`**
+  - *Pin the exempt set to ADR-003's narrowed contract (#126 drift guard).*
 - **`test_limited_receive_forwards_non_request_message`**
   - *``limited_receive`` forwards non-``http.request`` messages verbatim.*
 - **`test_guarded_send_suppresses_late_response_after_rejection`**
@@ -661,6 +688,31 @@ ad-hoc markers used in the suite without declaration.
 - **`test_defaults_to_os_environ`**
   - *No explicit environ argument reads the real process environment.*
 
+#### `tests/unit/test_agent_venv_backstop.py` (11 tests)
+
+- **`test_exec_start_resolves_through_usr_local_bin_symlink`**
+  - *ExecStart never points at @VENV_BIN@/the dev checkout's .venv.*
+- **`test_backstop_execstartpre_present`**
+  - *The agent --user unit carries exactly one ExecStartPre backstop.*
+- **`test_backstop_checks_shared_venv_and_entrypoint`**
+  - *It verifies BOTH the shared venv dir AND the llauncher-agent entry point.*
+- **`test_backstop_is_fail_loud_not_best_effort`**
+  - *No leading '-' on the directive: a nonzero check MUST fail the unit.*
+- **`test_backstop_names_real_remediation_command`**
+  - *The journal message points at the REAL, existing root recompose step.*
+- **`test_backstop_message_goes_to_stderr`**
+  - *Fail-loud line must reach the journal via stderr.*
+- **`test_agent_unit_takes_no_cross_scope_dependency`**
+  - *A --user unit must NOT Requires=/After= a system ensure unit (forbidden).*
+- **`test_backstop_noop_when_entrypoint_present`**
+  - *Present, executable entry point => clean exit, no message.*
+- **`test_backstop_fails_loud_when_venv_missing`**
+  - *No /opt venv at all => nonzero + remediation on stderr.*
+- **`test_backstop_fails_loud_when_entrypoint_missing`**
+  - *Venv dir exists but the entry point does not => fail loud.*
+- **`test_backstop_fails_loud_when_entrypoint_not_executable`**
+  - *Entry point present but not executable => 'usable' check fails loud.*
+
 #### `tests/unit/test_audit_log.py` (14 tests)
 
 - **`test_record_creates_file`**
@@ -677,6 +729,12 @@ ad-hoc markers used in the suite without declaration.
 - **`test_read_entries_limit_returns_tail`**
 - **`test_observed_actions_distinct_from_commanded`**
 - **`test_swap_entry_carries_from_and_to_models`**
+
+#### `tests/unit/test_audit_log_write_failure.py` (2 tests)
+
+- **`test_record_does_not_raise_on_write_failure`**
+- **`test_record_still_writes_on_the_happy_path`**
+  - *Sanity check: the try/except does not change success-path behavior.*
 
 #### `tests/unit/test_audit_tab.py` (10 tests)
 
@@ -1051,6 +1109,22 @@ ad-hoc markers used in the suite without declaration.
 - **`test_query_rocm_parse_timeout_swallowed`**
 - **`test_csv_rows_skips_blank_lines`**
 
+#### `tests/unit/test_install_cli_manifest.py` (9 tests)
+
+- **`test_manifest_contains_ref_and_pip_freeze`**
+- **`test_manifest_has_a_composed_timestamp`**
+- **`test_manifest_warns_against_hand_editing`**
+- **`test_recompose_overwrites_stale_manifest`**
+  - *Re-running the ritual must describe the CURRENT venv, not append to*
+- **`test_llauncher_agent_is_symlinked_by_install_cli`**
+  - *The gap #360 closes: llauncher-agent was previously absent from*
+- **`test_install_cli_sources_the_manifest_helper`**
+- **`test_install_cli_writes_manifest_before_symlinking`**
+  - *The manifest must describe the composition BEFORE the console*
+- **`test_manifest_path_is_under_prefix`**
+- **`test_uninstall_removes_the_manifest_with_the_prefix`**
+  - *--uninstall's rm -rf "$PREFIX" already covers the manifest (it lives*
+
 #### `tests/unit/test_install_ps1_application_repoint.py` (5 tests)
 
 - **`test_application_is_repointed_in_common_config_block`**
@@ -1073,6 +1147,33 @@ ad-hoc markers used in the suite without declaration.
   - *Issue #298: two legacy same-key lines with NO pre-existing canonical*
 - **`test_legacy_only_migrates_without_dropping`**
 - **`test_no_legacy_keys_is_noop`**
+
+#### `tests/unit/test_install_ps1_nssm_fallback.py` (10 tests)
+
+- **`test_env_nssm_override_checked`**
+- **`test_env_nssm_override_invalid_path_warns_loudly`**
+  - *A set-but-invalid $env:NSSM must be announced, not silently dropped*
+- **`test_path_lookup_via_get_command`**
+- **`test_choco_bin_shim_path_present`**
+- **`test_choco_lib_payload_path_present`**
+- **`test_scoop_shim_path_present`**
+- **`test_failure_message_names_every_probed_path`**
+  - *On total failure, Die must enumerate every candidate tried, not just*
+- **`test_no_bare_nssm_invocations_outside_resolution_block`**
+  - *Every NSSM invocation after resolution must go through the resolved*
+- **`test_all_ampersand_nssm_calls_use_resolved_variable`**
+  - *Every `&`-invoked nssm call in the script must use `$nssm`, the*
+- **`test_nssm_resolved_once_into_single_variable`**
+  - *The resolution chain must populate exactly one variable ($nssm) that*
+
+#### `tests/unit/test_install_ps1_unbuffered_env.py` (3 tests)
+
+- **`test_pythonunbuffered_appended_to_env_pairs`**
+  - *``$envPairs += "PYTHONUNBUFFERED=1"`` appears, mirroring the*
+- **`test_pythonunbuffered_append_precedes_nssm_set`**
+  - *The append must happen before the ``AppEnvironmentExtra`` NSSM call*
+- **`test_pythonunbuffered_append_is_unconditional`**
+  - *The append must not be gated behind an ``if`` -- there is no*
 
 #### `tests/unit/test_install_sh_dedupe.py` (7 tests)
 
@@ -1437,7 +1538,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_api_key_help_names_both_platform_commands`**
   - *First-contact help tells you what the field wants, per platform.*
 
-#### `tests/unit/test_operations.py` (63 tests)
+#### `tests/unit/test_operations.py` (64 tests)
 
 - **`test_start_on_empty_port`**
 - **`test_start_idempotent_when_same_model_running`**
@@ -1445,6 +1546,8 @@ ad-hoc markers used in the suite without declaration.
 - **`test_start_reconciles_stale_lockfile`**
 - **`test_start_errors_when_model_not_in_config`**
 - **`test_start_errors_when_process_launch_fails`**
+- **`test_start_errors_when_marker_write_fails`**
+  - *Issue #308: a marker-write failure (disk full, permissions, ...)*
 - **`test_start_rejects_when_preflight_health_check_fails`**
   - *The new model-health seam (issue #57) blocks launch on unhealthy file.*
 - **`test_start_skips_preflight_when_check_is_none`**
@@ -1613,6 +1716,19 @@ ad-hoc markers used in the suite without declaration.
   - *All-nodes filter with empty registry → 'No nodes registered' branch.*
 - **`test_directory_with_llama_server_binary`**
 - **`test_directory_without_binary_fallback_to_directory`**
+
+#### `tests/unit/test_pinned_venv_install_preflight.py` (5 tests)
+
+- **`test_user_mode_fails_loud_when_pinned_venv_absent`**
+  - *--user install.sh must exit nonzero, naming the ritual, when the*
+- **`test_user_mode_preflight_passes_when_pinned_venv_present`**
+  - *With the pinned entry point present, preflight itself must not be the*
+- **`test_system_mode_preflight_unchanged_checks_dev_tree_venv`**
+  - *--system mode must NOT be redirected to /opt — it still checks this*
+- **`test_install_ui_fails_loud_when_pinned_venv_absent`**
+  - *install-ui.sh must exit nonzero, naming the ritual, when the pinned*
+- **`test_install_ui_preflight_passes_when_pinned_venv_present`**
+  - *With the pinned llauncher-ui entry point present, the hard preflight*
 
 #### `tests/unit/test_port_picker.py` (8 tests)
 
@@ -2769,6 +2885,15 @@ ad-hoc markers used in the suite without declaration.
 - **`test_ps1_is_pure_ascii`**
   - *Every ``.ps1`` must decode as pure ASCII.*
 
+#### `tests/architecture/test_pyproject_extras_shape.py` (3 tests)
+
+- **`test_streamlit_is_a_base_dependency`**
+  - *Streamlit (formerly the ``[ui]`` extra) must be a base dependency.*
+- **`test_no_ui_or_cli_extras`**
+  - *``ui`` and ``cli`` must not exist as optional-dependencies keys.*
+- **`test_test_extra_is_the_only_optional_dependency`**
+  - *``test`` is the operator-ruled sole survivor of the extras collapse.*
+
 #### `tests/architecture/test_pytest_ini_strict_markers.py` (4 tests)
 
 - **`test_pytest_ini_has_strict_markers_addopt`**
@@ -2972,7 +3097,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_size_column_scales_with_byte_count`**
 - **`test_local_target_calls_state_refresh_before_reading_models`**
 
-#### `tests/ui/test_models_tab.py` (13 tests)
+#### `tests/ui/test_models_tab.py` (14 tests)
 
 - **`test_registry_table_is_delegated_scoped_to_the_selected_target`**
 - **`test_registry_table_still_renders_while_an_edit_is_in_progress`**
@@ -2985,6 +3110,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_empty_remote_target_gets_no_onboarding_banner`**
 - **`test_each_local_model_gets_one_card_in_case_insensitive_name_order`**
 - **`test_running_local_server_reaches_its_own_card_and_no_other`**
+- **`test_same_model_running_on_two_ports_gets_two_controllable_cards`**
 - **`test_remote_target_cards_come_from_the_aggregator_not_local_state`**
 - **`test_remote_running_servers_are_filtered_to_the_target_node`**
 
