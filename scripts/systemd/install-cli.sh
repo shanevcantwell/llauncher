@@ -58,8 +58,8 @@ mkdir -p "$PREFIX"
 [ -x "$VENV/bin/python" ] || python3 -m venv "$VENV"
 "$VENV/bin/pip" install --quiet --upgrade pip
 
-echo "==> installing llauncher[ui] from public $REPO_URL @ $REF (non-editable)"
-"$VENV/bin/pip" install --quiet --upgrade "llauncher[ui] @ git+$REPO_URL@$REF"
+echo "==> installing llauncher from public $REPO_URL @ $REF (non-editable)"
+"$VENV/bin/pip" install --quiet --upgrade "llauncher @ git+$REPO_URL@$REF"
 
 echo "==> recording the pin: $MANIFEST"
 # The answerable-at-any-time pin (#360): exactly what this composition

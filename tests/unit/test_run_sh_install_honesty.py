@@ -17,7 +17,7 @@ Issue #154's acceptance criteria (both pinned here):
   1. ``run.sh install`` no longer implies a global readiness it didn't
      deliver — it is disabled and points at the real global path.
   2. The documented global launch path
-     (``pip install --user -e ".[ui]"``) is discoverable from the
+     (``pip install --user -e .``) is discoverable from the
      script's own output / help.
 
 This module drives the real ``scripts/run.sh`` in a hermetic temp
@@ -35,7 +35,7 @@ from pathlib import Path
 import pytest
 
 
-GLOBAL_INSTALL_CMD = 'pip install --user -e ".[ui]"'
+GLOBAL_INSTALL_CMD = "pip install --user -e ."
 
 
 def _repo_root() -> Path:

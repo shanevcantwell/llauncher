@@ -3,7 +3,7 @@
 Background
 ----------
 The ``stop`` case called ``ensure_venv`` before ``llauncher-agent --stop``.
-On a machine that installed globally via ``pip install --user -e ".[ui]"``
+On a machine that installed globally via ``pip install --user -e .``
 (no local ``.venv``), running ``./run.sh stop`` silently bootstrapped a full
 ~500MB venv as a side effect of *stopping* the agent — contradicting the
 no-side-effect / install-honesty goal issue #219 delivered (see also #154,
