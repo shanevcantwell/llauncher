@@ -59,6 +59,7 @@ $EnvExample  = Join-Path $ScriptDir 'agent.env.example'
 
 function Say  ($msg) { Write-Host "[OK]  $msg" -ForegroundColor Green }
 function Info ($msg) { Write-Host "[..]  $msg" -ForegroundColor Yellow }
+function Warn ($msg) { Write-Host "[WARN]  $msg" -ForegroundColor Red }
 function Die  ($msg) { Write-Host "[!!]  $msg" -ForegroundColor Red; exit 1 }
 
 # --- Elevation check --------------------------------------------------
@@ -91,7 +92,15 @@ $nssmSource = $null
 
 if ($env:NSSM) {
     $nssmCandidates.Add($env:NSSM)
-    if (Test-Path $env:NSSM) { $nssm = $env:NSSM; $nssmSource = '$env:NSSM override' }
+    if (Test-Path $env:NSSM) {
+        $nssm = $env:NSSM; $nssmSource = '$env:NSSM override'
+    } else {
+        # Loud, not silent (#352 review): an operator who set $env:NSSM
+        # expected it to be used. Falling through to the next candidate
+        # without a word would leave them wondering why their override was
+        # ignored -- name the invalid path before continuing the chain.
+        Warn "`$env:NSSM is set to '$($env:NSSM)' but that path does not exist -- falling through to the next candidate."
+    }
 }
 
 if (-not $nssm) {
@@ -116,8 +125,18 @@ if (-not $nssm) {
     $nssmCandidates.Add($chocoLibNssmGlob)
     $chocoLibRoot = 'C:\ProgramData\chocolatey\lib\nssm\tools'
     if (Test-Path $chocoLibRoot) {
+        # The choco nssm package ships both win32 and win64 payloads with
+        # identical (or near-identical, within filesystem timestamp
+        # resolution) LastWriteTime -- Sort-Object -Descending alone leaves
+        # that tie's winner up to PowerShell 5.1's unstable sort, which can
+        # silently pick the 32-bit binary on one run and the 64-bit binary
+        # on the next. Prefer win64 deterministically as the primary sort
+        # key, falling back to LastWriteTime to break any remaining tie.
         $newestLibNssm = Get-ChildItem -Path $chocoLibRoot -Filter 'nssm.exe' -Recurse -ErrorAction SilentlyContinue |
-            Sort-Object LastWriteTime -Descending |
+            Sort-Object -Property @(
+                @{ Expression = { if ($_.FullName -match 'win64') { 0 } else { 1 } }; Descending = $false },
+                @{ Expression = 'LastWriteTime'; Descending = $true }
+            ) |
             Select-Object -First 1
         if ($newestLibNssm) { $nssm = $newestLibNssm.FullName; $nssmSource = 'chocolatey lib payload' }
     }

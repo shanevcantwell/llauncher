@@ -56,6 +56,24 @@ def test_env_nssm_override_checked():
     )
 
 
+def test_env_nssm_override_invalid_path_warns_loudly():
+    """A set-but-invalid $env:NSSM must be announced, not silently dropped
+    (#352 review): an operator who set the override expected it to be used,
+    and falling through without a word leaves them wondering why it was
+    ignored."""
+    text = _source()
+    override_block = re.search(
+        r"if \(\$env:NSSM\) \{(.*?)\n\}", text, re.DOTALL
+    )
+    assert override_block is not None, "Could not find the $env:NSSM override block."
+    body = override_block.group(1)
+    assert "else" in body and "Warn" in body, (
+        "The $env:NSSM override block must emit a warning (Warn) in its "
+        "else branch when Test-Path fails on the override, before falling "
+        "through to the next candidate."
+    )
+
+
 def test_path_lookup_via_get_command():
     text = _source()
     assert re.search(r"Get-Command\s+nssm\.exe", text), (
