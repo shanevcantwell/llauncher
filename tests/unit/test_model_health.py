@@ -10,6 +10,7 @@ import os
 import stat
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -130,6 +131,59 @@ def test_last_modified_populated_for_valid():
 
     result = check_model_health(str(path))
     assert isinstance(result.model_dump()["last_modified"], str) or hasattr(result, "last_modified")
+
+
+def test_stat_oserror_continues_to_readability_check():
+    """An explicit ``stat()`` ``OSError`` is swallowed (lines 93-94).
+
+    The existence gate uses ``is_file()``; the *separate* ``path.stat()`` for
+    size/mtime can still fail on edge cases (e.g. a vanish-after-is_file race).
+    When it does, size/mtime stay unset and control falls through to the
+    readability check rather than aborting. With ``size_bytes`` left ``None``
+    the downstream size heuristic then reports ``too small`` — the visible
+    consequence of the swallowed edge.
+
+    ``is_file`` is forced True so the explicit ``stat()`` at line 90 (not
+    ``is_file``'s own internal stat, which swallows ``OSError`` to False) is
+    the one that raises — isolating exactly the branch under test.
+    """
+    from pathlib import Path as _Path
+
+    with tempfile.NamedTemporaryFile(suffix=".gguf", delete=False, mode="wb") as f:
+        f.write(b"x" * (1024 * 1024 + 1))
+        path = Path(f.name).resolve()
+
+    with patch.object(_Path, "is_file", return_value=True), patch.object(
+        _Path, "stat", side_effect=OSError("stat unavailable")
+    ):
+        result = check_model_health(str(path))
+
+    # Readability check still ran (file is openable via builtin open), so the
+    # unreadable path was NOT taken.
+    assert result.readable is True
+    assert result.size_bytes is None
+    assert result.last_modified is None
+    # size_bytes None -> heuristic treats as 0 -> "too small".
+    assert result.valid is False
+    assert (result.reason or "").lower() == "too small"
+
+
+def test_resolution_failure_recovers_with_reason():
+    """An unexpected exception during resolution is caught (lines 106-109).
+
+    If ``Path.resolve()`` raises something other than the inner-handled
+    ``OSError`` (e.g. a ``RuntimeError`` from a pathological path), the outer
+    ``except Exception`` records the message as ``reason`` and returns an
+    invalid result instead of propagating.
+    """
+    from pathlib import Path as _Path
+
+    with patch.object(_Path, "resolve", side_effect=RuntimeError("boom-resolve")):
+        result = check_model_health("/some/path/that/will/blow/up.gguf")
+
+    assert result.valid is False
+    assert result.reason is not None
+    assert "boom-resolve" in result.reason
 
 
 def test_cache_invalidation():

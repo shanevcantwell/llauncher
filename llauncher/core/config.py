@@ -36,7 +36,10 @@ class ConfigStore:
             return {}
 
         try:
-            data = json.loads(CONFIG_PATH.read_text())
+            # utf-8-sig: PARSE-AT-THE-DOOR tolerance for a hand-edited
+            # config.json carrying a Windows-editor UTF-8 BOM (#310) --
+            # same defect class, and same fix, as the registry.py reads.
+            data = json.loads(CONFIG_PATH.read_text(encoding="utf-8-sig"))
             # Use from_dict_unvalidated to skip path validation for persisted configs
             return {
                 name: ModelConfig.from_dict_unvalidated(cfg)

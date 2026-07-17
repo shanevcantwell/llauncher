@@ -1,7 +1,6 @@
 # Running `llauncher-agent` as a Service
 
-The agent is the daemon piece of llauncher; the UI is interactive and is
-not service-managed. This doc covers persistent installs on:
+The agent is the daemon piece of llauncher. The UI's service posture is governed by [ADR-022](../adrs/accepted/022-llauncher-ui-user-service.md): it runs as a per-operator `systemd --user` unit, installed via [`scripts/systemd/install-ui.sh`](#ubuntu--linux-ui-systemd-user-unit) (see the UI section below). Two operator/host steps sit outside that installer: the `/usr/local/bin/llauncher-ui` symlink (placed by `install-cli.sh`, as root) and the caller's `inference`-group membership (host provisioning). This doc covers persistent installs on:
 
 - Linux (systemd, user-mode)
 - Windows (NSSM-wrapped service)
@@ -19,16 +18,70 @@ token/auth model across both planes see [`../auth.md`](../auth.md).)
 Both installers do the same work in OS-appropriate idioms:
 
 1. Render a service definition pointing at the venv's `llauncher-agent`.
-2. Create an env file at a per-user location with mode 0600 / restricted
-   ACL, seeded from `*.env.example` with a freshly generated token.
+2. Seed `agent.env` at a per-user location with mode 0600 / restricted
+   ACL, from `agent.env.example`, with a freshly generated token — but
+   **only once**. On every later run, if `agent.env` already exists the
+   installer skips the seed step and says so loudly, naming the live
+   path. Editing `agent.env.example` after first install is a silent
+   no-op; it is a template, never live config.
 3. Configure auto-restart on failure with a backoff (so a transient port
    collision doesn't lock you out, but a misconfigured token doesn't
    crash-loop forever).
 4. Enable + start.
 
-Re-running the installer is safe: env files are preserved, unit/service
+Re-running the installer is safe: `agent.env` is preserved, unit/service
 config is refreshed. This is the right way to pick up a `git pull` that
 touches the unit template.
+
+### Single live source (issue #284)
+
+`agent.env` is parsed **directly** by both the agent service and the
+Streamlit UI at their own startup (`llauncher.core.agent_token.resolve_agent_token`)
+— there is no installer-time snapshot into a separate mirror file.
+Editing `agent.env` and restarting the agent (`systemctl --user restart
+llauncher-agent`, or a Windows service restart) changes the effective
+token for **both** the service and the UI immediately; no reinstall
+needed on Linux. On Windows, NSSM holds the env in its own service config
+rather than re-reading the file live, so re-run `install.ps1` after an
+edit to push the new value into NSSM (see "Pick up env-file edits"
+below) — the UI side, which parses `agent.env` directly, picks up the
+edit immediately either way.
+
+The `agent.token` mirror file that used to exist alongside `agent.env` is
+**retired**. It was a second on-disk copy of the token that an installer
+had to keep in sync — a skipped or stale refresh of that copy was the
+direct cause of issue #281's UI-403 split-brain (operator edits the
+template or the env file; the mirror silently keeps the old value; the UI
+403s against a token the agent no longer expects). Both installers now
+delete a stale `agent.token` on sight, announcing it loudly
+("retired by #284; live source is `<path>`"). If `agent.token` exists and
+`agent.env` has **no** token line yet, the installer moves the token
+value into `agent.env` before deleting the mirror — a live credential is
+never silently discarded.
+
+### Migrating from pre-#139 installs
+
+Commit `9f098d9` (#138/#139) renamed the agent's env vars from
+`LAUNCHER_AGENT_*` to `LLAUNCHER_AGENT_*` (double-L). If your env file
+(`~/.config/llauncher/agent.env` on Linux,
+`%USERPROFILE%\.llauncher\agent.env` on Windows) predates that rename,
+it still carries the old single-L keys. Both installers now detect and
+migrate these keys **in place, automatically, on re-run**: matching
+`LAUNCHER_AGENT_*` lines are rewritten to `LLAUNCHER_AGENT_*` with
+values preserved byte-for-byte, and the installer reports which keys it
+migrated. If no usable `LLAUNCHER_AGENT_TOKEN` line remains after
+migration, the installer refuses to proceed (exits non-zero) rather than
+installing a service with a broken token — see
+[#281](https://github.com/shanevcantwell/llauncher/issues/281). Simply
+re-running `install.sh` / `install.ps1` is enough to migrate an existing
+deployment; no manual edit is required unless the installer tells you
+one is missing.
+
+As defense in depth, the agent itself also refuses to start (exit code
+2) if it finds a legacy `LAUNCHER_AGENT_TOKEN` in its environment with
+no `LLAUNCHER_AGENT_TOKEN` — that combination only ever means a stale
+pre-#139 environment, and starting anyway would silently mint a token
+the operator never configured (see the troubleshooting entry below).
 
 ## Security note up front
 
@@ -96,6 +149,83 @@ clean state.
 
 ---
 
+## Ubuntu / Linux (UI systemd --user unit)
+
+The Streamlit UI is a per-operator front-end, not machine infrastructure
+(loopback-only, no built-in auth, matters only while an operator is
+watching). [ADR-022](../adrs/accepted/022-llauncher-ui-user-service.md)
+runs it as a `systemd --user` unit owned by your login session — never a
+system unit, never root.
+
+### Operator/host preconditions (NOT done by the installer)
+
+1. **The `/usr/local/bin/llauncher-ui` symlink** the unit's `ExecStart`
+   points at. Place it once, as root:
+
+   ```bash
+   sudo bash scripts/systemd/install-cli.sh
+   ```
+
+   This installs `llauncher` (+ `llauncher-mcp`, `llauncher-ui`) into a
+   dedicated `/opt/llauncher/venv` and symlinks the console scripts into
+   `/usr/local/bin`.
+
+2. **`inference`-group membership** for your account. The UI reads the
+   system agent's live env file (`/var/lib/llauncher/agent.env`, mode
+   `0640` `root:inference`) in place via group membership — no copy.
+   Group provisioning is a host step (harness-tools
+   `setup-inference-lane.sh`):
+
+   ```bash
+   sudo usermod -aG inference "$USER"   # then re-login
+   ```
+
+`install-ui.sh` *warns* (does not block) if either is missing, so the
+unit can be rendered now and becomes functional once provisioning lands.
+
+### Install
+
+```bash
+./scripts/systemd/install-ui.sh
+```
+
+The installer (as your own account, NOT root):
+
+- Copies the fixed unit template to
+  `~/.config/systemd/user/llauncher-ui.service`. The template hardcodes
+  `Environment=LAUNCHER_STATE_DIR=/var/lib/llauncher` — the one line that
+  makes the UI read the system agent's token instead of `~/.llauncher`;
+  it is **not** overridable from the installer's environment.
+- Runs `systemctl --user daemon-reload`, `enable --now`.
+
+It is idempotent — re-run it to pick up a `git pull` that touches the
+template.
+
+### Autostart at boot / survive logout (optional)
+
+```bash
+loginctl enable-linger "$USER"
+```
+
+Optional and your call — the installer prints this as guidance but never
+runs it.
+
+### Operate
+
+```bash
+systemctl --user status llauncher-ui
+systemctl --user restart llauncher-ui
+journalctl --user -u llauncher-ui -f      # live logs
+```
+
+### Uninstall
+
+```bash
+./scripts/systemd/install-ui.sh --uninstall
+```
+
+---
+
 ## Windows (NSSM)
 
 ### Prerequisites
@@ -120,8 +250,16 @@ clean state.
 The installer:
 
 - Locates NSSM, fails fast with install instructions if missing.
-- Writes the env file to `%USERPROFILE%\.llauncher\agent.env` with an
-  ACL restricting access to the current user.
+- Seeds `%USERPROFILE%\.llauncher\agent.env` from the template with an
+  ACL restricting access to the current user — **only if it doesn't
+  already exist**; otherwise it skips the seed and says so loudly.
+- Migrates a stale `agent.token` mirror (pre-#284 installs) into
+  `agent.env`, then deletes it, announcing both steps.
+- Injects `LAUNCHER_STATE_DIR=%USERPROFILE%\.llauncher` into the NSSM
+  service environment (the **LocalSystem wrinkle**: NSSM defaults new
+  services to the LocalSystem account, whose `Path.home()` does not
+  resolve to the installing operator's profile — without this pointer
+  the service would resolve a different `agent.env` than the UI reads).
 - Registers the service via `nssm install`, pointing at
   `.\.venv\Scripts\llauncher-agent.exe`.
 - Configures auto-start, restart-on-failure with a 5 s backoff,
@@ -184,6 +322,48 @@ curl -sS -H "X-Api-Key: $LLAUNCHER_AGENT_TOKEN" \
 A 200 on `/status` confirms the service is up, the token matches, and the
 bind interface is reachable. A 401/403 there means the token is missing or
 wrong (`/health` would still return 200 — it skips auth).
+
+## Troubleshooting
+
+### 403 on `/node-info` or `/start` while `/health` returns 200
+
+This is a token mismatch, not a reachability problem — `/health` skips
+auth entirely, so its 200 only proves the process is up and reachable.
+The distinction between 401 and 403 tells you what the client sent:
+
+- **401** = the client sent no `X-Api-Key` header at all.
+- **403** = the client sent a header, but the value doesn't match the
+  agent's token.
+
+A 403 with a working `/health` almost always means the UI/client and the
+agent resolved to *different* tokens. Check, in order:
+
+1. **Legacy env keys.** Open the agent's env file
+   (`~/.config/llauncher/agent.env` on Linux,
+   `%USERPROFILE%\.llauncher\agent.env` on Windows) and look for
+   pre-#139 `LAUNCHER_AGENT_*` (single-L) key names instead of
+   `LLAUNCHER_AGENT_*`. Re-run the installer to migrate them
+   automatically (see "Migrating from pre-#139 installs" above).
+2. **A self-generated token under the wrong profile.** When the agent
+   can't resolve a token from `agent.env` or the environment, it
+   auto-generates one and appends it into `agent.env` under
+   `Path.home()` **of the account the agent process runs as** — for a
+   Windows service that's the service account, not the interactively
+   logged-in operator. `install.ps1` injects `LAUNCHER_STATE_DIR` to
+   prevent this (see the LocalSystem wrinkle above), but a manually
+   configured service or a non-standard service account can still miss
+   it. If the service is silently minting its own token under a
+   profile you never look at, the UI's configured token will never
+   match it. Confirm the service's token source (env var vs.
+   auto-generated `agent.env`) and which account's home directory it
+   actually wrote to.
+3. **Editing the template instead of the live file.** `agent.env.example`
+   is a seed-once template — after first install, nothing reads it again.
+   If you edited the `.example` and re-ran the installer expecting the
+   new value to propagate, it won't: edit the live `agent.env` directly
+   (paths above), then restart the service (Linux: `systemctl --user
+   restart llauncher-agent`; Windows: re-run `install.ps1` to push the
+   change into NSSM).
 
 ## Token rotation
 

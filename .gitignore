@@ -137,10 +137,9 @@ cython_debug/
 
 # llauncher specific
 *.log
-~/.llauncher/
+.llauncher/
 llauncher-config.json
 .claude/*
-!.claude/architecture.md
 .mcp.json
 docs/scratchpad/
 agent.pid
@@ -148,3 +147,6 @@ agentdb.rvf
 agentdb.rvf.lock
 ruvector.db
 scripts/windows/agent.env
+
+# operator-local systemd env (may carry a token; live copy lives in ~/.config/llauncher)
+scripts/systemd/agent.env

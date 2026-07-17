@@ -277,15 +277,85 @@ def _render_model_details(
             else:
                 st.info("No logs available")
 
-    # Edit button (only for stopped models on local)
+    # Edit / Delete buttons (only for stopped models on local)
     st.divider()
     if not running_server and node_name == "local":
-        if st.button("✏️ Edit", width='stretch', key=f"edit_{node_name}_{model_name}_enabled"):
-            st.session_state[f"editing_{model_name}"] = True
-            st.rerun()
+        edit_col, delete_col = st.columns(2)
+        with edit_col:
+            if st.button("✏️ Edit", width='stretch', key=f"edit_{node_name}_{model_name}_enabled"):
+                st.session_state[f"editing_{model_name}"] = True
+                st.rerun()
+        with delete_col:
+            if st.button("🗑️ Delete", width='stretch', key=f"delete_{node_name}_{model_name}_enabled"):
+                st.session_state[f"deleting_{node_name}_{model_name}"] = True
+                st.rerun()
+        _render_delete_confirm(node_name, model_name)
     elif not running_server:
         st.button("✏️ Edit", width='stretch', key=f"edit_{node_name}_{model_name}_disabled", disabled=True)
         st.caption("Remote model editing not yet supported")
+        st.button("🗑️ Delete", width='stretch', key=f"delete_{node_name}_{model_name}_disabled", disabled=True)
+        st.caption("Remote model deletion not yet supported")
+
+
+def _render_delete_confirm(node_name: str, model_name: str) -> None:
+    """Render the two-step delete confirmation gate for a local model.
+
+    Mirrors ``_render_eviction_dialog``'s Cancel/Confirm column layout and
+    session-state gating idiom (#276): a click on the "🗑️ Delete" button
+    upstream sets ``deleting_{node_name}_{model_name}`` in session state and
+    reruns; this function renders the warning + Cancel/Confirm row only
+    while that flag is set, and clears it on either path.
+
+    Delete goes through ``ops.delete_model`` directly (never a
+    ``state``/peer-endpoint seam) to satisfy the UI layer boundary test
+    (ADR-025) — ``llauncher.operations`` imports are allowed from the UI.
+
+    Args:
+        node_name: Name of the node (only called for ``"local"``).
+        model_name: Name of the model to delete.
+    """
+    flag_key = f"deleting_{node_name}_{model_name}"
+    if not st.session_state.get(flag_key):
+        return
+
+    st.warning(
+        f"Delete model config **{model_name}**? This cannot be undone.",
+        icon="⚠️",
+    )
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button(
+            "Cancel",
+            key=f"delete_cancel_{node_name}_{model_name}",
+            width='stretch',
+        ):
+            st.session_state[flag_key] = False
+            st.rerun()
+    with col2:
+        if st.button(
+            "Confirm Delete",
+            key=f"delete_confirm_{node_name}_{model_name}",
+            width='stretch',
+            type="primary",
+        ):
+            result = ops.delete_model(model_name, caller="ui")
+            st.session_state[flag_key] = False
+
+            if result.success:
+                st.toast(result.message, icon="✅")
+            elif result.action == "rejected_in_use":
+                # Belt-and-suspenders: the UI gate (``not running_server``)
+                # should normally prevent this, but the backend check
+                # (live lockfile scan) is the real enforcement — surface it
+                # with the same sticky-error + toast pattern
+                # ``_handle_start``/``_handle_stop`` use for failures.
+                st.error(result.message)
+                st.toast(result.message, icon="❌")
+            else:
+                st.error(result.message)
+                st.toast(result.message, icon="❌")
+            st.rerun()
 
 
 def _handle_stop(
@@ -303,7 +373,39 @@ def _handle_stop(
         port: Port of the server to stop.
     """
     if node_name == "local":
-        success, message = state.stop_server(port, caller="ui")
+        # Delegation gate (#200/#203): a stop is a mutating op, so it routes
+        # through the local agent over HTTP when one is reachable — the same
+        # gate the CLI (``cli.py::stop_server``) and MCP
+        # (``mcp_server/tools/servers.py``) stop paths use. This is what makes
+        # ``llama-server`` (running as the ``llauncher`` service account in
+        # ADR-018 system-mode) terminable from the operator-owned Streamlit UI:
+        # the agent owns the process, so no cross-uid SIGTERM (psutil
+        # AccessDenied) is attempted from the UI process. Per
+        # ``docs/ARCHITECTURE.md`` "Endpoints orchestrate — they do not
+        # reimplement them", the UI delegates rather than re-running the
+        # in-process ``core.process`` stop. With no agent reachable it falls
+        # back to the in-process op (dev/standalone), preserving prior
+        # behaviour exactly.
+        if delegation.should_delegate():
+            # ``RemoteNode.stop_server`` is ``dict | None`` (a 200 with a null
+            # body yields None); ``or {}`` makes ``.get`` None-safe without
+            # masking a real error dict (transport/non-2xx arrives as a dict).
+            res = local_agent_node().stop_server(port) or {}
+            success = bool(res.get("success"))
+            message = (
+                res.get("message")
+                or res.get("error")
+                or "Local agent returned no result"
+            )
+        else:
+            # v2 ops migration (issue #57/#332): route the non-delegated
+            # fallback through ``operations.stop`` instead of the legacy
+            # ``state.stop_server`` path — lockfile removal + durable
+            # audit-log entry, at parity with CLI (``cli.py::stop_server``)
+            # and MCP (``mcp_server/tools/servers.py``), which both already
+            # dispatch ``ops.stop``/``operations.stop`` here.
+            result = ops.stop(port, caller="ui")
+            success, message = result.success, result.message
     elif aggregator:
         result = aggregator.stop_on_node(node_name, port)
         success, message = _parse_aggregator_result(result)

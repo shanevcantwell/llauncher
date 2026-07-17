@@ -172,11 +172,69 @@ class TestRemoteDispatch:
             render_audit_tab("remote-1", mock_registry)
 
             mock_registry.get_node.assert_called_once_with("remote-1")
-            mock_node.read_audit.assert_called_once_with(limit=200)
+            mock_node.read_audit.assert_called_once_with(
+                limit=200, action_filter=None, result_filter=None
+            )
             mock_local_read.assert_not_called()
             mock_st.dataframe.assert_called_once()
             df = mock_st.dataframe.call_args[0][0]
             assert df.iloc[0]["model"] == "remote-model"
+
+    def test_remote_single_filter_selection_forwarded_to_read_audit(self):
+        """A single action/result selection is pushed down to the remote
+        read so the wire payload shrinks (issue #118)."""
+        from llauncher.ui.tabs.audit import render_audit_tab
+
+        mock_node = MagicMock()
+        mock_node.read_audit.return_value = []
+        mock_registry = MagicMock()
+        mock_registry.get_node.return_value = mock_node
+
+        with _patched_st() as mock_st, patch(
+            "llauncher.ui.tabs.audit.audit_log.read_entries"
+        ):
+            mock_st.number_input.return_value = 200
+            # First multiselect call = action filter, second = result filter.
+            mock_st.multiselect.side_effect = [["started"], ["success"]]
+
+            render_audit_tab("remote-1", mock_registry)
+
+            mock_node.read_audit.assert_called_once_with(
+                limit=200, action_filter="started", result_filter="success"
+            )
+
+    def test_remote_multi_filter_selection_not_forwarded(self):
+        """A multi-value selection can't be expressed as a single query
+        param, so it is NOT pushed down; the in-memory post-filter still
+        narrows the rows, keeping behavior identical (issue #118)."""
+        from llauncher.ui.tabs.audit import render_audit_tab
+
+        remote_entries = [
+            {"action": "started", "result": "success", "model": "a", "message": ""},
+            {"action": "stopped", "result": "success", "model": "b", "message": ""},
+            {"action": "swapped", "result": "success", "model": "c", "message": ""},
+        ]
+
+        mock_node = MagicMock()
+        mock_node.read_audit.return_value = remote_entries
+        mock_registry = MagicMock()
+        mock_registry.get_node.return_value = mock_node
+
+        with _patched_st() as mock_st, patch(
+            "llauncher.ui.tabs.audit.audit_log.read_entries"
+        ):
+            mock_st.number_input.return_value = 200
+            mock_st.multiselect.side_effect = [["started", "stopped"], []]
+
+            render_audit_tab("remote-1", mock_registry)
+
+            # Two actions selected -> not forwarded (None), fetched unfiltered.
+            mock_node.read_audit.assert_called_once_with(
+                limit=200, action_filter=None, result_filter=None
+            )
+            # In-memory post-filter still narrows to the selected actions.
+            df = mock_st.dataframe.call_args[0][0]
+            assert set(df["action"].tolist()) == {"started", "stopped"}
 
     def test_remote_target_unreachable_renders_error(self):
         """``read_audit`` returning ``None`` (offline) surfaces an error."""

@@ -17,6 +17,13 @@ Description=llauncher remote management agent (system service)
 Documentation=https://github.com/shanevcantwell/llauncher
 After=network-online.target
 Wants=network-online.target
+; ADR-023 (issue #227): never start against a missing/broken venv. The ensure
+; oneshot recomposes @PROJECT_DIR@/.venv from pyproject.toml and fails loud if
+; it can't; Requires= propagates that failure (the agent does NOT start), After=
+; orders us strictly after the venv is guaranteed (invariant
+; VENV-OWNED-OR-GUARANTEED).
+Requires=llauncher-agent-ensure-venv.service
+After=llauncher-agent-ensure-venv.service
 ; Crash-loop guard: restart aggressively, but if the unit fails 10
 ; times inside a minute treat it as a config problem and give up.
 ; (StartLimit* live in [Unit] since systemd 230; [Service] is deprecated.)

@@ -11,7 +11,18 @@
 #
 # Idempotent: safe to re-run after a `git pull` to pick up unit-file
 # changes. Will NOT overwrite an existing env file (so your token and
-# host config survive reinstalls).
+# host config survive reinstalls), but pre-#139 legacy LAUNCHER_AGENT_*
+# key names ARE migrated in place to LLAUNCHER_AGENT_* (values
+# preserved; issue #281).
+#
+# Single live source (issue #284): agent.env is read DIRECTLY by both the
+# agent service (systemd EnvironmentFile=) and the UI
+# (llauncher.core.agent_token.resolve_agent_token) at their own startup —
+# there is no agent.token mirror file any more. A stale agent.token from a
+# pre-#284 install is migrated into agent.env once, at the door, then
+# deleted; the installer announces this loudly. Editing
+# agent.env.example after first install does nothing — it is a seed-once
+# template, not live config.
 #
 # Usage:
 #   ./scripts/systemd/install.sh                    # user: install+enable+start
@@ -28,7 +39,9 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 VENV_BIN="$PROJECT_DIR/.venv/bin"
 
 UNIT_NAME="llauncher-agent.service"
-ENV_EXAMPLE="$SCRIPT_DIR/llauncher-agent.env.example"
+# Root oneshot that guarantees the agent venv (system mode only; ADR-023/#227).
+ENSURE_UNIT_NAME="llauncher-agent-ensure-venv.service"
+ENV_EXAMPLE="$SCRIPT_DIR/agent.env.example"
 
 # Colors
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
@@ -52,11 +65,14 @@ while [ $# -gt 0 ]; do
 done
 
 # --- Mode-dependent locations -----------------------------------------
+# UI service posture: see ADR-022 (decided: per-operator systemd --user; implementation pending). UI is currently hand-launched.
 # The UI process (Streamlit) is separate from the systemd service and does
-# NOT inherit LLAUNCHER_AGENT_TOKEN from the unit's environment, so it can
-# only authenticate against the local agent by reading the mirrored token
-# from TOKEN_FILE. See issue #131 + the Windows counterpart in
-# scripts/windows/install.ps1.
+# NOT inherit LLAUNCHER_AGENT_TOKEN from the unit's environment, so it
+# authenticates against the local agent by parsing ENV_FILE directly
+# (llauncher.core.agent_token.resolve_agent_token; issue #284 — single
+# live source, no mirror). TOKEN_FILE below is retained only as the
+# pre-#284 mirror path this installer migrates from and then deletes. See
+# the Windows counterpart in scripts/windows/install.ps1.
 if [ "$MODE" = "system" ]; then
     UNIT_DIR="/etc/systemd/system"
     STATE_DIR="/var/lib/llauncher"
@@ -68,8 +84,8 @@ if [ "$MODE" = "system" ]; then
     SYSTEMCTL=(systemctl)
     JOURNALCTL=(journalctl)
     # Group-readable so the operator UI and a non-admin agent user can read
-    # the token without copying it. Group `inference` is provisioned by the
-    # host script (see preflight).
+    # agent.env (and therefore its token line) directly, without copying.
+    # Group `inference` is provisioned by the host script (see preflight).
     FILE_MODE=0640
     FILE_GROUP=inference
 else
@@ -97,9 +113,20 @@ uninstall() {
         rm -f "$UNIT_PATH"
         say "Removed $UNIT_PATH"
     fi
+    # Tear down the system-scope ensure unit alongside the agent (ADR-023/#227).
+    if [ "$MODE" = "system" ]; then
+        "${SYSTEMCTL[@]}" disable --now "$ENSURE_UNIT_NAME" 2>/dev/null || true
+        if [ -f "$UNIT_DIR/$ENSURE_UNIT_NAME" ]; then
+            rm -f "$UNIT_DIR/$ENSURE_UNIT_NAME"
+            say "Removed $UNIT_DIR/$ENSURE_UNIT_NAME"
+        fi
+    fi
     "${SYSTEMCTL[@]}" daemon-reload
     info "Env file left in place at $ENV_FILE (delete manually if desired)."
-    info "Token file left in place at $TOKEN_FILE (delete manually if desired)."
+    if [ -f "$TOKEN_FILE" ]; then
+        info "Stale mirror file also left in place at $TOKEN_FILE (retired by #284;"
+        info "  live source is $ENV_FILE — delete $TOKEN_FILE manually if desired)."
+    fi
     say "Uninstalled."
     exit 0
 }
@@ -109,7 +136,7 @@ uninstall() {
 # --- Preflight ---------------------------------------------------------
 if [ ! -x "$VENV_BIN/llauncher-agent" ]; then
     err "Did not find $VENV_BIN/llauncher-agent."
-    err "Run './scripts/run.sh install' first to create the venv."
+    err "Run './scripts/run.sh setup' first to recompose the venv (ADR-023)."
     exit 1
 fi
 
@@ -153,53 +180,117 @@ if [ "$MODE" != "system" ]; then
     chmod 700 "$ENV_DIR"
 fi
 
+# --- Migrate a pre-#284 agent.token mirror BEFORE any fresh seed -------
+# Ordering matters: if $ENV_FILE is absent but a stale agent.token mirror
+# still holds the operator's real, already-in-use token (e.g. agent.env
+# was deleted/never synced while the mirror survived), the seed-from-
+# template step below must NOT overwrite it with a newly generated
+# random token — that would silently orphan the live credential the
+# mirror was carrying. So: if the mirror exists and carries a value,
+# seed $ENV_FILE from THAT value instead of generating a fresh one.
+MIGRATED_MIRROR_TOKEN=""
+if [ -f "$TOKEN_FILE" ]; then
+    MIGRATED_MIRROR_TOKEN="$(tr -d '[:space:]' < "$TOKEN_FILE" || true)"
+fi
+
 if [ ! -f "$ENV_FILE" ]; then
-    info "Generating $ENV_FILE with a fresh token..."
-    TOKEN="$("$VENV_BIN/python" -c 'import secrets; print(secrets.token_urlsafe(32))')"
-    # Seed from the example, then substitute the placeholder token.
-    sed "s|replace-me-with-a-random-token|$TOKEN|" "$ENV_EXAMPLE" > "$ENV_FILE"
+    if [ -n "$MIGRATED_MIRROR_TOKEN" ]; then
+        info "Seeding $ENV_FILE from the template using the live token found in the stale agent.token mirror..."
+        sed "s|replace-me-with-a-random-token|$MIGRATED_MIRROR_TOKEN|" "$ENV_EXAMPLE" > "$ENV_FILE"
+        say "Wrote $ENV_FILE, carrying forward the token from $TOKEN_FILE (not overwritten with a fresh one)."
+    else
+        info "Seeding $ENV_FILE from the template (one-time; see agent.env.example header)..."
+        TOKEN="$("$VENV_BIN/python" -c 'import secrets; print(secrets.token_urlsafe(32))')"
+        # Seed from the example, then substitute the placeholder token.
+        sed "s|replace-me-with-a-random-token|$TOKEN|" "$ENV_EXAMPLE" > "$ENV_FILE"
+        say "Wrote $ENV_FILE (mode $FILE_MODE) with a generated 32-byte token."
+    fi
     chmod "$FILE_MODE" "$ENV_FILE"
     [ "$MODE" = "system" ] && chgrp "$FILE_GROUP" "$ENV_FILE"
-    say "Wrote $ENV_FILE (mode $FILE_MODE) with a generated 32-byte token."
     info "Edit it to set LLAUNCHER_AGENT_NODE_NAME / HOST / PORT as needed."
 else
     chmod "$FILE_MODE" "$ENV_FILE"  # repair perms if they drifted
     [ "$MODE" = "system" ] && chgrp "$FILE_GROUP" "$ENV_FILE"
-    say "Env file already exists at $ENV_FILE — leaving it untouched."
+    # Loud on skip (issue #284): edits to the template are never read again
+    # after this first-install seed — $ENV_FILE is the only file either
+    # process consults from here on.
+    info "agent.env already exists at $ENV_FILE — skipping template seed."
+    info "  Edits to $ENV_EXAMPLE are never read after first install;"
+    info "  edit $ENV_FILE directly (the live source) and re-run this installer."
+
+    # --- Migrate pre-#139 legacy keys (issue #281), deduped (issue #285) --
+    # Commit 9f098d9 (#138/#139) renamed LAUNCHER_AGENT_* → LLAUNCHER_AGENT_*,
+    # but env files written from the pre-rename template still carry the
+    # single-L keys — which nothing reads any more, so the agent silently
+    # auto-generates its own token and the UI 403s on every authed endpoint.
+    # PARSE-AT-THE-DOOR: rewrite the key prefix in place, once,
+    # deterministically, preserving each value byte-for-byte.
+    #
+    # Issue #285: a blanket prefix rewrite created a DUPLICATE when a legacy
+    # line's migrated key already existed as a canonical line — the
+    # installer half of the "403s keep coming back" recurrence (paired with
+    # #293's runtime half). The migration now DROPS a legacy line whose
+    # migrated key already exists (the canonical line wins), loudly. Comment
+    # lines start with '#' and never match the key-anchored pattern; line
+    # order of surviving lines is preserved, so systemd's last-wins
+    # EnvironmentFile semantics (and the `tail -n1` reads below) are
+    # unaffected. Logic is extracted to migrate_env_keys.sh so it is
+    # unit-testable without the venv/systemctl preflight above.
+    # shellcheck source=scripts/systemd/migrate_env_keys.sh
+    . "$SCRIPT_DIR/migrate_env_keys.sh"
+    migrate_and_dedupe_env_keys "$ENV_FILE"
 fi
 
-# --- Token mirror (issue #131) -----------------------------------------
-# Mirror LLAUNCHER_AGENT_TOKEN from the env file into TOKEN_FILE so the UI
-# process — which does NOT share the systemd service env — can authenticate
-# against the local agent. In user mode this is ~/.llauncher/agent.token; in
-# system mode it is /var/lib/llauncher/agent.token, group-readable to
-# `inference` so the operator UI / non-admin agent user can read it without
-# copying. Symmetric with the Windows install.ps1 mirror block.
+# --- Retire the agent.token mirror (issue #284) -------------------------
+# agent.env is now the single live source, read DIRECTLY by both the
+# systemd service (EnvironmentFile=) and the UI
+# (llauncher.core.agent_token.resolve_agent_token) at their own startup —
+# no installer-maintained mirror file. A stale agent.token from a
+# pre-#284 install is migrated in place, once, at the door
+# (PARSE-AT-THE-DOOR): if $ENV_FILE has NO usable token line, the
+# mirror's value is appended to $ENV_FILE before the mirror is deleted, so
+# a live credential already in use is never silently discarded. If
+# $ENV_FILE already has a token, the mirror is simply retired (deleted)
+# since nothing reads it any more.
 #
 # `tail -n1` (not `head -n1`) matches systemd's EnvironmentFile parser
 # semantics ("last wins"); the value the agent actually runs with is the
-# last LLAUNCHER_AGENT_TOKEN= line, so the mirror must reflect that.
-# `tr -d '[:space:]'` defends against trailing whitespace or stray CRs
-# from hand-edited env files.
+# last LLAUNCHER_AGENT_TOKEN= line. `tr -d '[:space:]'` defends against
+# trailing whitespace or stray CRs from hand-edited env files. `|| true`
+# keeps a grep miss (no matching line) from tripping `set -e` via the
+# failing command-substitution.
 if [ "$MODE" != "system" ]; then
     mkdir -p "$LLAUNCHER_DIR"
     chmod 700 "$LLAUNCHER_DIR"
 fi
-# `|| true` keeps a grep miss (no matching line) from tripping `set -e`
-# via the failing command-substitution — an empty TOKEN_VALUE then routes
-# to the informative else-branch below instead of a silent exit 1. This
-# is the failure mode when a pre-rename env file still uses the old
-# single-L (LAUNCHER, not LLAUNCHER) token key (see #138/#139).
+if [ -f "$TOKEN_FILE" ]; then
+    EXISTING_TOKEN_VALUE="$(grep -E '^LLAUNCHER_AGENT_TOKEN=' "$ENV_FILE" | tail -n1 | cut -d= -f2- | tr -d '[:space:]' || true)"
+    if [ -z "$EXISTING_TOKEN_VALUE" ]; then
+        MIRROR_TOKEN="$(tr -d '[:space:]' < "$TOKEN_FILE" || true)"
+        if [ -n "$MIRROR_TOKEN" ]; then
+            printf 'LLAUNCHER_AGENT_TOKEN=%s\n' "$MIRROR_TOKEN" >> "$ENV_FILE"
+            say "Migrated live token from $TOKEN_FILE into $ENV_FILE ($ENV_FILE had no token line)."
+        fi
+    fi
+    rm -f "$TOKEN_FILE"
+    info "Retired by #284; live source is $ENV_FILE. Removed stale mirror $TOKEN_FILE."
+fi
+
+# --- Fail loud if the env file still has no usable token (issue #281/#284) -
+# Legacy single-L (LAUNCHER, not LLAUNCHER; #138/#139) key names have
+# already been migrated in place above, so reaching this branch means the
+# env file genuinely has no usable token — never a shape we
+# trust-and-degrade on (issue #281).
 TOKEN_VALUE="$(grep -E '^LLAUNCHER_AGENT_TOKEN=' "$ENV_FILE" | tail -n1 | cut -d= -f2- | tr -d '[:space:]' || true)"
-if [ -n "$TOKEN_VALUE" ]; then
-    # printf '%s' (no trailing newline) matches the byte-shape of
-    # llauncher/agent/auth.py:_generate_and_persist_token after strip.
-    printf '%s' "$TOKEN_VALUE" > "$TOKEN_FILE"
-    chmod "$FILE_MODE" "$TOKEN_FILE"
-    [ "$MODE" = "system" ] && chgrp "$FILE_GROUP" "$TOKEN_FILE"
-    say "Mirrored token to $TOKEN_FILE (mode $FILE_MODE) so the UI can authenticate."
-else
-    info "No LLAUNCHER_AGENT_TOKEN line found in $ENV_FILE; skipping token file mirror."
+if [ -z "$TOKEN_VALUE" ]; then
+    err "No usable LLAUNCHER_AGENT_TOKEN line found in $ENV_FILE (missing or empty value)."
+    err "Refusing to install the service without a usable token in the live source — the"
+    err "agent would silently auto-generate its own token and the UI could never authenticate."
+    err "Fix one of:"
+    err "  - Add a line to $ENV_FILE:  LLAUNCHER_AGENT_TOKEN=<token>"
+    err "    (generate one:  python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+    err "  - Or delete $ENV_FILE and re-run this installer to regenerate it from the template."
+    exit 1
 fi
 
 # --- Unit file ---------------------------------------------------------
@@ -211,7 +302,26 @@ sed \
     "$TEMPLATE" > "$UNIT_PATH"
 say "Rendered unit to $UNIT_PATH"
 
+# --- Ensure-venv unit (system scope only; ADR-023 / #227) --------------
+# The agent system unit Requires=/After= this root oneshot so the agent never
+# starts against a missing/broken venv. It is system-scoped because recompose
+# must run where the dev-tree .venv is writable (root), not as User=llauncher.
+# User mode owns its own venv via `run.sh setup` at launch, so it gets no
+# ensure unit here.
+if [ "$MODE" = "system" ]; then
+    ENSURE_TEMPLATE="$SCRIPT_DIR/llauncher-agent-ensure-venv.service.in"
+    ENSURE_UNIT_PATH="$UNIT_DIR/$ENSURE_UNIT_NAME"
+    sed \
+        -e "s|@PROJECT_DIR@|$PROJECT_DIR|g" \
+        "$ENSURE_TEMPLATE" > "$ENSURE_UNIT_PATH"
+    say "Rendered ensure unit to $ENSURE_UNIT_PATH"
+fi
+
 "${SYSTEMCTL[@]}" daemon-reload
+if [ "$MODE" = "system" ]; then
+    "${SYSTEMCTL[@]}" enable "$ENSURE_UNIT_NAME" >/dev/null
+    say "Enabled $ENSURE_UNIT_NAME"
+fi
 "${SYSTEMCTL[@]}" enable "$UNIT_NAME" >/dev/null
 say "Enabled $UNIT_NAME"
 

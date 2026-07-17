@@ -1,0 +1,44 @@
+; llauncher agent venv-ensure — systemd *system* oneshot unit template.
+;
+; Do not install this file directly. Run `scripts/systemd/install.sh --system`
+; (as root), which substitutes the @TOKENS@ below and drops the rendered unit
+; at /etc/systemd/system/llauncher-agent-ensure-venv.service.
+;
+; ADR-023 (issue #227): the agent unit's ExecStart resolves into
+; @PROJECT_DIR@/.venv, but the operator treats venvs as non-durable (freely
+; reaped by a disk sweep). This oneshot RE-COUPLES that reference to its
+; lifecycle: it guarantees the venv exists before the agent starts, recomposing
+; it from the git-tracked pyproject.toml when missing/broken. The agent unit
+; Requires=/After= this unit, so the agent never starts against a venv that
+; isn't there (invariant VENV-OWNED-OR-GUARANTEED / PARSE-AT-THE-DOOR).
+;
+; Runs as ROOT (no User=): the agent runs as User=llauncher, which cannot be
+; relied on to own the dev tree where .venv lives. Recompose lives where the
+; venv's write permission lives — root scope for the dev tree (ADR-023).
+
+[Unit]
+Description=llauncher agent venv recomposition (guarantee .venv before agent start)
+Documentation=https://github.com/shanevcantwell/llauncher
+; Recompose is a network-bound `pip install` (editable, from the local tree);
+; gate it behind the network like the agent unit it precedes.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+; Hold `active` after exit so the agent's Requires=/After= is satisfied for the
+; whole agent lifetime, not just the instant the oneshot ran.
+RemainAfterExit=yes
+; OQ4 (ADR-023): recompose ceiling. A first-start-after-reap `pip install` can
+; run tens of seconds to minutes; 300s isolates that latency here (away from the
+; agent's own TimeoutStartSec) and treats anything slower as a failed recompose.
+TimeoutStartSec=300
+WorkingDirectory=@PROJECT_DIR@
+; The single named recompose path (run.sh setup): existence-checked (OQ3 lazy
+; re-heal — no-op when the entry point is present), fail-loud on a broken
+; recompose (nonzero -> this unit `failed` -> agent does not start). Reuses
+; run.sh's ensure_venv (issue #219) rather than a second venv builder.
+ExecStart=@PROJECT_DIR@/scripts/run.sh setup
+
+[Install]
+WantedBy=multi-user.target

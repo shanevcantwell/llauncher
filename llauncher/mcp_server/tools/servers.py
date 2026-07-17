@@ -187,6 +187,48 @@ def get_tools() -> list[Tool]:
                 "required": ["port"],
             },
         ),
+        Tool(
+            name="server_metrics",
+            description=(
+                "Live in-server inference telemetry for a running server "
+                "(ADR-LLNCH-019): phase (idle/prompt/generating), "
+                "gen_tok_s, prompt_tok_s, slot counts, started_at. Safe "
+                "tier — no prompt text. Local-node only. Returns a "
+                "degraded envelope ({'available': false, 'reason': "
+                "'loading'|'no-metrics-flag'|'unreachable'}) rather than "
+                "erroring when the target server can't be read."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "port": {
+                        "type": "integer",
+                        "description": "Port number of the server",
+                    },
+                },
+                "required": ["port"],
+            },
+        ),
+        Tool(
+            name="server_slots",
+            description=(
+                "Per-slot detail for a running server, including prompt "
+                "text (ADR-LLNCH-019). Sensitive tier — grant separately "
+                "from server_metrics. Local-node only. Returns "
+                "{'available': false, 'reason': 'slots_disabled'} when "
+                "the server was not started with --slots."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "port": {
+                        "type": "integer",
+                        "description": "Port number of the server",
+                    },
+                },
+                "required": ["port"],
+            },
+        ),
     ]
 
 
@@ -306,6 +348,43 @@ async def cancel_server(args: dict) -> dict:
         "marker_existed": delivered,
         "port": port,
     }
+
+
+# ─── Stateless collector tools (core.server_metrics, ADR-LLNCH-019) ──
+#
+# Unlike ``get_server_logs`` these don't consult ``LauncherState`` —
+# ``core.server_metrics`` reads the lockfile directly and polls the
+# target server itself (peer to ``core.gpu``, issue #179). Tier
+# separation is which tool a client is granted, not a flag: a client
+# holding ``server_metrics`` need not also hold ``server_slots``.
+
+
+async def server_metrics(args: dict) -> dict:
+    """Aggregate live-telemetry snapshot for ``args['port']`` (safe tier).
+
+    Thin wrapper over :func:`llauncher.core.server_metrics.get_aggregate_metrics`.
+    """
+    port = args.get("port")
+    if port is None:
+        return {"error": "Missing required argument: port"}
+
+    from llauncher.core import server_metrics as sm
+
+    return sm.get_aggregate_metrics(port)
+
+
+async def server_slots(args: dict) -> dict:
+    """Per-slot snapshot for ``args['port']``, including prompt text (sensitive tier).
+
+    Thin wrapper over :func:`llauncher.core.server_metrics.get_slots`.
+    """
+    port = args.get("port")
+    if port is None:
+        return {"error": "Missing required argument: port"}
+
+    from llauncher.core import server_metrics as sm
+
+    return sm.get_slots(port)
 
 
 # ───────────────── Read tools (state-backed) ───────────────────────

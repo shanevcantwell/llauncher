@@ -206,7 +206,7 @@ class TestRemoteDoesNotImportAgent:
         # exercising the resolver end-to-end with no filesystem writes.
         token = resolve_agent_token(
             env_value="",
-            token_path=__import__("pathlib").Path("/nonexistent/x.token"),
+            env_path=__import__("pathlib").Path("/nonexistent/agent.env"),
             allow_generate=False,
         )
         assert token is None
