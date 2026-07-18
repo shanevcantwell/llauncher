@@ -98,6 +98,33 @@ class TestIsLocalAgentReady:
 
         # Should return True when socket connects successfully
         assert result is True
+        assert added == [("local", "127.0.0.1", 8765, None)]
+
+    def test_load_migrates_localhost_local_node(self, tmp_path, monkeypatch):
+        """The persisted local target is normalized to IPv4 exactly once."""
+        nodes_file = tmp_path / "nodes.json"
+        nodes_file.write_text(json.dumps({
+            "local": {
+                "name": "local", "host": "localhost",
+                "port": 8765, "timeout": 5.0, "has_api_key": False,
+            },
+            "remote": {
+                "name": "remote", "host": "localhost",
+                "port": 8766, "timeout": 5.0, "has_api_key": False,
+            },
+        }))
+        monkeypatch.setattr("llauncher.remote.registry.NODES_FILE", nodes_file)
+
+        registry = NodeRegistry()
+
+        local = registry.get_node("local")
+        remote = registry.get_node("remote")
+        assert local is not None
+        assert remote is not None
+        assert local.host == "127.0.0.1"
+        assert remote.host == "localhost"
+        persisted = json.loads(nodes_file.read_text())
+        assert persisted["local"]["host"] == "127.0.0.1"
 
     def test_is_local_agent_ready_socket_failure(self, monkeypatch):
         """Test when socket connection fails."""
