@@ -149,7 +149,7 @@ def _render_start_button(
             )
             return
 
-    # ADR-010: caller supplies the port. The picker is rendered alongside
+    # ADR-LLNCH-010: caller supplies the port. The picker is rendered alongside
     # the start button; the button stays disabled until the picker yields
     # a usable port.
     chosen_port = render_port_picker(
@@ -169,7 +169,7 @@ def _render_start_button(
             # Defence-in-depth: ``disabled=True`` already blocks the
             # click, but if a future Streamlit upgrade fires the
             # callback anyway, refusing to call ``_handle_start`` here
-            # preserves the ADR-010 invariant.
+            # preserves the ADR-LLNCH-010 invariant.
             return
         _handle_start(state, aggregator, node_name, model_name, target_port=chosen_port)
 
@@ -343,7 +343,7 @@ def _render_model_details(
             st.markdown(f"`{running_server.port}` (running)")
             st.markdown(f"*Uptime: {format_uptime(running_server.uptime_seconds)}*")
         else:
-            # Per ADR-010, port is supplied at start time, not stored on the model.
+            # Per ADR-LLNCH-010, port is supplied at start time, not stored on the model.
             st.markdown("`—` (set at start)")
 
     with col1:
@@ -420,7 +420,7 @@ def _render_delete_confirm(node_name: str, model_name: str) -> None:
 
     Delete goes through ``ops.delete_model`` directly (never a
     ``state``/peer-endpoint seam) to satisfy the UI layer boundary test
-    (ADR-025) — ``llauncher.operations`` imports are allowed from the UI.
+    (ADR-LLNCH-025) — ``llauncher.operations`` imports are allowed from the UI.
 
     Args:
         node_name: Name of the node (only called for ``"local"``).
@@ -490,7 +490,7 @@ def _handle_stop(
         # gate the CLI (``cli.py::stop_server``) and MCP
         # (``mcp_server/tools/servers.py``) stop paths use. This is what makes
         # ``llama-server`` (running as the ``llauncher`` service account in
-        # ADR-018 system-mode) terminable from the operator-owned Streamlit UI:
+        # ADR-LLNCH-018 system-mode) terminable from the operator-owned Streamlit UI:
         # the agent owns the process, so no cross-uid SIGTERM (psutil
         # AccessDenied) is attempted from the UI process. Per
         # ``docs/ARCHITECTURE.md`` "Endpoints orchestrate — they do not
@@ -552,7 +552,7 @@ def _handle_start(
         aggregator: RemoteAggregator.
         node_name: Name of the node.
         model_name: Name of the model.
-        target_port: Port to bind, supplied by the port picker per ADR-010.
+        target_port: Port to bind, supplied by the port picker per ADR-LLNCH-010.
     """
     if node_name == "local":
         config = state.models.get(model_name)
@@ -589,7 +589,7 @@ def _handle_start(
                 # agent and the operator needs no exec rights on the binary.
                 # With no agent reachable, fall back to the in-process op
                 # (dev/standalone) — v2 ops migration (issue #57): plain
-                # start routes through ``operations.start`` (ADR-005
+                # start routes through ``operations.start`` (ADR-LLNCH-005
                 # model-health pre-flight via the same seam as
                 # ``operations.swap``); the M4 tab restructure (#50)
                 # preserves this call.
@@ -633,7 +633,7 @@ def _handle_start(
                 st.toast(f"Cannot start: {msg}", icon="❌")
             st.rerun()
     elif aggregator:
-        # Per ADR-010, port is at the call site. M4 Slice 13 (#50) made
+        # Per ADR-LLNCH-010, port is at the call site. M4 Slice 13 (#50) made
         # ``target_port`` required at this entry, so the previous
         # "no-port" guard is gone — the picker upstream enforces it.
         result = aggregator.start_on_node(node_name, model_name, target_port)

@@ -254,7 +254,7 @@ class TestStartOnNode:
 
         aggregator = RemoteAggregator(registry)
 
-        # Mock start_server on node — port is now required (ADR-010).
+        # Mock start_server on node — port is now required (ADR-LLNCH-010).
         captured: dict = {}
 
         def mock_start_server(self, model_name, port):

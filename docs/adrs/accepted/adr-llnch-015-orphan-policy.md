@@ -1,21 +1,21 @@
-# ADR-015: Orphan Policy — Annotation and Listing
+# ADR-LLNCH-015: Orphan Policy — Annotation and Listing
 
 **Status:** Accepted
 **Date:** 2026-05-17
-**Relationship to other ADRs:** ADR-008 (LauncherState as Stateless Facade) defines the on-disk reconciliation surface this ADR extends. ADR-010 (port at the call site) defines the verb-shape conventions used by the new `GET /orphans` endpoint and the `list_orphans` MCP tool. ADR-011 (swap semantics v2) defines the lockfile-vs-process matching used to decide managed-vs-unmanaged.
+**Relationship to other ADRs:** ADR-LLNCH-008 (LauncherState as Stateless Facade) defines the on-disk reconciliation surface this ADR extends. ADR-LLNCH-010 (port at the call site) defines the verb-shape conventions used by the new `GET /orphans` endpoint and the `list_orphans` MCP tool. ADR-LLNCH-011 (swap semantics v2) defines the lockfile-vs-process matching used to decide managed-vs-unmanaged.
 
 **Supersedes:** No prior ADR — pre-ADR behavior was "if it's not in our lockfile registry, it doesn't exist."
 
 ## Context
 
-llauncher claims each model it launches by writing a per-port JSON lockfile in `LAUNCHER_RUN_DIR`. The agent shutdown path (#65) and the reconciliation guarantees of ADR-008 both treat the lockfile registry as the source of truth: anything in it is *managed* and must be reaped on graceful shutdown; anything not in it is invisible.
+llauncher claims each model it launches by writing a per-port JSON lockfile in `LAUNCHER_RUN_DIR`. The agent shutdown path (#65) and the reconciliation guarantees of ADR-LLNCH-008 both treat the lockfile registry as the source of truth: anything in it is *managed* and must be reaped on graceful shutdown; anything not in it is invisible.
 
 That invisibility is wrong for two recurring operator scenarios:
 
 1. **Pre-existing llama-server.** The operator started a `llama-server` by hand (or with a sibling tool) before launching llauncher. It is bound to a port llauncher might want to use. Today `server start` rejects with `rejected_occupied` and the operator has no llauncher-side handle on the process.
 2. **Crashed-agent residue.** llauncher crashed (SIGKILL, OOM-kill) without running its lifespan handler; the child `llama-server` is still alive, the lockfile may or may not still be on disk, and on next agent start there is no path to enumerate "what's running on this host that we used to own."
 
-A future revision will add an `adopt` verb that writes a lockfile for a discovered orphan, claiming it as managed. That work is large — it has to decide what `model` field to write into the lockfile when only argv is available, whether to refuse on cmdline mismatches, and how to reconcile against the live config registry. **This ADR deliberately scopes only the annotation and listing half.** Adoption is left for ADR-015's deferred section, with the discovery surface in place so the operator can at least *see* the orphans today.
+A future revision will add an `adopt` verb that writes a lockfile for a discovered orphan, claiming it as managed. That work is large — it has to decide what `model` field to write into the lockfile when only argv is available, whether to refuse on cmdline mismatches, and how to reconcile against the live config registry. **This ADR deliberately scopes only the annotation and listing half.** Adoption is left for ADR-LLNCH-015's deferred section, with the discovery surface in place so the operator can at least *see* the orphans today.
 
 ## Decision
 
@@ -57,7 +57,7 @@ Any other state is an orphan: no lockfile, lockfile points at a dead pid, or loc
 
 `LauncherState` gains `orphans: list[OrphanInfo]` and `_observed_orphan_pids: set[int]`. `refresh_orphans()` runs at the end of `refresh()` and:
 
-- For each currently-observed orphan pid not in `_observed_orphan_pids`: emit `audit_log.AuditAction.OBSERVED_ORPHAN` (which already exists, ADR-008) and add the pid to the set.
+- For each currently-observed orphan pid not in `_observed_orphan_pids`: emit `audit_log.AuditAction.OBSERVED_ORPHAN` (which already exists, ADR-LLNCH-008) and add the pid to the set.
 - For each pid in `_observed_orphan_pids` not in the current scan: drop from the set. A pid that later reappears re-emits exactly once.
 - Repeated sightings of a pid already in the set: silent.
 
@@ -127,6 +127,6 @@ Extract `-m <path>` from argv during the annotated scan to populate a tentative 
 
 ## Relationship to Other ADRs
 
-- **Builds on ADR-008** (stateless facade): the managed-vs-unmanaged split is derived from the lockfile registry plus the live process table, the same two sources ADR-008 mandates for all state queries.
-- **Builds on ADR-010** (port at the call site): `GET /orphans` and `list_orphans` are read endpoints; no port in the path because the verb returns all orphans. Future `adopt_orphan(port)` will follow ADR-010 with port at the call site.
-- **Builds on ADR-011** (swap semantics v2): the managed-check predicate (`lockfile.pid == observed.pid AND alive`) reuses the same identity-match logic that swap uses to decide whether the port it just claimed is still ours.
+- **Builds on ADR-LLNCH-008** (stateless facade): the managed-vs-unmanaged split is derived from the lockfile registry plus the live process table, the same two sources ADR-LLNCH-008 mandates for all state queries.
+- **Builds on ADR-LLNCH-010** (port at the call site): `GET /orphans` and `list_orphans` are read endpoints; no port in the path because the verb returns all orphans. Future `adopt_orphan(port)` will follow ADR-LLNCH-010 with port at the call site.
+- **Builds on ADR-LLNCH-011** (swap semantics v2): the managed-check predicate (`lockfile.pid == observed.pid AND alive`) reuses the same identity-match logic that swap uses to decide whether the port it just claimed is still ours.

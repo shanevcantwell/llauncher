@@ -478,7 +478,7 @@ def test_frontend_delegation_gate_pairing():
     also calls ``should_delegate()`` (pins #200/#194 sole-spawner). Exempt:
     ``ops.delete_model``, ``ops.list_orphans``,
     ``ops.reconcile_stale_lockfiles`` (ratified ungated), and
-    ``core.marker.request_cancel`` (ADR-014, uniformly core-direct — not an
+    ``core.marker.request_cancel`` (ADR-LLNCH-014, uniformly core-direct — not an
     ``ops.`` verb at all, so it never enters this scan).
     """
     violations: list[str] = []

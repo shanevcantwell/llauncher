@@ -113,7 +113,7 @@ class TestRenderPortPicker:
             mock_st.warning.assert_not_called()
 
     def test_picker_does_not_call_find_available_port(self):
-        """ADR-010 invariant: the picker is pure UI, no auto-allocation."""
+        """ADR-LLNCH-010 invariant: the picker is pure UI, no auto-allocation."""
         from llauncher.ui.components import port_picker
 
         state = MagicMock()

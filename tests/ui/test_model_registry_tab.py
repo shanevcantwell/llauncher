@@ -5,7 +5,7 @@ Contract pinned here: for a given ``target`` (``"local"`` or a remote node
 name), ``render_model_registry`` gathers that target's configured models —
 from ``state.models`` when local, from ``aggregator.get_all_models()`` when
 remote — and renders one health-annotated row per model via
-``check_model_health()`` (ADR-005). Each row's status column is a
+``check_model_health()`` (ADR-LLNCH-005). Each row's status column is a
 deterministic function of the health result:
 
 * ``exists=False``                              -> "❌ missing"

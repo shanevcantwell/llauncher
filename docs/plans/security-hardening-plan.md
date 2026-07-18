@@ -63,7 +63,7 @@ The driving principle: **proportionate to a workstation tool, not enterprise**. 
 - `llauncher/core/audit_log.py:92-97` — open in append mode, single write per record, no fsync, no lock.
 - Path defaults to `~/.llauncher/audit.jsonl` (`core/settings.py:77-80`); permissions inherit umask (typically world-readable).
 - No rotation, no truncation, no integrity hash, no signing.
-- Anyone with shell access can `rm` or `truncate` the file — this is explicitly accepted (ADR-008: "out of scope … tracked separately").
+- Anyone with shell access can `rm` or `truncate` the file — this is explicitly accepted (ADR-LLNCH-008: "out of scope … tracked separately").
 
 **Risk:** low. The threat model puts hostile-shell-on-host out of scope, and append-mode multi-writer races are bounded (single-line JSON, `O_APPEND` atomic up to PIPE_BUF). The realistic miss is **unbounded growth** under heavy reconcile churn, which is a reliability concern rather than a security one.
 
@@ -100,7 +100,7 @@ The driving principle: **proportionate to a workstation tool, not enterprise**. 
 
 **Risk:** low. JSON parsing has no deserialization-gadget surface. Pydantic schema is tight on numerics. Lingering gap: `extra="allow"` posture means a config can carry arbitrary keys that future code might pick up — defense-in-depth only, no current exploit.
 
-### 2.7 Remote-node trust (ADR-009)
+### 2.7 Remote-node trust (ADR-LLNCH-009)
 
 **What exists today:**
 - Self-loop short-circuit (`remote/node.py:139-161`) routes local calls in-process, bypassing the network and auth.
@@ -130,7 +130,7 @@ The driving principle: **proportionate to a workstation tool, not enterprise**. 
 | C3 | HTTP request limits | Code change | Add a Starlette middleware capping body size (e.g. 1 MiB) — defense in depth against accidental large-payload bugs. Low effort, low risk. |
 | C4 | CORS | Do nothing + document | Document that no CORS headers are emitted (so browsers cannot make cross-origin requests to the agent from arbitrary pages). Add a regression test asserting absence of `Access-Control-Allow-Origin` on responses. |
 | C5 | MCP stdio | Do nothing + document | Threat model puts this out of scope. Add a single sentence to the README clarifying "MCP server trusts whatever invoked it via stdio". |
-| C6 | Audit log integrity | Do nothing + document | Bounded growth is a reliability item, not security. Reference ADR-008's deferral; consider rotation in a separate ticket (#TBD reliability bucket, not this plan). |
+| C6 | Audit log integrity | Do nothing + document | Bounded growth is a reliability item, not security. Reference ADR-LLNCH-008's deferral; consider rotation in a separate ticket (#TBD reliability bucket, not this plan). |
 | C7 | `extra_args` injection | Code change | Add an explicit deny-list (or accept-list) for `--api-key`, `--alias`, and any future llama-server flag we want to control at the llauncher boundary. Validate at config-save time so the error surfaces in the UI/CLI, not at start time. |
 | C8 | `model_path` scope | Code change (small) | Add an optional `LAUNCHER_MODELS_ROOT` env var; when set, validate `Path(model_path).resolve()` is under it on save. Default unset = current behavior preserved. |
 | C9 | Remote-node TLS | Architectural change | Defer. Document that operators relying on cross-host trust should use Tailscale (transport encryption) or co-locate. Filing this as a follow-up to scope what TLS would look like is fine; not in the immediate "vibed" bucket. |

@@ -57,4 +57,4 @@ class TestAddNodeFormProvisioningCopy:
         assert "llauncher-agent print-token" in help_text
         assert "~/.llauncher/agent.env" in help_text
         assert "$env:USERPROFILE\\.llauncher\\agent.env" in help_text
-        assert "ADR-003" in help_text
+        assert "ADR-LLNCH-003" in help_text

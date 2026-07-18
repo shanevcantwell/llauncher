@@ -24,8 +24,8 @@ Commit `7d2a64d` ("M2 slice 4 — port-keyed HTTP endpoints") introduced the `sw
 ### Missing Design Artifacts
 | Artifact | Status |
 |----------|--------|
-| ADR-010 | Defines `/swap/{port}` and `swap_server(port, model)` but doesn't discuss remote node dispatch semantics |
-| ADR-011 | Establishes local swap semantics; "single entry point" refers to tool-layer, not aggregator methods |
+| ADR-LLNCH-010 | Defines `/swap/{port}` and `swap_server(port, model)` but doesn't discuss remote node dispatch semantics |
+| ADR-LLNCH-011 | Establishes local swap semantics; "single entry point" refers to tool-layer, not aggregator methods |
 | M3 design doc | Focuses on UI migration (`ops.start`/`stop`/`swap`) but doesn't describe remote eviction behavior |
 
 ### Why This Matters for the Roadmap
@@ -67,9 +67,9 @@ This was presented as a *consequence* of the port-keyed refactor, not an indepen
 2. Run UI and try to start a remote model on an occupied port:
 3. Observe: Triggers full swap behavior with rollback/readiness polling (parity with local eviction)
 
-## Expected Behavior per ADR-011
+## Expected Behavior per ADR-LLNCH-011
 
-ADR-011 §"Swap Semantics v2" states:
+ADR-LLNCH-011 §"Swap Semantics v2" states:
 
 > "All four reach the same tool-layer swap function: local CLI, HTTP agent, MCP server tools, and Streamlit UI."
 
@@ -86,7 +86,7 @@ But **Streamlit UI (remote)** was never explicitly defined.
 The current implementation uses `aggregator.swap_on_node()` which:
 1. Calls the remote node's `swap_server(model_name, port)`
 2. Delegates to local `ops.swap(port, model_name)` on that node
-3. Uses full 5-phase swap with rollback/readiness polling (ADR-011)
+3. Uses full 5-phase swap with rollback/readiness polling (ADR-LLNCH-011)
 
 This is actually **correct behavior** (provides parity with local eviction), but it should have been:
 - Documented in an ADR amendment or design note before implementation
@@ -136,7 +136,7 @@ This **is a design gap**:
 ## Recommended Fix (Order of Priority)
 
 1. **Document the remote swap semantics** as either:
-   - An ADR amendment to ADR-011 (add "Remote Node Dispatch" section), OR
+   - An ADR amendment to ADR-LLNCH-011 (add "Remote Node Dispatch" section), OR
    - A new design note `docs/m3-slice7-remoteswap.md`
 
 2. **Add integration test** that verifies:
@@ -153,12 +153,12 @@ This **is a design gap**:
 
 - **Commit**: `7d2a64d` — Introduced `swap_on_node()` method (M2 slice 4)
 - **Issue #47** — UI migration to v2 ops ( Slice 7 )
-- **ADR-010** — Port-keyed verbs
-- **ADR-011** — Swap semantics v2
+- **ADR-LLNCH-010** — Port-keyed verbs
+- **ADR-LLNCH-011** — Swap semantics v2
 
 ## Next Steps
 
 1. Review this bug report and decide: document as design decision or file as ADR amendment?
 2. If approved, apply slice 7 changes from `/tmp/slice7_changes.diff`
-3. Create documentation in `docs/m3-slice7-remoteswap.md` or amend ADR-011
+3. Create documentation in `docs/m3-slice7-remoteswap.md` or amend ADR-LLNCH-011
 4. Add integration test for remote swap behavior

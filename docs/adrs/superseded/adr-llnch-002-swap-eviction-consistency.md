@@ -1,6 +1,6 @@
-# ADR-002: Unified Swap-with-Eviction Semantics
+# ADR-LLNCH-002: Unified Swap-with-Eviction Semantics
 
-**Status:** Superseded by ADR-011  
+**Status:** Superseded by ADR-LLNCH-011  
 **Date:** 2026-04-25  
 
 ## Context

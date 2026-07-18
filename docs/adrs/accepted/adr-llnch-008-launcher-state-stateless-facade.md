@@ -1,4 +1,4 @@
-# ADR-008: LauncherState as Stateless Facade
+# ADR-LLNCH-008: LauncherState as Stateless Facade
 
 **Status:** Accepted  
 **Date:** 2026-05-01  

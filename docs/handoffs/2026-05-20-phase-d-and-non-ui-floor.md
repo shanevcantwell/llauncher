@@ -6,7 +6,7 @@ Companion to `test-coverage-plan.md` and `docs/handoffs/2026-05-test-coverage-an
 
 Branch `main` is at `f6a94a8` (post-#89 quick-win deck). PR **#90** open against `main`: `test: Phase D coverage + non-UI --cov-fail-under=93 floor` — branch `phase-d-coverage-floor`, commit `c808f8d`. Pending review/merge.
 
-v2 refactor milestone state unchanged from prior dossier: M1–M4 complete; M5 has one item left (#56 canonical self-swap integration test, ADR-016); M6/M7 not started.
+v2 refactor milestone state unchanged from prior dossier: M1–M4 complete; M5 has one item left (#56 canonical self-swap integration test, ADR-LLNCH-016); M6/M7 not started.
 
 **Network-trust posture:** loopback + auth-on (default since #75, `ec98026`). 10 security follow-ups (#78–#88) remain open and unworked except the quick-win deck cleared in #89.
 
@@ -61,7 +61,7 @@ Threads from the prior dossier that remain live:
 - **#86** — TLS/mTLS story for cross-host remote nodes (C9). Design-doc shape, not a code PR.
 
 ### M5 close
-- **#56** — canonical self-swap integration test (ADR-016, still unwritten). Phase C harness (`tests/integration/conftest.py` + stub llama-server) is the substrate. Closes M5 and unblocks M7 (v2.0.0 tag).
+- **#56** — canonical self-swap integration test (ADR-LLNCH-016, still unwritten). Phase C harness (`tests/integration/conftest.py` + stub llama-server) is the substrate. Closes M5 and unblocks M7 (v2.0.0 tag).
 
 ### UI / coverage continuation
 - **#69** — Streamlit `AppTest` harness. When this lands, drop the `llauncher/ui/*` omit from `[tool.coverage.run]` and re-baseline the floor against the combined measurement.

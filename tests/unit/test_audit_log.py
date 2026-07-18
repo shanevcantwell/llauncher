@@ -1,6 +1,6 @@
 """Unit tests for ``llauncher.core.audit_log``.
 
-Per ADR-008. Verifies append-only semantics, commanded-vs-observed action
+Per ADR-LLNCH-008. Verifies append-only semantics, commanded-vs-observed action
 distinction, and resilience to corrupt log lines.
 """
 

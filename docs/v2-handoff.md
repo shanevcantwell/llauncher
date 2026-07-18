@@ -5,7 +5,7 @@
 
 **v2-final closeout snapshot (2026-05-24):**
 
-- M1–M5 complete; Phase 4 closed via `2b81f9d` (ADR-016 #56), `2748d79` (audit-tab remote #64), `9b39610` (systemd/NSSM #67).
+- M1–M5 complete; Phase 4 closed via `2b81f9d` (ADR-LLNCH-016 #56), `2748d79` (audit-tab remote #64), `9b39610` (systemd/NSSM #67).
 - Security hardening cohort merged (Waves 1+2 + XS follow-up) — `b7a8d80` and dependents. C1–C7, C10–C12 landed; C8 (#82) and C9 (#86) user-punted to later milestones.
 - Test coverage: non-UI floor at `--cov-fail-under=93`; UI deferred to dedicated harness work (#69, now v3-alpha).
 - V1-era carryover triaged: #20/#22/#23/#24/#45/#104/#105/#106 closed in XS batches; remainder migrated to v3-alpha / v4-alpha.
@@ -39,31 +39,31 @@ The repo is in the middle of a v2 architecture rewrite per ADRs 008–011. Curre
 
 | Module | Path | Notes |
 |--------|------|-------|
-| Settings env vars (`LAUNCHER_RUN_DIR`, `LAUNCHER_AUDIT_PATH`) | `llauncher/core/settings.py` | Volume-mountable per ADR-008 |
+| Settings env vars (`LAUNCHER_RUN_DIR`, `LAUNCHER_AUDIT_PATH`) | `llauncher/core/settings.py` | Volume-mountable per ADR-LLNCH-008 |
 | Lockfile (atomic `O_EXCL`, reconciliation rules) | `llauncher/core/lockfile.py` | Internal format; not a public contract |
 | Audit log (JSON Lines, commanded vs observed) | `llauncher/core/audit_log.py` | ⚠️ Stub only — no write operations implemented; config CRUD not audited. See audit §H3.
 | `ModelConfig` v2 — no `default_port`, has `BackendKind` | `llauncher/models/config.py` | Discriminator scaffolding for #42 |
-| Tool-layer operations (split package) | `llauncher/operations/{start,stop,swap,delete,preflight}.py` | Stateless service per ADR-008; re-exported via __init__.py for backward compat |
-| Swap + in-flight marker (M2 slice 1) | `llauncher/operations/swap.py`, `llauncher/core/marker.py` | ADR-011 five-phase mechanic, rollback, pluggable pre-flight seams |
+| Tool-layer operations (split package) | `llauncher/operations/{start,stop,swap,delete,preflight}.py` | Stateless service per ADR-LLNCH-008; re-exported via __init__.py for backward compat |
+| Swap + in-flight marker (M2 slice 1) | `llauncher/operations/swap.py`, `llauncher/core/marker.py` | ADR-LLNCH-011 five-phase mechanic, rollback, pluggable pre-flight seams |
 | Delete model operation (Issue #37) | `llauncher/operations/delete.py` | Checks active lockfiles before deletion; structured result envelope |
 | Pre-flight adapters (M2 slice 2) | `llauncher/operations/preflight.py` | Model health check + VRAM estimation; callable seams for swap() |
-| Port-keyed HTTP endpoints (ADR-010) | `llauncher/agent/routing.py` | POST /start/{port}, /swap/{port}, /stop/{port}; legacy model-keyed routes removed |
+| Port-keyed HTTP endpoints (ADR-LLNCH-010) | `llauncher/agent/routing.py` | POST /start/{port}, /swap/{port}, /stop/{port}; legacy model-keyed routes removed |
 | MCP tools wired to v2 ops | `llauncher/mcp_server/tools/servers.py` | swap_server() calls operations.swap() — dual-swap problem (C1) resolved |
 | Remote node port-keyed ops | `llauncher/remote/node.py` | start_server(model, port), swap_server(model, port); aggregator.swap_on_node() in state.py |
 | CLI wired to v2 ops | `llauncher/cli.py` | Four subcommand groups: `model` (list, info), `server` (start, stop, status), `node` (add, list, remove, status), `config` (path, validate). Rich tables + `--json` output. |
-| Multi-node infrastructure (M3-scope) | `llauncher/remote/{node,registry,state}.py` | RemoteNode, NodeRegistry, RemoteAggregator. Port-keyed per ADR-010; swap_on_node() for remote eviction parity. |
+| Multi-node infrastructure (M3-scope) | `llauncher/remote/{node,registry,state}.py` | RemoteNode, NodeRegistry, RemoteAggregator. Port-keyed per ADR-LLNCH-010; swap_on_node() for remote eviction parity. |
 | Streamlit UI (M4-scope) | `llauncher/ui/app.py`, `ui/tabs/` | Tabs: Dashboard (read-only running view), Models (config CRUD + start/stop/swap verbs), Nodes (peer registry), Audit (local audit-log tail). Sidebar `node_selector` + per-card port picker (no auto-allocation). |
 
 **Tests:** 686 passed, 10 skipped (+6 net this session). Test coverage ~85% overall; gaps in model_health cache edge cases, concurrent lockfile/marker access, and a few corners of the new log-rotation chain.
 
-**Commit chain (most recent first; pre-M4 cleanup → M4 foundations → ADR-013 → M4 Slice 13):**
+**Commit chain (most recent first; pre-M4 cleanup → M4 foundations → ADR-LLNCH-013 → M4 Slice 13):**
 
 - `5513d26` — feat(ui): consolidate tabs into Dashboard+Models, add port picker (refs #50)
 - `f7b8818` — feat(ui): add Audit tab + sidebar node_selector (refs #50)
 - `0d06b89` — feat(ui): drop UI auto-spawn-local-agent (closes #49)
 - `1f55f3a` — feat(ui): centralize op-result rendering in render_op_result (closes #51)
 - `e993dcc` — feat(ui): reusable node_selector component for M4 (closes #48)
-- `9dc2769` — feat(logs): append + rotate + bounded tail per ADR-013 (closes #52)
+- `9dc2769` — feat(logs): append + rotate + bounded tail per ADR-LLNCH-013 (closes #52)
 - `de9f10f` — fix(mcp): refresh state before write-tool reads (closes #59)
 - `270a43e` — fix(cli,state): make port required at every boundary (closes #58)
 - `b361b60` — fix(operations): lift model-health pre-flight out of state.py (closes #57)
@@ -83,7 +83,7 @@ All single-node and multi-node v2 operations are wired through `operations/` pac
 
 ### Completed (M2 slice 1 — commit `dd5f7dd`)
 
-- ~~[x]~~ **`operations.swap(port, model)`** ✅ — Full ADR-011 five-phase mechanic. All eight action outcomes reachable.
+- ~~[x]~~ **`operations.swap(port, model)`** ✅ — Full ADR-LLNCH-011 five-phase mechanic. All eight action outcomes reachable.
 - ~~[x]~~ **In-flight marker file** ✅ — `llauncher/core/marker.py` with atomic `O_EXCL`, JSON persistence, lazy stale-marker reconciliation.
 
 ### Completed by merge (`05942a0`):
@@ -94,7 +94,7 @@ All single-node and multi-node v2 operations are wired through `operations/` pac
 6. ~~[x]~~ **HTTP Agent endpoint refactor** ✅ — Port-keyed routes in place. Legacy model-keyed routes removed. Closes #40.
 7. ~~[x]~~ **MCP server tools** ✅ — Port-keyed shape; `swap_server` calls `operations.swap()`. Dual-swap bug resolved.
 8. ~~[x]~~ **CLI wired to v2 ops** ✅ — Server start/stop wired through operations layer.
-9. ~~[x]~~ **v1 test cleanup** ✅ — Repointed at v2 ops or skipped with ADR-008 refs. Closes #46.
+9. ~~[x]~~ **v1 test cleanup** ✅ — Repointed at v2 ops or skipped with ADR-LLNCH-008 refs. Closes #46.
 
 **Delivered in:** M2 slice 1 (`dd5f7dd`) + M3 merge (`05942a0`). Total: ~6 sessions across inference-host agent work.
 
@@ -113,17 +113,17 @@ All single-node and multi-node v2 operations are wired through `operations/` pac
 ### M5 — Tier 2 ADRs (2 of 5 done)
 | Issue | Title | Status |
 |-------|-------|--------|
-| [#52](https://github.com/shanevcantwell/llauncher/issues/52) | M5 / ADR-013: Logs lifecycle — append, rotation, bounded tail | ✅ closed (`9dc2769`) |
-| [#53](https://github.com/shanevcantwell/llauncher/issues/53) | M5 / ADR-012: Footer contract — `/footer-context/{port}` endpoint | ✅ closed (this session) — TS migration deferred |
-| [#54](https://github.com/shanevcantwell/llauncher/issues/54) | M5 / ADR-014: Cancellation of in-flight start/swap | ✅ closed (this session) |
-| [#55](https://github.com/shanevcantwell/llauncher/issues/55) | M5 / ADR-015: Orphan policy — annotation + `orphan list` only | ✅ closed (this session, reduced scope; adopt deferred per ADR-015 §Deferred Work) |
-| [#56](https://github.com/shanevcantwell/llauncher/issues/56) | M5 / ADR-016: Canonical self-swap integration test | open (depends on #54) |
+| [#52](https://github.com/shanevcantwell/llauncher/issues/52) | M5 / ADR-LLNCH-013: Logs lifecycle — append, rotation, bounded tail | ✅ closed (`9dc2769`) |
+| [#53](https://github.com/shanevcantwell/llauncher/issues/53) | M5 / ADR-LLNCH-012: Footer contract — `/footer-context/{port}` endpoint | ✅ closed (this session) — TS migration deferred |
+| [#54](https://github.com/shanevcantwell/llauncher/issues/54) | M5 / ADR-LLNCH-014: Cancellation of in-flight start/swap | ✅ closed (this session) |
+| [#55](https://github.com/shanevcantwell/llauncher/issues/55) | M5 / ADR-LLNCH-015: Orphan policy — annotation + `orphan list` only | ✅ closed (this session, reduced scope; adopt deferred per ADR-LLNCH-015 §Deferred Work) |
+| [#56](https://github.com/shanevcantwell/llauncher/issues/56) | M5 / ADR-LLNCH-016: Canonical self-swap integration test | open (depends on #54) |
 
 ### Audit cleanup (3 of 6 done)
 | Issue | Title | Status |
 |-------|-------|--------|
 | [#57](https://github.com/shanevcantwell/llauncher/issues/57) | C2: Remove `state.py` import of `core/model_health` | ✅ closed (`b361b60`) |
-| [#58](https://github.com/shanevcantwell/llauncher/issues/58) | C3: Port required at all boundaries (ADR-010) | ✅ closed (`270a43e`) |
+| [#58](https://github.com/shanevcantwell/llauncher/issues/58) | C3: Port required at all boundaries (ADR-LLNCH-010) | ✅ closed (`270a43e`) |
 | [#59](https://github.com/shanevcantwell/llauncher/issues/59) | H1: MCP refresh discipline (scope expanded to write-tool TOCTOU) | ✅ closed (`de9f10f`) |
 | [#60](https://github.com/shanevcantwell/llauncher/issues/60) | H3: Persist audit entries on ConfigStore CRUD | open |
 | [#61](https://github.com/shanevcantwell/llauncher/issues/61) | H4: Replace BLE001 bare except in `operations/*` | open |
@@ -146,7 +146,7 @@ All single-node and multi-node v2 operations are wired through `operations/` pac
 |-------|-------|-------|
 | [#10](https://github.com/shanevcantwell/llauncher/issues/10) | Log file naming creates orphaned logs on port changes | Open, adjacent to M5 work. |
 | [#36](https://github.com/shanevcantwell/llauncher/issues/36) | Footer-budget cache early return → wrong model display multi-node | Open, not blocking. |
-| [#38](https://github.com/shanevcantwell/llauncher/issues/38) | Volume-mountable lockfile + audit paths | M1 partially done; ADR-013 (`#52`) added `LAUNCHER_LOG_DIR` to the family. |
+| [#38](https://github.com/shanevcantwell/llauncher/issues/38) | Volume-mountable lockfile + audit paths | M1 partially done; ADR-LLNCH-013 (`#52`) added `LAUNCHER_LOG_DIR` to the family. |
 | [#39](https://github.com/shanevcantwell/llauncher/issues/39) | Audit log: commanded vs observed | Partially done; `#60` closes the config-CRUD gap. |
 | [#42](https://github.com/shanevcantwell/llauncher/issues/42) | Backend adapter (vLLM) | M6. |
 | [#44](https://github.com/shanevcantwell/llauncher/issues/44) | VRAM estimator: refine TYPICAL_MAX_LAYERS heuristic | Open, not blocking. |
@@ -185,7 +185,7 @@ The 2026-05-07 audit's findings as they stand at end-of-session:
 | H3 (audit log on config CRUD) | ❌ Still real; #60 |
 | H4 (BLE001) | ❌ Still real (`operations/start.py:144`, `swap.py:90/122/131`); #61 |
 | M1 (redundant refresh in agent endpoints) | Open — small slice; not on critical path |
-| M2 (logs `"w"` mode) | ✅ **Closed** by ADR-013 (`9dc2769`) |
+| M2 (logs `"w"` mode) | ✅ **Closed** by ADR-LLNCH-013 (`9dc2769`) |
 | M3 (`/models/health` endpoint) | ✅ Audit was stale — endpoint exists at `routing.py:221, 241` |
 | M4 (GPU in `/status`) | ✅ Audit was partially stale — data is included (`routing.py:175–182`); only the `?full=true` filter is missing |
 | M5 (self-loop short-circuit) | ❌ Still real; #62 |
@@ -193,13 +193,13 @@ The 2026-05-07 audit's findings as they stand at end-of-session:
 ## What NOT To Do
 
 - **Do not add compatibility shims.** "Rewrite, not migration." Old config data is silently dropped (per `ModelConfig.from_dict_unvalidated`); callers re-specify if they care. Don't try to support both v1 and v2 shapes simultaneously.
-- **Do not auto-allocate ports anywhere.** ADR-010 / #58 / #50: port is required at every API, operations, AND UI boundary. The port picker (`ui/components/port_picker.py`) requires explicit user input — no seed, no fallback. Don't reintroduce a fallback.
-- **Do not auto-spawn the local agent from the UI.** ADR-009 ratifies the symmetric topology — the user starts `llauncher-agent` themselves. The `show_agent_down_banner` in `ui/app.py` is the only acceptable response to "agent down." (#49 / audit H2 closed this; don't reintroduce.)
+- **Do not auto-allocate ports anywhere.** ADR-LLNCH-010 / #58 / #50: port is required at every API, operations, AND UI boundary. The port picker (`ui/components/port_picker.py`) requires explicit user input — no seed, no fallback. Don't reintroduce a fallback.
+- **Do not auto-spawn the local agent from the UI.** ADR-LLNCH-009 ratifies the symmetric topology — the user starts `llauncher-agent` themselves. The `show_agent_down_banner` in `ui/app.py` is the only acceptable response to "agent down." (#49 / audit H2 closed this; don't reintroduce.)
 - **Do not introduce a `v2/` branch.** All v2 work lands on `main`. The strategy is "direct on `main`, repo frozen for v1 work."
 - **Do not refactor `state.py` away yet.** The HTTP Agent (`agent/routing.py`), MCP server read tools (`mcp_server/`), and Streamlit UI still go through `LauncherState` for reads. The eviction-compat path (`_start_with_eviction_impl`) is the main remaining v1 hook — intentionally retained for the eviction-API smoke contract until M5/M6 cleans it up. The model-health pre-flight has already been lifted out (#57); port-auto-allocation has too (#58 + #50).
-- **Do not add a `restart` verb.** Considered and explicitly deferred — see ADR-010 §"Considered but Not Implemented: Restart". `stop` then `start` is the substitute.
+- **Do not add a `restart` verb.** Considered and explicitly deferred — see ADR-LLNCH-010 §"Considered but Not Implemented: Restart". `stop` then `start` is the substitute.
 - **Do not call `state.refresh()` inside hot loops or on every UI rerun.** Read tools refresh per call (#59 made this explicit and enforced); write tools refresh before the read step. Adding more refreshes on top is wasteful.
-- **Do not regress the log lifecycle (ADR-013).** Logs are append-mode; the per-run banner (`=== started at <iso> port=<n> ===`) marks boundaries. Rotation is opportunistic at start time. `_tail_file` reads a bounded window. Tests guard all three.
+- **Do not regress the log lifecycle (ADR-LLNCH-013).** Logs are append-mode; the per-run banner (`=== started at <iso> port=<n> ===`) marks boundaries. Rotation is opportunistic at start time. `_tail_file` reads a bounded window. Tests guard all three.
 - **Do not assume Ctrl+C orphans children.** As of #65 (2026-05-16), agent shutdown — SIGTERM *or* SIGINT — runs the FastAPI lifespan handler in `agent/server.py`, which enumerates the per-port lockfile registry and dispatches each managed child through `operations.stop(caller="agent-shutdown")`. This is a behavior change from the pre-#65 bare-`KeyboardInterrupt` path. If you need to leave children running for some reason (post-mortem debugging, etc.), kill the agent with SIGKILL (`-9`) instead, which bypasses the lifespan handler. The lockfile registry is the source of truth — anything not in `LAUNCHER_RUN_DIR/*.lock` is unmanaged and is #55's territory.
 
 ## Known Failures
@@ -214,9 +214,9 @@ A full code-vs-documentation audit was performed using 5 parallel subagent revie
 
 | # | Issue | ADR | Affected Code |
 |---|-------|-----|---------------|
-| C1 | **Dual-swap problem:** `operations.swap()` is fully implemented per ADR-011 but **no surface calls it**. HTTP Agent and MCP tools still use legacy v1 path (`state._start_with_eviction_impl()`). Concurrency control from ADR-011 is dead code for production callers. | 011 | `mcp_server/tools/servers.py`, `agent/routing.py` |
+| C1 | **Dual-swap problem:** `operations.swap()` is fully implemented per ADR-LLNCH-011 but **no surface calls it**. HTTP Agent and MCP tools still use legacy v1 path (`state._start_with_eviction_impl()`). Concurrency control from ADR-LLNCH-011 is dead code for production callers. | 011 | `mcp_server/tools/servers.py`, `agent/routing.py` |
 | C2 | **Layer violation:** `state.py` imports from `core/model_health`, violating documented layer order (State → Core). Tight coupling, harder testing. | — | `state.py:9–14` |
-| C3 | **ADR-010 violated:** Port ownership has legacy fallbacks in CLI (`DEFAULT_PORT` env var) and state layer (`start_server()` auto-allocation when port=None). ADR requires port as required parameter everywhere. | 010 | `cli.py`, `state.py:345–407` |
+| C3 | **ADR-LLNCH-010 violated:** Port ownership has legacy fallbacks in CLI (`DEFAULT_PORT` env var) and state layer (`start_server()` auto-allocation when port=None). ADR requires port as required parameter everywhere. | 010 | `cli.py`, `state.py:345–407` |
 
 ### 🟠 High Priority — Next Sprint
 
@@ -224,7 +224,7 @@ A full code-vs-documentation audit was performed using 5 parallel subagent revie
 |---|-------|-----|---------------|
 | H1 | **MCP stale reads:** MCP read tools never call `refresh()` before returning data. With 4 independent `LauncherState` instances, MCP returns perpetually stale information. | 008 | `mcp_server/tools/models.py`, `servers.py` |
 | H2 | **Auto-spawn still present:** M4 says to drop auto-spawn but `NodeRegistry.start_local_agent()` is still called from UI. | — | `remote/registry.py` |
-| H3 | **Audit log not persisted:** ADR-008 requires JSON Lines persistence; current implementation is a stub with no write operations. Config CRUD (add/update/remove) has no audit entries. | 008 | `core/audit_log.py`, `core/config.py` |
+| H3 | **Audit log not persisted:** ADR-LLNCH-008 requires JSON Lines persistence; current implementation is a stub with no write operations. Config CRUD (add/update/remove) has no audit entries. | 008 | `core/audit_log.py`, `core/config.py` |
 | H4 | **BLE001 silent failures:** Bare `except Exception:` in `operations.py` cleanup paths (lines 143, 256–258, 397–399) silently swallows all errors including `KeyboardInterrupt`. | — | `operations.py` |
 
 ### 🟡 Medium Priority — Following Sprints
@@ -233,8 +233,8 @@ A full code-vs-documentation audit was performed using 5 parallel subagent revie
 |---|-------|-----|---------------|
 | M1 | Redundant refresh calls in agent endpoints (`refresh()` then `refresh_running_servers()`) | 008 | `agent/routing.py` |
 | M2 | Logs truncated on restart — `"w"` mode instead of `"a"`; no rotation (M5 Item 2) | — | `core/process.py` |
-| M3 | Missing `/models/health` endpoint despite ADR-005 specifying it | 005 | `agent/routing.py` |
-| M4 | GPU data not wired into `/status?full=true` (ADR-006 collector exists but unused) | 006 | `agent/routing.py`, `core/gpu.py` |
+| M3 | Missing `/models/health` endpoint despite ADR-LLNCH-005 specifying it | 005 | `agent/routing.py` |
+| M4 | GPU data not wired into `/status?full=true` (ADR-LLNCH-006 collector exists but unused) | 006 | `agent/routing.py`, `core/gpu.py` |
 | M5 | No self-loop short-circuit in RemoteNode — always uses HTTP even for local node | 009 | `remote/node.py` |
 
 ### ADR Compliance Summary (post-2026-05-08)
@@ -259,8 +259,8 @@ Full rationale in [`docs/plans/v2-implementation-roadmap.md` §Phased Plan](plan
 
 - **Phase 1 — Foundation tightening** (1 session): #61 (BLE001 in `operations/*`), #60 (audit-on-CRUD), #62 (RemoteNode self-loop short-circuit). Each pins a contract that a later phase consumes.
 - ~~**Phase 2 — Lifecycle correctness**~~ ✅ done (2026-05-16): #65 closed. Agent now reaps managed llama-server children on SIGTERM and SIGINT via FastAPI lifespan handler.
-- **Phase 3 — Capability additions** (2 sessions, may interleave): ~~#54 (ADR-014 cancellation)~~ ✅ done (2026-05-16), ~~#55 (ADR-015 orphan policy — reduced to annotation + list; adopt deferred)~~ ✅ done (2026-05-17).
-- **Phase 4 — Validation + deployment surface** (1–1.5 sessions): #56 (ADR-016 canonical self-swap test, gated on #54), #67 (systemd `.service` units, gated on #65), #64 (audit-tab remote-node access, consumer of #60).
+- **Phase 3 — Capability additions** (2 sessions, may interleave): ~~#54 (ADR-LLNCH-014 cancellation)~~ ✅ done (2026-05-16), ~~#55 (ADR-LLNCH-015 orphan policy — reduced to annotation + list; adopt deferred)~~ ✅ done (2026-05-17).
+- **Phase 4 — Validation + deployment surface** (1–1.5 sessions): #56 (ADR-LLNCH-016 canonical self-swap test, gated on #54), #67 (systemd `.service` units, gated on #65), #64 (audit-tab remote-node access, consumer of #60).
 - **Phase 5 — Pre-M6 sweep**: V1-carryover triage (#10, #14–#27) batched with explore subagents; #36 folds into the pi-footer-extension TS migration; #63 file-and-forget.
 
 **Total remaining to M5 close:** ~4–4.5 sessions.
@@ -273,7 +273,7 @@ The phasing is set by *coupling direction*: each phase tightens a contract — e
 
 ## Conventions
 
-- **ADR template:** see `docs/adrs/accepted/008-launcher-state-stateless-facade.md` or any ADR under `docs/adrs/completed/`. Sections: Status, Date, (Amended:), Context, Decision, Consequences (Positive / Negative / Open Questions), Supersession (if applicable), Relationship to Other ADRs.
+- **ADR template:** see `docs/adrs/accepted/adr-llnch-008-launcher-state-stateless-facade.md` or any ADR under `docs/adrs/completed/`. Sections: Status, Date, (Amended:), Context, Decision, Consequences (Positive / Negative / Open Questions), Supersession (if applicable), Relationship to Other ADRs.
 - **ADR filing convention:** ADRs live in status subfolders under `docs/adrs/` — `completed/` (accepted, no open implementation gaps), `accepted/` (accepted with known partial gaps tracked as issues), `superseded/` (replaced by a later ADR), `draft/` (not yet ratified — currently empty).
 - **ADR statuses:** `Draft` → `Accepted` → optionally `Superseded by ADR-NNN`.
 - **Commit style:** Conventional Commits — `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`. Multi-paragraph body is fine. Reference issues with `Refs: #N` (links without closing) or `Closes #N` (auto-closes on push).
@@ -308,19 +308,19 @@ gh issue list --state open
 
 ## Institutional Knowledge (things not in any single artifact)
 
-1. **v1's design intent was reverse-engineered live from running code, not from a written spec.** The v2 ADRs corrected two staleness points carried forward (MCP refresh discipline, audit reset on refresh); ADR-008 has explicit Amendment Notes covering both. Don't re-derive v1 design intent from old code archaeology — the v2 ADRs and this handoff are the canonical statements.
+1. **v1's design intent was reverse-engineered live from running code, not from a written spec.** The v2 ADRs corrected two staleness points carried forward (MCP refresh discipline, audit reset on refresh); ADR-LLNCH-008 has explicit Amendment Notes covering both. Don't re-derive v1 design intent from old code archaeology — the v2 ADRs and this handoff are the canonical statements.
 
-2. **The "four LauncherState instances" framing** in ADR-008 §Context #1 is real but mis-named. It's a symptom of "no shared service layer," not a designed-in cardinality. The v2 stateless-facade reframe (`operations.py`) is the cure.
+2. **The "four LauncherState instances" framing** in ADR-LLNCH-008 §Context #1 is real but mis-named. It's a symptom of "no shared service layer," not a designed-in cardinality. The v2 stateless-facade reframe (`operations.py`) is the cure.
 
 3. **Single-user, single-GPU-per-node, hobby/research scope.** Don't over-engineer for multi-tenant or multi-GPU. Concurrency safety means "single-user with multiple processes" (UI + CLI + agent harness simultaneously), not "adversarial users."
 
-4. **pi-coding-agent** is the canonical agent harness for the self-swap use case. Its TypeScript extension (per ADR-001) is the largest external consumer of the HTTP Agent. The `pi-footer-extension/` subtree lives in this repo; don't break it casually.
+4. **pi-coding-agent** is the canonical agent harness for the self-swap use case. Its TypeScript extension (per ADR-LLNCH-001) is the largest external consumer of the HTTP Agent. The `pi-footer-extension/` subtree lives in this repo; don't break it casually.
 
-5. **`extra_args` is a remote arbitrary-flag-injection vector** when the agent runs unauthenticated on `0.0.0.0`. ADR-003 mitigates with `LAUNCHER_AGENT_TOKEN`, but the default is auth-off with only a warning. Orientation spike §6 flags this.
+5. **`extra_args` is a remote arbitrary-flag-injection vector** when the agent runs unauthenticated on `0.0.0.0`. ADR-LLNCH-003 mitigates with `LAUNCHER_AGENT_TOKEN`, but the default is auth-off with only a warning. Orientation spike §6 flags this.
 
 6. ~~`DEFAULT_PORT=8080` collides with `blacklisted_ports={8080}`~~ — **Fixed alongside #58** (`270a43e`). The hardcoded fallback is now `8081`; `.env.example` updated. The dev's `.env` already had `DEFAULT_PORT=8081` before this change.
 
-7. **The harness footer (pi-coding-agent's status line)** is REST-only — it does not read lockfiles directly. Lockfile format is internal; can change freely. The HTTP Agent composes lockfile + pid-alive checks per request. **#53 (ADR-012) will define a dedicated `/footer-context/{port}` endpoint** so the footer stops paying for the full `/status` payload per token.
+7. **The harness footer (pi-coding-agent's status line)** is REST-only — it does not read lockfiles directly. Lockfile format is internal; can change freely. The HTTP Agent composes lockfile + pid-alive checks per request. **#53 (ADR-LLNCH-012) will define a dedicated `/footer-context/{port}` endpoint** so the footer stops paying for the full `/status` payload per token.
 
 8. **Quota economics caveat** (the rationale behind some session-pacing decisions): Anthropic's pricing charges against user quota for prefill on session resume. Long-context conversations are expensive to revive. This document exists in part because resuming this session would otherwise pay a ~225K-token prefill cost for context that fits comfortably in this handoff.
 
@@ -330,13 +330,13 @@ gh issue list --state open
 
 11. **Test-mock target for model_health pre-flight is `llauncher.operations.preflight.mh.check_model_health`.** Patching `llauncher.state.check_model_health` no longer works (state.py doesn't import it). Tests that need the *real* implementation should mark themselves `@pytest.mark.real_model_health`.
 
-12. **Logs are append-mode now (ADR-013).** Per-run banner is `=== started at <iso> port=<n> ===`. Rotation is opportunistic at start time, capped at `LAUNCHER_LOG_MAX_BYTES` (default 50 MiB) with `LAUNCHER_LOG_KEEP` (default 3) files retained. `LAUNCHER_LOG_DIR` joins the ADR-008 family of env-configurable paths. `_tail_file` reads a bounded ~32 KiB window — `len(result)` may be less than `lines` for very long log lines, by design.
+12. **Logs are append-mode now (ADR-LLNCH-013).** Per-run banner is `=== started at <iso> port=<n> ===`. Rotation is opportunistic at start time, capped at `LAUNCHER_LOG_MAX_BYTES` (default 50 MiB) with `LAUNCHER_LOG_KEEP` (default 3) files retained. `LAUNCHER_LOG_DIR` joins the ADR-LLNCH-008 family of env-configurable paths. `_tail_file` reads a bounded ~32 KiB window — `len(result)` may be less than `lines` for very long log lines, by design.
 
-13. **Footer-context endpoint (ADR-012 / #53)**: `GET /footer-context/{port}` returns a pinned four-field payload (`{port, model, ctx_size, parallel}`) fed from the lockfile + `ConfigStore` with a per-port TTL cache in `llauncher/agent/footer_cache.py`. TTL is `LAUNCHER_FOOTER_CACHE_S` (default 1.0 s; `<= 0` disables the cache). The response shape is contractually pinned — extending it requires an ADR amendment, not a code change. The pi-footer-extension TS migration is deferred to a separate slice; until then `pi-footer-extension/footer-budget.ts` still hits `/status`.
+13. **Footer-context endpoint (ADR-LLNCH-012 / #53)**: `GET /footer-context/{port}` returns a pinned four-field payload (`{port, model, ctx_size, parallel}`) fed from the lockfile + `ConfigStore` with a per-port TTL cache in `llauncher/agent/footer_cache.py`. TTL is `LAUNCHER_FOOTER_CACHE_S` (default 1.0 s; `<= 0` disables the cache). The response shape is contractually pinned — extending it requires an ADR amendment, not a code change. The pi-footer-extension TS migration is deferred to a separate slice; until then `pi-footer-extension/footer-budget.ts` still hits `/status`.
 
 14. **M4 Slice 13 surfaces (`#50`)**: tab structure is now Dashboard / Models / Nodes / Audit. `dashboard.py` is view-only (read-side only); `models.py` owns config CRUD + per-model verb buttons (start/stop/swap). `model_registry.py` parameter renamed `selected_node` → `target` (string, default `'local'`). The `'All Nodes'` cross-node aggregate view is dropped; a single target is always selected. The Audit tab (`ui/tabs/audit.py`) reads local `LAUNCHER_AUDIT_PATH` only; remote-node audit access is deferred to issue #64.
 
-15. **Cancellation semantics (ADR-014 / #54)**: Cancel polling happens at **phase boundaries only** — never mid-phase. The cancel flag lives in the in-flight marker JSON (`{LAUNCHER_RUN_DIR}/{port}.swap`) as a boolean rewritten atomically via tempfile + `os.replace`. `operations.start` now takes/releases its own marker (same primitive as swap) so cancel works uniformly across both verbs; this means a concurrent `start` and `swap` on the same port get `rejected_in_progress` per ADR-011, which is the correct behavior. Cancel after spawn-success + lockfile-write is a **no-op** that completes the operation and sets `cancel_ignored_post_commit=True` on the result envelope — we don't kill a healthy child for a late cancel. The cancel-during-readiness path is plumbed through a `cancel_check` callable parameter on `core.process.wait_for_server_ready`; no new threads, no asyncio. Cancel before commit reuses the existing rollback path with a new `cancelled` action; `AuditResult.CANCELLED` is the new enum value. Worst-case cancel latency is the readiness `check_interval` (1 s default). The marker module's `read_marker` was updated for back-compat — pre-ADR-014 markers (missing the `cancelled` key) deserialize with `cancelled=False`.
+15. **Cancellation semantics (ADR-LLNCH-014 / #54)**: Cancel polling happens at **phase boundaries only** — never mid-phase. The cancel flag lives in the in-flight marker JSON (`{LAUNCHER_RUN_DIR}/{port}.swap`) as a boolean rewritten atomically via tempfile + `os.replace`. `operations.start` now takes/releases its own marker (same primitive as swap) so cancel works uniformly across both verbs; this means a concurrent `start` and `swap` on the same port get `rejected_in_progress` per ADR-LLNCH-011, which is the correct behavior. Cancel after spawn-success + lockfile-write is a **no-op** that completes the operation and sets `cancel_ignored_post_commit=True` on the result envelope — we don't kill a healthy child for a late cancel. The cancel-during-readiness path is plumbed through a `cancel_check` callable parameter on `core.process.wait_for_server_ready`; no new threads, no asyncio. Cancel before commit reuses the existing rollback path with a new `cancelled` action; `AuditResult.CANCELLED` is the new enum value. Worst-case cancel latency is the readiness `check_interval` (1 s default). The marker module's `read_marker` was updated for back-compat — pre-ADR-LLNCH-014 markers (missing the `cancelled` key) deserialize with `cancelled=False`.
 
 ## Questions With Pinned Answers
 
@@ -345,8 +345,8 @@ If a fresh context is uncertain about any of these, the answer is already in the
 - *Is the v2 work on a branch?* → No, on `main`. (`docs/plans/v2-implementation-roadmap.md` §Strategy.)
 - *Should I migrate old config data?* → Silent drop only; no migration log. (Roadmap §Pre-Implementation Decisions.)
 - *What's the CLI command?* → `llauncher` (Issue #41 closed).
-- *Should I add a `restart` verb?* → No. (ADR-010 §"Considered but Not Implemented".)
-- *What's `swap` on an empty port?* → Failure with `port_empty`. (ADR-010 + ADR-011.)
-- *What's `start` on an occupied port with a different model?* → Failure with `rejected_occupied`. No passive swap. (ADR-010.)
-- *Should the v2 ADRs be amended in place when something turns out stale?* → Yes — ADR-008 has an "Amendment Notes" section pattern to follow. Status stays `Accepted`; date the amendment.
+- *Should I add a `restart` verb?* → No. (ADR-LLNCH-010 §"Considered but Not Implemented".)
+- *What's `swap` on an empty port?* → Failure with `port_empty`. (ADR-LLNCH-010 + ADR-LLNCH-011.)
+- *What's `start` on an occupied port with a different model?* → Failure with `rejected_occupied`. No passive swap. (ADR-LLNCH-010.)
+- *Should the v2 ADRs be amended in place when something turns out stale?* → Yes — ADR-LLNCH-008 has an "Amendment Notes" section pattern to follow. Status stays `Accepted`; date the amendment.
 - *Should I file new Issues for things I notice?* → Yes, with a reference back to the ADR or spike where the concern surfaced.

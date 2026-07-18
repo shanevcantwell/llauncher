@@ -1,11 +1,11 @@
-# ADR-010: Port Ownership at the Call Site
+# ADR-LLNCH-010: Port Ownership at the Call Site
 
 **Status:** Accepted  
 **Date:** 2026-05-02  
 
 ## Context
 
-`PRODUCT_REQUIREMENTS.md` §2.1 places `default_port: int | None = None` on `ModelConfig` — a per-model field describing the model's preferred listening port. Auto-allocation (§4.2's `find_available_port`) fills in a free port from the 8081–8999 range when `default_port` is unset or unavailable. ADR-004 confirms the CLI signature `llauncher server start <model> [port]` and recommends "optional, default to auto."
+`PRODUCT_REQUIREMENTS.md` §2.1 places `default_port: int | None = None` on `ModelConfig` — a per-model field describing the model's preferred listening port. Auto-allocation (§4.2's `find_available_port`) fills in a free port from the 8081–8999 range when `default_port` is unset or unavailable. ADR-LLNCH-004 confirms the CLI signature `llauncher server start <model> [port]` and recommends "optional, default to auto."
 
 The result is that **the port a model ends up running on is determined by a chain of fallbacks**:
 
@@ -22,7 +22,7 @@ Symptoms of the conflation:
 
 - A `ModelConfig` carries a port even when no instance is running. The field implies state that doesn't exist.
 - Two callers wanting to run the same model on different ports (parallel testing, distinct slots) need either separate configs or per-call overrides — but the override semantics are buried in the fallback chain.
-- The `running` dict is keyed by port (`dict[int, RunningServer]`), and lockfiles (per ADR-008) are keyed by port. The port is already the primary key for runtime state. Only `ModelConfig` clings to it.
+- The `running` dict is keyed by port (`dict[int, RunningServer]`), and lockfiles (per ADR-LLNCH-008) are keyed by port. The port is already the primary key for runtime state. Only `ModelConfig` clings to it.
 - "Where did my model end up?" has three possible answers and no obvious one.
 
 The scoping conversation for v2 settled this directly: *"the port is being stored in the wrong layer... It really belongs in the call, not the config."*
@@ -72,7 +72,7 @@ The three verbs are deliberately distinct, not interchangeable. Each fails on th
 | Empty | success |
 | Occupied | success |
 
-The model-keyed `POST /start/{model}` endpoint is **removed**. The model-keyed `/start-with-eviction/{model}` is removed in favor of `/swap/{port}` (see ADR-011).
+The model-keyed `POST /start/{model}` endpoint is **removed**. The model-keyed `/start-with-eviction/{model}` is removed in favor of `/swap/{port}` (see ADR-LLNCH-011).
 
 This is a breaking change for any client that currently uses the model-keyed start path. Single-user scope: clients are the CLI, MCP server, and pi-coding-agent — all under the same hands.
 
@@ -125,7 +125,7 @@ If `--port` is unset and `DEFAULT_PORT` is unset, the CLI errors with a clear me
 
 ### Lockfile and Audit
 
-No change. Both are already keyed by port (per ADR-008). This ADR is what makes the lockfile-port-keying natural rather than coincidental.
+No change. Both are already keyed by port (per ADR-LLNCH-008). This ADR is what makes the lockfile-port-keying natural rather than coincidental.
 
 ### Considered but Not Implemented: Restart
 
@@ -151,7 +151,7 @@ A `POST /restart/{port}` verb was considered for use cases like picking up confi
 
 **Open Questions:**
 
-1. The `port` query parameter that some clients currently pass to `/start-with-eviction` is being eliminated; verify no external client (notably pi-coding-agent's TypeScript extension from ADR-001) depends on the model-keyed form.
+1. The `port` query parameter that some clients currently pass to `/start-with-eviction` is being eliminated; verify no external client (notably pi-coding-agent's TypeScript extension from ADR-LLNCH-001) depends on the model-keyed form.
 
 **Closed during drafting:**
 
@@ -162,12 +162,12 @@ A `POST /restart/{port}` verb was considered for use cases like picking up confi
 
 - Supersedes the `default_port` field in `PRODUCT_REQUIREMENTS.md` §2.1.
 - Supersedes the auto-allocation fallback chain in §4.2 at the API level (CLI may still implement opt-in auto-pick).
-- Supersedes ADR-004's Open Question 1 ("auto-assign or require explicit?") with the explicit-required answer.
+- Supersedes ADR-LLNCH-004's Open Question 1 ("auto-assign or require explicit?") with the explicit-required answer.
 - Removes the model-keyed `POST /start/{model}` endpoint and the `/start-with-eviction/{model}` endpoint described in §5.2.
 
 ## Relationship to Other ADRs
 
-- **Builds on ADR-008** (stateless facade): the lockfile and `running` dict are already port-keyed; this ADR finishes the alignment by removing the only remaining port-coupled-to-config artifact.
-- **Builds on ADR-009** (symmetric topology): port resolution is local to the target node; no cross-node port coordination is needed because nothing in this layer crosses nodes.
-- **Constrains ADR-011** (Swap Semantics, forthcoming): `/swap/{port}` shape is set here; the swap rules and concurrency semantics are 011's job.
-- **Supersedes part of ADR-004** (CLI Subcommand Interface): the port-optional CLI signature changes.
+- **Builds on ADR-LLNCH-008** (stateless facade): the lockfile and `running` dict are already port-keyed; this ADR finishes the alignment by removing the only remaining port-coupled-to-config artifact.
+- **Builds on ADR-LLNCH-009** (symmetric topology): port resolution is local to the target node; no cross-node port coordination is needed because nothing in this layer crosses nodes.
+- **Constrains ADR-LLNCH-011** (Swap Semantics, forthcoming): `/swap/{port}` shape is set here; the swap rules and concurrency semantics are 011's job.
+- **Supersedes part of ADR-LLNCH-004** (CLI Subcommand Interface): the port-optional CLI signature changes.

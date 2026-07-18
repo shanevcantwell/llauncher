@@ -16,7 +16,7 @@ The llauncher MCP server implementation is **well-aligned with its documentation
 | Parameter Schema Matching | ⚠️ Minor (2 minor mismatches in output structure) |
 | Error Handling | ✅ Good coverage with structured responses |
 | Test Coverage | ✅ Excellent (96 tests, all passing) |
-| CLI Integration | ⚠️ Partial (ADR-004 not fully implemented yet) |
+| CLI Integration | ⚠️ Partial (ADR-LLNCH-004 not fully implemented yet) |
 
 **Overall Risk Level:** **LOW**
 
@@ -247,15 +247,15 @@ async def main_async():
 
 ---
 
-## 6. CLI Integration (ADR-004)
+## 6. CLI Integration (ADR-LLNCH-004)
 
-### ADR-004 Requirements
+### ADR-LLNCH-004 Requirements
 
 > "Simple verb scripts" — the ability to do things like `llauncher server start mistral`, `llauncher status`, `llauncher swap 8081 llama3`
 
 ### Implementation Status (`cli.py`)
 
-| Command | Implemented? | Matches ADR-004 |
+| Command | Implemented? | Matches ADR-LLNCH-004 |
 |---------|-------------|----------------|
 | `llauncher model list` | ✅ Yes | ✅ |
 | `llauncher model info <name>` | ✅ Yes | ✅ |
@@ -267,7 +267,7 @@ async def main_async():
 
 ### Issue #CLI-001: Port Requirement Mismatch
 
-**ADR-004 Claim:**
+**ADR-LLNCH-004 Claim:**
 ```bash
 llauncher server start mistral  # port is optional, auto-allocates if not specified
 ```
@@ -286,7 +286,7 @@ if resolved_port is None:
     console.print("[red]✗ --port is required (or set DEFAULT_PORT env)[/red]")
 ```
 
-**Gap:** CLI requires either `--port` flag OR `DEFAULT_PORT` environment variable. ADR-004 implies auto-allocation without requiring explicit port or env var.
+**Gap:** CLI requires either `--port` flag OR `DEFAULT_PORT` environment variable. ADR-LLNCH-004 implies auto-allocation without requiring explicit port or env var.
 
 **Impact:** Medium - Users cannot run `llauncher server start mistral` without additional configuration, contradicting the "simple verb scripts" goal.
 
@@ -303,7 +303,7 @@ if resolved_port is None:
 | Error Handling | **LOW** | Comprehensive coverage with structured responses |
 | Transport | **LOW** | Stdio transport correctly configured |
 | Test Coverage | **LOW** | 96 tests passing, excellent edge case coverage |
-| CLI Integration | **MEDIUM** | ADR-004 not fully implemented (port requirement) |
+| CLI Integration | **MEDIUM** | ADR-LLNCH-004 not fully implemented (port requirement) |
 
 ### Overall Risk Level: **LOW**
 
@@ -329,7 +329,7 @@ list_models → use structured format:
 get_model_config → same structured approach
 ```
 
-### Priority 2: Fix CLI Port Auto-allocation (ADR-004)
+### Priority 2: Fix CLI Port Auto-allocation (ADR-LLNCH-004)
 ```python
 # In cli.py server start, add auto-allocation:
 if resolved_port is None:
@@ -369,7 +369,7 @@ print(f'Total implemented: {len(tools)}')
 ### Documentation
 - `/home/node/github/shanevcantwell/llauncher/docs/MCP.md` - Primary spec
 - `/home/node/github/shanevcantwell/llauncher/.mcp.json` - Client config reference (not server)
-- `/home/node/github/shanevcantwell/llauncher/docs/adrs/004-cli-subcommand-interface.md`
+- `/home/node/github/shanevcantwell/llauncher/docs/adrs/adr-llnch-004-cli-subcommand-interface.md`
 
 ### Implementation
 - `llauncher/mcp_server/server.py` - Main dispatch logic, stdio transport

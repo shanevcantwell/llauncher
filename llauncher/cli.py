@@ -121,7 +121,7 @@ def _delegated_outcome(res: dict | None, verb: str, port: int) -> tuple[bool, st
 
     Mirrors the MCP server's ``_delegated_or_error`` dict|None guard
     (``mcp_server/tools/servers.py``) but for the CLI's render contract: a
-    delegated launch returns the agent's ADR-010 envelope over HTTP (a
+    delegated launch returns the agent's ADR-LLNCH-010 envelope over HTTP (a
     ``dict`` with ``success``/``message``); a transport or HTTP failure
     returns ``{"success": False, "error": ...}``; and a 200-with-JSON-null
     body surfaces as Python ``None``. Collapse all three to the ``(bool,
@@ -231,13 +231,13 @@ def start_server(
         ...,
         "--port",
         "-p",
-        help="Port to bind the server to (required; ADR-010).",
+        help="Port to bind the server to (required; ADR-LLNCH-010).",
     ),
     caller: str = typer.Option("cli", hidden=True),
 ) -> None:
     """Start a server for the given model on the specified port.
 
-    Per ADR-010 the caller supplies the port; there is no auto-allocation
+    Per ADR-LLNCH-010 the caller supplies the port; there is no auto-allocation
     or env-var fallback (issue #58 / audit C3). The CLI is the call site
     for human invocations — pick a port deliberately.
     """
@@ -340,7 +340,7 @@ def cancel_server(
 ) -> None:
     """Signal cancellation of an in-flight start or swap on the given port.
 
-    Per ADR-014: sets the cancel flag on the in-flight marker; the running
+    Per ADR-LLNCH-014: sets the cancel flag on the in-flight marker; the running
     op picks it up at the next phase boundary. Returns success even when
     there is no in-flight op (the caller's intent of "make sure nothing is
     running" is satisfied either way).
@@ -398,12 +398,12 @@ def server_status(
 app.add_typer(server_app)
 
 # ---------------------------------------------------------------------------
-# orphan subcommands (ADR-015)
+# orphan subcommands (ADR-LLNCH-015)
 # ---------------------------------------------------------------------------
 
 orphan_app = typer.Typer(
     name="orphan",
-    help="Inspect unmanaged llama-server processes (ADR-015)",
+    help="Inspect unmanaged llama-server processes (ADR-LLNCH-015)",
 )
 
 
@@ -414,7 +414,7 @@ def list_orphans_cmd(
     """List unmanaged llama-server processes on the local node.
 
     An orphan is a live ``llama-server`` whose ``(port, pid)`` does not
-    match a live lockfile in ``LAUNCHER_RUN_DIR``. Per ADR-015 this
+    match a live lockfile in ``LAUNCHER_RUN_DIR``. Per ADR-LLNCH-015 this
     revision is read-only; no ``adopt`` verb is exposed.
     """
     from llauncher import operations as ops

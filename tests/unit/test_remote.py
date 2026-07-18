@@ -1176,7 +1176,7 @@ class TestRemoteAggregator:
 
 
 # ---------------------------------------------------------------------------
-# Issue #62 — RemoteNode self-loop short-circuit per ADR-009, NARROWED by #200
+# Issue #62 — RemoteNode self-loop short-circuit per ADR-LLNCH-009, NARROWED by #200
 #
 # Pre-#200 the short-circuit fired whenever the target host/port looked
 # local (or the node was named "local"). That captured operator front-ends

@@ -1,6 +1,6 @@
 """Tool-layer operations for the v2 architecture.
 
-Per ADR-008 (LauncherState as Stateless Facade) and ADR-010 (port at the
+Per ADR-LLNCH-008 (LauncherState as Stateless Facade) and ADR-LLNCH-010 (port at the
 call site). Stateless service functions that compose the core
 infrastructure modules — :mod:`llauncher.core.config` (ConfigStore),
 :mod:`llauncher.core.lockfile`, :mod:`llauncher.core.marker`,
@@ -12,7 +12,7 @@ Each operation:
 - Reads from external sources of truth (``config.json``, lockfile dir,
   process table) on every call — no cached state.
 - Writes lockfile and audit-log entries as commanded actions occur.
-- Returns a structured result with the ADR-010 ``action`` envelope.
+- Returns a structured result with the ADR-LLNCH-010 ``action`` envelope.
 
 This package was extracted from a single ``operations.py`` file during
 M2 to keep each verb's implementation focused (file-size hygiene per the
@@ -75,7 +75,7 @@ __all__ = [
     "StopResult",
     "SwapResult",
     "DeleteModelResult",
-    # Orphan discovery (ADR-015)
+    # Orphan discovery (ADR-LLNCH-015)
     "OrphanInfo",
     "list_orphans",
     "record_observed_orphan",

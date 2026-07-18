@@ -13,8 +13,8 @@
 #                        dedicated `llauncher` account (group `inference`),
 #                        with state under /var/lib/llauncher. Requires root
 #                        and pre-existing host provisioning. Still recomposes
-#                        this checkout's dev-tree .venv (ADR-023 Phase A,
-#                        issue #227) — unchanged by #360. See ADR-018.
+#                        this checkout's dev-tree .venv (ADR-LLNCH-023 Phase A,
+#                        issue #227) — unchanged by #360. See ADR-LLNCH-018.
 #
 # Idempotent: safe to re-run after a `git pull` to pick up unit-file
 # changes. Will NOT overwrite an existing env file (so your token and
@@ -58,7 +58,7 @@ VENV_BIN="$PROJECT_DIR/.venv/bin"
 . "$SCRIPT_DIR/check_python_floor.sh"
 
 UNIT_NAME="llauncher-agent.service"
-# Root oneshot that guarantees the agent venv (system mode only; ADR-023/#227).
+# Root oneshot that guarantees the agent venv (system mode only; ADR-LLNCH-023/#227).
 ENSURE_UNIT_NAME="llauncher-agent-ensure-venv.service"
 ENV_EXAMPLE="$SCRIPT_DIR/agent.env.example"
 
@@ -84,7 +84,7 @@ while [ $# -gt 0 ]; do
 done
 
 # --- Mode-dependent locations -----------------------------------------
-# UI service posture: see ADR-022 (decided: per-operator systemd --user; implementation pending). UI is currently hand-launched.
+# UI service posture: see ADR-LLNCH-022 (decided: per-operator systemd --user; implementation pending). UI is currently hand-launched.
 # The UI process (Streamlit) is separate from the systemd service and does
 # NOT inherit LLAUNCHER_AGENT_TOKEN from the unit's environment, so it
 # authenticates against the local agent by parsing ENV_FILE directly
@@ -132,7 +132,7 @@ uninstall() {
         rm -f "$UNIT_PATH"
         say "Removed $UNIT_PATH"
     fi
-    # Tear down the system-scope ensure unit alongside the agent (ADR-023/#227).
+    # Tear down the system-scope ensure unit alongside the agent (ADR-LLNCH-023/#227).
     if [ "$MODE" = "system" ]; then
         "${SYSTEMCTL[@]}" disable --now "$ENSURE_UNIT_NAME" 2>/dev/null || true
         if [ -f "$UNIT_DIR/$ENSURE_UNIT_NAME" ]; then
@@ -165,17 +165,17 @@ check_python_floor python3 3 11
 # #357 ratified Option A (issue #360): the --user agent unit's ExecStart no
 # longer resolves into this dev checkout's .venv — it resolves through
 # /usr/local/bin/llauncher-agent into the PINNED, root-owned
-# /opt/llauncher/venv (same indirection ADR-023 already uses for the UI
+# /opt/llauncher/venv (same indirection ADR-LLNCH-023 already uses for the UI
 # unit). Fail loud here, at install time, rather than silently falling back
 # to a repo venv (which the unit template no longer even points at).
 #
 # --system mode is UNCHANGED by #360: it recomposes @PROJECT_DIR@/.venv via
-# the root ensure-venv oneshot (ADR-023 Phase A, issue #227) and still needs
+# the root ensure-venv oneshot (ADR-LLNCH-023 Phase A, issue #227) and still needs
 # that dev-tree venv populated first.
 if [ "$MODE" = "system" ]; then
     if [ ! -x "$VENV_BIN/llauncher-agent" ]; then
         err "Did not find $VENV_BIN/llauncher-agent."
-        err "Run './scripts/run.sh setup' first to recompose the venv (ADR-023)."
+        err "Run './scripts/run.sh setup' first to recompose the venv (ADR-LLNCH-023)."
         exit 1
     fi
 else
@@ -183,7 +183,7 @@ else
     if [ ! -x "$PINNED_VENV/bin/llauncher-agent" ]; then
         err "Did not find $PINNED_VENV/bin/llauncher-agent."
         err "The --user agent unit's ExecStart resolves through /usr/local/bin/llauncher-agent"
-        err "into the pinned $PINNED_VENV (ADR-023, issue #360) — there is no fallback to a"
+        err "into the pinned $PINNED_VENV (ADR-LLNCH-023, issue #360) — there is no fallback to a"
         err "repo venv. Compose it (root, one-time or to recompose):"
         err "  sudo bash $SCRIPT_DIR/install-cli.sh"
         err "See docs/operations/run-as-a-service.md, \"Composing the pinned runtime venv\"."
@@ -350,7 +350,7 @@ fi
 
 # --- Unit file ---------------------------------------------------------
 # @VENV_BIN@ only appears in the --system template (llauncher-agent.service.system.in,
-# ADR-023 Phase A dev-tree recompose, unchanged by #360). The --user template
+# ADR-LLNCH-023 Phase A dev-tree recompose, unchanged by #360). The --user template
 # (llauncher-agent.service.in) dropped the placeholder — its ExecStart is a
 # fixed /usr/local/bin/llauncher-agent, so this substitution is a harmless
 # no-op there.
@@ -362,14 +362,14 @@ sed \
     "$TEMPLATE" > "$UNIT_PATH"
 say "Rendered unit to $UNIT_PATH"
 
-# --- Ensure-venv unit (system scope only; ADR-023 / #227) --------------
+# --- Ensure-venv unit (system scope only; ADR-LLNCH-023 / #227) --------------
 # The agent system unit Requires=/After= this root oneshot so the agent never
 # starts against a missing/broken venv. It is system-scoped because recompose
 # must run where the dev-tree .venv is writable (root), not as User=llauncher.
 # User mode's ExecStart now resolves through /usr/local/bin/llauncher-agent
 # into the PINNED /opt/llauncher/venv (issue #360) — it neither owns nor
 # recomposes a venv itself, and gets a fail-loud ExecStartPre backstop in
-# the unit template instead (mirrors the UI unit, ADR-023 Phase B). So it
+# the unit template instead (mirrors the UI unit, ADR-LLNCH-023 Phase B). So it
 # gets no ensure unit here either.
 if [ "$MODE" = "system" ]; then
     ENSURE_TEMPLATE="$SCRIPT_DIR/llauncher-agent-ensure-venv.service.in"

@@ -35,27 +35,27 @@ simultaneously.
    core → models; siblings do not import siblings. The mechanism is a **perception
    firewall** — the boundary is enforced by import structure and PR review, not by a
    lint gate or scoped mount, so it stops cross-layer edges from being *authored*; it
-   does not structurally prevent a running process from reaching across. *(→ ADR-008;
+   does not structurally prevent a running process from reaching across. *(→ ADR-LLNCH-008;
    `docs/ARCHITECTURE.md`)*
 
 2. **`STATELESS-CORE`.** The core holds no cross-call state; resolve-use-release per
    call. State lives in the `LauncherState` facade above core, rebuilt from disk on
-   every refresh. *(→ ADR-008)*
+   every refresh. *(→ ADR-LLNCH-008)*
 
 3. **`ONE-MINT`.** `ModelConfig.name` is the single authority that mints canonical
    local-model names. No use site re-declares or re-stringifies a name; envelopes
    (port, log filename, process title) derive *from* the name, never bend it.
-   *(→ ADR-010, ADR-016; CLAUDE.md `ONE-MINT`)*
+   *(→ ADR-LLNCH-010, ADR-LLNCH-016; CLAUDE.md `ONE-MINT`)*
 
 4. **`IDENTITY⊥ENVELOPE`.** Identity is independent of where the model runs and how
    it is reached. `ModelConfig` carries no port (port is a call-site concern). *(→
-   ADR-010)*
+   ADR-LLNCH-010)*
 
 5. **`EMIT-CANONICAL / PARSE-AT-THE-DOOR`.** The mint stamps the canonical name onto
    the wire untransformed (`--alias = ModelConfig.name` at llama-server start, so
    `/v1/models` reports it byte-for-byte); ingress parsing migrates persisted shapes
    deterministically at the door, once, or fails loud — never dual-parses, never
-   trust-and-degrades on an unknown canonical identity. *(→ ADR-016 (emit), ADR-017
+   trust-and-degrades on an unknown canonical identity. *(→ ADR-LLNCH-016 (emit), ADR-LLNCH-017
    (parse-at-the-door anchor); CLAUDE.md `EMIT-CANONICAL`, `PARSE-AT-THE-DOOR`)*
 
    5a. **Fail loud on command-arg collisions (NAMED, currently UNENFORCED).**
@@ -76,7 +76,7 @@ simultaneously.
 ### Development plane — *discipline is conserved*
 
 7. **Durable emission at decision time.** Decisions land in ADRs, commit messages,
-   the structured audit log — not the window. *(→ ADR-008 audit log)*
+   the structured audit log — not the window. *(→ ADR-LLNCH-008 audit log)*
 8. **Signals are first-class.** Friction surfaces as named signals to the caller and
    the durable record. *(→ agent-constitution ADR-0001)*
 9. **Honest failure, typed.** BLOCKED / HALTED / FAILED dispositions. *(→
@@ -104,7 +104,7 @@ into orchestration verbs.
 ### ORCHESTRATION (`operations/` stateless verbs · `state.py` `LauncherState` facade)
 
 **What lives here:** `start · stop · swap · delete · orphan · preflight`; the
-`LauncherState` facade (ADR-008).
+`LauncherState` facade (ADR-LLNCH-008).
 
 **Rules:**
 - Uses core; must not know its callers (no upward import to endpoint layers).
@@ -143,7 +143,7 @@ into orchestration verbs.
 
 - **The shared `ModelRef`/`Endpoint` type split (`IDENTITY⊥ENVELOPE` as a published
   type).** `llauncher` satisfies the *substance* of `IDENTITY⊥ENVELOPE` today (port
-  is not on `ModelConfig`, ADR-010), but the *shared typed package* that consumers
+  is not on `ModelConfig`, ADR-LLNCH-010), but the *shared typed package* that consumers
   import (`ModelRef{name,provider,kind}` + `Endpoint{base_url}`) is ALIGNMENT_ROADMAP
   Phase 2 — not yet published. Out of `llauncher`'s unilateral scope; an
   ecosystem-package decision.
@@ -156,7 +156,7 @@ into orchestration verbs.
   disciplines, which the EXO experiment depends on but does not redefine.*
 
 - **Security/feature opt-in posture is not a backcompat shim.** Default-off agent
-  auth (ADR-003 / ADR-017) is security stance, explicitly unaffected by the
+  auth (ADR-LLNCH-003 / ADR-LLNCH-017) is security stance, explicitly unaffected by the
   no-shim rule (CLAUDE.md `PARSE-AT-THE-DOOR`).
 
 ---
@@ -168,7 +168,7 @@ into orchestration verbs.
                               │        │         │      │
                               └────────┴────┬────┴──────┘
                                             ▼            ═══ contract boundary ═══
-   ORCHESTRATION   operations/  ·  state.py (LauncherState facade, ADR-008)
+   ORCHESTRATION   operations/  ·  state.py (LauncherState facade, ADR-LLNCH-008)
                                             ▼
    CORE            core/  (config · process · settings · ...)   ← STATELESS
                                             ▼
@@ -192,9 +192,9 @@ its own name on the wire. `EMIT-CANONICAL` removes the reason for those dialects
 exist — which is why it is the keystone (ALIGNMENT_ROADMAP Phase 1) and why this
 codebase's conformance is leveraged across the ecosystem.
 
-The core is stateless (`STATELESS-CORE`, ADR-008) so that the read tools, the UI, and
+The core is stateless (`STATELESS-CORE`, ADR-LLNCH-008) so that the read tools, the UI, and
 the MCP surface all observe the same disk-backed truth on every refresh rather than a
-process-start snapshot — the stale-state class of bugs ADR-008 closed.
+process-start snapshot — the stale-state class of bugs ADR-LLNCH-008 closed.
 
 ---
 
@@ -207,15 +207,15 @@ named with evidence below.
 
 | Invariant | Verdict | Evidence (`path:symbol`) | Enforcement surface | Implemented gate? | Traced ADR(s) |
 |---|---|---|---|---|---|
-| `ONE-DOOR` | **Violated** (one known regression) | `llauncher/remote/registry.py:85` — `from llauncher.agent.auth import resolve_agent_token` inside `_resolve_local_token` is a live `remote → agent` import edge (the regression `docs/ARCHITECTURE.md` documents as known) | import-boundary review; **no lint/CI gate** | No — prose-backed (review) | ADR-008; `docs/ARCHITECTURE.md` forbidden edges |
-| `STATELESS-CORE` | **Compliant** | `llauncher/state.py:LauncherState.refresh` reloads `ConfigStore.load()` + process table each call; cross-call state lives only in the facade, not in `core/` | same-in/same-out tests (`tests/integration/test_state_integration.py`); core holds no retained instance state | Partial — tests exist; no structural "core has no module state" gate | ADR-008 |
-| `ONE-MINT` | **Compliant** | `llauncher/models/config.py:ModelConfig.name` is the sole identity field; envelopes derive from it — `llauncher/core/process.py:log_stem_for` sanitizes for *log filenames only* (injective map, #63/#146), proven not to leak into the wire alias | single typed identity; grep-gate on inline id strings | Partial — no grep-gate in CI; envelope/identity split held by review | ADR-010, ADR-016 |
-| `IDENTITY⊥ENVELOPE` | **Compliant (substance); type-split NOT-YET-IMPLEMENTED (shared pkg)** | `llauncher/models/config.py:ModelConfig` carries `name` but **no** `port`/`host` (dropped at the door, `from_dict_unvalidated`, ADR-010); port supplied at call site (`core/process.py:build_command(config, port, host)`) | the type split + type-check | Substance: yes (port absent from type). Shared `ModelRef`/`Endpoint`: no — Phase 2, upstream | ADR-010 |
-| `EMIT-CANONICAL` | **Compliant — keystone LANDED** | `llauncher/core/process.py:build_command` line 112 — `cmd.extend(["--alias", config.name])`, byte-for-byte, immediately after `-m`; `--alias` kept in `DENIED_EXTRA_ARG_FLAGS` (`models/config.py:41`) so a config cannot override the minted identity. Landed via **PR #158** (merged). Tests: `tests/unit/test_process.py:TestBuildCommandAlias` | argv assembly + deny-list + adjacency test | **Yes** — unit test asserts exact alias, verbatim unicode/spaces, single occurrence | ADR-016 (canonical self-swap); issue #120 |
-| `PARSE-AT-THE-DOOR` (config ingress) | **Compliant** | `llauncher/core/config.py:ConfigStore.load` → `ModelConfig.from_dict_unvalidated` migrates legacy shape **once at the door** (drops `default_port`/`port`/`host`; list→str `extra_args`), no dual-parse. Token sidecar `remote/registry.py:_load_node_tokens` returns `{}` on corrupt — a deliberate security fail-safe on a non-canonical sidecar, **not** a canonical-identity trust-and-degrade | migrate-at-door; fail-loud on unknown canonical shape | Partial — migration is structural; no schema gate rejecting *unknown* config keys (silent-drop posture) | ADR-017 (PARSE-AT-THE-DOOR anchor) |
+| `ONE-DOOR` | **Violated** (one known regression) | `llauncher/remote/registry.py:85` — `from llauncher.agent.auth import resolve_agent_token` inside `_resolve_local_token` is a live `remote → agent` import edge (the regression `docs/ARCHITECTURE.md` documents as known) | import-boundary review; **no lint/CI gate** | No — prose-backed (review) | ADR-LLNCH-008; `docs/ARCHITECTURE.md` forbidden edges |
+| `STATELESS-CORE` | **Compliant** | `llauncher/state.py:LauncherState.refresh` reloads `ConfigStore.load()` + process table each call; cross-call state lives only in the facade, not in `core/` | same-in/same-out tests (`tests/integration/test_state_integration.py`); core holds no retained instance state | Partial — tests exist; no structural "core has no module state" gate | ADR-LLNCH-008 |
+| `ONE-MINT` | **Compliant** | `llauncher/models/config.py:ModelConfig.name` is the sole identity field; envelopes derive from it — `llauncher/core/process.py:log_stem_for` sanitizes for *log filenames only* (injective map, #63/#146), proven not to leak into the wire alias | single typed identity; grep-gate on inline id strings | Partial — no grep-gate in CI; envelope/identity split held by review | ADR-LLNCH-010, ADR-LLNCH-016 |
+| `IDENTITY⊥ENVELOPE` | **Compliant (substance); type-split NOT-YET-IMPLEMENTED (shared pkg)** | `llauncher/models/config.py:ModelConfig` carries `name` but **no** `port`/`host` (dropped at the door, `from_dict_unvalidated`, ADR-LLNCH-010); port supplied at call site (`core/process.py:build_command(config, port, host)`) | the type split + type-check | Substance: yes (port absent from type). Shared `ModelRef`/`Endpoint`: no — Phase 2, upstream | ADR-LLNCH-010 |
+| `EMIT-CANONICAL` | **Compliant — keystone LANDED** | `llauncher/core/process.py:build_command` line 112 — `cmd.extend(["--alias", config.name])`, byte-for-byte, immediately after `-m`; `--alias` kept in `DENIED_EXTRA_ARG_FLAGS` (`models/config.py:41`) so a config cannot override the minted identity. Landed via **PR #158** (merged). Tests: `tests/unit/test_process.py:TestBuildCommandAlias` | argv assembly + deny-list + adjacency test | **Yes** — unit test asserts exact alias, verbatim unicode/spaces, single occurrence | ADR-LLNCH-016 (canonical self-swap); issue #120 |
+| `PARSE-AT-THE-DOOR` (config ingress) | **Compliant** | `llauncher/core/config.py:ConfigStore.load` → `ModelConfig.from_dict_unvalidated` migrates legacy shape **once at the door** (drops `default_port`/`port`/`host`; list→str `extra_args`), no dual-parse. Token sidecar `remote/registry.py:_load_node_tokens` returns `{}` on corrupt — a deliberate security fail-safe on a non-canonical sidecar, **not** a canonical-identity trust-and-degrade | migrate-at-door; fail-loud on unknown canonical shape | Partial — migration is structural; no schema gate rejecting *unknown* config keys (silent-drop posture) | ADR-LLNCH-017 (PARSE-AT-THE-DOOR anchor) |
 | `PARSE-AT-THE-DOOR` 5a — **command-arg collision** | **Violated — UNENFORCED (open bug)** | `llauncher/core/process.py:build_command` lines 119–183: native flags (`--ctx-size`/`-c`, `--batch-size`, `--ubatch-size`, `--parallel`, `--threads-batch`, sampling) are emitted, then `extra_args` is appended (line 182–183) — llama-server is first-wins, so a colliding `extra_args` flag is **silently lost**. `DENIED_EXTRA_ARG_FLAGS` only guards `--alias`/`--api-key`/`-m`/`--model`/`--host`/`--port`, not the parameter family | reject-at-config-save + assert-at-command-assembly | **No — NONE** (this is the open bug) | issue #156 (anchoring violation); relates #92, #152 |
 | `CONSERVE-ACROSS-THE-DATA-BOUNDARY` | **Compliant for llauncher's role (supply); round-trip NOT-IN-SCOPE here** | `llauncher` supplies the conservable tag via `EMIT-CANONICAL` (above). No bulk data plane in this repo; the re-entry assertion lives downstream (sk-mcp/thought-vault, Phase 4) | round-trip test in the data-plane tool | N/A here — downstream | ALIGNMENT_ROADMAP Phase 4 |
-| Dev-plane: durable emission | **Compliant** | `llauncher/core/audit_log.py` (JSONL, commanded-vs-observed); ADR lifecycle `accepted/ → completed/ → superseded/` | structured audit log + ADR convention | Yes (audit log emitted on CRUD, `core/config.py`) | ADR-008 |
+| Dev-plane: durable emission | **Compliant** | `llauncher/core/audit_log.py` (JSONL, commanded-vs-observed); ADR lifecycle `accepted/ → completed/ → superseded/` | structured audit log + ADR convention | Yes (audit log emitted on CRUD, `core/config.py`) | ADR-LLNCH-008 |
 | Dev-plane: signals / honest-failure-typed | **Compliant (prose/convention)** | autonomy contract bounce rule (CLAUDE.md); honest-failure typing in agent constitution | review convention | No structural gate | agent-constitution ADR-0001/0007 |
 
 > No row carries an empty Evidence cell. Rows whose code does not exist in this repo
@@ -243,12 +243,12 @@ named with evidence below.
 
 | ADR / decision | What it fixes | File / status |
 |---|---|---|
-| ADR-008: Launcher state — stateless facade | `STATELESS-CORE`; `ONE-DOOR` (facade is the state holder above core); durable audit log | `docs/adrs/accepted/008-launcher-state-stateless-facade.md` — Accepted |
-| ADR-010: Port ownership at call site | `IDENTITY⊥ENVELOPE` (port not on `ModelConfig`); `ONE-MINT` (name is identity, port is envelope) | `docs/adrs/completed/010-port-ownership-at-call-site.md` — Completed |
-| ADR-016: Canonical self-swap | `EMIT-CANONICAL` / `ONE-MINT` (canonical name round-trips through swap) | `docs/adrs/completed/016-canonical-self-swap.md` — Accepted/Completed |
-| ADR-017: Trusted-host session-token issuance | `PARSE-AT-THE-DOOR` anchor (migrate-at-door, no dual-parse; cites the no-shim rule) | `docs/adrs/draft/017-session-token-issuance.md` — Draft |
-| ADR-003: Agent API authentication | Security opt-in posture (out-of-scope-as-shim) | `docs/adrs/completed/003-agent-api-authentication.md` — Completed |
-| ADR-015: Orphan policy | `STATELESS-CORE` reconciliation (per-refresh dedupe) | `docs/adrs/accepted/015-orphan-policy.md` — Accepted |
+| ADR-LLNCH-008: Launcher state — stateless facade | `STATELESS-CORE`; `ONE-DOOR` (facade is the state holder above core); durable audit log | `docs/adrs/accepted/adr-llnch-008-launcher-state-stateless-facade.md` — Accepted |
+| ADR-LLNCH-010: Port ownership at call site | `IDENTITY⊥ENVELOPE` (port not on `ModelConfig`); `ONE-MINT` (name is identity, port is envelope) | `docs/adrs/completed/adr-llnch-010-port-ownership-at-call-site.md` — Completed |
+| ADR-LLNCH-016: Canonical self-swap | `EMIT-CANONICAL` / `ONE-MINT` (canonical name round-trips through swap) | `docs/adrs/completed/adr-llnch-016-canonical-self-swap.md` — Accepted/Completed |
+| ADR-LLNCH-017: Trusted-host session-token issuance | `PARSE-AT-THE-DOOR` anchor (migrate-at-door, no dual-parse; cites the no-shim rule) | `docs/adrs/draft/adr-llnch-017-session-token-issuance.md` — Draft |
+| ADR-LLNCH-003: Agent API authentication | Security opt-in posture (out-of-scope-as-shim) | `docs/adrs/completed/adr-llnch-003-agent-api-authentication.md` — Completed |
+| ADR-LLNCH-015: Orphan policy | `STATELESS-CORE` reconciliation (per-refresh dedupe) | `docs/adrs/accepted/adr-llnch-015-orphan-policy.md` — Accepted |
 | Issue #120 / PR #158 | `EMIT-CANONICAL` keystone — `--alias = ModelConfig.name` | merged (PR #158) |
 | Issue #63 / #146 | `ONE-MINT` envelope defect — injective log-filename map (fixed in envelope space) | closed |
 | Issue #156 | `PARSE-AT-THE-DOOR` 5a — command-arg collision silent first-wins loss | **OPEN** — anchoring violation, no gate |

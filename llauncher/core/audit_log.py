@@ -1,6 +1,6 @@
 """Append-only JSON Lines audit log for llauncher actions and observations.
 
-Per ADR-008. The audit log distinguishes:
+Per ADR-LLNCH-008. The audit log distinguishes:
 
 - **Commanded** actions — things llauncher did (started, stopped, swapped,
   CRUD on configs).
@@ -9,7 +9,7 @@ Per ADR-008. The audit log distinguishes:
   our sentinel pattern with no lockfile).
 
 The log is plain JSON Lines, append-only, never truncated by llauncher.
-Rotation and retention are out-of-scope for ADR-008 and tracked separately
+Rotation and retention are out-of-scope for ADR-LLNCH-008 and tracked separately
 (Tier 2).
 
 Path is configurable via the ``LAUNCHER_AUDIT_PATH`` env var so container
@@ -60,7 +60,7 @@ class AuditResult(str, Enum):
     REJECTED_STOP_FAILED = "rejected_stop_failed"
     ROLLED_BACK = "rolled_back"
     UNAVAILABLE = "unavailable"
-    CANCELLED = "cancelled"  # Per ADR-014: caller cancelled before commit.
+    CANCELLED = "cancelled"  # Per ADR-LLNCH-014: caller cancelled before commit.
 
 
 @dataclass(frozen=True)

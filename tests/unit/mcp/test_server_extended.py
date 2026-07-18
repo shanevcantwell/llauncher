@@ -92,7 +92,7 @@ class TestDispatchToolAllTools:
         # Tools that go through get_mcp_state (read-side + remaining v1
         # config-mutation tools). Stateless verbs (start/stop/swap/
         # delete_model) are tested separately below since they bypass
-        # get_mcp_state per ADR-008.
+        # get_mcp_state per ADR-LLNCH-008.
         state_backed_tools = [
             ("list_models", "llauncher.mcp_server.server.models_tools.list_models"),
             ("get_model_config", "llauncher.mcp_server.server.models_tools.get_model_config"),
@@ -111,7 +111,7 @@ class TestDispatchToolAllTools:
                     assert result == expected_result
                     mock_func.assert_called_once()
 
-        # Stateless verbs — must NOT touch get_mcp_state (ADR-008).
+        # Stateless verbs — must NOT touch get_mcp_state (ADR-LLNCH-008).
         stateless_verbs = [
             ("start_server", "llauncher.mcp_server.server.servers_tools.start_server"),
             ("stop_server", "llauncher.mcp_server.server.servers_tools.stop_server"),

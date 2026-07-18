@@ -19,33 +19,33 @@ Folder placement and in-document Status are kept in sync.
 
 ### Completed
 
-- [ADR-001 — TypeScript Extension for Pi to Control llauncher Agents](./completed/001-ts-extension-for-pi.md)
-- [ADR-003 — Authentication for Agent API (Port 8765)](./completed/003-agent-api-authentication.md)
-- [ADR-005 — Model Cache Health Validation in Start/Stop Flow](./completed/005-model-cache-health.md)
-- [ADR-007 — Repeat-Penalty Tuning](./completed/007-repeat-penalty-tuning.md)
-- [ADR-010 — Port Ownership at the Call Site](./completed/010-port-ownership-at-call-site.md)
-- [ADR-011 — Swap Semantics v2](./completed/011-swap-semantics-v2.md)
-- [ADR-012 — Footer Context Endpoint — Minimal Payload, Short TTL Cache](./completed/012-footer-context-endpoint.md)
-- [ADR-013 — Per-Server Log Lifecycle (Append, Rotate, Bounded Tail)](./completed/013-logs-lifecycle.md)
-- [ADR-014 — Cancellation of In-Flight Start/Swap](./completed/014-cancellation.md)
-- [ADR-016 — Canonical Self-Swap — Worked Example and Integration Test](./completed/016-canonical-self-swap.md)
+- [ADR-LLNCH-001 — TypeScript Extension for Pi to Control llauncher Agents](./completed/adr-llnch-001-ts-extension-for-pi.md)
+- [ADR-LLNCH-003 — Authentication for Agent API (Port 8765)](./completed/adr-llnch-003-agent-api-authentication.md)
+- [ADR-LLNCH-005 — Model Cache Health Validation in Start/Stop Flow](./completed/adr-llnch-005-model-cache-health.md)
+- [ADR-LLNCH-007 — Repeat-Penalty Tuning](./completed/adr-llnch-007-repeat-penalty-tuning.md)
+- [ADR-LLNCH-010 — Port Ownership at the Call Site](./completed/adr-llnch-010-port-ownership-at-call-site.md)
+- [ADR-LLNCH-011 — Swap Semantics v2](./completed/adr-llnch-011-swap-semantics-v2.md)
+- [ADR-LLNCH-012 — Footer Context Endpoint — Minimal Payload, Short TTL Cache](./completed/adr-llnch-012-footer-context-endpoint.md)
+- [ADR-LLNCH-013 — Per-Server Log Lifecycle (Append, Rotate, Bounded Tail)](./completed/adr-llnch-013-logs-lifecycle.md)
+- [ADR-LLNCH-014 — Cancellation of In-Flight Start/Swap](./completed/adr-llnch-014-cancellation.md)
+- [ADR-LLNCH-016 — Canonical Self-Swap — Worked Example and Integration Test](./completed/adr-llnch-016-canonical-self-swap.md)
 
 ### Accepted (with known partial implementation)
 
-- [ADR-004 — CLI Subcommand Interface](./accepted/004-cli-subcommand-interface.md) — `swap`, `logs` subcommands deferred
-- [ADR-006 — GPU Resource Monitoring and VRAM Tracking](./accepted/006-gpu-resource-monitoring.md) — `?full=true` filter + ROCm/MPS backends deferred; tracking #44
-- [ADR-008 — LauncherState as Stateless Facade](./accepted/008-launcher-state-stateless-facade.md) — `state._start_with_eviction_impl` retained for eviction-API smoke contract; M5/M6 cleanup pending
-- [ADR-015 — Orphan Policy (Annotation and Listing)](./accepted/015-orphan-policy.md) — `adopt` verb deferred per §Deferred Work
-- [ADR-018 — llauncher as a System Service](./accepted/018-llauncher-system-service.md) — `--system` install mode landed (#194); host provisioning (#196) and `LAUNCHER_STATE_DIR` Python support (#197) tracked separately; supersedes ADR-009's deployment posture
+- [ADR-LLNCH-004 — CLI Subcommand Interface](./accepted/adr-llnch-004-cli-subcommand-interface.md) — `swap`, `logs` subcommands deferred
+- [ADR-LLNCH-006 — GPU Resource Monitoring and VRAM Tracking](./accepted/adr-llnch-006-gpu-resource-monitoring.md) — `?full=true` filter + ROCm/MPS backends deferred; tracking #44
+- [ADR-LLNCH-008 — LauncherState as Stateless Facade](./accepted/adr-llnch-008-launcher-state-stateless-facade.md) — `state._start_with_eviction_impl` retained for eviction-API smoke contract; M5/M6 cleanup pending
+- [ADR-LLNCH-015 — Orphan Policy (Annotation and Listing)](./accepted/adr-llnch-015-orphan-policy.md) — `adopt` verb deferred per §Deferred Work
+- [ADR-LLNCH-018 — llauncher as a System Service](./accepted/adr-llnch-018-llauncher-system-service.md) — `--system` install mode landed (#194); host provisioning (#196) and `LAUNCHER_STATE_DIR` Python support (#197) tracked separately; supersedes ADR-LLNCH-009's deployment posture
 - [ADR-LLNCH-019 — Server-Metrics Surface (Live In-Server Inference Telemetry)](./accepted/adr-llnch-019-server-metrics-surface.md) — ratified; implementation not yet begun; deferred scope tracked #174/#175/#176
-- [ADR-022 — llauncher UI under Operator-Scoped `systemd --user` Control](./accepted/022-llauncher-ui-user-service.md) — per-operator user unit (`scripts/systemd/llauncher-ui.service.user.in` + `install-ui.sh`); narrows ADR-018's UI posture; `/usr/local/bin` symlink (`install-cli.sh`, root) and `inference`-group membership are operator/host steps (#223)
-- [ADR-023 — Service-Owned Venv Recomposition](./accepted/023-service-owned-venv-recomposition.md) — re-couples each service's `ExecStart` venv reference to a same-scope recompose guarantee (root `*-ensure-venv` oneshot units; user UI fail-loud backstop); amends ADR-018 / ADR-022; OQ1 resolved as shared `/opt` venv (2026-06-28); Phases A/B implementation pending
-- [ADR-025 — UI Endpoint-Layer Boundary, Enforced by a Static Test](./accepted/025-ui-endpoint-layer-boundary-enforced-by-test.md) — codifies the `ui/` → `state`/`operations`/`remote` rule as an AST guard (`tests/architecture/test_ui_layer_boundaries.py`) + AppTest harness; the deterministic catch for the cross-layer reach that escaped to an alpha; OQ: drop the `ui/*` coverage omit and re-baseline the floor (tracked #69)
+- [ADR-LLNCH-022 — llauncher UI under Operator-Scoped `systemd --user` Control](./accepted/adr-llnch-022-llauncher-ui-user-service.md) — per-operator user unit (`scripts/systemd/llauncher-ui.service.user.in` + `install-ui.sh`); narrows ADR-LLNCH-018's UI posture; `/usr/local/bin` symlink (`install-cli.sh`, root) and `inference`-group membership are operator/host steps (#223)
+- [ADR-LLNCH-023 — Service-Owned Venv Recomposition](./accepted/adr-llnch-023-service-owned-venv-recomposition.md) — re-couples each service's `ExecStart` venv reference to a same-scope recompose guarantee (root `*-ensure-venv` oneshot units; user UI fail-loud backstop); amends ADR-LLNCH-018 / ADR-LLNCH-022; OQ1 resolved as shared `/opt` venv (2026-06-28); Phases A/B implementation pending
+- [ADR-LLNCH-025 — UI Endpoint-Layer Boundary, Enforced by a Static Test](./accepted/adr-llnch-025-ui-endpoint-layer-boundary-enforced-by-test.md) — codifies the `ui/` → `state`/`operations`/`remote` rule as an AST guard (`tests/architecture/test_ui_layer_boundaries.py`) + AppTest harness; the deterministic catch for the cross-layer reach that escaped to an alpha; OQ: drop the `ui/*` coverage omit and re-baseline the floor (tracked #69)
 
 ### Draft
 
-- [ADR-017 — Trusted-Host Session-Token Issuance (Design B)](./draft/017-session-token-issuance.md) — Phase 1 of the provisioning roadmap (#135 / #137); supersedes the static-token-only framing of ADR-003 on ratification
-- [ADR-024 — Declarative Render Matrix](./draft/024-declarative-render-matrix.md) — declarative config→backend-argument render matrix; Status: Draft
+- [ADR-LLNCH-017 — Trusted-Host Session-Token Issuance (Design B)](./draft/adr-llnch-017-session-token-issuance.md) — Phase 1 of the provisioning roadmap (#135 / #137); supersedes the static-token-only framing of ADR-LLNCH-003 on ratification
+- [ADR-LLNCH-024 — Declarative Render Matrix](./draft/adr-llnch-024-declarative-render-matrix.md) — declarative config→backend-argument render matrix; Status: Draft
 
 ### Pending (unmerged branch)
 
@@ -53,8 +53,8 @@ Folder placement and in-document Status are kept in sync.
 
 ### Superseded
 
-- [ADR-002 — Unified Swap-with-Eviction Semantics](./superseded/002-swap-eviction-consistency.md) — superseded by ADR-011
-- [ADR-009 — Symmetric Hub/Spoke Topology](./superseded/009-symmetric-hub-spoke-topology.md) — deployment posture superseded by ADR-018 (topology decisions preserved)
+- [ADR-LLNCH-002 — Unified Swap-with-Eviction Semantics](./superseded/adr-llnch-002-swap-eviction-consistency.md) — superseded by ADR-LLNCH-011
+- [ADR-LLNCH-009 — Symmetric Hub/Spoke Topology](./superseded/adr-llnch-009-symmetric-hub-spoke-topology.md) — deployment posture superseded by ADR-LLNCH-018 (topology decisions preserved)
 
 ## Moving an ADR between folders
 

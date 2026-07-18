@@ -1,4 +1,4 @@
-"""``swap`` verb — ADR-011 five-phase swap mechanic with rollback."""
+"""``swap`` verb — ADR-LLNCH-011 five-phase swap mechanic with rollback."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class SwapResult:
-    """Outcome of a swap operation per ADR-011's response envelope.
+    """Outcome of a swap operation per ADR-LLNCH-011's response envelope.
 
     ``action`` values:
 
@@ -45,13 +45,13 @@ class SwapResult:
     - ``rejected_preflight`` — pre-flight check failed before any state change
     - ``rejected_stop_failed`` — couldn't stop old model; old still running
     - ``rejected_in_progress`` — swap already in flight on this port
-    - ``rejected_empty`` — port had no occupant; per ADR-010 swap requires occupied
-    - ``cancelled`` — caller cancelled before commit; reused rollback path (ADR-014)
+    - ``rejected_empty`` — port had no occupant; per ADR-LLNCH-010 swap requires occupied
+    - ``cancelled`` — caller cancelled before commit; reused rollback path (ADR-LLNCH-014)
 
     ``port_state`` values: ``serving | restored | unchanged | unavailable``
-    (semantics preserved from ADR-002).
+    (semantics preserved from ADR-LLNCH-002).
 
-    ``cancel_ignored_post_commit`` (ADR-014): True iff a cancel arrived in
+    ``cancel_ignored_post_commit`` (ADR-LLNCH-014): True iff a cancel arrived in
     the sliver between spawn-success and lockfile-write (or after readiness
     returned ready). The op completed normally; the flag exists so callers
     can distinguish "we cancelled in time" from "cancelled too late."
@@ -89,7 +89,7 @@ def _launch_and_await_ready(
     after itself (terminating the process if it started, removing the
     lockfile if one was written).
 
-    If ``cancel_check`` is provided (ADR-014), it is forwarded to
+    If ``cancel_check`` is provided (ADR-LLNCH-014), it is forwarded to
     :func:`llauncher.core.process.wait_for_server_ready`, which calls it
     once per poll tick. A cancel during the poll terminates the new
     process and removes the lockfile; the returned ``error_message`` is
@@ -133,7 +133,7 @@ def _launch_and_await_ready(
         process=popen,
     )
     if not ready:
-        # Distinguish cancel from genuine timeout (ADR-014).
+        # Distinguish cancel from genuine timeout (ADR-LLNCH-014).
         cancelled = cancel_check is not None and cancel_check()
         # Process started but never reached ready — terminate and clean up.
         # ``stop_server_by_pid`` swallows ``psutil.NoSuchProcess`` internally;
@@ -193,13 +193,13 @@ def swap(
     model_health_check: PreflightCheck | None = default_model_health_check,
     vram_check: PreflightCheck | None = default_vram_check,
 ) -> SwapResult:
-    """Swap the model on ``port`` to ``model_name`` per ADR-011's 5-phase mechanic.
+    """Swap the model on ``port`` to ``model_name`` per ADR-LLNCH-011's 5-phase mechanic.
 
     The five phases:
 
     1. **Pre-flight validation** (no state mutation): model exists in config,
        port is occupied, lockfile reconciles, no in-flight marker, model-file
-       health (ADR-005) and VRAM headroom (ADR-006) checks pass.
+       health (ADR-LLNCH-005) and VRAM headroom (ADR-LLNCH-006) checks pass.
     2. **Take the in-flight marker** atomically (``O_EXCL``).
     3. **Stop the old model** (SIGTERM with grace, escalate to SIGKILL).
     4. **Start the new model** (process + lockfile).
@@ -241,7 +241,7 @@ def swap(
     recon = lf.reconcile_lockfile(existing)
     if not recon.pid_alive:
         # Stale lockfile — the port is effectively empty for swap purposes.
-        # Per ADR-010, swap's precondition is occupied; treat this as
+        # Per ADR-LLNCH-010, swap's precondition is occupied; treat this as
         # rejected_empty and let the caller use start instead. We also
         # record observed_stopped so the audit log reflects the cleanup.
         al.record(
@@ -280,7 +280,7 @@ def swap(
     previous_pid = existing.pid
 
     # 1b. Same-model swap short-circuit — return immediately, marker still
-    # taken+released for concurrency safety per ADR-011.
+    # taken+released for concurrency safety per ADR-LLNCH-011.
     if previous_model_name == model_name:
         try:
             mk.take_marker(
@@ -334,11 +334,11 @@ def swap(
         )
 
     # 1d. Snapshot the rollback config now so a mid-swap config edit can't
-    # poison rollback (ADR-011 §Rollback).
+    # poison rollback (ADR-LLNCH-011 §Rollback).
     previous_config = ConfigStore.get_model(previous_model_name)
     if previous_config is None:
         # Lockfile says X is on the port but config X is missing — corruption
-        # case from ADR-008's reconciliation rules. Refuse to swap.
+        # case from ADR-LLNCH-008's reconciliation rules. Refuse to swap.
         return _reject_preflight(
             port=port,
             model_name=model_name,
@@ -433,7 +433,7 @@ def swap(
             message="phase 3 of swap",
         )
 
-        # ADR-014 checkpoint: between Phase 3 (stop-old) and Phase 4 (launch-new).
+        # ADR-LLNCH-014 checkpoint: between Phase 3 (stop-old) and Phase 4 (launch-new).
         # Cancel here triggers rollback of the previous model.
         if mk.is_cancelled(port):
             return _handle_cancel_during_swap(
@@ -458,7 +458,7 @@ def swap(
         )
 
         if ready:
-            # ADR-014: a cancel that arrived after readiness returned True
+            # ADR-LLNCH-014: a cancel that arrived after readiness returned True
             # is post-commit; we surface it as an advisory rather than
             # tearing down the freshly-started process.
             cancel_ignored = mk.is_cancelled(port)
@@ -503,7 +503,7 @@ def swap(
             )
 
         # New model failed — record the failed start and fall through to rollback.
-        # If the failure was a cancel (ADR-014), audit as CANCELLED instead of
+        # If the failure was a cancel (ADR-LLNCH-014), audit as CANCELLED instead of
         # ERROR; the rollback path is reused either way.
         was_cancel = err == "cancelled"
         al.record(
@@ -538,7 +538,7 @@ def swap(
                 pid=rb_pid,
                 message="rollback restoration of previous model",
             )
-            # ADR-014: rollback path on cancel reports ``cancelled`` instead
+            # ADR-LLNCH-014: rollback path on cancel reports ``cancelled`` instead
             # of ``rolled_back`` so callers can distinguish the two.
             rb_action = "cancelled" if was_cancel else "rolled_back"
             rb_result = (
@@ -620,7 +620,7 @@ def _handle_cancel_during_swap(
     readiness_timeout: int,
     stage: str,
 ) -> SwapResult:
-    """ADR-014: cancel detected after stop-old, before launch-new.
+    """ADR-LLNCH-014: cancel detected after stop-old, before launch-new.
 
     Reuses the rollback path — restart the previous model. Returns a
     ``cancelled`` SwapResult so the caller can distinguish a cancel from a

@@ -1,4 +1,4 @@
-"""Tests for ADR-015 orphan discovery (operations.orphan + state wiring)."""
+"""Tests for ADR-LLNCH-015 orphan discovery (operations.orphan + state wiring)."""
 
 from __future__ import annotations
 

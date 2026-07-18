@@ -26,7 +26,7 @@ def render_add_model(state: LauncherState) -> None:
             help="Path to multimodal projector for vision models",
         )
 
-        # Per ADR-010, port is no longer a model attribute — supplied at start time.
+        # Per ADR-LLNCH-010, port is no longer a model attribute — supplied at start time.
         col1, col2 = st.columns(2)
         with col1:
             n_gpu_layers = st.number_input(
@@ -257,7 +257,7 @@ def render_edit_model(state: LauncherState, model_name: str | None = None) -> No
             help="Path to multimodal projector",
         )
 
-        # Per ADR-010, port is no longer a model attribute — supplied at start time.
+        # Per ADR-LLNCH-010, port is no longer a model attribute — supplied at start time.
         col1, col2 = st.columns(2)
         with col1:
             n_gpu_layers = st.number_input(

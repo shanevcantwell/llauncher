@@ -67,7 +67,7 @@ class LauncherState:
     audit: list[AuditEntry] = field(default_factory=list)
     rules: ChangeRules = field(default_factory=ChangeRules)
     orphans: list[OrphanInfo] = field(default_factory=list)
-    # In-memory dedupe sets for ADR-015 reconciliation. Both are pruned
+    # In-memory dedupe sets for ADR-LLNCH-015 reconciliation. Both are pruned
     # to the set of currently-observed pids on every refresh so that a
     # pid which leaves and later re-enters the scan re-emits exactly
     # once.
@@ -86,7 +86,7 @@ class LauncherState:
         # Refresh running servers
         self.refresh_running_servers()
 
-        # Refresh orphan (unmanaged) llama-server processes per ADR-015.
+        # Refresh orphan (unmanaged) llama-server processes per ADR-LLNCH-015.
         self.refresh_orphans()
 
     def refresh_running_servers(self) -> None:
@@ -138,7 +138,7 @@ class LauncherState:
     def refresh_orphans(self) -> None:
         """Refresh the list of orphan (unmanaged) llama-server processes.
 
-        Per ADR-015, an orphan is a live ``llama-server`` whose port (or
+        Per ADR-LLNCH-015, an orphan is a live ``llama-server`` whose port (or
         pid, when port-keyed) does not match a live lockfile. Audit
         emission cadence:
 
@@ -199,7 +199,7 @@ class LauncherState:
     ) -> tuple[bool, str]:
         """Validate if a model can be started on ``port``.
 
-        Per ADR-010 / issue #58, ``port`` is required; there is no
+        Per ADR-LLNCH-010 / issue #58, ``port`` is required; there is no
         ``port=None`` skip-port-checks branch and no placeholder sentinel
         passed down to :meth:`ChangeRules.validate_start`. ``port`` is
         keyword-only to make pre-existing positional callers fail loudly
@@ -270,14 +270,14 @@ class LauncherState:
     ) -> tuple[bool, str, subprocess.Popen | None]:
         """Start a server for the given model on the specified port.
 
-        Per ADR-010 the caller supplies ``port``; this method no longer
+        Per ADR-LLNCH-010 the caller supplies ``port``; this method no longer
         auto-allocates (issue #58 / audit C3). v2 callers are routed
         through :mod:`llauncher.operations.start` instead; this legacy
         path is retained only for the few v1 tests pending M3 cleanup.
 
         Args:
             model_name: Name of the model to start.
-            port: Port to bind to. Required (ADR-010); no env fallback.
+            port: Port to bind to. Required (ADR-LLNCH-010); no env fallback.
             caller: Name of the caller (for audit log).
             server_bin: Path to llama-server binary.
 
@@ -298,7 +298,7 @@ class LauncherState:
 
         # Pre-flight model-file health validation moved to the operations
         # layer per audit C2 / issue #57. Callers that go through
-        # ``operations.start()`` get the ADR-005 check via the
+        # ``operations.start()`` get the ADR-LLNCH-005 check via the
         # ``model_health_check`` seam. This legacy state.start_server path
         # is kept only for the in-flight M1→M2 transition; it now skips the
         # health check, matching its M1 minimal contract.

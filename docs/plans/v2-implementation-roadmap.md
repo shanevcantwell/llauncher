@@ -12,7 +12,7 @@ Capture the implementation plan for the v2 architecture (ADRs 008–011) so the 
 The repo is frozen for v1 work except for this v2 effort. All v2 commits land directly on `main`. No parallel branch, no cutover ceremony.
 
 - Implication: the daily-driver llauncher will regress during the rewrite (especially during M1–M2 when core data structures change). Accepted tradeoff in exchange for the simpler workflow.
-- ADR-011's "rewrite, not migration" framing applies — no compat-shim layer.
+- ADR-LLNCH-011's "rewrite, not migration" framing applies — no compat-shim layer.
 
 **Pre-M1 action:** tag the current `main` HEAD as `v1-final` before any M1 commits, to preserve the last working v1 state for emergency reference.
 
@@ -26,21 +26,21 @@ The repo is frozen for v1 work except for this v2 effort. All v2 commits land di
 | M3 — Multi-node | ✅ done (2026-05-07) | Wired through v2 operations; remote swap parity. |
 | **Pre-M4 cleanup** | ✅ **done (2026-05-08)** | #57 (C2 layer), #58 (C3 port), #59 (H1 MCP refresh). Test count 612 → 621. |
 | M4 — UI rewrite | ✅ **done (2026-05-09)** | All 4 slices done. #50 tab restructure + port picker landed in commits `5513d26` (consolidation) and `f7b8818` (Audit tab + node_selector wiring). |
-| M5 — Tier 2 ADRs | 🔄 **4/5 done (2026-05-17)** | ADR-013 logs ✅ (#52); ADR-012 footer endpoint ✅ (#53, TS migration deferred); ADR-014 cancellation ✅ (#54); ADR-015 orphan (annotation + list) ✅ (#55, **reduced scope** — adopt verb deferred per ADR-015 §Deferred Work). Remaining: #56 (ADR-016 self-swap). **Phased** — see §Phased Plan below. |
+| M5 — Tier 2 ADRs | 🔄 **4/5 done (2026-05-17)** | ADR-LLNCH-013 logs ✅ (#52); ADR-LLNCH-012 footer endpoint ✅ (#53, TS migration deferred); ADR-LLNCH-014 cancellation ✅ (#54); ADR-LLNCH-015 orphan (annotation + list) ✅ (#55, **reduced scope** — adopt verb deferred per ADR-LLNCH-015 §Deferred Work). Remaining: #56 (ADR-LLNCH-016 self-swap). **Phased** — see §Phased Plan below. |
 | Audit cleanup | 📋 planned | #60 (H3 audit-on-CRUD), #61 (H4 BLE001), #62 (self-loop), #64 (audit-tab remote). Phase 1 + Phase 4. |
 | **Production Hardening** | 🔄 **1/2 done (2026-05-16)** | **Parallel track to M5**, not a v2-architecture milestone. #65 (SIGTERM graceful shutdown) ✅ closed — FastAPI lifespan handler reaps managed llama-server children on SIGTERM and SIGINT. #67 (systemd `.service` units) remaining — Phase 4. |
 | M6 — Multi-backend (vLLM) | — | Issue #42 |
 | M7 — Release | — | Tag `v2.0.0`. Pre-tag: V1-carryover triage sweep (#10, #14–#27). |
 
-**End-of-2026-05-08 session metrics:** 9 commits on `main` since the prior handoff, 7 issues closed (#48, #49, #51, #52, #57, #58, #59), 1 issue filed (#63), test count 612 → 680 (+68 net), ADR-013 ratified.
+**End-of-2026-05-08 session metrics:** 9 commits on `main` since the prior handoff, 7 issues closed (#48, #49, #51, #52, #57, #58, #59), 1 issue filed (#63), test count 612 → 680 (+68 net), ADR-LLNCH-013 ratified.
 
 **End-of-2026-05-09 session metrics:** 2 commits on `main` since the 2026-05-08 handoff (`f7b8818`, `5513d26`), 2 issues closed (#50, #47), 1 issue filed (#64 — audit-tab remote-node access), test count 680 → 686 (+6 net; planner estimated ~690+, slightly under because more obsolete tests were removed than expected). M4 milestone closed.
 
-**End-of-2026-05-16 session metrics:** ADR-012 ratified and the `/footer-context/{port}` endpoint + per-port TTL cache (`llauncher/agent/footer_cache.py`) landed; #53 closed (TS-side consumer migration deferred). New env var `LAUNCHER_FOOTER_CACHE_S` joins the ADR-008/013 family. **Phase 1 of the phased plan also landed in the same session:** #61 (BLE001 scoped exceptions in `operations/*`), #60 (audit-on-CRUD via ConfigStore, with the layering fix that ConfigStore now owns the `MODEL_REMOVED+SUCCESS` audit while ops layer keeps only operation-level events), #62 (RemoteNode self-loop short-circuit for `ping`/`start`/`stop`/`swap`/`delete_model` verbs). Test count 686 → 722 (+36 net across all four issues).
+**End-of-2026-05-16 session metrics:** ADR-LLNCH-012 ratified and the `/footer-context/{port}` endpoint + per-port TTL cache (`llauncher/agent/footer_cache.py`) landed; #53 closed (TS-side consumer migration deferred). New env var `LAUNCHER_FOOTER_CACHE_S` joins the ADR-LLNCH-008/013 family. **Phase 1 of the phased plan also landed in the same session:** #61 (BLE001 scoped exceptions in `operations/*`), #60 (audit-on-CRUD via ConfigStore, with the layering fix that ConfigStore now owns the `MODEL_REMOVED+SUCCESS` audit while ops layer keeps only operation-level events), #62 (RemoteNode self-loop short-circuit for `ping`/`start`/`stop`/`swap`/`delete_model` verbs). Test count 686 → 722 (+36 net across all four issues).
 
 **End-of-2026-05-16 follow-up session (Phase 2):** #65 closed. FastAPI lifespan handler in `agent/server.py` enumerates `core/lockfile.list_lockfiles()` on shutdown and dispatches each through `operations.stop(caller="agent-shutdown")`. `uvicorn.run(..., lifespan="on")` forces the handler to fire regardless of auto-detection. Symmetric on SIGTERM and SIGINT — behavior change from the pre-#65 bare-`KeyboardInterrupt` path which orphaned children silently (called out in handoff §What NOT To Do). Test count 722 → 728 (+6 net; one new `tests/unit/test_agent_lifespan.py` module).
 
-**End-of-2026-05-16 follow-up session (Phase 3, first half):** ADR-014 ratified and #54 closed. Cancellation verb landed across the stack: `SwapMarker` gained a `cancelled` boolean (back-compat via `data.get("cancelled", False)`); marker module gained `request_cancel()` / `is_cancelled()`; `core/process.wait_for_server_ready` gained an optional `cancel_check` callable for the readiness poll; `operations.start` now takes/releases an in-flight marker (uniform with swap, enabling cancel); `operations.swap` checks cancel at the post-stop checkpoint and during readiness; both verbs surface a `cancel_ignored_post_commit` advisory when a cancel arrives after the lockfile is written. New `POST /cancel/{port}` HTTP endpoint, `cancel_server` MCP tool, and `llauncher server cancel <port>` CLI verb. New `AuditResult.CANCELLED` enum. Test count 728 → 751 (+23 net across `test_marker.py`, `test_operations.py`, `test_agent.py`, `test_servers_tools.py`, `test_cli.py`).
+**End-of-2026-05-16 follow-up session (Phase 3, first half):** ADR-LLNCH-014 ratified and #54 closed. Cancellation verb landed across the stack: `SwapMarker` gained a `cancelled` boolean (back-compat via `data.get("cancelled", False)`); marker module gained `request_cancel()` / `is_cancelled()`; `core/process.wait_for_server_ready` gained an optional `cancel_check` callable for the readiness poll; `operations.start` now takes/releases an in-flight marker (uniform with swap, enabling cancel); `operations.swap` checks cancel at the post-stop checkpoint and during readiness; both verbs surface a `cancel_ignored_post_commit` advisory when a cancel arrives after the lockfile is written. New `POST /cancel/{port}` HTTP endpoint, `cancel_server` MCP tool, and `llauncher server cancel <port>` CLI verb. New `AuditResult.CANCELLED` enum. Test count 728 → 751 (+23 net across `test_marker.py`, `test_operations.py`, `test_agent.py`, `test_servers_tools.py`, `test_cli.py`).
 
 For a self-contained guide a fresh context can use to pick up the work, see [`docs/v2-handoff.md`](v2-handoff.md).
 
@@ -61,12 +61,12 @@ For a self-contained guide a fresh context can use to pick up the work, see [`do
 - Pydantic models v2: no `default_port`; backend `kind` enum scaffolding (even if only `llama_server` is implemented in M1, the discriminated-union shape is set up for M6).
 - `ConfigStore`: load/save with silent drop of old fields.
 - Settings: env vars for `LAUNCHER_RUN_DIR`, `LAUNCHER_AUDIT_PATH`.
-- Lockfile module: atomic write, reconciliation rules per ADR-008.
+- Lockfile module: atomic write, reconciliation rules per ADR-LLNCH-008.
 - Audit log: JSONL append-only, `commanded` vs `observed_*` events.
 - Tool-layer `start_server`, `stop_server` against local infra.
 - Minimal CLI (`llauncher start`, `llauncher stop`, `llauncher list`).
 
-**Deliverable:** start/stop a single llama-server model from the CLI; lockfile + audit log behave per ADR-008.  
+**Deliverable:** start/stop a single llama-server model from the CLI; lockfile + audit log behave per ADR-LLNCH-008.  
 **Estimate:** ~4–6 sessions.
 
 ### M2 — Swap + Endpoints
@@ -74,21 +74,21 @@ For a self-contained guide a fresh context can use to pick up the work, see [`do
 **Issues:** #37 (model Delete), #40 (endpoint refactor)
 
 **Slice 1 (✅ done, commit `dd5f7dd`):**
-- [x] Tool-layer `swap_server` with full ADR-011 mechanic (5 phases, rollback, in-flight marker) — `operations.py::swap()` + `core/marker.py`
+- [x] Tool-layer `swap_server` with full ADR-LLNCH-011 mechanic (5 phases, rollback, in-flight marker) — `operations.py::swap()` + `core/marker.py`
 - [x] Config snapshot at pre-flight for rollback
 - [x] Pluggable `model_health_check` and `vram_check` callable seams (not yet wired)
 - [x] 32 new tests in `test_operations.py` and `test_marker.py`
 
 **Slice 2+ (remaining):**
-- [ ] Wire `core/model_health.py` into swap pre-flight (ADR-005)
-- [ ] Wire `core/gpu.py` into swap pre-flight (ADR-006)
-- [ ] HTTP Agent endpoint refactor per ADR-010: port-keyed routes `POST /start/{port}`, `POST /swap/{port}`
-- [ ] MCP server tools mirror HTTP shape; tool-prompt text from ADR-010 §Tool Prompt Guidance
+- [ ] Wire `core/model_health.py` into swap pre-flight (ADR-LLNCH-005)
+- [ ] Wire `core/gpu.py` into swap pre-flight (ADR-LLNCH-006)
+- [ ] HTTP Agent endpoint refactor per ADR-LLNCH-010: port-keyed routes `POST /start/{port}`, `POST /swap/{port}`
+- [ ] MCP server tools mirror HTTP shape; tool-prompt text from ADR-LLNCH-010 §Tool Prompt Guidance
 - [ ] Model Delete operation (closes #37) — `operations.delete_model(name)` with lockfile check
 - [ ] CLI swap subcommand — `llauncher server swap <port> <model>`
 - [ ] Wire all surfaces to `operations.swap()` (currently MCP uses v1 `state._start_with_eviction_impl()`)
 
-**⚠ Dual-swap warning:** Two swap implementations coexist. `operations.swap()` (v2, ADR-011) is not wired to any surface. The HTTP Agent `/start-with-eviction/` and MCP `swap_server` both use v1 `state._start_with_eviction_impl()`. All surfaces must migrate to `operations.swap()` before M2 is complete.
+**⚠ Dual-swap warning:** Two swap implementations coexist. `operations.swap()` (v2, ADR-LLNCH-011) is not wired to any surface. The HTTP Agent `/start-with-eviction/` and MCP `swap_server` both use v1 `state._start_with_eviction_impl()`. All surfaces must migrate to `operations.swap()` before M2 is complete.
 
 **Deliverable:** all three surfaces (CLI, HTTP, MCP) work for single-node ops.  
 **Estimate:** ~3–4 sessions.
@@ -97,7 +97,7 @@ For a self-contained guide a fresh context can use to pick up the work, see [`do
 
 **Status: Implemented in pre-v2 code.** The infrastructure exists but is NOT wired to the v2 `operations` layer.
 
-- [x] `nodes.json` per-node peer list (per ADR-009) — `llauncher/remote/registry.py`
+- [x] `nodes.json` per-node peer list (per ADR-LLNCH-009) — `llauncher/remote/registry.py`
 - [x] Remote dispatch via httpx — `llauncher/remote/node.py::RemoteNode` with `ping()`, `get_status()`, `start_server()`, `stop_server()`, `get_logs()`
 - [ ] Self-loop short-circuit when target resolves to this node
 - [x] Auth pass-through (`X-Api-Key`) — `RemoteNode` sends header on all calls
@@ -127,13 +127,13 @@ Three audit findings the v2-handoff and m4-design called out as boundary-tighten
 
 ### M5 — Tier 2 ADRs + Implementation
 
-**Status: 1/5 done (2026-05-08).** ADR-013 ratified; the rest are parallelizable and can run in any order after M4 finishes.
+**Status: 1/5 done (2026-05-08).** ADR-LLNCH-013 ratified; the rest are parallelizable and can run in any order after M4 finishes.
 
-- [x] **ADR-013 — Logs lifecycle** ([#52](https://github.com/shanevcantwell/llauncher/issues/52), `9dc2769`) — Append mode + size-cap rotation + bounded tail. New module `core/log_rotation.py`. New env vars `LAUNCHER_LOG_DIR`, `LAUNCHER_LOG_MAX_BYTES`, `LAUNCHER_LOG_KEEP`. 17 tests including a partial-rename-failure simulation. Filed [#63](https://github.com/shanevcantwell/llauncher/issues/63) for the sanitizer-collision side concern.
-- [x] **ADR-012 — Footer contract** ([#53](https://github.com/shanevcantwell/llauncher/issues/53), 2026-05-16): `GET /footer-context/{port}` with per-port TTL cache in `llauncher/agent/footer_cache.py`. Pinned four-field shape `{port, model, ctx_size, parallel}`; reads from lockfile + `ConfigStore` only — no process scan, no GPU probe. New env var `LAUNCHER_FOOTER_CACHE_S` (default 1.0 s). 14 tests. TS-side `pi-footer-extension` migration deferred to a separate slice.
-- [x] **ADR-014 — Cancellation** ([#54](https://github.com/shanevcantwell/llauncher/issues/54), 2026-05-16): cancel flag in marker (boolean, back-compat default False); `POST /cancel/{port}` (port-keyed per ADR-010); MCP `cancel_server` tool; CLI `llauncher server cancel <port>`. Phase-boundary polling only (no mid-phase checks, no new threads). Cancel before commit reuses rollback path → `cancelled` action; cancel after commit is a no-op with `cancel_ignored_post_commit=True` advisory. 23 new tests.
-- [x] **ADR-015 — Orphan policy (reduced scope)** ([#55](https://github.com/shanevcantwell/llauncher/issues/55), ADR-015): annotation + `orphan list` across CLI/HTTP/MCP, audit emission deduped on first sighting per pid. Adopt verb and `is_managed` field on `RunningServer` deferred — see ADR-015 §Deferred Work.
-- [ ] **ADR-016 — Self-swap worked example** ([#56](https://github.com/shanevcantwell/llauncher/issues/56)): integration test + prose timeline. Depends on #54.
+- [x] **ADR-LLNCH-013 — Logs lifecycle** ([#52](https://github.com/shanevcantwell/llauncher/issues/52), `9dc2769`) — Append mode + size-cap rotation + bounded tail. New module `core/log_rotation.py`. New env vars `LAUNCHER_LOG_DIR`, `LAUNCHER_LOG_MAX_BYTES`, `LAUNCHER_LOG_KEEP`. 17 tests including a partial-rename-failure simulation. Filed [#63](https://github.com/shanevcantwell/llauncher/issues/63) for the sanitizer-collision side concern.
+- [x] **ADR-LLNCH-012 — Footer contract** ([#53](https://github.com/shanevcantwell/llauncher/issues/53), 2026-05-16): `GET /footer-context/{port}` with per-port TTL cache in `llauncher/agent/footer_cache.py`. Pinned four-field shape `{port, model, ctx_size, parallel}`; reads from lockfile + `ConfigStore` only — no process scan, no GPU probe. New env var `LAUNCHER_FOOTER_CACHE_S` (default 1.0 s). 14 tests. TS-side `pi-footer-extension` migration deferred to a separate slice.
+- [x] **ADR-LLNCH-014 — Cancellation** ([#54](https://github.com/shanevcantwell/llauncher/issues/54), 2026-05-16): cancel flag in marker (boolean, back-compat default False); `POST /cancel/{port}` (port-keyed per ADR-LLNCH-010); MCP `cancel_server` tool; CLI `llauncher server cancel <port>`. Phase-boundary polling only (no mid-phase checks, no new threads). Cancel before commit reuses rollback path → `cancelled` action; cancel after commit is a no-op with `cancel_ignored_post_commit=True` advisory. 23 new tests.
+- [x] **ADR-LLNCH-015 — Orphan policy (reduced scope)** ([#55](https://github.com/shanevcantwell/llauncher/issues/55), ADR-LLNCH-015): annotation + `orphan list` across CLI/HTTP/MCP, audit emission deduped on first sighting per pid. Adopt verb and `is_managed` field on `RunningServer` deferred — see ADR-LLNCH-015 §Deferred Work.
+- [ ] **ADR-LLNCH-016 — Self-swap worked example** ([#56](https://github.com/shanevcantwell/llauncher/issues/56)): integration test + prose timeline. Depends on #54.
 
 **Late audit cleanup running alongside M5:** [#60](https://github.com/shanevcantwell/llauncher/issues/60) (H3 audit-on-CRUD), [#61](https://github.com/shanevcantwell/llauncher/issues/61) (H4 BLE001 in `operations/*`), [#62](https://github.com/shanevcantwell/llauncher/issues/62) (self-loop short-circuit).
 
@@ -143,17 +143,17 @@ Three audit findings the v2-handoff and m4-design called out as boundary-tighten
 
 **Issues:** #42
 
-- ADR-012: backend adapter layer (per #42's outline).
+- ADR-LLNCH-012: backend adapter layer (per #42's outline).
 - Discriminated-union `ModelConfig`.
 - Extract `LlamaServerAdapter` from existing process-build code.
 - New `VLLMAdapter`.
-- Amend ADR-005, ADR-006, ADR-008 per #42's notes.
+- Amend ADR-LLNCH-005, ADR-LLNCH-006, ADR-LLNCH-008 per #42's notes.
 
 **Estimate:** ~3–5 sessions.
 
 ### M7 — Release
 
-- Update pi-coding-agent's TypeScript extension for the renamed endpoints (per ADR-010).
+- Update pi-coding-agent's TypeScript extension for the renamed endpoints (per ADR-LLNCH-010).
 - Tag the v2-complete commit as `v2.0.0`.
 - Migration is silent and handled inline by `ConfigStore.load()` (already in M1); no separate script needed.
 
@@ -199,8 +199,8 @@ Bedrock smoothing before any new mechanism lands. Three independent slices, one 
 
 | Issue | Track | Why this phase |
 |-------|-------|----------------|
-| ~~[#54](https://github.com/shanevcantwell/llauncher/issues/54)~~ — ADR-014 cancellation | [M5] | ✅ done (2026-05-16). Cancel flag on marker, `cancel_check` callable through readiness poll, `POST /cancel/{port}`. Lands on clean `operations/*` (after #61) and the marker module's existing five-phase contract. |
-| [#55](https://github.com/shanevcantwell/llauncher/issues/55) — ADR-015 orphan policy | [M5] | Lands on stable remote dispatch (#62) and correct shutdown (#65). The managed-vs-unmanaged distinction it codifies is then available to the rest of v2. |
+| ~~[#54](https://github.com/shanevcantwell/llauncher/issues/54)~~ — ADR-LLNCH-014 cancellation | [M5] | ✅ done (2026-05-16). Cancel flag on marker, `cancel_check` callable through readiness poll, `POST /cancel/{port}`. Lands on clean `operations/*` (after #61) and the marker module's existing five-phase contract. |
+| [#55](https://github.com/shanevcantwell/llauncher/issues/55) — ADR-LLNCH-015 orphan policy | [M5] | Lands on stable remote dispatch (#62) and correct shutdown (#65). The managed-vs-unmanaged distinction it codifies is then available to the rest of v2. |
 
 #54 and #55 are independent of each other and may interleave if convenient, but both must land before Phase 4.
 
@@ -208,7 +208,7 @@ Bedrock smoothing before any new mechanism lands. Three independent slices, one 
 
 | Issue | Track | Why this phase |
 |-------|-------|----------------|
-| [#56](https://github.com/shanevcantwell/llauncher/issues/56) — ADR-016 canonical self-swap test | [M5] | The worked example *of* #54's mechanics. Must be last in the M5 track. |
+| [#56](https://github.com/shanevcantwell/llauncher/issues/56) — ADR-LLNCH-016 canonical self-swap test | [M5] | The worked example *of* #54's mechanics. Must be last in the M5 track. |
 | [#67](https://github.com/shanevcantwell/llauncher/issues/67) — systemd `.service` units | [PH] | Pure packaging on top of #65. Meaningless without graceful shutdown. |
 | [#64](https://github.com/shanevcantwell/llauncher/issues/64) — Audit tab: remote-node audit log access | [AC] | UI consumer of the audit contract pinned in Phase 1 (#60). |
 
@@ -240,7 +240,7 @@ Each phase tightens a contract — exception scope, audit shape, dispatch path, 
 | Issue | Title | Milestone | Status |
 |-------|-------|-----------|--------|
 | #37 | Add model Delete | M2 | ✅ closed |
-| #38 | Volume-mount paths | M1 | partial — `LAUNCHER_LOG_DIR` added by ADR-013 |
+| #38 | Volume-mount paths | M1 | partial — `LAUNCHER_LOG_DIR` added by ADR-LLNCH-013 |
 | #39 | Audit commanded vs observed | M1 | partial — #60 closes the config-CRUD gap |
 | #40 | Endpoint refactor (port-keyed) | M2 | ✅ closed |
 | #41 | CLI naming | — | ✅ resolved: `llauncher` |
@@ -252,11 +252,11 @@ Each phase tightens a contract — exception scope, audit shape, dispatch path, 
 | #49 | M4 Slice 12 — drop auto-spawn | M4 | ✅ closed (`0d06b89`) |
 | #50 | M4 Slice 13 — tab restructure | M4 | ✅ closed (`5513d26`) |
 | #51 | M4 Slice 14 — render_op_result | M4 | ✅ closed (`1f55f3a`) |
-| #52 | M5 / ADR-013 — logs lifecycle | M5 | ✅ closed (`9dc2769`) |
-| #53 | M5 / ADR-012 — footer contract | M5 | ✅ closed (2026-05-16) |
-| #54 | M5 / ADR-014 — cancellation | M5 | ✅ closed (2026-05-16, Phase 3) |
-| #55 | M5 / ADR-015 — orphan policy (annotation + list) | M5 | ✅ closed — adopt deferred per ADR-015 §Deferred Work |
-| #56 | M5 / ADR-016 — self-swap test | M5 | open (depends on #54) — **Phase 4** |
+| #52 | M5 / ADR-LLNCH-013 — logs lifecycle | M5 | ✅ closed (`9dc2769`) |
+| #53 | M5 / ADR-LLNCH-012 — footer contract | M5 | ✅ closed (2026-05-16) |
+| #54 | M5 / ADR-LLNCH-014 — cancellation | M5 | ✅ closed (2026-05-16, Phase 3) |
+| #55 | M5 / ADR-LLNCH-015 — orphan policy (annotation + list) | M5 | ✅ closed — adopt deferred per ADR-LLNCH-015 §Deferred Work |
+| #56 | M5 / ADR-LLNCH-016 — self-swap test | M5 | open (depends on #54) — **Phase 4** |
 | #57 | Audit C2 — state→core layer | pre-M4 | ✅ closed (`b361b60`) |
 | #58 | Audit C3 — port required | pre-M4 | ✅ closed (`270a43e`) |
 | #59 | Audit H1 — MCP refresh | pre-M4 | ✅ closed (`de9f10f`) |
@@ -272,9 +272,9 @@ Each phase tightens a contract — exception scope, audit shape, dispatch path, 
 ## References
 
 - ADRs 008–011 (`docs/adrs/{accepted,completed}/`) — Tier 1, foundation (008 in `accepted/` — eviction-compat retained; 009–011 in `completed/`)
-- ADR-013 (`docs/adrs/accepted/013-logs-lifecycle.md`) — accepted 2026-05-08
-- ADR-008 amendment notes (2026-05-02)
-- ADR-002 (Superseded by ADR-011)
+- ADR-LLNCH-013 (`docs/adrs/accepted/013-logs-lifecycle.md`) — accepted 2026-05-08
+- ADR-LLNCH-008 amendment notes (2026-05-02)
+- ADR-LLNCH-002 (Superseded by ADR-LLNCH-011)
 - Orientation spike (`docs/reviews/2026-05-02-v2-orientation-spike.md`)
 - M4/M5 design docs (`docs/m4-design.md`, `docs/m5-design.md`)
 - Code audit synthesis (`docs/_audit_synthesis.md` + 5 domain reports)

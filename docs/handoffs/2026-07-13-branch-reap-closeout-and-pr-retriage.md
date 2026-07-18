@@ -17,7 +17,7 @@ Start from the flags; they are leads, not verdicts — confirm each with `git ch
 | #183 | repro/issue-181-eject-divergence | GPU-free repro suite for open bug #181 | **keep** — now the SOLE carrier of the #181 repro (its duplicate `salvage/181` was reaped this session). Do not close while #181 is open. |
 | #212 | docs/multiuser-migration-consolidation | consolidate multiuser/systemd migration runbook | docs; confirm still current vs merged migration work, then merge or refresh. |
 | #217 | fix/150-vram-preflight-unknown | fail-loud on unknown VRAM in preflight | **likely close** — issue #150 already landed via merged #240 (`d8f06ba …(#150)(#240)`). Confirm this PR isn't additive, then close-as-superseded. |
-| #218 | fix/126-adr003-exempt-paths-drift | narrow ADR-003 auth-exempt paths to match middleware | **verify overlap** — `main` has a separate `8e537ad` ADR-003 alignment commit; check this PR isn't already redundant with it before merging or closing. |
+| #218 | fix/126-adr003-exempt-paths-drift | narrow ADR-LLNCH-003 auth-exempt paths to match middleware | **verify overlap** — `main` has a separate `8e537ad` ADR-LLNCH-003 alignment commit; check this PR isn't already redundant with it before merging or closing. |
 | #222 | fix/124-test-summary-drift-gate | gate TEST_SUITE_SUMMARY against drift | tooling gate; appears live/distinct. Review-and-merge candidate. |
 
 Recommended re-triage motion: run the `triage-issues` skill's disposition pass over these 8
@@ -38,7 +38,7 @@ one is a hard keep (#183), three are review-and-merge (#212, #218, #222).
     LIVE on `main` (`render_add_node_form`/`add_node`), so the test is adoptable now.
     Recovery `95f94c2`.
   - **#290** — progress-snapshot ADR draft from `docs/adr-019`; feature shipped via #264
-    without its ADR; draft NUMBER-COLLIDES with shipped ADR-019 (server-metrics-surface) —
+    without its ADR; draft NUMBER-COLLIDES with shipped ADR-LLNCH-019 (server-metrics-surface) —
     formalize-and-renumber or discard. Recovery `186f459`.
 
 ## Open thread the operator did NOT resolve (parked, no action forced)

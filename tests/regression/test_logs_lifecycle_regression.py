@@ -1,4 +1,4 @@
-"""Regression tests for ADR-013 logs lifecycle (issue #52).
+"""Regression tests for ADR-LLNCH-013 logs lifecycle (issue #52).
 
 These pin down the specific behaviors the feature introduced — and which
 would silently break if someone refactored the rotation/banner ordering
@@ -116,7 +116,7 @@ def test_banner_flushed_before_subprocess_spawn(
     """``log.flush()`` MUST be called before ``Popen`` inherits the fd.
 
     Regression: without the flush, child output races the banner buffer
-    and lands first, defeating ADR-013's run-boundary grep contract.
+    and lands first, defeating ADR-LLNCH-013's run-boundary grep contract.
     """
     mock_bin = MagicMock()
     mock_bin.exists.return_value = True

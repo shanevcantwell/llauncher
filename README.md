@@ -5,10 +5,10 @@ An MCP-first launcher and management tool for llama.cpp `llama-server` instances
 ## Features
 
 ### Core (`llauncher/operations/`)
-The stateless service layer that every surface delegates to (ADR-008). Adding a verb here surfaces it across all four boundaries automatically.
+The stateless service layer that every surface delegates to (ADR-LLNCH-008). Adding a verb here surfaces it across all four boundaries automatically.
 - **Verbs**: `start`, `stop`, `swap`, `cancel`, `delete_model`, `list_orphans`
 - **Pre-flight seams**: model-health probe and VRAM estimation, attachable as optional callables on `swap()`
-- **ADR-010 port discipline**: every verb takes `port` as a required argument — no auto-allocation, no env-var fallback
+- **ADR-LLNCH-010 port discipline**: every verb takes `port` as a required argument — no auto-allocation, no env-var fallback
 
 ### MCP Server
 Canonical surface for LLM agents and automation. Stdio transport; full read + mutate coverage of the core verbs.
@@ -17,7 +17,7 @@ Canonical surface for LLM agents and automation. Stdio transport; full read + mu
 - **Configuration CRUD**: `add_model`, `update_model_config`, `delete_model`, `validate_config`
 
 ### HTTP Agent
-Same verbs over REST for multi-node setups (ADR-009 hub-spoke). Port-keyed routes (`/start/{port}`, `/swap/{port}`, `/stop/{port}`, `/cancel/{port}`, `/footer-context/{port}`) plus `/status`, `/models`, `/models/health`. **Always** token-protected via an `X-Api-Key` header — including on loopback, where the token is auto-generated rather than operator-supplied (ADR-003). A non-loopback bind additionally *refuses to start* without a pre-existing token. Unlike the agent, the MCP server and local CLI are in-process and tokenless. See [`docs/auth.md`](docs/auth.md) for the full token/auth model.
+Same verbs over REST for multi-node setups (ADR-LLNCH-009 hub-spoke). Port-keyed routes (`/start/{port}`, `/swap/{port}`, `/stop/{port}`, `/cancel/{port}`, `/footer-context/{port}`) plus `/status`, `/models`, `/models/health`. **Always** token-protected via an `X-Api-Key` header — including on loopback, where the token is auto-generated rather than operator-supplied (ADR-LLNCH-003). A non-loopback bind additionally *refuses to start* without a pre-existing token. Unlike the agent, the MCP server and local CLI are in-process and tokenless. See [`docs/auth.md`](docs/auth.md) for the full token/auth model.
 
 ### Streamlit UI
 Web dashboard for human operators. Four tabs: Dashboard (read-only running view), Models (config CRUD + per-model start/stop/swap with explicit port picker), Nodes (peer registry), Audit (local audit-log tail).
@@ -78,7 +78,7 @@ Use the runner scripts for easiest setup:
 
 The dashboard requires the local agent to be running. Start the agent
 first (in its own terminal), then the dashboard in a second terminal.
-The UI deliberately does not auto-spawn the agent — see ADR-009 and the
+The UI deliberately does not auto-spawn the agent — see ADR-LLNCH-009 and the
 "Why doesn't the UI start the agent for me?" expander rendered on the
 dashboard when the agent is down.
 
@@ -114,7 +114,7 @@ The UI supports two postures — pick whichever fits how you work:
 
 - **On demand:** `llauncher-ui` (or `./run.sh ui`) starts the dashboard in
   the foreground for the session; close the terminal and it's gone.
-- **Per-operator `systemd --user` service** ([ADR-022](docs/adrs/accepted/022-llauncher-ui-user-service.md)):
+- **Per-operator `systemd --user` service** ([ADR-LLNCH-022](docs/adrs/accepted/adr-llnch-022-llauncher-ui-user-service.md)):
   install with [`scripts/systemd/install-ui.sh`](scripts/systemd/install-ui.sh)
   for a unit that restarts on crash (`Restart=on-failure`) and logs to
   journald (`journalctl --user -u llauncher-ui -f`). See
@@ -160,17 +160,17 @@ Or configure in your MCP client (e.g., Claude Code):
 |------|-------------|
 | `list_models` | List all configured models with current status (running/stopped) |
 | `get_model_config` | Get full configuration details for a specific model |
-| `start_server` | Start a llama-server instance on a given port (`model_name` + `port` required; ADR-010) |
+| `start_server` | Start a llama-server instance on a given port (`model_name` + `port` required; ADR-LLNCH-010) |
 | `stop_server` | Stop a running server by port number |
-| `swap_server` | Atomically swap models on a port with rollback guarantee (ADR-011) |
-| `cancel_server` | Cancel an in-flight start/swap on a port (ADR-014) |
+| `swap_server` | Atomically swap models on a port with rollback guarantee (ADR-LLNCH-011) |
+| `cancel_server` | Cancel an in-flight start/swap on a port (ADR-LLNCH-014) |
 | `server_status` | Get status summary of all running servers |
 | `get_server_logs` | Fetch recent log lines from a running server |
-| `list_orphans` | List unmanaged `llama-server` processes on the local node (ADR-015) |
+| `list_orphans` | List unmanaged `llama-server` processes on the local node (ADR-LLNCH-015) |
 | `update_model_config` | Update an existing model's configuration |
 | `validate_config` | Validate a configuration without applying it |
 | `add_model` | Add a new model configuration to the store |
-| `delete_model` | Delete a model configuration (refuses if running; ADR-008 §4.1) |
+| `delete_model` | Delete a model configuration (refuses if running; ADR-LLNCH-008 §4.1) |
 
 ### Streamlit UI
 
@@ -204,7 +204,7 @@ run.bat ui
 Read-only running view (no mutate verbs live here per M4 Slice 13 / #50). Status indicators (🟢 Running / ⚫ Stopped), uptime, and live log tail for each active server. Use the Models tab to start/stop/swap.
 
 #### Models Tab
-Config CRUD plus the per-model verb buttons. Add / edit / delete configurations and drive **Start**, **Stop**, **Swap** against the selected target node. Includes the explicit port picker (`ui/components/port_picker.py`) — ADR-010 requires the operator to choose the port at every call site; there is no auto-allocation or remembered default.
+Config CRUD plus the per-model verb buttons. Add / edit / delete configurations and drive **Start**, **Stop**, **Swap** against the selected target node. Includes the explicit port picker (`ui/components/port_picker.py`) — ADR-LLNCH-010 requires the operator to choose the port at every call site; there is no auto-allocation or remembered default.
 
 #### Nodes Tab
 Peer registry for multi-node setups. Add / list / remove remote agent nodes, test connectivity, and observe status. The sidebar `node_selector` (`ui/components/node_selector.py`) chooses which node the Models tab acts against.
@@ -231,16 +231,16 @@ This is the mechanism for a non-login/non-interactive caller (an automation harn
 llauncher model list
 llauncher model info mistral-7b
 
-# Server lifecycle — port is required on start (ADR-010)
+# Server lifecycle — port is required on start (ADR-LLNCH-010)
 llauncher server start mistral-7b --port 8081
 llauncher server stop 8081
-llauncher server cancel 8081         # ADR-014: signals an in-flight start/swap
+llauncher server cancel 8081         # ADR-LLNCH-014: signals an in-flight start/swap
 llauncher server status --json
 
-# Orphans — unmanaged llama-server processes (ADR-015, read-only)
+# Orphans — unmanaged llama-server processes (ADR-LLNCH-015, read-only)
 llauncher orphan list
 
-# Remote nodes (ADR-009)
+# Remote nodes (ADR-LLNCH-009)
 llauncher node add my-server --host 192.168.1.100 --port 8765
 llauncher node list
 llauncher node status --all
@@ -290,11 +290,11 @@ Example config entry:
 }
 ```
 
-Per ADR-010, port is supplied at every call site (UI port picker, CLI `--port`, MCP `port` arg, HTTP `/start/{port}` route) and is **not** persisted in the config. Legacy `default_port` entries in `config.json` are silently dropped on load.
+Per ADR-LLNCH-010, port is supplied at every call site (UI port picker, CLI `--port`, MCP `port` arg, HTTP `/start/{port}` route) and is **not** persisted in the config. Legacy `default_port` entries in `config.json` are silently dropped on load.
 
 ### State Paths & Volume Mounts (Docker)
 
-Per ADR-008, the lockfile directory and audit log are env-configurable so a container can mount host state as a volume — letting an in-container agent (e.g. `pi-coding-agent`) introspect the state of llauncher running on the host.
+Per ADR-LLNCH-008, the lockfile directory and audit log are env-configurable so a container can mount host state as a volume — letting an in-container agent (e.g. `pi-coding-agent`) introspect the state of llauncher running on the host.
 
 | Env var | Default | Holds |
 |---------|---------|-------|
@@ -341,18 +341,18 @@ llauncher/
 │   ├── __init__.py
 │   ├── __main__.py
 │   ├── cli.py                  # Typer CLI (model/server/orphan/node/config groups)
-│   ├── state.py                # Legacy LauncherState — eviction-compat hook (ADR-008)
-│   ├── operations/             # Stateless service layer; MCP/HTTP/CLI/UI all delegate here (ADR-008)
+│   ├── state.py                # Legacy LauncherState — eviction-compat hook (ADR-LLNCH-008)
+│   ├── operations/             # Stateless service layer; MCP/HTTP/CLI/UI all delegate here (ADR-LLNCH-008)
 │   │   ├── start.py
 │   │   ├── stop.py
-│   │   ├── swap.py             # ADR-011 five-phase swap with rollback
+│   │   ├── swap.py             # ADR-LLNCH-011 five-phase swap with rollback
 │   │   ├── delete.py
-│   │   ├── orphan.py           # ADR-015 read-only orphan listing
+│   │   ├── orphan.py           # ADR-LLNCH-015 read-only orphan listing
 │   │   └── preflight.py        # Model-health + VRAM seams
-│   ├── agent/                  # HTTP agent (FastAPI, port-keyed routes per ADR-010)
+│   ├── agent/                  # HTTP agent (FastAPI, port-keyed routes per ADR-LLNCH-010)
 │   │   ├── auth.py
 │   │   ├── config.py
-│   │   ├── footer_cache.py     # /footer-context/{port} TTL cache (ADR-012)
+│   │   ├── footer_cache.py     # /footer-context/{port} TTL cache (ADR-LLNCH-012)
 │   │   ├── middleware.py
 │   │   ├── routing.py
 │   │   └── server.py           # Lifespan handler reaps managed children on SIGTERM/SIGINT
@@ -360,18 +360,18 @@ llauncher/
 │   │   ├── server.py
 │   │   └── tools/              # servers / models / config tool groups
 │   ├── core/                   # Primitive substrate (no LauncherState)
-│   │   ├── audit_log.py        # JSON Lines audit (ADR-008)
+│   │   ├── audit_log.py        # JSON Lines audit (ADR-LLNCH-008)
 │   │   ├── config.py           # ConfigStore — single source of truth
-│   │   ├── gpu.py              # GPU collector (ADR-006)
+│   │   ├── gpu.py              # GPU collector (ADR-LLNCH-006)
 │   │   ├── lockfile.py         # Atomic O_EXCL per-port lockfiles
-│   │   ├── log_rotation.py     # ADR-013 append + rotate
-│   │   ├── marker.py           # In-flight swap/start marker (ADR-011/014)
-│   │   ├── model_health.py     # Cache probe (ADR-005)
+│   │   ├── log_rotation.py     # ADR-LLNCH-013 append + rotate
+│   │   ├── marker.py           # In-flight swap/start marker (ADR-LLNCH-011/014)
+│   │   ├── model_health.py     # Cache probe (ADR-LLNCH-005)
 │   │   ├── process.py          # Subprocess management
 │   │   └── settings.py         # LAUNCHER_* env-var family
 │   ├── models/
-│   │   └── config.py           # Pydantic ModelConfig (no default_port; ADR-010)
-│   ├── remote/                 # Multi-node hub-spoke (ADR-009)
+│   │   └── config.py           # Pydantic ModelConfig (no default_port; ADR-LLNCH-010)
+│   ├── remote/                 # Multi-node hub-spoke (ADR-LLNCH-009)
 │   │   ├── node.py             # RemoteNode (port-keyed ops)
 │   │   ├── registry.py         # NodeRegistry
 │   │   └── state.py            # RemoteAggregator (swap_on_node parity)

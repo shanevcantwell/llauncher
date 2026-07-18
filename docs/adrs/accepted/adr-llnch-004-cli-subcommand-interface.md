@@ -1,4 +1,4 @@
-# ADR-004: CLI Subcommand Interface for llauncher
+# ADR-LLNCH-004: CLI Subcommand Interface for llauncher
 
 **Status:** Accepted — partial implementation  
 **Date:** 2026-04-26  
@@ -79,7 +79,7 @@ llauncher/
 - Double-discovery problem: same operation exists as CLI subcommand, MCP tool, HTTP endpoint, and Streamlit action
 
 **Open Questions:**
-1. ~~Should `llauncher server start` auto-assign ports~~ **Resolved 2026-05-24** by ADR-010: port is required at every CLI boundary; no auto-allocation. `--port` is required on `server start`.
+1. ~~Should `llauncher server start` auto-assign ports~~ **Resolved 2026-05-24** by ADR-LLNCH-010: port is required at every CLI boundary; no auto-allocation. `--port` is required on `server start`.
 2. ~~How should CLI handle node registration persistence~~ **Resolved**: direct JSON manipulation, matching the ConfigStore pattern.
 
 ## Amendment Notes
@@ -90,10 +90,10 @@ Shipped subcommand groups:
 
 - `model` — `list`, `info`
 - `server` — `start`, `stop`, `cancel`, `status`. The `cancel` verb is
-  beyond the original Decision block; added per ADR-014 / #54.
+  beyond the original Decision block; added per ADR-LLNCH-014 / #54.
 - `node` — `add`, `list`, `remove`, `status`
 - `config` — `path`, `validate`
-- `orphan` — `list` (beyond original Decision; added per ADR-015 / #55,
+- `orphan` — `list` (beyond original Decision; added per ADR-LLNCH-015 / #55,
   read-only; no `adopt` verb per that ADR's Deferred Work).
 
 Output uses Rich tables; every group accepts `--json` for scripting.
@@ -107,4 +107,4 @@ Deferred from original Decision block:
 - `llauncher logs <port> [--lines 50]` — log-tail utility. Logs are
   reachable via MCP `get_server_logs` and HTTP `/logs/{port}/tail`;
   CLI exposure is a follow-up. The log lifecycle itself is governed
-  by ADR-013.
+  by ADR-LLNCH-013.

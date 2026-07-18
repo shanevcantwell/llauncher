@@ -1,6 +1,6 @@
 """Reusable port picker for M4 start/swap flows (issue #50, stage 2).
 
-ADR-010 moves port selection out of the model config and into the call
+ADR-LLNCH-010 moves port selection out of the model config and into the call
 site of every verb. The UI's job is to (a) make the user supply a port
 explicitly — no auto-allocation seam — and (b) surface the most likely
 failure modes inline, *before* the user clicks the verb button, so they
@@ -11,7 +11,7 @@ can correct without paying a round-trip through ``operations.start``.
 Earlier drafts of this slice considered seeding the input with the next
 free port (``find_available_port(None)``). The user explicitly rejected
 that: a pre-filled port nudges the user toward "just hit start", which
-is exactly the auto-allocation behaviour ADR-010 deletes — only with
+is exactly the auto-allocation behaviour ADR-LLNCH-010 deletes — only with
 the seam moved one layer up. Keeping the input empty forces an
 intentional choice every time, which is the architectural property the
 ADR is paying for.
@@ -82,7 +82,7 @@ def render_port_picker(
         step=1,
         key=f"{key_prefix}_port",
         placeholder="Enter port",
-        help="Required. ADR-010: the verb caller supplies the port; the model config does not.",
+        help="Required. ADR-LLNCH-010: the verb caller supplies the port; the model config does not.",
     )
 
     if port is None:

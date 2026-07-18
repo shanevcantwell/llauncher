@@ -116,7 +116,7 @@ class TestModelEntryLogic:
         assert status_info.get("port") == 8080
 
     def test_model_entry_stopped_no_port_attribute(self):
-        """Per ADR-010, stopped model has no port attribute on its config."""
+        """Per ADR-LLNCH-010, stopped model has no port attribute on its config."""
         status_info = {"status": "stopped"}
         config = ModelConfig.from_dict_unvalidated({
             "name": "test",

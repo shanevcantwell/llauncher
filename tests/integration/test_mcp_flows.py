@@ -5,8 +5,8 @@ framing) and asserts against lockfile/marker/audit/process state.
 
 References:
 - test-coverage-plan.md Phase C
-- ADR-010 (verb shape), ADR-011 (swap five-phase), ADR-013 (logs),
-  ADR-014 (cancel), ADR-015 (orphan policy)
+- ADR-LLNCH-010 (verb shape), ADR-LLNCH-011 (swap five-phase), ADR-LLNCH-013 (logs),
+  ADR-LLNCH-014 (cancel), ADR-LLNCH-015 (orphan policy)
 - Issues: #54 cancel, #55 orphan, #56 (this harness), #65 reap-on-shutdown
 - Companion: docs/plans/security-hardening-plan.md (test hooks 1, 2, 3, 17)
 """
@@ -217,7 +217,7 @@ async def test_cancel_post_commit_during_swap_is_advisory(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Flow 6: list_orphans annotation + listing (ADR-015)
+# Flow 6: list_orphans annotation + listing (ADR-LLNCH-015)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -256,7 +256,7 @@ async def test_stop_server_reaps_child(mcp_env, register_model, mcp_dispatch):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Flow 8: get_server_logs honors bounded tail (ADR-013)
+# Flow 8: get_server_logs honors bounded tail (ADR-LLNCH-013)
 # ─────────────────────────────────────────────────────────────────────────────
 
 

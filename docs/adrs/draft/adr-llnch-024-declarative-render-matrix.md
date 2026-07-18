@@ -1,4 +1,4 @@
-# ADR-024: Declarative Render Matrix — internal config → backend argv as a typed table
+# ADR-LLNCH-024: Declarative Render Matrix — internal config → backend argv as a typed table
 
 **Status:** Draft
 **Date:** 2026-06-29
@@ -314,7 +314,7 @@ vLLM argv with the canonical name emitted via `--served-model-name`, untransform
   live re-render + relaunch on a single setting change. **Recommendation:** (a) is the
   load-bearing one and the matrix shape directly enables it; pursue it. **Caution against
   (b)** — see Alternative E (it makes the table a persisted artifact with its own
-  parse/validate/migrate burden). (c) is a `swap`-semantics question (ADR-011), largely
+  parse/validate/migrate burden). (c) is a `swap`-semantics question (ADR-LLNCH-011), largely
   orthogonal to this matrix. **Resolution:** operator picks the target reading before
   Phase 3; (a) needs no extra work, (b)/(c) are separate ADRs if wanted.
 - [ ] **`Unsupported`-cell policy: reject vs warn vs ignore.** A one-time decision for the
@@ -375,6 +375,6 @@ vLLM argv with the canonical name emitted via `--served-model-name`, untransform
 
 ## Supersession relationships
 
-**Supersedes:** none. **Superseded by:** TBD. **Amends in spirit:** ADR-007
+**Supersedes:** none. **Superseded by:** TBD. **Amends in spirit:** ADR-LLNCH-007
 (repeat-penalty tuning) and the sampling-param surface become `FIELD_DERIVED` cells;
 no status change to those ADRs.

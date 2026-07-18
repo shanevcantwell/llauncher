@@ -1,7 +1,7 @@
 """Configuration persistence for llauncher.
 
 CRUD methods (``add_model``, ``update_model``, ``remove_model``) emit
-audit-log entries per ADR-008 / issue #60. Each method takes an
+audit-log entries per ADR-LLNCH-008 / issue #60. Each method takes an
 optional ``caller`` kwarg identifying the surface that initiated the
 mutation (``"cli"`` / ``"mcp"`` / ``"http"`` / ``"ui"``); callers that
 don't pass one are recorded as ``"unknown"``.
@@ -122,7 +122,7 @@ class ConfigStore:
             config: Model configuration to add.
             caller: Identifies the surface that initiated the change
                 (``"cli"`` / ``"mcp"`` / ``"http"`` / ``"ui"``).
-                Recorded in the audit log per ADR-008 / issue #60.
+                Recorded in the audit log per ADR-LLNCH-008 / issue #60.
         """
         models = cls.load()
         models[config.name] = config
@@ -159,7 +159,7 @@ class ConfigStore:
 
         # Capture which fields actually changed so the audit message is
         # informative without bloating the entry with a full dump.
-        # ``AuditEntry`` has no payload field by design (ADR-008); the
+        # ``AuditEntry`` has no payload field by design (ADR-LLNCH-008); the
         # ``message`` is the natural carrier.
         prev_d = previous.to_dict()
         new_d = config.to_dict()

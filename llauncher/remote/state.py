@@ -125,7 +125,7 @@ class RemoteAggregator:
         model_name: str,
         port: int,
     ) -> dict | None:
-        """Start ``model_name`` on ``port`` on a specific node (ADR-010).
+        """Start ``model_name`` on ``port`` on a specific node (ADR-LLNCH-010).
 
         Args:
             node_name: Name of the node.

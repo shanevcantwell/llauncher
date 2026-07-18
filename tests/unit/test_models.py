@@ -17,7 +17,7 @@ def test_model_config_validation():
 
 
 def test_model_config_drops_legacy_default_port():
-    """Per ADR-010, ``default_port`` is silently dropped on load."""
+    """Per ADR-LLNCH-010, ``default_port`` is silently dropped on load."""
     data = {
         "name": "test-model",
         "model_path": "/fake/path/model.gguf",
@@ -169,7 +169,7 @@ class TestModelConfigFieldRoundtrip:
 
 
 class TestModelConfigLegacyFieldDrop:
-    """Per ADR-010 + v2 migration policy, legacy port-related fields are
+    """Per ADR-LLNCH-010 + v2 migration policy, legacy port-related fields are
     silently dropped on load. The data isn't precious; user re-specifies."""
 
     def test_legacy_port_field_dropped(self):

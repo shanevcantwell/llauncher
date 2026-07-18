@@ -141,7 +141,7 @@ class TestIssue5PortRename:
     """Regression test for issue #5: Start button fails - port rename.
 
     Original issue was about the ``default_port`` field not flowing through
-    to start. Per ADR-010 the field is removed entirely — port now lives in
+    to start. Per ADR-LLNCH-010 the field is removed entirely — port now lives in
     the call. This test now verifies that legacy ``default_port`` data is
     silently dropped without breaking config load.
     """
@@ -159,7 +159,7 @@ class TestIssue5PortRename:
 class TestIssue3PortCoupledToModelProfile:
     """Regression test for issue #3: Port coupled to model profile.
 
-    Per ADR-010 the coupling is removed structurally — ``ModelConfig`` no
+    Per ADR-LLNCH-010 the coupling is removed structurally — ``ModelConfig`` no
     longer carries port at all. The same weights file can be referenced by
     two configs without any port-collision concern in the data model.
     """
@@ -175,7 +175,7 @@ class TestIssue3PortCoupledToModelProfile:
         })
         assert config1.name != config2.name
         assert config1.model_path == config2.model_path
-        # Port is not part of identity per ADR-010.
+        # Port is not part of identity per ADR-LLNCH-010.
         assert not hasattr(config1, "default_port")
         assert not hasattr(config2, "default_port")
 

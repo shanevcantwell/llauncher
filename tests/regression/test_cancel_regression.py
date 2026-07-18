@@ -1,4 +1,4 @@
-"""Regression tests for ADR-014 cancel verb (issue #54).
+"""Regression tests for ADR-LLNCH-014 cancel verb (issue #54).
 
 The existing ``tests/unit/test_operations.py`` already covers the five
 canonical cancel paths (pre-preflight, post-commit advisory, post-stop,
@@ -22,7 +22,7 @@ during readiness, post-success). This file pins down the remaining
   must be unlinked. Without it, ``run_dir`` accumulates ``.swap.tmp``
   detritus.
 
-Together with the existing tests these lock down the full ADR-014
+Together with the existing tests these lock down the full ADR-LLNCH-014
 cancel surface — start, swap (all five phases plus failed restore), and
 marker module internals.
 """

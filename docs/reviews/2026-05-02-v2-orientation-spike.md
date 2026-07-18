@@ -28,7 +28,7 @@ llauncher/
 │   │   ├── __init__.py / __main__.py
 │   │   ├── server.py                   # uvicorn entrypoint, --stop, create_app
 │   │   ├── routing.py                  # all routes; module-level _state singleton
-│   │   ├── middleware.py               # X-Api-Key auth (ADR-003)
+│   │   ├── middleware.py               # X-Api-Key auth (ADR-LLNCH-003)
 │   │   └── config.py                   # AgentConfig env-var loader
 │   ├── mcp_server/                     # stdio MCP server
 │   │   ├── server.py                   # dispatcher + lazy _mcp_state singleton
@@ -43,8 +43,8 @@ llauncher/
 │   │   │                               #   start_server, stop_server_by_*,
 │   │   │                               #   wait_for_server_ready, find_available_port
 │   │   ├── settings.py                 # env-backed module constants
-│   │   ├── model_health.py             # check_model_health + 60s TTL cache (ADR-005)
-│   │   └── gpu.py                      # GPUHealthCollector + 5s TTL cache (ADR-006)
+│   │   ├── model_health.py             # check_model_health + 60s TTL cache (ADR-LLNCH-005)
+│   │   └── gpu.py                      # GPUHealthCollector + 5s TTL cache (ADR-LLNCH-006)
 │   ├── models/config.py                # Pydantic: ModelConfig, RunningServer,
 │   │                                   #   AuditEntry, ChangeRules
 │   ├── remote/                         # multi-node
@@ -57,7 +57,7 @@ llauncher/
 │   │   └── tabs/                       # dashboard, model_card, forms,
 │   │                                   #   manager, model_registry, nodes, running
 │   └── util/cache.py                   # _TTLCache helper
-├── pi-footer-extension/                # TypeScript footer (Pi harness, ADR-001)
+├── pi-footer-extension/                # TypeScript footer (Pi harness, ADR-LLNCH-001)
 │   ├── footer-budget.ts                # ~700 LOC; reads ~/.llauncher/nodes.json,
 │   │                                   #   queries /status, formats footer
 │   └── test-footer-validation.mjs
@@ -90,23 +90,23 @@ Three console-script entry points are declared in `pyproject.toml`:
 
 ## 2. Per-ADR Gap Analysis
 
-### ADR-008 — LauncherState as Stateless Facade
+### ADR-LLNCH-008 — LauncherState as Stateless Facade
 
 #### Already aligned
 
 - `ConfigStore.save()` is atomic via `.tmp` rename
-  (`llauncher/core/config.py:51-55`). ADR-008's "atomic write on mutation"
+  (`llauncher/core/config.py:51-55`). ADR-LLNCH-008's "atomic write on mutation"
   bullet is satisfied.
 - `check_model_health` already pushes a TTL cache (60 s) into the source layer
   (`llauncher/core/model_health.py:46`), and `GPUHealthCollector` does the same
-  with 5 s (`llauncher/core/gpu.py:75-77`). ADR-008's "caching pushed down"
+  with 5 s (`llauncher/core/gpu.py:75-77`). ADR-LLNCH-008's "caching pushed down"
   guidance is already true for these two sources.
 - The MCP read tools `list_models`, `get_model_config`, `server_status`, and
   `get_server_logs` all call `state.refresh()` on the dispatch-provided state
   before reading
   (`llauncher/mcp_server/tools/models.py:53,92`,
   `llauncher/mcp_server/tools/servers.py:150,173`).
-  The "MCP read tools never refresh" symptom called out in ADR-008 §Context #1
+  The "MCP read tools never refresh" symptom called out in ADR-LLNCH-008 §Context #1
   has *already been fixed* — the ADR's framing is stale on that point.
 - `LAUNCHER_AGENT_NODE_NAME` env var with `socket.gethostname()` fallback
   (`llauncher/agent/routing.py:25-29`) is already the v2 identity contract.
@@ -115,10 +115,10 @@ Three console-script entry points are declared in `pyproject.toml`:
 
 - `LauncherState` is still a `@dataclass` with `models`, `running`, `audit`,
   and `rules` fields and a `refresh()` method
-  (`llauncher/state.py:48-74`). Every element ADR-008 says to remove is still
+  (`llauncher/state.py:48-74`). Every element ADR-LLNCH-008 says to remove is still
   there.
 - `__post_init__` still calls `self.refresh()` (`state.py:64-66`), so every
-  construction triggers a full process-table scan + config reload. ADR-008
+  construction triggers a full process-table scan + config reload. ADR-LLNCH-008
   requires construction to be cheap.
 - Three module-level singletons remain:
   - `agent/routing.py:13` — `_state: LauncherState | None = None`
@@ -134,7 +134,7 @@ Three console-script entry points are declared in `pyproject.toml`:
   exist.
 - `state.refresh()` reloads `self.models` (`state.py:71`) but does **not**
   reset `self.audit` — the §Context "audit log is reset on refresh" claim is
-  not true in the current code. (Notable: ADR-008 reasons partly from a
+  not true in the current code. (Notable: ADR-LLNCH-008 reasons partly from a
   defect that does not exist; see §4.)
 
 #### Absent
@@ -153,11 +153,11 @@ Three console-script entry points are declared in `pyproject.toml`:
 - No persistence path or rotation/retention story for the audit log.
 - `record_action` field set is `(timestamp, action, model, caller, result,
   message)` (`models/config.py:135-144`) — missing the `port`, `from_model`,
-  `to_model` shape ADR-008/011 implies the audit needs.
+  `to_model` shape ADR-LLNCH-008/011 implies the audit needs.
 
 ---
 
-### ADR-009 — Symmetric Hub/Spoke Topology
+### ADR-LLNCH-009 — Symmetric Hub/Spoke Topology
 
 #### Already aligned
 
@@ -186,7 +186,7 @@ Three console-script entry points are declared in `pyproject.toml`:
   ADR states it must.
 - The Streamlit UI hard-codes the special-case node name `"local"` for
   enabling local features (e.g. `model_card.py:81,200,217,254,286`).
-  ADR-009's identity model wants the comparison to be against
+  ADR-LLNCH-009's identity model wants the comparison to be against
   `LAUNCHER_AGENT_NODE_NAME` / `gethostname()`, not the literal string
   `"local"`. The string `"local"` is also auto-injected by
   `NodeRegistry.is_local_agent_ready` and `start_local_agent`
@@ -216,7 +216,7 @@ Three console-script entry points are declared in `pyproject.toml`:
 
 ---
 
-### ADR-010 — Port Ownership at the Call Site
+### ADR-LLNCH-010 — Port Ownership at the Call Site
 
 #### Already aligned
 
@@ -244,56 +244,56 @@ Three console-script entry points are declared in `pyproject.toml`:
   - `mcp_server/tools/models.py:67,114` — surfaced in MCP responses
   The whole "fallback chain" the ADR says to delete is still wired in.
 - `find_available_port` (`core/process.py:23-58`) implements the auto-allocate
-  fallback that ADR-010 §Decision says is removed at the API layer.
+  fallback that ADR-LLNCH-010 §Decision says is removed at the API layer.
   `state.start_server` calls it unconditionally (`state.py:217`).
 - `POST /start/{model_name}` exists (`agent/routing.py:278`) — model-keyed,
-  no port in the path. ADR-010 explicitly removes this.
+  no port in the path. ADR-LLNCH-010 explicitly removes this.
 - `POST /start-with-eviction/{model_name}` exists
   (`agent/routing.py:374`) — model-keyed with port as optional query param.
-  ADR-010 removes this in favor of `POST /swap/{port}`.
+  ADR-LLNCH-010 removes this in favor of `POST /swap/{port}`.
 - MCP `start_server` tool only takes `model_name`
   (`mcp_server/tools/servers.py:14-25`); MCP `swap_server` takes port + model
   but description still describes "stops any server on the port and starts the
   new model" without distinguishing the swap-precondition (port occupied)
-  required by ADR-010 + ADR-011.
+  required by ADR-LLNCH-010 + ADR-LLNCH-011.
 - CLI `server start <name> --port` defaults port to `None` and lets state
-  auto-allocate (`cli.py:147-159`). ADR-010 wants the CLI to error if neither
+  auto-allocate (`cli.py:147-159`). ADR-LLNCH-010 wants the CLI to error if neither
   `--port` nor `DEFAULT_PORT` is set, never auto-allocate at the API layer.
 
 #### Absent
 
 - No `POST /start/{port}` endpoint with `{model: str}` body. No `POST
-  /swap/{port}` either. The ADR-010 verb table is not in the router.
-- No `MCP swap_server(port, model)` shape with the ADR-011 response envelope
+  /swap/{port}` either. The ADR-LLNCH-010 verb table is not in the router.
+- No `MCP swap_server(port, model)` shape with the ADR-LLNCH-011 response envelope
   (`{success, action, port_state, ...}`); existing one returns
   `{success, port_state, error, rolled_back, ...}` — close, but no `action`
   field and no enumerated action values.
 - No `action`-bearing response envelope anywhere. Every endpoint returns its
   own ad-hoc shape.
-- CLI `llaunch` rename is absent. CLI is still `llauncher`. ADR-010 §CLI uses
+- CLI `llaunch` rename is absent. CLI is still `llauncher`. ADR-LLNCH-010 §CLI uses
   `llaunch server swap <port> <model>` as the new shape; no `swap`
   subcommand exists in `cli.py` at all (only `start` and `stop`).
 
 ---
 
-### ADR-011 — Swap Semantics v2
+### ADR-LLNCH-011 — Swap Semantics v2
 
 #### Already aligned
 
 - A single 5-phase swap mechanic exists in `state._start_with_eviction_impl`
-  (`state.py:288-560`). Phase ordering matches ADR-011: pre-flight → stop old
+  (`state.py:288-560`). Phase ordering matches ADR-LLNCH-011: pre-flight → stop old
   → start new → readiness → success/rollback. Pre-flight covers model exists
-  in config, model file health (ADR-005), port-range validation, and
+  in config, model file health (ADR-LLNCH-005), port-range validation, and
   same-model-on-other-port check.
 - Rollback uses the persisted config of the previous model (`state.py:424`,
   `state.py:474`, `state.py:516`). It calls the same launch + readiness
   mechanic for the rollback path.
-- Three of the four ADR-011 callers route to `_start_with_eviction_impl`:
+- Three of the four ADR-LLNCH-011 callers route to `_start_with_eviction_impl`:
   - MCP `swap_server` — `mcp_server/tools/servers.py:225`
   - HTTP `start-with-eviction` — `agent/routing.py:441`
   - UI eviction-confirm dialog — `ui/tabs/model_card.py:144` (via
     `start_with_eviction_compat`)
-  The legacy three-implementation drift ADR-002 fought is gone.
+  The legacy three-implementation drift ADR-LLNCH-002 fought is gone.
 - `EvictionResult.port_state` already encodes the required state literals:
   `"unchanged" | "restored" | "serving" | "unavailable"`
   (`state.py:39`).
@@ -307,29 +307,29 @@ Three console-script entry points are declared in `pyproject.toml`:
   (`state.py:295`). The MCP tool passes `strict_rollback=True`
   (`mcp_server/tools/servers.py:230`); the HTTP agent passes `False`
   (`agent/routing.py:442`); the UI compat wrapper passes `False`
-  (`state.py:577`). ADR-011 §Decision §"Caller Differences (Eliminated)"
+  (`state.py:577`). ADR-LLNCH-011 §Decision §"Caller Differences (Eliminated)"
   removes this parameter.
 - Same-model swap is **not** an idempotent no-op. It still stops the old
-  process and starts a fresh one (no early-return guard). ADR-011's
+  process and starts a fresh one (no early-return guard). ADR-LLNCH-011's
   `already_running` action with `port_state=serving` and "no teardown, no
   relaunch" is unimplemented.
 - Response shape uses `EvictionResult` fields (`success, port_state, error,
   rolled_back, restored_model, previous_model, new_model_attempted,
-  startup_logs`) — close to but not equal to the ADR-011 envelope. Missing:
+  startup_logs`) — close to but not equal to the ADR-LLNCH-011 envelope. Missing:
   `action` enum (`swapped | already_running | rolled_back | failed |
   rejected_preflight | rejected_stop_failed | rejected_in_progress |
   rejected_empty`), `pid`, and `model`.
-- The class is still named `EvictionResult`; ADR-011 §Supersession asks for
+- The class is still named `EvictionResult`; ADR-LLNCH-011 §Supersession asks for
   `SwapResult` and removal of the `start_with_eviction_compat` tuple wrapper
   (it explicitly calls the compat wrapper "unnecessary; v2 is a clean
   rewrite"). Both still exist (`state.py:30-46`, `state.py:562-583`).
 - HTTP `/start-with-eviction/{model_name}` is the wrong shape entirely; ADR
   wants `POST /swap/{port}` body `{model}`. The model is in the path; the
   port is a query param.
-- ADR-011 swap precondition is **port occupied**. The current
+- ADR-LLNCH-011 swap precondition is **port occupied**. The current
   `_start_with_eviction_impl` happily proceeds when the port is empty
   (`state.py:390` only branches if `port in self.running`); there is no
-  `rejected_empty` outcome. So the verb-precondition contract from ADR-010
+  `rejected_empty` outcome. So the verb-precondition contract from ADR-LLNCH-010
   doesn't hold here.
 
 #### Absent
@@ -342,7 +342,7 @@ Three console-script entry points are declared in `pyproject.toml`:
 - No VRAM headroom pre-flight inside `_start_with_eviction_impl` itself —
   `_check_vram_sufficient` runs only at the HTTP route layer
   (`agent/routing.py:407`), not at the tool/state layer. MCP and UI bypass
-  it. ADR-011 §Phase 1 lists VRAM headroom as a pre-flight check at the
+  it. ADR-LLNCH-011 §Phase 1 lists VRAM headroom as a pre-flight check at the
   unified layer.
 - No `swap_aborted` audit verb. No `port_dead` audit entry on `unavailable`
   outcome.
@@ -360,21 +360,21 @@ underplay or omit entirely:
 
 - **Authentication middleware** (`llauncher/agent/middleware.py`): full
   `X-Api-Key` / `hmac.compare_digest` machinery with exempt-path frozenset
-  for `/health`, `/docs`, `/redoc`, `/openapi.json`. ADR-003 covers this but
+  for `/health`, `/docs`, `/redoc`, `/openapi.json`. ADR-LLNCH-003 covers this but
   the architecture briefs do not mention auth at all. `AGENT_API_KEY` is
   read from `LAUNCHER_AGENT_TOKEN` (`core/settings.py:57`), and `RemoteNode`
   threads `X-Api-Key` headers through every call (`remote/node.py:88-97`).
 - **Pi footer extension subtree** (`pi-footer-extension/`): a 700-line
   TypeScript module that is the largest external consumer of llauncher's
-  `/status` endpoint. ADR-001 mentions it; the architecture briefs do not.
-  This is the entity ADR-008 names as "the highest-frequency consumer" of
+  `/status` endpoint. ADR-LLNCH-001 mentions it; the architecture briefs do not.
+  This is the entity ADR-LLNCH-008 names as "the highest-frequency consumer" of
   the harness footer contract — its existence is load-bearing on Tier 2.
 - **Local-agent autostart from the UI** (`remote/registry.py:200-245`,
   `ui/app.py:113-152`): the Streamlit app, on first load, will spawn
   `llauncher-agent` as a detached subprocess and inject a `"local"` node
   into `nodes.json`. This is a substantial side-effect that doesn't appear
   in the layer briefs. The auto-injected `"local"` name fights the
-  symmetric-topology decision in ADR-009.
+  symmetric-topology decision in ADR-LLNCH-009.
 - **`RemoteAggregator` offline cache** (`remote/state.py:54-67`): when a node
   goes offline, the aggregator returns *cached* server lists with `[OFFLINE]`
   appended to `config_name`. This is a real behavior consumers see; the
@@ -432,8 +432,8 @@ do not exist as a single file in the tree.
   in code (`mcp_server/tools/models.py:53,92` and
   `mcp_server/tools/servers.py:150,173`), but `docs/1-architecture-layers.md`
   still describes it as `**No refresh.**` (line 61). The brief is *behind*
-  the code. ADR-008 §Context #1 inherited that staleness.
-- The four-instance count in §Context of ADR-008 is *real*: agent
+  the code. ADR-LLNCH-008 §Context #1 inherited that staleness.
+- The four-instance count in §Context of ADR-LLNCH-008 is *real*: agent
   (`agent/routing.py:13`), MCP (`mcp_server/server.py:17`), UI session-state
   (`ui/app.py:22-24`), CLI per-call (`cli.py:154,168,181`), plus the temp
   instance in `ui/tabs/model_card.py:293`. So actually *five* construction
@@ -445,9 +445,9 @@ do not exist as a single file in the tree.
   say `list_models`, `get_model_config`, `swap_server`, `server_status`,
   `get_server_logs` "**No refresh.**" — false today. They all call
   `state.refresh()` (the read tools) or `_start_with_eviction_impl` which
-  internally `refresh_running_servers()` at end (the swap tool). ADR-008
+  internally `refresh_running_servers()` at end (the swap tool). ADR-LLNCH-008
   cited this as a live problem; it's stale.
-- **Audit reset on refresh.** ADR-008 §Context #3 cites a TODO `# Reset
+- **Audit reset on refresh.** ADR-LLNCH-008 §Context #3 cites a TODO `# Reset
   audit on full refresh? (specify behavior)` and claims `refresh()` resets
   the audit list. Inspection of `state.py:68-74`: `refresh()` reloads
   `self.models` and re-scans processes, but **does not touch
@@ -459,16 +459,16 @@ do not exist as a single file in the tree.
   matches against either `proc.name()` or any cmdline element containing
   `"llama-server"`. This is broader and easier to false-positive on
   unrelated processes (e.g., a shell that happens to have
-  `"llama-server"` in an argument), which is exactly why ADR-008's argv
+  `"llama-server"` in an argument), which is exactly why ADR-LLNCH-008's argv
   sentinel matters.
-- **CLI shape in ADR-010 §CLI** (`llaunch server swap`): no `swap` CLI
+- **CLI shape in ADR-LLNCH-010 §CLI** (`llaunch server swap`): no `swap` CLI
   subcommand exists. Only `start` and `stop`. The ADR describes the
   desired shape, not the current shape; that's fine for a forward-looking
   ADR, but if the same brief was used to derive the ADR's *Context*
   paragraph it would have been wrong about today's surface.
 - **`default_port` is "preferred port".** `docs/4-state-ownership.md`
   / Pydantic field treats `default_port` as a "preferred port" (auto-
-  allocates if missing). ADR-010 supersedes this and the field is to be
+  allocates if missing). ADR-LLNCH-010 supersedes this and the field is to be
   removed. Code matches the brief, not the ADR.
 
 ### Over-specified vs. under-specified
@@ -481,7 +481,7 @@ do not exist as a single file in the tree.
   - `docs/3-refresh-reconcile-patterns.md` is patterns-as-prose; it
     describes what was a fix-cycle deliberation but reads like a
     requirement document. It locks in implementation details (e.g.
-    "single refresh per dispatch") that ADR-008 effectively obviates.
+    "single refresh per dispatch") that ADR-LLNCH-008 effectively obviates.
 - **Under-specified:**
   - **Audit log.** The briefs and the ADR both say "action logging for
     governance and debugging" but neither pins the *fields* the audit
@@ -506,26 +506,26 @@ do not exist as a single file in the tree.
 
 ### Anti-pattern smells the PRD treated as decisions
 
-- **"Four LauncherState instances" framing.** ADR-008's §Context #1 reads
+- **"Four LauncherState instances" framing.** ADR-LLNCH-008's §Context #1 reads
   the four instances as a known design that needs to be reframed. Reading
   the code, this is plainly **not** a designed-in invariant — it's
   accidental. Each consumer wrote its own caching to work around state
   being expensive to construct, and nobody owned the cross-cutting
-  question. ADR-008's decision (stateless facade) is correct; calling it
+  question. ADR-LLNCH-008's decision (stateless facade) is correct; calling it
   "the four-instance problem" sells the diagnosis short — it's a
   symptom of "no shared service layer," not a counted-cardinality bug.
 - **`_start_with_eviction_impl` rollback duplication.** The function has
   three distinct rollback implementations (start exception, readiness
   timeout, readiness exception — `state.py:423-549`). They are
   copy-pasted with minor variations. The PRD-proxy doesn't flag this
-  duplication as a smell; ADR-011's "rewrite, not migration" framing
+  duplication as a smell; ADR-LLNCH-011's "rewrite, not migration" framing
   effectively skips over it.
 - **`strict_rollback` boolean-arg flag.** Different callers pick different
-  values for the same operation; the brief / ADR-002 institutionalized
-  this as MCP-vs-UI strictness. ADR-011 correctly removes it.
+  values for the same operation; the brief / ADR-LLNCH-002 institutionalized
+  this as MCP-vs-UI strictness. ADR-LLNCH-011 correctly removes it.
 - **The `"local"` node string.** Repeatedly used as both an identity and a
   short-circuit signal in UI helpers (`model_card.py:81,200,217,254,286`).
-  The brief doesn't flag this conflation; ADR-009's identity-resolution
+  The brief doesn't flag this conflation; ADR-LLNCH-009's identity-resolution
   decision will need to disentangle it.
 
 ---
@@ -551,7 +551,7 @@ For each deferred Tier 2 item, what the spike found that informs it.
 - `/status` calls `state.refresh_running_servers()` on every request —
   full process-table scan per call. At footer cadence this is O(processes)
   * O(footer_redraws) which is non-trivial.
-- ADR-008 names the footer as the highest-frequency consumer and pushes
+- ADR-LLNCH-008 names the footer as the highest-frequency consumer and pushes
   reconciliation per request. A Tier 2 footer-contract ADR should consider
   pinning a slimmer endpoint (e.g., `/footer-context/{port}`) or response
   shape (`{ctx_size, parallel, model}` only) to avoid wire-amplifying
@@ -586,7 +586,7 @@ For each deferred Tier 2 item, what the spike found that informs it.
 - No `asyncio.CancelledError` handling, no `Task.cancel()`-style design,
   no signal handlers in `_start_with_eviction_impl`.
 - Tier 2: cancellation almost certainly needs the in-flight marker
-  (ADR-011) as the cancel signal — write `cancel: true` into the marker
+  (ADR-LLNCH-011) as the cancel signal — write `cancel: true` into the marker
   and have the readiness loop check for it, or replace the synchronous
   loop with a structured-concurrency primitive.
 
@@ -601,7 +601,7 @@ For each deferred Tier 2 item, what the spike found that informs it.
   process containing `"llama-server"` in its name or cmdline — including
   ones started by hand outside llauncher.
 - Once the lockfile + argv sentinel land, the orphan-detection rule is
-  cheap: lockfile-absent + argv-match → orphan. The default policy ADR-008
+  cheap: lockfile-absent + argv-match → orphan. The default policy ADR-LLNCH-008
   proposes ("leave alone, audit-log `observed_orphan`") is sane;
   empirically the spike found no code path that *would* mistakenly try to
   manage such a process today (no auto-stop sweep), so the do-nothing
@@ -616,7 +616,7 @@ For each deferred Tier 2 item, what the spike found that informs it.
   rolled back).
 - The harness's *inference* transport to model A on port P dies during
   Phase 3 (stop) — but the harness's *MCP* transport is independent
-  (stdio, separate process). So ADR-011's "stable transport" claim is
+  (stdio, separate process). So ADR-LLNCH-011's "stable transport" claim is
   already structurally true; it just isn't *documented*.
 - What's missing for a worked example:
   - A round-trip log capturing the harness's MCP request, the in-flight
@@ -644,7 +644,7 @@ outside the v2 architecture scope.
   no `LAUNCHER_AGENT_TOKEN`. With the auth-default-off footgun
   (`agent/server.py:166-181` warns but does not refuse), an unauthenticated
   agent on `0.0.0.0` is a remote arbitrary-flag-injection vector for
-  llama-server. ADR-003 mitigates this, but the warning-only default
+  llama-server. ADR-LLNCH-003 mitigates this, but the warning-only default
   bears flagging.
 
 - **Default port collides with default blacklist.** `DEFAULT_PORT=8080`
@@ -658,7 +658,7 @@ outside the v2 architecture scope.
 
 ## Summary
 
-The live tree implements ADR-008/009/010/011 about **30%** structurally:
+The live tree implements ADR-LLNCH-008/009/010/011 about **30%** structurally:
 endpoints exist, swap mechanic exists with rollback, port is largely the
 runtime primary key, multi-node is symmetric in shape, and identity
 resolution by env+hostname is in place. The remaining 70% is the v2

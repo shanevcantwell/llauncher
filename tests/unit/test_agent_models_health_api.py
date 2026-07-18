@@ -1,4 +1,4 @@
-"""Unit tests for /models/health API endpoints (ADR-005).
+"""Unit tests for /models/health API endpoints (ADR-LLNCH-005).
 
 Tests both ``GET /models/health`` and ``GET /models/health/{model_name}`` with
 mocked filesystem via pytest monkeypatch fixtures.
