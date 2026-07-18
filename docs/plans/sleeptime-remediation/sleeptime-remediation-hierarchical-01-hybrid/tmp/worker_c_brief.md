@@ -1,4 +1,4 @@
-## Worker C Brief: ADR-004 CLI Subcommand Interface
+## Worker C Brief: ADR-LLNCH-004 CLI Subcommand Interface
 
 Working directory: /home/node/github/llauncher. Branch: main (up to date with origin/main).
 
@@ -57,11 +57,11 @@ feat(cli): add subcommand interface via Typer
 - Register CLI entry point in pyproject.toml as 'llauncher' console script
 - Local state commands (model list/info, server start/stop/status) delegate to LauncherState + ConfigStore
 - Remote commands (node add/list/remove/status) use NodeRegistry with httpx for pings
-- Node registration supports --api-key parameter (ADR-003 integration point — uses phase 1 changes)
+- Node registration supports --api-key parameter (ADR-LLNCH-003 integration point — uses phase 1 changes)
 - Rich table-formatted output with color-coded status; --json flag for machine-readable mode
 - All local operations mirror agent API behavior exactly — no divergence
 
-Refs: ADR-004
+Refs: ADR-LLNCH-004
 ```
 
 Read the full implementation plan at /tmp/llauncher_implementation_plan.md for additional context. Follow existing llauncher coding patterns and style."

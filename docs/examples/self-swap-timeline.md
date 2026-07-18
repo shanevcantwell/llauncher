@@ -1,9 +1,9 @@
 # Self-Swap: Prose Timeline of a Canonical Swap
 
-**Companion to:** [ADR-016 — Canonical Self-Swap](../adrs/completed/016-canonical-self-swap.md).
+**Companion to:** [ADR-LLNCH-016 — Canonical Self-Swap](../adrs/completed/adr-llnch-016-canonical-self-swap.md).
 **Executable proof:** [`tests/integration/test_self_swap.py`](../../tests/integration/test_self_swap.py).
 
-This is the long-form walkthrough of the worked example summarized in ADR-016's T0–T4 table. Read it once when you are writing a harness on top of llauncher; refer back to ADR-016 §3 for the response-shape contract.
+This is the long-form walkthrough of the worked example summarized in ADR-LLNCH-016's T0–T4 table. Read it once when you are writing a harness on top of llauncher; refer back to ADR-LLNCH-016 §3 for the response-shape contract.
 
 ## Setup
 
@@ -87,7 +87,7 @@ Wall time T1 → T2: a few hundred ms — process spawn is fast; loading weights
 
 - Polls every `check_interval` seconds (default 1 s).
 - On each tick:
-  - Checks the cancel marker (ADR-014). If `cancelled=True`, returns `(False, logs)` immediately and the swap rolls back.
+  - Checks the cancel marker (ADR-LLNCH-014). If `cancelled=True`, returns `(False, logs)` immediately and the swap rolls back.
   - Tries a TCP `connect_ex` against `127.0.0.1:8081`. If it succeeds, the port is listening.
   - If listening, tails the log file and looks for one of `listening`, `server started`, `ready to serve`, `rest api listening`. If any matches, returns `(True, logs)`.
 
@@ -118,7 +118,7 @@ SwapResult(
 
 …and returns it. `servers_tools.swap_server` calls `.to_dict()` on it and returns to `_dispatch_tool`. `call_tool_handler` wraps the dict in a `TextContent(type="text", text=json.dumps(result))` and the MCP server framework writes one JSON-RPC response frame to stdout.
 
-The harness reads the frame off its end of the MCP child's stdout. Its `await` on the MCP SDK returns the dict. It branches on `success`, `action`, and `port_state` (per [ADR-016 §3](../adrs/completed/016-canonical-self-swap.md#3-response-shape-contract--swapresult-fields-the-harness-observes)):
+The harness reads the frame off its end of the MCP child's stdout. Its `await` on the MCP SDK returns the dict. It branches on `success`, `action`, and `port_state` (per [ADR-LLNCH-016 §3](../adrs/completed/adr-llnch-016-canonical-self-swap.md#3-response-shape-contract--swapresult-fields-the-harness-observes)):
 
 - `success=True` and `action="swapped"` → swap completed, beta is now serving.
 - `port_state="serving"` → the port has a healthy model; safe to send inference requests.
@@ -143,7 +143,7 @@ Looking at the entire timeline, every party that exists at T0 still exists at T4
 | Listening socket on :8081   | ✓ (alpha) | ✗ | ✓ (beta) | ✓ (beta) | ✓ (beta) |
 | Harness's HTTP conn to :8081| ✓ (to alpha) | ✗ | — | — | ✓ (fresh, to beta) |
 
-The MCP session — the second column — never has an ✗. That column is the property ADR-016 calls "the MCP control channel survives the swap." The lockfile column has a gap because we deliberately remove it after stopping old (so we don't end up with two lockfiles pointing at the same port during the spawn race window).
+The MCP session — the second column — never has an ✗. That column is the property ADR-LLNCH-016 calls "the MCP control channel survives the swap." The lockfile column has a gap because we deliberately remove it after stopping old (so we don't end up with two lockfiles pointing at the same port during the spawn race window).
 
 ## Recovery branch — readiness hang and `cancel_server`
 
@@ -161,14 +161,14 @@ The next tick of the readiness poll inside the original `swap_server` call sees 
 
 Worst-case wall time from the harness issuing `cancel_server` to seeing the original `swap_server` return: one `check_interval` (default 1 s) plus the time to respawn alpha (~5–10 s). The harness is *never* stuck — at every wall-clock moment between T0 and T4 it has a working MCP session and a deterministic way to abandon a hung swap.
 
-See [ADR-014](../adrs/completed/014-cancellation.md) for the cancellation mechanism and `tests/integration/test_mcp_flows.py::test_cancel_post_commit_during_swap_is_advisory` for the executable proof of the cancel path.
+See [ADR-LLNCH-014](../adrs/completed/adr-llnch-014-cancellation.md) for the cancellation mechanism and `tests/integration/test_mcp_flows.py::test_cancel_post_commit_during_swap_is_advisory` for the executable proof of the cancel path.
 
 ## Why this works — structural reasons
 
-Three independent properties make the MCP-survival behavior structural, not incidental. A new contributor's first instinct is sometimes to fold these layers together (e.g., embed `llama.cpp` in the MCP child to avoid the second process). That refactor would break this contract; the ADR-016 decision is explicit about why we don't do it.
+Three independent properties make the MCP-survival behavior structural, not incidental. A new contributor's first instinct is sometimes to fold these layers together (e.g., embed `llama.cpp` in the MCP child to avoid the second process). That refactor would break this contract; the ADR-LLNCH-016 decision is explicit about why we don't do it.
 
 1. **Process separation.** The MCP child and every `llama-server` are different OS processes. `proc.stop_server_by_port(8081)` operates on PIDs claimed in lockfiles, which by construction are `llama-server` PIDs. The MCP child's PID is never in a lockfile. (See `operations/swap.py:380`.)
 2. **Transport separation.** MCP is JSON-RPC over the MCP child's stdio. Inference is HTTP. The swap mutates the latter only.
-3. **Lifecycle separation.** The MCP child's lifecycle is owned by whoever spawned it (the harness). The inference process's lifecycle is owned by llauncher's lockfile registry. They share no in-memory state and communicate only through the file-system seam ADR-008 ratified.
+3. **Lifecycle separation.** The MCP child's lifecycle is owned by whoever spawned it (the harness). The inference process's lifecycle is owned by llauncher's lockfile registry. They share no in-memory state and communicate only through the file-system seam ADR-LLNCH-008 ratified.
 
-A change that violates any of these requires a new ADR that explicitly supersedes ADR-016.
+A change that violates any of these requires a new ADR that explicitly supersedes ADR-LLNCH-016.

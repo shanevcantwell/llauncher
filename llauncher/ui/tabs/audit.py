@@ -12,11 +12,11 @@ via :meth:`RemoteNode.read_audit` (HTTP GET ``/audit``). For the local
 target, the tab reads the on-disk JSONL via
 :func:`core.audit_log.read_entries` directly — no HTTP hop.
 
-## ADR-013 hook
+## ADR-LLNCH-013 hook
 
 The "Tail (entries)" control bounds how many entries we read off disk
-in a single render, mirroring the bounded-tail discipline ADR-013
-applies to launcher logs. Audit logs grow append-only (per ADR-008) so
+in a single render, mirroring the bounded-tail discipline ADR-LLNCH-013
+applies to launcher logs. Audit logs grow append-only (per ADR-LLNCH-008) so
 unbounded reads would scale with history; the bounded tail keeps render
 cost predictable.
 
@@ -104,7 +104,7 @@ def render_audit_tab(
     """
     st.header("📝 Audit log")
 
-    # ADR-013-style bounded tail: cap how many entries we read per render.
+    # ADR-LLNCH-013-style bounded tail: cap how many entries we read per render.
     limit = st.number_input(
         "Tail (entries)",
         min_value=50,

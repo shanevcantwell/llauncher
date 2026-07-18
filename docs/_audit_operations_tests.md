@@ -72,9 +72,9 @@ except FileExistsError:
 
 ### Findings
 
-#### ✅ **ADR-011 Compliance: Complete**
+#### ✅ **ADR-LLNCH-011 Compliance: Complete**
 
-The swap implementation follows ADR-011's 5-phase mechanic correctly:
+The swap implementation follows ADR-LLNCH-011's 5-phase mechanic correctly:
 
 | Phase | Implementation | Test Coverage |
 |-------|----------------|---------------|
@@ -176,7 +176,7 @@ def test_concurrent_invalidate():
 
 #### ⚠️ **Missing GPU Health Integration**
 
-**ADR-005 Status:** The model health module exists but ADR-005 mentions GPU VRAM checking. Current implementation only validates:
+**ADR-LLNCH-005 Status:** The model health module exists but ADR-LLNCH-005 mentions GPU VRAM checking. Current implementation only validates:
 
 1. File existence
 2. Readability  
@@ -185,7 +185,7 @@ def test_concurrent_invalidate():
 The `swap()` function accepts optional `vram_check` parameter (line 389), but there's no default implementation of VRAM checking in the core module.
 
 **Recommendation:** Either:
-- Document that VRAM checking is out-of-scope for ADR-005 and should be implemented by callers, OR
+- Document that VRAM checking is out-of-scope for ADR-LLNCH-005 and should be implemented by callers, OR
 - Add a basic `check_vram_available()` function to `core/model_health.py`
 
 ---

@@ -1,4 +1,4 @@
-# Plan: ADR-003 through ADR-006 Remediation
+# Plan: ADR-LLNCH-003 through ADR-LLNCH-006 Remediation
 
 **Status:** Draft  
 **Date:** 2026-04-26  
@@ -11,10 +11,10 @@
 
 ### The Problem in Brief
 
-Four architectural decision records (ADR-003, 004, 005, 006) were written during an implementation sprint and retrofitted into ADR format *after* substantial code was already committed. They suffer from three classes of failure:
+Four architectural decision records (ADR-LLNCH-003, 004, 005, 006) were written during an implementation sprint and retrofitted into ADR format *after* substantial code was already committed. They suffer from three classes of failure:
 
 1. **Missing alternatives analysis** — decisions are stated as fait accompli without considering or rejecting viable options (e.g., mTLS, reverse proxy delegation for auth; argparse/Click vs Typer for CLI).
-2. **Mismatch between document and reality** — the code has already been implemented, but the ADRs describe abstract design choices rather than documenting what was actually done and why certain compromises were accepted in practice. This includes a factual error in ADR-006 (claiming `/dev/memfd` for Apple MPS when the actual implementation uses `system_profiler`).
+2. **Mismatch between document and reality** — the code has already been implemented, but the ADRs describe abstract design choices rather than documenting what was actually done and why certain compromises were accepted in practice. This includes a factual error in ADR-LLNCH-006 (claiming `/dev/memfd` for Apple MPS when the actual implementation uses `system_profiler`).
 3. **No cross-referencing** — despite obvious coupling between auth gating, CLI subcommands consuming APIs, and health/GPU endpoints being gated behind authentication, none of the ADRs reference each other.
 
 ### The Approach: Document Reality + Enrich with Architectural Rigor
@@ -35,7 +35,7 @@ Rather than rewriting these as if from scratch, we reframe them to **accurately 
 
 ## Phase-by-Phase Plan
 
-### Phase 1 — Rewrite ADR-005 and ADR-006 (Reject → Revise)
+### Phase 1 — Rewrite ADR-LLNCH-005 and ADR-LLNCH-006 (Reject → Revise)
 
 These two documents must be rewritten because they fail to capture actual architectural decisions and contain factual errors that undermine trust in the entire set.
 
@@ -45,12 +45,12 @@ These two documents must be rewritten because they fail to capture actual archit
 
 **Rationale:**
 - The *implementation* already treats them separately: `gpu.py` and `model_health.py` are independent modules with no shared code beyond the TTL cache utility they both import.
-- `/models/health` (ADR-005) and `/status?gpu=…` (ADR-006's GPU extension) serve different operator intents — file integrity vs resource availability.
+- `/models/health` (ADR-LLNCH-005) and `/status?gpu=…` (ADR-LLNCH-006's GPU extension) serve different operator intents — file integrity vs resource availability.
 - However, `/start-with-eviction` in `routing.py:174–236` calls **both** pre-flight checks atomically (VRAM → model health → eviction), meaning they form a *composite validation pipeline* at the call site.
 
 Therefore: ADRs stay separate but each must declare its contract with `/start-with-eviction`.
 
-#### 1B: Rewrite ADR-005 — "Model Cache Health Validation"
+#### 1B: Rewrite ADR-LLNCH-005 — "Model Cache Health Validation"
 
 **What's wrong with current draft:**
 - States decision as "add pre-flight check + health endpoint" without analyzing *why* this particular validation depth was chosen over alternatives (GGUF header parsing, SHA256 manifests, etc.).
@@ -60,7 +60,7 @@ Therefore: ADRs stay separate but each must declare its contract with `/start-wi
 **Rewrite plan:**
 
 ```
-ADR-005: Model Cache Health Validation
+ADR-LLNCH-005: Model Cache Health Validation
 ───────────────────────────────────────
 
 STATUS: Implemented  
@@ -127,12 +127,12 @@ OPEN QUESTIONS (Phase 2)
 3. Network path timeout: Wrap open() in a timeout context to prevent indefinite blocking on NFS/SSHFS mounts.
 
 CROSS-REFERENCES
-• [ADR-006](./006-gpu-resource-monitoring.md) — /start-with-eviction calls model health AND VRAM pre-flight; see ADR-006 for GPU-side contract.
-• [ADR-003](./003-agent-api-authentication.md) — /models/health and /models/health/{name} are NOT auth-gated (read-only endpoints). The authentication middleware exempts them via _AUTH_EXEMPT_PATHS.
-• ADR-002 — start_with_eviction is the entry point where both pre-flight validations converge.
+• [ADR-LLNCH-006](./006-gpu-resource-monitoring.md) — /start-with-eviction calls model health AND VRAM pre-flight; see ADR-LLNCH-006 for GPU-side contract.
+• [ADR-LLNCH-003](./003-agent-api-authentication.md) — /models/health and /models/health/{name} are NOT auth-gated (read-only endpoints). The authentication middleware exempts them via _AUTH_EXEMPT_PATHS.
+• ADR-LLNCH-002 — start_with_eviction is the entry point where both pre-flight validations converge.
 ```
 
-#### 1C: Rewrite ADR-006 — "GPU Resource Monitoring"
+#### 1C: Rewrite ADR-LLNCH-006 — "GPU Resource Monitoring"
 
 **What's wrong with current draft:**
 1. **Factual error confirmed:** Line reads `Apple MPS | Process memory mapping (/dev/memfd) | macOS only`. The `/dev/memfd` approach is Linux-only (`memfd_create()` syscall does not exist on macOS). This fabricates a non-existent mechanism.
@@ -143,7 +143,7 @@ CROSS-REFERENCES
 **Rewrite plan:**
 
 ```
-ADR-006: GPU Resource Monitoring and VRAM Tracking
+ADR-LLNCH-006: GPU Resource Monitoring and VRAM Tracking
 ──────────────────────────────────────────────────
 
 STATUS: Implemented  
@@ -188,7 +188,7 @@ The current implementation does **not** emit explicit confidence markers or warn
 
 Known uncertainty areas:
   1. ROCm process attribution is untested and likely incorrect for multi-GPU setups.
-  2. Apple MPS provides no per-process breakdown; operators may not realize their per-server VRAM estimate is an approximation based on model parameter count (see ADR-005).
+  2. Apple MPS provides no per-process breakdown; operators may not realize their per-server VRAM estimate is an approximation based on model parameter count (see ADR-LLNCH-005).
 
 CROSS-CUTTING: /start-with-eviction uses _estimate_vram_mb() (heuristic based on model naming pattern, e.g., "7b" → 7GB) rather than actual process-observed VRAM because the target server isn't running yet. This means the pre-flight check is always an estimate, never an exact measurement.
 
@@ -216,9 +216,9 @@ OPEN QUESTIONS (Phase 2)
 3. GPU utilization trend tracking: Current snapshot approach doesn't detect gradual VRAM leaks. Whether this matters depends on whether llama-server has known memory leak patterns under sustained load.
 
 CROSS-REFERENCES
-• [ADR-005](./005-model-cache-health.md) — /start-with-eviction calls model health AND VRAM pre-flight in sequence; the composite validation pipeline gate is at routing.py:start_server_with_eviction().
-• [ADR-003](./003-agent-api-authentication.md) — GPU data is served via /status (read-only, exempt from auth gating). The pre-flight VRAM check on POST /start-with-eviction runs behind the authentication middleware.
-• ADR-002 — start_with_eviction semantics; GPU pre-flight is a new Phase 1 step before eviction logic begins.
+• [ADR-LLNCH-005](./005-model-cache-health.md) — /start-with-eviction calls model health AND VRAM pre-flight in sequence; the composite validation pipeline gate is at routing.py:start_server_with_eviction().
+• [ADR-LLNCH-003](./003-agent-api-authentication.md) — GPU data is served via /status (read-only, exempt from auth gating). The pre-flight VRAM check on POST /start-with-eviction runs behind the authentication middleware.
+• ADR-LLNCH-002 — start_with_eviction semantics; GPU pre-flight is a new Phase 1 step before eviction logic begins.
 
 FACtual CORRECTION FROM ORIGINAL DRAFT
 Original ADR stated: "Apple MPS | Process memory mapping (/dev/memfd) | macOS only"
@@ -229,23 +229,23 @@ This was factually incorrect — /dev/memfd is a Linux-only mechanism (memfd_cre
 
 | Item | File | Action |
 |------|------|--------|
-| Revised ADR-005 | `docs/adrs/005-model-cache-health.md` | Rewrite per section 1B plan |
-| Revised ADR-006 | `docs/adrs/006-gpu-resource-monitoring.md` | Rewrite per section 1C plan |
+| Revised ADR-LLNCH-005 | `docs/adrs/005-model-cache-health.md` | Rewrite per section 1B plan |
+| Revised ADR-LLNCH-006 | `docs/adrs/006-gpu-resource-monitoring.md` | Rewrite per section 1C plan |
 
 ---
 
-### Phase 2 — Revise ADR-003 and ADR-004 (Accept → Polish)
+### Phase 2 — Revise ADR-LLNCH-003 and ADR-LLNCH-004 (Accept → Polish)
 
 These documents are structurally sound but need architectural rigor matching the baselines.
 
-#### 2A: Rewrite ADR-003 — "Authentication for Agent API"
+#### 2A: Rewrite ADR-LLNCH-003 — "Authentication for Agent API"
 
 **What's wrong with current draft:**
 1. **Only one approach analyzed.** `X-Api-Key` header middleware is described as a fait accompli without considering or rejecting mTLS, OAuth/JWT, Unix socket binding, SSH tunneling, or reverse proxy delegation. The review document (2026-04-25) even suggested Bearer token via env var, but the implementation chose X-Api-Key — this decision needs documentation.
 2. **Missing risk/mitigation table** in baseline style. The draft has "Consequences" with bullet text but no structured matrix.
-3. **The 1MiB `safe_to_load` heuristic is mentioned as "future" but already implemented.** (This finding actually belongs in ADR-005, but note: the auth ADR defers key rotation and audit logging to Phase 2 — this creates an authentication gap.)
-4. **Cross-reference missing.** The middleware exempts `/health`, `/docs`, `/openapi.json`, `/redoc` — but does NOT exempt `/models/health`. If health endpoints should be publicly queryable (no auth needed), the exempt list needs updating, or ADR-005 should acknowledge that its API calls require authentication.
-5. **Typer dependency claim in ADR-004** references Typer via FastAPI but neither Typer nor rich are in pyproject.toml — this means someone manually pip-installed them or the CLI cannot run without additional setup.
+3. **The 1MiB `safe_to_load` heuristic is mentioned as "future" but already implemented.** (This finding actually belongs in ADR-LLNCH-005, but note: the auth ADR defers key rotation and audit logging to Phase 2 — this creates an authentication gap.)
+4. **Cross-reference missing.** The middleware exempts `/health`, `/docs`, `/openapi.json`, `/redoc` — but does NOT exempt `/models/health`. If health endpoints should be publicly queryable (no auth needed), the exempt list needs updating, or ADR-LLNCH-005 should acknowledge that its API calls require authentication.
+5. **Typer dependency claim in ADR-LLNCH-004** references Typer via FastAPI but neither Typer nor rich are in pyproject.toml — this means someone manually pip-installed them or the CLI cannot run without additional setup.
 
 **Actual implementation found:**
 ```python
@@ -264,7 +264,7 @@ Key rotation approach: Not supported — single expected_token. Multiple concurr
 **Rewrite plan:**
 
 ```
-ADR-003: Authentication for Agent API (Port 8765)
+ADR-LLNCH-003: Authentication for Agent API (Port 8765)
 ─────────────────────────────────────────────────
 
 STATUS: Implemented  
@@ -309,7 +309,7 @@ The draft originally proposed a Role enum (viewer/operator/admin) to gate subset
 | /status, /models, /logs/{port} | No | Read-only status queries — returning "what's running" is low-risk even if visible to unauthenticated callers |
 | /start/*, /stop/*, /nodes/ | Yes | Write operations that consume GPU resources or change state require authentication |
 
-**Note on /models/health endpoints (ADR-005):** These are NOT explicitly in _AUTH_EXEMPT_PATHS. Since the middleware only checks path against the exempt frozenset and then validates auth for all other paths, the /models/health endpoints ARE currently auth-gated when LAUNCHER_AGENT_TOKEN is set. This is a deliberate design choice: health status reveals what models are configured, which is information an unauthenticated actor might use to enumerate resources.
+**Note on /models/health endpoints (ADR-LLNCH-005):** These are NOT explicitly in _AUTH_EXEMPT_PATHS. Since the middleware only checks path against the exempt frozenset and then validates auth for all other paths, the /models/health endpoints ARE currently auth-gated when LAUNCHER_AGENT_TOKEN is set. This is a deliberate design choice: health status reveals what models are configured, which is information an unauthenticated actor might use to enumerate resources.
 
 OPEN QUESTIONS (Phase 2)
 1. **Key rotation without downtime:** Support multiple concurrent keys (e.g., list of expected_tokens). During transition window, accept both old and new keys. Implementation: change AuthenticationMiddleware to iterate over a key set.
@@ -334,12 +334,12 @@ RISK & MITIGATION TABLE
 | No per-user identity in audit log | **Medium** | All actions appear as anonymous even when authenticated via shared key. Phase 2: add IP + user-agent to audit entries. |
 
 CROSS-REFERENCES
-• [ADR-004](./004-cli-subcommand-interface.md) — CLI subcommands (node add, remote server commands) consume the agent API with optional --api-key parameter. The auth mechanism defined here is the contract that those CLI commands authenticate against.
-• [ADR-005](./005-model-cache-health.md) — /models/health endpoints are gated behind authentication per current middleware implementation. If operators need unauthenticated health checks, ADR-003's exempt path list should be extended.
-• [ADR-006](./006-gpu-resource-monitoring.md) — GPU data served via /status is read-only (not auth-gated). Pre-flight VRAM check on POST /start-with-eviction runs behind the authentication middleware (POST → always authenticated).
+• [ADR-LLNCH-004](./004-cli-subcommand-interface.md) — CLI subcommands (node add, remote server commands) consume the agent API with optional --api-key parameter. The auth mechanism defined here is the contract that those CLI commands authenticate against.
+• [ADR-LLNCH-005](./005-model-cache-health.md) — /models/health endpoints are gated behind authentication per current middleware implementation. If operators need unauthenticated health checks, ADR-LLNCH-003's exempt path list should be extended.
+• [ADR-LLNCH-006](./006-gpu-resource-monitoring.md) — GPU data served via /status is read-only (not auth-gated). Pre-flight VRAM check on POST /start-with-eviction runs behind the authentication middleware (POST → always authenticated).
 ```
 
-#### 2B: Rewrite ADR-004 — "CLI Subcommand Interface"
+#### 2B: Rewrite ADR-LLNCH-004 — "CLI Subcommand Interface"
 
 **What's wrong with current draft:**
 1. **Typer dependency claim verification fails.** pyproject.toml does NOT list Typer or rich as dependencies. Yet cli.py imports both, and the CLI entry point `llauncher = "llauncher.cli:app"` is registered in [project.scripts]. This means the package either cannot run without manual pip install of extra deps, or there's a missing `[extras]` declaration.
@@ -352,7 +352,7 @@ CROSS-REFERENCES
 **Rewrite plan:**
 
 ```
-ADR-004: CLI Subcommand Interface for llauncher
+ADR-LLNCH-004: CLI Subcommand Interface for llauncher
 ───────────────────────────────────────────────
 
 STATUS: Implemented  
@@ -419,7 +419,7 @@ This duplication is inherent to llauncher's multi-surface architecture and not a
 
 | Risk | Severity | Mitigation Strategy |
 |------|----------|-------------------|
-| Behavioral drift — one surface gets fixed/changed while others regress | **Medium** | Core logic lives in state.start_with_eviction() (ADR-002) which is the canonical source. CLI calls LauncherState directly; Agent API calls routing.py which delegates to state; MCP tool wraps state. Streamlit UI uses state.start_with_eviction_compat(). Centralization in state module mitigates drift. |
+| Behavioral drift — one surface gets fixed/changed while others regress | **Medium** | Core logic lives in state.start_with_eviction() (ADR-LLNCH-002) which is the canonical source. CLI calls LauncherState directly; Agent API calls routing.py which delegates to state; MCP tool wraps state. Streamlit UI uses state.start_with_eviction_compat(). Centralization in state module mitigates drift. |
 | Inconsistent exit codes / error formats across interfaces | Low (cosmetic) | Standardize: CLI exits with code 1 on failure, 0 on success (already implemented). Agent API returns structured JSON. MCP tool returns dict. No cross-interface contract needed — each interface has its own audience and format expectations. |
 | Feature parity lag — new feature added to one surface not mirrored elsewhere | **Medium** | Require that any ADR adding functionality also specify whether a CLI subcommand, agent endpoint, or Streamlit widget is affected. Cross-reference table below enforces this. |
 
@@ -432,7 +432,7 @@ CROSS-REFERENCE TABLE: CLI → Other ADRs
 | `server stop <port>` | Local LauncherState.stop_server() | No | Runs locally |
 | `server status` | Local LauncherState.running dict | No | Reads local process state |
 | `node add <name> --host H [--api-key K]` | RemoteNode class → HTTP API on remote node | Yes, if target has auth (key passed via --api-key) | Connects to agent port on remote host; injects X-Api-Key header when configured |
-| `node list` / `node status` | RemoteNode.ping() health check | No | Ping is GET /health — exempt from auth per ADR-003 middleware |
+| `node list` / `node status` | RemoteNode.ping() health check | No | Ping is GET /health — exempt from auth per ADR-LLNCH-003 middleware |
 | `node remove <name>` | Local NodeRegistry removal (no network call) | No | Removes from ~/.llauncher/nodes.json; no remote API call needed |
 | `config path` / `config validate` | Local ConfigStore/ModelConfig | No | Reads/writes local config only |
 
@@ -457,9 +457,9 @@ OPEN QUESTIONS (Phase 2)
 2. What exit code semantics should remote node operations follow? Current pattern: raise typer.Exit(code=1) on failure. Should partial failures (e.g., 3 of 5 nodes unreachable in `node status --all`) return a non-zero but informative exit code (e.g., code 2 = "partial success")?
 
 CROSS-REFERENCES
-• [ADR-003](./003-agent-api-authentication.md) — CLI node operations that contact remote agents require the same X-Api-Key authentication mechanism defined there. The --api-key parameter on `llauncher node add` is the operator's way of providing this credential to RemoteNode.
-• [ADR-005](./005-model-cache-health.md) — `llauncher config validate <name>` performs lightweight validation (field presence, Pydantic schema pass) but does NOT call check_model_health(). The CLI model info and validate commands are configuration-level only; file health checks require calling the agent's /models/health endpoint.
-• [ADR-006](./006-gpu-resource-monitoring.md) — No dedicated CLI subcommand for GPU status exists yet. `llauncher server status` shows running servers but does not display per-server VRAM usage. Future: `llauncher gpu info` could query /status and parse the gpu block from ADR-006's response extension.
+• [ADR-LLNCH-003](./003-agent-api-authentication.md) — CLI node operations that contact remote agents require the same X-Api-Key authentication mechanism defined there. The --api-key parameter on `llauncher node add` is the operator's way of providing this credential to RemoteNode.
+• [ADR-LLNCH-005](./005-model-cache-health.md) — `llauncher config validate <name>` performs lightweight validation (field presence, Pydantic schema pass) but does NOT call check_model_health(). The CLI model info and validate commands are configuration-level only; file health checks require calling the agent's /models/health endpoint.
+• [ADR-LLNCH-006](./006-gpu-resource-monitoring.md) — No dedicated CLI subcommand for GPU status exists yet. `llauncher server status` shows running servers but does not display per-server VRAM usage. Future: `llauncher gpu info` could query /status and parse the gpu block from ADR-LLNCH-006's response extension.
 ```
 
 ---
@@ -478,12 +478,12 @@ This table should appear as a note in each relevant ADR and serves as the contra
 | /node-info | GET | No | N/A | ❌ Not exempt (but effectively no auth needed — handler returns non-sensitive metadata) |
 | /status | GET | **No** | — | ❌ Not exempt; however read-only, so auth not required for safe operation |
 | /models | GET | **No** | — | ❌ Not exempt; read-only model list is low-risk visibility |
-| /models/health | GET | **Yes (currently)** | Auth middleware gate | ❌ NOT in _AUTH_EXEMPT_PATHS — this is a design decision, not an oversight. See ADR-003 cross-references for rationale. |
+| /models/health | GET | **Yes (currently)** | Auth middleware gate | ❌ NOT in _AUTH_EXEMPT_PATHS — this is a design decision, not an oversight. See ADR-LLNCH-003 cross-references for rationale. |
 | /models/health/{name} | GET | **Yes (currently)** | Auth middleware gate | ❌ Not exempt — same as above |
 | /logs/{port} | GET | **No** | — | ❌ Not exempt; log content reveals running model names but not secrets |
 | /start/{model_name} | POST | **Yes** | AuthenticationMiddleware | No — write operation, always requires auth when set |
 | /stop/{port} | POST | **Yes** | AuthenticationMiddleware | No — write operation |
-| /start-with-eviction/{model_name} | POST | **Yes** | AuthenticationMiddleware + VRAM pre-flight (ADR-006) + Model health check (ADR-005) | No — most sensitive write path, behind auth AND dual pre-flight checks |
+| /start-with-eviction/{model_name} | POST | **Yes** | AuthenticationMiddleware + VRAM pre-flight (ADR-LLNCH-006) + Model health check (ADR-LLNCH-005) | No — most sensitive write path, behind auth AND dual pre-flight checks |
 
 #### 3B: CLI Subcommand → API Dependency Map
 
@@ -491,9 +491,9 @@ This should appear as a table in each receiving ADR to document which subcommand
 
 | Receiving ADR | Consuming CLI Subcommand(s) | Invocation Path |
 |---------------|-----------------------------|-----------------|
-| ADR-003 (Auth) | `node add` (--api-key param) → RemoteNode.ping(), RemoteNode.get_status() etc. via X-Api-Key header injection | CLI → remote/client HTTP client → auth middleware on agent |
-| ADR-005 (Model Health) | None directly; health check indirectly invoked by `/start-with-eviction` in routing.py which is called from: Agent API endpoint, MCP tool (`swap_server`), and implicitly via `llauncher server start` if pre-flight were added to CLI | CLI → state.start_server() → (currently NO model_health call — only agent endpoint has it) ⚠️ Gap identified |
-| ADR-006 (GPU Monitoring) | None directly; GPU data visible in /status which is queried by: Agent API callers, MCP tool status queries | Not yet exposed via CLI subcommand |
+| ADR-LLNCH-003 (Auth) | `node add` (--api-key param) → RemoteNode.ping(), RemoteNode.get_status() etc. via X-Api-Key header injection | CLI → remote/client HTTP client → auth middleware on agent |
+| ADR-LLNCH-005 (Model Health) | None directly; health check indirectly invoked by `/start-with-eviction` in routing.py which is called from: Agent API endpoint, MCP tool (`swap_server`), and implicitly via `llauncher server start` if pre-flight were added to CLI | CLI → state.start_server() → (currently NO model_health call — only agent endpoint has it) ⚠️ Gap identified |
+| ADR-LLNCH-006 (GPU Monitoring) | None directly; GPU data visible in /status which is queried by: Agent API callers, MCP tool status queries | Not yet exposed via CLI subcommand |
 
 #### 3C: Implementation Gap Items Discovered During Cross-Reference Analysis
 
@@ -503,7 +503,7 @@ These are NOT part of the documentation rewrite but must be flagged for implemen
 |---|-----|----------|-------------|-------------|
 | G1 | Model health pre-flight not in CLI `server start` path | **Medium** | 005 | Only the agent endpoint (`/start-with-eviction`) calls check_model_health(). The local CLI `llauncher server start` and state.start_server() do NOT. Pre-flight validation is inconsistent between interfaces. |
 | G2 | /node-info not in auth-exempt paths | Low | 003 + 006 | When auth is active, GET /node-info will require X-Api-Key. This endpoint returns hostname/OS/IPs — low-sensitivity data. Either add to exempt list or document the requirement. |
-| G3 | GPU info not exposed via CLI | Low | 004 + 006 | No `llauncher gpu` subcommand exists. Operators who want GPU status must curl /status themselves. Phase 2 candidate: `llauncher gpu info` parsing ADR-006's GPU response structure. |
+| G3 | GPU info not exposed via CLI | Low | 004 + 006 | No `llauncher gpu` subcommand exists. Operators who want GPU status must curl /status themselves. Phase 2 candidate: `llauncher gpu info` parsing ADR-LLNCH-006's GPU response structure. |
 | G4 | Typer/rich missing from pyproject.toml dependencies | **High** | 004 (Critical) | CLI module imports both packages but they are not declared as project dependencies. Package install will fail. Must be fixed before release. |
 
 ---
@@ -512,8 +512,8 @@ These are NOT part of the documentation rewrite but must be flagged for implemen
 
 | Phase | What Gets Done | Deliverables | Risk Level |
 |-------|---------------|--------------|------------|
-| **Phase 1** (Write ADR-005, ADR-006) | Rewrite both docs per sections 1B and 1C. Verify all facts against actual code (model_health.py, gpu.py). Remove fabricated /dev/memfd claim in ADR-006. Add alternatives tables, consequences tables, risk/mitigation tables in baseline style. | `docs/adrs/005-model-cache-health.md` (revised) | **Medium** — factual accuracy is critical; each claim must match code reality |
-| **Phase 2** (Revise ADR-003, ADR-004) | Rewrite both docs per sections 2A and 2B. Add alternatives analysis (mTLS vs API key for 003; Typer vs argparse/Click for 004). Verify Typer dependency claim → identify the gap (not in pyproject.toml). Document shell completion status. | `docs/adrs/003-agent-api-authentication.md` (revised) | **Low** — mostly documentation enrichment, one critical finding to flag (missing deps) |
+| **Phase 1** (Write ADR-LLNCH-005, ADR-LLNCH-006) | Rewrite both docs per sections 1B and 1C. Verify all facts against actual code (model_health.py, gpu.py). Remove fabricated /dev/memfd claim in ADR-LLNCH-006. Add alternatives tables, consequences tables, risk/mitigation tables in baseline style. | `docs/adrs/005-model-cache-health.md` (revised) | **Medium** — factual accuracy is critical; each claim must match code reality |
+| **Phase 2** (Revise ADR-LLNCH-003, ADR-LLNCH-004) | Rewrite both docs per sections 2A and 2B. Add alternatives analysis (mTLS vs API key for 003; Typer vs argparse/Click for 004). Verify Typer dependency claim → identify the gap (not in pyproject.toml). Document shell completion status. | `docs/adrs/003-agent-api-authentication.md` (revised) | **Low** — mostly documentation enrichment, one critical finding to flag (missing deps) |
 | **Phase 2b** (Fix dependency declaration) | Add typer and rich to pyproject.toml dependencies. OR gate CLI behind extras.cli section if deemed too heavy for core. Remove `llauncher = "llauncher.cli:app"` from [project.scripts] if gating behind extras. | Modified `pyproject.toml` | **Medium** — this is a code change, not documentation; should be handled by implementer agent after plan sign-off |
 | **Phase 3** (Cross-reference wiring) | Add cross-reference tables to all four ADRs as specified in section 3A-3C. Ensure each ADR references the others where coupling exists. Document endpoint auth gate matrix. | Revised versions of all four ADR files with consistent cross-links | **Low** — mechanical update; no new content generation beyond table assembly |
 
@@ -533,16 +533,16 @@ For each revised ADR, the reviewer should verify:
 | Risk/mitigation table has severity ratings (Low/Medium/High/Critical) | 003, 005, 006 (especially) | Baseline style from 002; enables risk-based prioritization of follow-on work |
 | Cross-references use absolute file paths to sibling ADRs | All four ADRs in Phase 3 | Enables navigation and establishes the coupling contract between decisions |
 | Every implementation claim can be verified against actual code | All four ADRs | The root cause: these were written as abstract proposals but already implemented. Documentation must match reality. |
-| No phantom dependencies or fabricated mechanisms | 006 (especially), 004 | ADR-006's /dev/memfd claim was a hallucination; Typer dependency claim in 004 is partially wrong (not declared). Every factual claim must be verifiable. |
+| No phantom dependencies or fabricated mechanisms | 006 (especially), 004 | ADR-LLNCH-006's /dev/memfd claim was a hallucination; Typer dependency claim in 004 is partially wrong (not declared). Every factual claim must be verifiable. |
 
 ### Open Risk Register for This Remediation Effort
 
 | Risk | Impact if Unaddressed | Owner |
 |------|----------------------|-------|
 | Revised ADRs drift from code reality | Downstream implementers build against incorrect documentation | Reviewer (Phase 3 review) |
-| Typer/rich dependency gap not fixed after ADR-004 revision | `pip install llauncher` produces a broken CLI entry point | Implementer agent (Phase 2b, flagged as High severity in Gap G4) |
+| Typer/rich dependency gap not fixed after ADR-LLNCH-004 revision | `pip install llauncher` produces a broken CLI entry point | Implementer agent (Phase 2b, flagged as High severity in Gap G4) |
 | /models/health auth gate causes operator friction | Automated monitoring tools fail; false sense of security gap vs. reality that health is "informational not secret" | Technical Co-Pilot to assess after plan review cycle |
-| macOS GPU attribution limitation misunderstood | Operators on Apple Silicon may make incorrect scheduling decisions based on total-memory-only data | Documentation must surface this prominently (ADR-006 Open Questions section) |
+| macOS GPU attribution limitation misunderstood | Operators on Apple Silicon may make incorrect scheduling decisions based on total-memory-only data | Documentation must surface this prominently (ADR-LLNCH-006 Open Questions section) |
 
 ---
 
@@ -552,13 +552,13 @@ For each revised ADR, the reviewer should verify:
 
 | Path | Relevance | Key Finding |
 |------|-----------|-------------|
-| `llauncher/cli.py` | ADR-004 implementation | ~500 LOC; Typer + rich imported but NOT in pyproject.toml dependencies |
-| `llauncher/agent/middleware.py` | ADR-003 implementation | X-Api-Key header auth; exempt paths list hardcoded |
-| `llauncher/agent/server.py` | ADR-003 integration | Disables /docs and /redoc when auth active; logs warning on 0.0.0.0 binding without token |
-| `llauncher/agent/routing.py` | ADR-005 + 006 integration | Pre-flight VRAM check (ADR-006) AND model health check (ADR-005) both gate /start-with-eviction |
-| `llauncher/core/gpu.py` | ADR-006 implementation | GPUHealthCollector; nvidia-smi subprocess primary, ROCm partial, Apple Silicon via system_profiler + sysctl |
-| `llauncher/core/model_health.py` | ADR-005 implementation | check_model_health(); 1MB heuristic; TTL cache (60s) |
-| `llauncher/core/settings.py` | ADR-003 integration | AGENT_API_KEY from LAUNCHER_AGENT_TOKEN env var |
+| `llauncher/cli.py` | ADR-LLNCH-004 implementation | ~500 LOC; Typer + rich imported but NOT in pyproject.toml dependencies |
+| `llauncher/agent/middleware.py` | ADR-LLNCH-003 implementation | X-Api-Key header auth; exempt paths list hardcoded |
+| `llauncher/agent/server.py` | ADR-LLNCH-003 integration | Disables /docs and /redoc when auth active; logs warning on 0.0.0.0 binding without token |
+| `llauncher/agent/routing.py` | ADR-LLNCH-005 + 006 integration | Pre-flight VRAM check (ADR-LLNCH-006) AND model health check (ADR-LLNCH-005) both gate /start-with-eviction |
+| `llauncher/core/gpu.py` | ADR-LLNCH-006 implementation | GPUHealthCollector; nvidia-smi subprocess primary, ROCm partial, Apple Silicon via system_profiler + sysctl |
+| `llauncher/core/model_health.py` | ADR-LLNCH-005 implementation | check_model_health(); 1MB heuristic; TTL cache (60s) |
+| `llauncher/core/settings.py` | ADR-LLNCH-003 integration | AGENT_API_KEY from LAUNCHER_AGENT_TOKEN env var |
 | `pyproject.toml` | Dependency audit | Typer and rich missing despite being imported by cli.py |
 
 ### Files produced by this plan:
@@ -576,5 +576,5 @@ For each revised ADR, the reviewer should verify:
 | Path | Required Change | Priority |
 |------|----------------|----------|
 | `pyproject.toml` | Add typer and rich to dependencies (Gap G4) | **High** — blocks functional CLI usage after any pip install |
-| `llauncher/cli.py` line 31 | Consider changing `add_completion=False` → `True` (ADR-004 recommendation) | Low — cosmetic, no bug |
-| `llauncher/core/model_health.py` | Optional: add context-manager-based timeout to open() call for network paths | Medium — Gap item from ADR-005 Open Questions Phase 2 |
+| `llauncher/cli.py` line 31 | Consider changing `add_completion=False` → `True` (ADR-LLNCH-004 recommendation) | Low — cosmetic, no bug |
+| `llauncher/core/model_health.py` | Optional: add context-manager-based timeout to open() call for network paths | Medium — Gap item from ADR-LLNCH-005 Open Questions Phase 2 |

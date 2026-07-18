@@ -110,4 +110,4 @@ Change `datetime.fromtimestamp(stat.st_mtime)` → `datetime.fromtimestamp(stat.
 1. Run full test suite: `pytest tests/ -v` — all existing tests must pass with output showing each test name
 2. No new bare `except:` (without scoped exception type) introduced anywhere in modified files
 3. Verify H7 fix only applies AFTER silent-failure-hunter brief delivers invalidate() method
-4. Confirm ADR-003 through 006 features still present: grep for `check_model_health`, `_TTLCache`, `GPUHealthCollector`, `app.add_typer`
+4. Confirm ADR-LLNCH-003 through 006 features still present: grep for `check_model_health`, `_TTLCache`, `GPUHealthCollector`, `app.add_typer`

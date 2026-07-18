@@ -150,7 +150,7 @@ class TestAgentDownBanner:
         assert not hasattr(app, "start_agent_background"), (
             "start_agent_background was removed in M4 Slice 12 (issue #49). "
             "The UI no longer spawns the agent — users run "
-            "`llauncher-agent` themselves per ADR-009."
+            "`llauncher-agent` themselves per ADR-LLNCH-009."
         )
 
     def test_show_loading_screen_is_gone(self):

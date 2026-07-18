@@ -22,7 +22,7 @@ DEFAULT_SERVER_BINARY = LLAMA_SERVER_PATH
 
 # Re-export for backward compatibility — historical code imports
 # ``LOG_DIR`` from this module, and tests use
-# ``patch("llauncher.core.process.LOG_DIR", ...)``. ADR-013 made the
+# ``patch("llauncher.core.process.LOG_DIR", ...)``. ADR-LLNCH-013 made the
 # directory env-configurable; new code should read
 # ``settings.LAUNCHER_LOG_DIR`` directly.
 #
@@ -304,7 +304,7 @@ def start_server(
     # resolved to stay within LOG_DIR (path-traversal guard). See #145.
     log_file = log_path_for(config.name, port)
 
-    # Rotate before opening, per ADR-013. Prevents an unbounded log from
+    # Rotate before opening, per ADR-LLNCH-013. Prevents an unbounded log from
     # absorbing yet another run on top of however much it already has.
     log_rotation.rotate_if_needed(
         log_file,
@@ -312,7 +312,7 @@ def start_server(
         keep=settings.LAUNCHER_LOG_KEEP,
     )
 
-    # Append-mode (ADR-013) preserves the previous run's logs across
+    # Append-mode (ADR-LLNCH-013) preserves the previous run's logs across
     # restart — historically these were the most useful debugging
     # artifact, and the old ``"w"`` mode destroyed them on every start.
     # The banner line below makes the boundary between runs grep-friendly.
@@ -496,7 +496,7 @@ class _UnreadableCmdline:
 def find_all_llama_servers_annotated() -> list[tuple[psutil.Process, int | None, bool]]:
     """Find all running llama-server processes with port annotation.
 
-    Companion to :func:`find_all_llama_servers` for ADR-015 orphan
+    Companion to :func:`find_all_llama_servers` for ADR-LLNCH-015 orphan
     discovery. Returns each process paired with the port extracted from
     its argv (when readable), and a ``cmdline_unreadable`` flag that
     distinguishes "process exists but we couldn't read its cmdline" from
@@ -626,7 +626,7 @@ def read_logs_for_port(port: int, lines: int = 100) -> list[str] | None:
 def _tail_file(path: Path, lines: int) -> list[str]:
     """Read the last ``lines`` lines from ``path``.
 
-    Bounded-tail implementation per ADR-013: reads at most a window of
+    Bounded-tail implementation per ADR-LLNCH-013: reads at most a window of
     ``lines * _AVG_LOG_LINE_BYTES * 2`` bytes from the end of the file
     rather than slurping the whole file. With the default 100 lines and
     160 bytes/line that's a 32 KiB window, regardless of file size.
@@ -636,7 +636,7 @@ def _tail_file(path: Path, lines: int) -> list[str]:
     they're so long that even the doubled window underflows, we silently
     return what we found rather than escalating to a full read.
 
-    **Caller contract (ADR-013 §Consequences):** ``len(result)`` may be
+    **Caller contract (ADR-LLNCH-013 §Consequences):** ``len(result)`` may be
     *less* than ``lines``. Stack traces from ``llama-server`` routinely
     exceed 500 bytes per line, in which case a 100-line request only
     yields ~64 entries. The return is always a complete-from-the-tail
@@ -682,7 +682,7 @@ def wait_for_server_ready(
         check_interval: Seconds between checks (default: 1.0).
         cancel_check: Optional ``Callable[[], bool]`` invoked once per
             poll tick. If it returns True the poll aborts and returns
-            ``(False, last_logs)`` immediately. Per ADR-014 — used by
+            ``(False, last_logs)`` immediately. Per ADR-LLNCH-014 — used by
             ``operations.swap``/``start`` to react to a cancel request
             without spinning a separate thread.
         model_name: Config name of the server being launched. When given,
@@ -723,7 +723,7 @@ def wait_for_server_ready(
     last_logs: list[str] = []
 
     while time.time() - start_time < timeout:
-        # ADR-014: check cancel at the natural poll cadence — no new threads.
+        # ADR-LLNCH-014: check cancel at the natural poll cadence — no new threads.
         if cancel_check is not None and cancel_check():
             last_logs = _attempt_logs(50) or last_logs
             return False, last_logs

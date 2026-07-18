@@ -8,7 +8,7 @@
 
 ## Objective
 
-Fix all CRITICAL and HIGH security findings from the security audit of ADR-003 authentication implementation. This brief is **tighter in scope than the python-reviewer brief** — it focuses exclusively on auth middleware, API key handling, startup warnings, OpenAPI exposure, and file permissions for credential storage. Non-authentication Python quality issues (thread safety, error handling patterns, etc.) are handled by the python-reviewer brief to avoid dual-modification conflicts.
+Fix all CRITICAL and HIGH security findings from the security audit of ADR-LLNCH-003 authentication implementation. This brief is **tighter in scope than the python-reviewer brief** — it focuses exclusively on auth middleware, API key handling, startup warnings, OpenAPI exposure, and file permissions for credential storage. Non-authentication Python quality issues (thread safety, error handling patterns, etc.) are handled by the python-reviewer brief to avoid dual-modification conflicts.
 
 ---
 
@@ -111,7 +111,7 @@ if not api_key:
 **File:** `docs/adrs/003-agent-api-authentication.md`, lines 38-43  
 **Issue:** ADR claims `/status` and `/models` are unauthenticated. Implementation protects them (with only `/health`, `/docs`, `/redoc` exempted). ADR is wrong but implementation is *more* secure than documented — this is a documentation-only fix, not a code change.
 
-**Action for ADR Brief:** This will be addressed in the ADR restructure brief — update ADR-003 to accurately reflect which paths are authenticated and which are exempt. The current state (protecting everything except explicit exemptions) should become the documented standard going forward.
+**Action for ADR Brief:** This will be addressed in the ADR restructure brief — update ADR-LLNCH-003 to accurately reflect which paths are authenticated and which are exempt. The current state (protecting everything except explicit exemptions) should become the documented standard going forward.
 
 ---
 

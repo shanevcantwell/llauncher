@@ -61,11 +61,11 @@ Take Plan 02's skeleton, port Plan 01's exit-gate commands and Decision Log, and
 
 1. **Backup of `~/.llauncher/nodes.json`** before Phase B Step B2. If that file was written under sudo or by a different user, the new chmod(0o600) could lock the operator out. Both plans assume chmod is safe; neither calls for `cp ~/.llauncher/nodes.json ~/.llauncher/nodes.json.bak.$(date +%s)` as a pre-step.
 
-2. **ADT-005/ADR-006 deprecation policy.** Plan 02 says "merge into single Pre-flight Validation Pipeline ADR" but doesn't specify: deprecate-in-place with a "Superseded by ADR-007" header? Delete? Rename? An ADR that disappears violates the immutability principle.
+2. **ADT-005/ADR-LLNCH-006 deprecation policy.** Plan 02 says "merge into single Pre-flight Validation Pipeline ADR" but doesn't specify: deprecate-in-place with a "Superseded by ADR-LLNCH-007" header? Delete? Rename? An ADR that disappears violates the immutability principle.
 
 3. **What replaces /dev/memfd.** Both plans say "remove the fabrication." Neither specifies what the actual macOS GPU memory query is. The real answer is `system_profiler SPDisplaysDataType` (already what `_query_MPS` calls — correct in code, wrong only in ADR). Make this explicit so a rewriter doesn't invent a second fabrication.
 
-4. **Full ADR-006 fact-check.** /dev/memfd was the only fabrication caught on an obvious red flag. The architect agent didn't get to fact-check the rest (per-process VRAM attribution claims, ROCm SMI output format claims). Do a pass before rewriting.
+4. **Full ADR-LLNCH-006 fact-check.** /dev/memfd was the only fabrication caught on an obvious red flag. The architect agent didn't get to fact-check the rest (per-process VRAM attribution claims, ROCm SMI output format claims). Do a pass before rewriting.
 
 5. **Test count correction.** Original commit summary claimed 83 tests; reality is 74. Neither plan addresses whether commit messages should be amended (probably no — git history is git history) or whether a CHANGELOG/release notes correction is owed if those numbers were communicated externally.
 
@@ -84,7 +84,7 @@ Take Plan 02's skeleton, port Plan 01's exit-gate commands and Decision Log, and
 | Plan 01 Phase Exit Gate commands | Drop into Plan 02 phases — **regenerate against real file tree** (fix project name hallucination: s/llaunchr/llauncher/g is necessary but not sufficient; verify every symbol referenced actually exists) |
 | Plan 01 consolidated checklist (1,522 lines) | Audit in separate pass before workers consume it; treat as draft |
 | Plan 02 brief files (~975 lines total) | Audit before worker dispatch — same skepticism applied to qwen output |
-| New additions | nodes.json backup step; ADR-005/006 deprecation policy; macOS replacement text for /dev/memfd; full ADR-006 fact-check; pre-commit ruleset for the patterns that failed us |
+| New additions | nodes.json backup step; ADR-LLNCH-005/006 deprecation policy; macOS replacement text for /dev/memfd; full ADR-LLNCH-006 fact-check; pre-commit ruleset for the patterns that failed us |
 
 ---
 

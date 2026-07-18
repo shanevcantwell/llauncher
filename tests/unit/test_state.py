@@ -13,7 +13,7 @@ class TestStartWithEviction:
     """Tests for start_with_eviction method (backward-compat wrapper).
 
     Note (issue #57): As of the C2 layer-violation fix, this v1 path no
-    longer runs the ADR-005 model-health check. The check moved to the
+    longer runs the ADR-LLNCH-005 model-health check. The check moved to the
     operations layer (``operations.swap``); UI callers were migrated to
     that path. These tests still exercise the wrapper for the few legacy
     callers (currently the eviction-API smoke contract); the absence of
@@ -43,7 +43,7 @@ class TestStartWithEviction:
         """Create a model config with temp file path."""
         model_path = str(self.tmp_path / f"{name}.gguf")
         # Use from_dict_unvalidated to bypass path validation during tests.
-        # Per ADR-010, port is no longer a model attribute — caller still
+        # Per ADR-LLNCH-010, port is no longer a model attribute — caller still
         # passes it for clarity at the call site.
         del port  # Documented but no longer stored on the config.
         return ModelConfig.from_dict_unvalidated({
@@ -243,7 +243,7 @@ class TestStartWithEviction:
 
 
 class TestEvictionRollback:
-    """Tests for the 5-phase eviction rollback decision tree (ADR-002).
+    """Tests for the 5-phase eviction rollback decision tree (ADR-LLNCH-002).
 
     These tests validate _start_with_eviction_impl directly, covering:
     - Pre-flight failures (model not found)
@@ -270,7 +270,7 @@ class TestEvictionRollback:
         """Create a valid ModelConfig for testing."""
         gguf_path = str(self._tmp_path / f"{name}.gguf")
         Path(gguf_path).touch()
-        # Per ADR-010, port is supplied at the call site, not stored on config.
+        # Per ADR-LLNCH-010, port is supplied at the call site, not stored on config.
         del port  # Documented but no longer stored on the config.
         return ModelConfig.from_dict_unvalidated({
             "name": name,
@@ -483,7 +483,7 @@ class TestLauncherStateBase:
 
     @pytest.mark.skip(
         reason="v1 path: LauncherState.start_server is replaced by "
-        "llauncher.operations.start (ADR-008). Test relies on "
+        "llauncher.operations.start (ADR-LLNCH-008). Test relies on "
         "patching is_port_in_use at the wrong import path; "
         "find_available_port re-imports it from core.process so the "
         "mock doesn't reach the allocator and real OS ports leak in. "
@@ -497,7 +497,7 @@ class TestLauncherStateBase:
             mock_start.return_value = mock_process
 
             with patch("llauncher.state.is_port_in_use", return_value=False):
-                # ADR-010 / issue #58: port is now required at the call site.
+                # ADR-LLNCH-010 / issue #58: port is now required at the call site.
                 # Use 9001 (non-blacklisted, avoids the searxng:8080 collision
                 # common in dev setups).
                 success, message, process = mock_state.start_server(
@@ -641,5 +641,5 @@ class TestModelConfig:
         result = config.to_dict()
 
         assert result["name"] == "test_model"
-        assert "default_port" not in result  # ADR-010: not a model attribute
+        assert "default_port" not in result  # ADR-LLNCH-010: not a model attribute
         assert result["n_gpu_layers"] == 255

@@ -1,6 +1,6 @@
 """Per-port lockfile registry for running llauncher-managed servers.
 
-Per ADR-008 (LauncherState as Stateless Facade). Each lockfile is the
+Per ADR-LLNCH-008 (LauncherState as Stateless Facade). Each lockfile is the
 authoritative claim that llauncher launched a specific model on a specific
 port. Stored at ``{LAUNCHER_RUN_DIR}/{port}.lock`` as JSON.
 

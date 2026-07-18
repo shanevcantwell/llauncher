@@ -160,7 +160,7 @@ def test_post_with_origin_header_no_cors_headers_authed_2xx(agent_client_with_to
     """Authed POST that reaches a real 2xx handler response (issue #113).
 
     ``/stop/{port}`` is idempotent and returns ``200 action=already_empty``
-    when nothing is running on the port (ADR-010). We use it as the
+    when nothing is running on the port (ADR-LLNCH-010). We use it as the
     cheapest authed POST that exercises a true success-path handler
     response — no spawn, no port binding, no side effects — so the
     absence assertion covers the case where a hypothetical future

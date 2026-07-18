@@ -61,9 +61,9 @@ Fan-out verification across all 15 root ADRs against current code. Three in-doc 
 | 006 | `Draft` | `Accepted — partial implementation` + Amendment Notes |
 
 **Other in-doc cleanups:**
-- ADR-003 duplicate `## Consequences` block (L80–95) merged into the canonical L64 copy; Amendment Notes added covering PR #75 (loopback default + non-loopback token requirement) and PR #87 / C1 (`create_app` token requirement); Open Question #1 marked resolved.
-- ADR-004 Amendment Notes list shipped subcommand groups (model/server/node/config + bonus `server cancel` from ADR-014, `orphan` group from ADR-015) and the two deferred verbs (`swap`, `logs`). Open Questions resolved against ADR-010.
-- ADR-006 Amendment Notes list shipped (NVIDIA backend, `/status` integration, VRAM pre-flight) and deferred (`?full=true` filter, ROCm/MPS backends, #44). Endpoint-shape drift documented: original example `POST /start-with-eviction/{model}?port={p}` was replaced by port-keyed `POST /swap/{port}` per ADR-010/011.
+- ADR-LLNCH-003 duplicate `## Consequences` block (L80–95) merged into the canonical L64 copy; Amendment Notes added covering PR #75 (loopback default + non-loopback token requirement) and PR #87 / C1 (`create_app` token requirement); Open Question #1 marked resolved.
+- ADR-LLNCH-004 Amendment Notes list shipped subcommand groups (model/server/node/config + bonus `server cancel` from ADR-LLNCH-014, `orphan` group from ADR-LLNCH-015) and the two deferred verbs (`swap`, `logs`). Open Questions resolved against ADR-LLNCH-010.
+- ADR-LLNCH-006 Amendment Notes list shipped (NVIDIA backend, `/status` integration, VRAM pre-flight) and deferred (`?full=true` filter, ROCm/MPS backends, #44). Endpoint-shape drift documented: original example `POST /start-with-eviction/{model}?port={p}` was replaced by port-keyed `POST /swap/{port}` per ADR-LLNCH-010/011.
 
 **New file:** `docs/adrs/README.md` — taxonomy table + per-folder index with one-line "what's deferred" notes for each `accepted/` entry. Conventions for moving ADRs between folders.
 
@@ -72,9 +72,9 @@ Fan-out verification across all 15 root ADRs against current code. Three in-doc 
 ## 3. Notable findings worth carrying forward
 
 1. **`docs/PRODUCT_REQUIREMENTS.md` was a dangling reference** in the frozen handoff at two locations. Fixed; the handoff is the canonical statement now.
-2. **ADR-003 had a duplicate `## Consequences` section.** Latent doc-hygiene bug, undetected for months. The fan-out verification surfaced it.
+2. **ADR-LLNCH-003 had a duplicate `## Consequences` section.** Latent doc-hygiene bug, undetected for months. The fan-out verification surfaced it.
 3. **Two pytest markers are undeclared in `pytest.ini`:** `integration_real` (1 use) and `real_model_health` (9 uses; documented as intentional in handoff §Institutional Knowledge #11). If `--strict-markers` is ever adopted, these need either declarations or a sweep.
-4. **ADR-006's original spec used a v1-era endpoint shape** (`/start-with-eviction/{model}?port={p}`); the live code has port-keyed `/swap/{port}` per ADR-010. Drift documented in 006's Amendment Notes — useful prior pattern when refactors leave ADRs behind.
+4. **ADR-LLNCH-006's original spec used a v1-era endpoint shape** (`/start-with-eviction/{model}?port={p}`); the live code has port-keyed `/swap/{port}` per ADR-LLNCH-010. Drift documented in 006's Amendment Notes — useful prior pattern when refactors leave ADRs behind.
 5. **`docs/handoffs/` convention reinforced:** per-session capsules are immutable; multiple files for the same date are fine when distinct slices warrant it (this dossier + the AM counterpart).
 
 ## 4. Tracking artifacts filed this session
@@ -90,7 +90,7 @@ Carried-forward (not new this session, already known):
 
 ## 5. Carry-forward (open issues)
 
-- **#117** (cross-repo doc link for ADR-016, blocked on sibling pi-coding-agent repo) — v2-final, non-blocking.
+- **#117** (cross-repo doc link for ADR-LLNCH-016, blocked on sibling pi-coding-agent repo) — v2-final, non-blocking.
 - **#122** (Streamlit `use_container_width` deprecation migration) — v2-final, non-blocking.
 - v3-alpha: #119 (UI IA pass), #120 (`--alias` to llama-server), #69 (Streamlit AppTest harness).
 - v4-alpha: #121 (model-card surface).

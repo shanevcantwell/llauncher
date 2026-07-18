@@ -1,6 +1,6 @@
 """Per-port in-flight swap marker.
 
-Per ADR-011 (Swap Semantics v2). The marker is a sentinel file at
+Per ADR-LLNCH-011 (Swap Semantics v2). The marker is a sentinel file at
 ``{LAUNCHER_RUN_DIR}/{port}.swap`` created atomically (``O_EXCL``) at the
 start of Phase 2 of a swap and removed when the swap reaches any terminal
 phase (success, rollback, or failure).
@@ -44,7 +44,7 @@ class SwapMarker:
     llauncher_pid: int
     from_model: str
     to_model: str
-    cancelled: bool = False  # Per ADR-014; absent in pre-ADR markers → False.
+    cancelled: bool = False  # Per ADR-LLNCH-014; absent in pre-ADR markers → False.
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -58,7 +58,7 @@ class SwapMarker:
             llauncher_pid=int(data["llauncher_pid"]),
             from_model=str(data["from_model"]),
             to_model=str(data["to_model"]),
-            # Pre-ADR-014 markers omit the field; default to False so
+            # Pre-ADR-LLNCH-014 markers omit the field; default to False so
             # back-compat reads continue to work without migration.
             cancelled=bool(data.get("cancelled", False)),
         )
@@ -150,15 +150,15 @@ def release_marker(port: int, *, run_dir: Path | None = None) -> bool:
 
 
 def request_cancel(port: int, *, run_dir: Path | None = None) -> bool:
-    """Set ``cancelled=True`` on the in-flight marker for ``port`` (ADR-014).
+    """Set ``cancelled=True`` on the in-flight marker for ``port`` (ADR-LLNCH-014).
 
     Atomic read-modify-write via a tempfile + ``os.replace``. Returns
     ``True`` if a marker existed (cancel signal delivered), ``False`` if no
     marker existed (no in-flight op to cancel — successful no-op from the
-    caller's view per ADR-014 §5).
+    caller's view per ADR-LLNCH-014 §5).
 
     A corrupt marker is treated as "no marker" — we don't want to rewrite
-    garbage; the in-flight op's own reconciliation (per ADR-011) will
+    garbage; the in-flight op's own reconciliation (per ADR-LLNCH-011) will
     handle it on the next read.
     """
     base = _resolve_run_dir(run_dir)
@@ -199,7 +199,7 @@ def is_cancelled(port: int, *, run_dir: Path | None = None) -> bool:
 
     Returns False if no marker exists or if the marker is unflagged. Cheap
     enough to call at every phase boundary; no process-table reconciliation
-    is performed (per ADR-014 §Open Questions — if the agent is dead the op
+    is performed (per ADR-LLNCH-014 §Open Questions — if the agent is dead the op
     is already over).
     """
     marker = read_marker(port, run_dir=run_dir)

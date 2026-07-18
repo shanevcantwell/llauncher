@@ -26,17 +26,17 @@ units) is the **one open item this context owns, and it has NOT been started.**
 ---
 
 ## Shipped (durable — all merged to origin/main)
-1. **ADR-022 — UI under operator-scoped `systemd --user`.** PR #224 (merge `e5a1231`) +
-   conformance `de0dbd9`. Accepted. Supersedes ADR-018's UI hand-launched posture.
+1. **ADR-LLNCH-022 — UI under operator-scoped `systemd --user`.** PR #224 (merge `e5a1231`) +
+   conformance `de0dbd9`. Accepted. Supersedes ADR-LLNCH-018's UI hand-launched posture.
 2. **#225 build** (merge `f5847ee`): `scripts/systemd/llauncher-ui.service.user.in`
    (user unit; `Environment=LAUNCHER_STATE_DIR=/var/lib/llauncher` is the mandatory line),
    `scripts/systemd/install-ui.sh`, newly-tracked `scripts/systemd/install-cli.sh`, doc
    updates. Gates green (1183 passed, non-UI coverage 95.33%); independent review verdict
    MERGE-READY.
-3. **ADR-023 — service-owned venv recomposition.** PR #226 (merge `8480290`). Accepted.
+3. **ADR-LLNCH-023 — service-owned venv recomposition.** PR #226 (merge `8480290`). Accepted.
    Invariant `VENV-OWNED-OR-GUARANTEED` (a durable reference into a venv must guarantee that
    venv's recomposition within its own privilege scope). **OQ1 resolved by operator = shared
-   `/opt` venv.** Amends ADR-018 + ADR-022.
+   `/opt` venv.** Amends ADR-LLNCH-018 + ADR-LLNCH-022.
 
 ## Decided (operator input captured)
 - **OQ1 = shared `/opt`**: one root-owned `/opt/llauncher/venv`; a **system** `*-ensure-venv`
@@ -46,7 +46,7 @@ units) is the **one open item this context owns, and it has NOT been started.**
 ---
 
 ## OPEN — owned by THIS context (tracked in GH Issues)
-The ADR-023 implementation build (`auto:fix`) is filed as issues — per repo convention
+The ADR-LLNCH-023 implementation build (`auto:fix`) is filed as issues — per repo convention
 (`docs/plans/README.md`), tracked work lives there, not in this dossier:
 - **#227 — Phase A: agent venv ensure-unit (system scope).** Carries the OQ2 lockfile bounce
   and the **#154 / PR #219 coordination** (do not double-fix the agent install path).
@@ -61,8 +61,8 @@ OQ3 (eager/lazy re-heal), OQ4 (`TimeoutStartSec`) live on **#227**.
 ## Findings (this context)
 - **#130 is a stale duplicate of CLOSED #131.** The token-mirror it requests already shipped
   (`b5101ef`, for #131). Disposition: operator runtime probe → close as resolved-by-#131. Not a
-  blocker for anything. (It was wrongly carried as ADR-022's "hard prerequisite"; corrected.)
-- **venv-durability anti-pattern (now ADR-023's invariant):** a durable reference (systemd
+  blocker for anything. (It was wrongly carried as ADR-LLNCH-022's "hard prerequisite"; corrected.)
+- **venv-durability anti-pattern (now ADR-LLNCH-023's invariant):** a durable reference (systemd
   unit, `/usr/local/bin` symlink, cron) into a venv whose recomposition it does not own is
   fragile — a disk-space sweep reaps the venv and the service won't restart. Single-owner
   installers (pipx, distro packages) are the sanctioned exception (they own both ends).
@@ -75,18 +75,18 @@ Listed only because they overlap this context's merged or pending work:
   `install-cli.sh` (byte-identical, sha256 `26844ebd`). **#214 is now redundant.** A
   "superseded by #225 — recommend close" comment was posted on #214; left **open** for the
   operator / other tab to close. Do not double-land the file.
-- **#219 (`fix/154 run.sh install honest`)** — overlaps **ADR-023 Phase A** (the agent
+- **#219 (`fix/154 run.sh install honest`)** — overlaps **ADR-LLNCH-023 Phase A** (the agent
   recompose path / #154). If both proceed, Phase A and #219 **will collide.** Coordinate /
   reconcile before building Phase A.
-- **#168 (ADR-018 coverage governance, auto:draft awaiting ratification)** — touches ADR-018,
-  which ADR-023 just amended (`8480290`). Re-check the ADR-018 amendment note doesn't conflict
+- **#168 (ADR-LLNCH-018 coverage governance, auto:draft awaiting ratification)** — touches ADR-LLNCH-018,
+  which ADR-LLNCH-023 just amended (`8480290`). Re-check the ADR-LLNCH-018 amendment note doesn't conflict
   when #168 merges.
 
 ---
 
 ## Operator deliverables (this context only)
 - **Install of the UI service is `user:gate` and PAUSED** until Phase A/B lands (the units
-  currently point `ExecStart` into a disposable venv — the exact fragility ADR-023 fixes).
+  currently point `ExecStart` into a disposable venv — the exact fragility ADR-LLNCH-023 fixes).
   Preconditions already satisfied: `shane ∈ inference` ✓; `/usr/local/bin/llauncher-ui` symlink
   exists ✓ (→ `/opt/llauncher/venv`).
 - **Interim:** UI remains hand-launched; the v0.4.1 delegation fix goes live via
@@ -112,7 +112,7 @@ so an autonomous run sees them without this dossier. This **supersedes** the poi
   runtime probe is advisory, not new code.
 - **#227 / #228 — labeled `blocked`** (+ explanatory comments): not auto-runnable until the operator
   **build/hold** steer; #227 additionally gated on the **#219 / #154** collision.
-- **#168 — merge-order comment** posted (rebase after #226's ADR-018 amendment `8480290`).
+- **#168 — merge-order comment** posted (rebase after #226's ADR-LLNCH-018 amendment `8480290`).
 - **Net:** the only seam left to the operator is the **build/hold steer**. Everything else is now
   visible to an autonomous run as issue state.
 - **Caveat:** issue **#154** stays open + `auto:fix` + unblocked but has an in-flight PR (**#219**) —

@@ -51,9 +51,9 @@ The third site was the one slice 4 left a guarded TODO on. The UI now surfaces a
 
 **Result-envelope handling.** v1 returned `(success, message, process)`; v2 returns a `StartResult` / `StopResult` / `SwapResult` dataclass with `action`, `model`, `port`, `pid`, `message`. The UI renders the `action` discriminator (different toast colors for `started` vs `already_running` vs `rejected_occupied`).
 
-**No fallback.** Per ADR-010, the UI may default a port from `DEFAULT_PORT` env, but `ops.start` itself takes no defaults — the UI synthesizes a port before calling.
+**No fallback.** Per ADR-LLNCH-010, the UI may default a port from `DEFAULT_PORT` env, but `ops.start` itself takes no defaults — the UI synthesizes a port before calling.
 
-### Slice 8 — Self-loop short-circuit (touches ADR-009)
+### Slice 8 — Self-loop short-circuit (touches ADR-LLNCH-009)
 
 The tool layer needs a single entry that picks local vs. remote based on the target node name. Pattern:
 
@@ -69,15 +69,15 @@ def start(model: str, port: int, *, caller: str, target: str | None = None) -> S
 - `start_on_node` returns `rejected_occupied` → no UI feedback, just a toast
 - `swap_on_node` triggers full eviction flow with rollback/readiness polling — same as local behavior
 
-This parity was discovered during Slice 7; it should be documented in ADR-011 or v2-handoff.md.
+This parity was discovered during Slice 7; it should be documented in ADR-LLNCH-011 or v2-handoff.md.
 
-`_resolves_to_local(target)` returns True when `target is None` or `target == LLAUNCHER_AGENT_NODE_NAME` (defaulting to `socket.gethostname()`). Per ADR-009 §"Self-Loop Dispatch."
+`_resolves_to_local(target)` returns True when `target is None` or `target == LLAUNCHER_AGENT_NODE_NAME` (defaulting to `socket.gethostname()`). Per ADR-LLNCH-009 §"Self-Loop Dispatch."
 
 The local branch keeps the current `ops.start` signature; the remote branch adapts the existing `RemoteAggregator.swap_on_node` call. Net result: callers (UI, CLI, MCP) take a `target` arg and the dispatch picks the transport.
 
-**Decision to defer:** whether `target` lives on the verb signatures or in a thread-local context. Pin to **explicit verb argument** for now — it's the simplest correctness story and matches ADR-009's "tool-layer signature carries `target`" wording.
+**Decision to defer:** whether `target` lives on the verb signatures or in a thread-local context. Pin to **explicit verb argument** for now — it's the simplest correctness story and matches ADR-LLNCH-009's "tool-layer signature carries `target`" wording.
 
-**Auth pass-through (ADR-003):** when dispatching remote, attach `X-Api-Key` from `LLAUNCHER_AGENT_TOKEN`. The HTTP Agent already validates it; `RemoteNode._headers` already produces the header. Verify the call chain end-to-end and add a unit test against a recorded transport.
+**Auth pass-through (ADR-LLNCH-003):** when dispatching remote, attach `X-Api-Key` from `LLAUNCHER_AGENT_TOKEN`. The HTTP Agent already validates it; `RemoteNode._headers` already produces the header. Verify the call chain end-to-end and add a unit test against a recorded transport.
 
 ### Slice 9 — `state.py` reduction
 
@@ -143,14 +143,14 @@ Then delete the eleven slice-6-skipped tests. They reference removed methods; th
 ## Open Questions
 
 1. Does the UI need a "node selector" widget in M3, or does it stay implicitly local until M4? **Recommendation:** implicit local in M3 (`target=None` everywhere); the selector is M4's job.
-2. Should `delete_model` also take `target`? Per ADR-009 it has to (config sovereignty is per-node). Yes — design dispatch with all four verbs symmetric.
+2. Should `delete_model` also take `target`? Per ADR-LLNCH-009 it has to (config sovereignty is per-node). Yes — design dispatch with all four verbs symmetric.
 3. After deletion, does `state.py` get renamed to something more accurate (`read_state.py`? `live_state.py`)? **Defer to M5/M6**; keep the import path stable through M4.
 
 ## References
 
-- ADR-008 §"Stateless Facade" — the deletion target's rationale
-- ADR-009 §"Self-Loop Dispatch" — slice 8's contract
-- ADR-010 — port-keyed verb signatures the UI now adopts
+- ADR-LLNCH-008 §"Stateless Facade" — the deletion target's rationale
+- ADR-LLNCH-009 §"Self-Loop Dispatch" — slice 8's contract
+- ADR-LLNCH-010 — port-keyed verb signatures the UI now adopts
 - v2-orientation-spike §6 — UI auto-spawn deprecation note
 - Issue #47 — UI migration (slice 7)
 - Issue #45 — RemoteAggregator regression test (slice 10)

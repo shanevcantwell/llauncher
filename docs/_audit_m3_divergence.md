@@ -55,7 +55,7 @@ The main repo (this container) received only the M1 + M2 slice 1 commits that we
 | `llauncher/operations/__init__.py` | Package init for split operations module |
 | `llauncher/operations/start.py` | Start operation extracted from monolith |
 | `llauncher/operations/stop.py` | Stop operation extracted from monolith |
-| `llauncher/operations/swap.py` | Swap operation (ADR-011 five-phase) |
+| `llauncher/operations/swap.py` | Swap operation (ADR-LLNCH-011 five-phase) |
 | `llauncher/operations/delete.py` | Delete model operation (Issue #37) |
 | `llauncher/operations/preflight.py` | Pre-flight checks (health, VRAM) |
 | `tests/unit/test_preflight.py` | Tests for preflight module |
@@ -76,7 +76,7 @@ All test files in `tests/unit/` and `tests/integration/` were updated to match t
 - `__init__.py` — re-exports public API for backward compatibility
 - `start.py` — start operation with lockfile race handling
 - `stop.py` — stop operation with stale lockfile reconciliation
-- `swap.py` — five-phase swap mechanic (ADR-011)
+- `swap.py` — five-phase swap mechanic (ADR-LLNCH-011)
 - `delete.py` — model delete with active-lockfile check (Issue #37)
 - `preflight.py` — model health + VRAM pre-flight checks
 
@@ -84,7 +84,7 @@ All test files in `tests/unit/` and `tests/integration/` were updated to match t
 
 **Before:** `RemoteNode.start_server(model_name)` — model-keyed, no port parameter.
 
-**After:** `RemoteNode.start_server(model_name, port)` — port-keyed per ADR-010. New `swap_server(model_name, port)` method added for remote swap dispatch.
+**After:** `RemoteNode.start_server(model_name, port)` — port-keyed per ADR-LLNCH-010. New `swap_server(model_name, port)` method added for remote swap dispatch.
 
 ### 3. Remote Swap Parity (M3 Slice 7)
 
@@ -92,7 +92,7 @@ The UI migration changed remote node start behavior from `aggregator.start_on_no
 
 ### 4. HTTP Endpoint Refactor
 
-`agent/routing.py` was updated to port-keyed routes per ADR-010:
+`agent/routing.py` was updated to port-keyed routes per ADR-LLNCH-010:
 - `POST /start/{port}` body `{model}` (was `/start/{model_name}`)
 - `POST /swap/{port}` body `{model}` (new endpoint)
 - `POST /stop/{port}` (unchanged but verified)

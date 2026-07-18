@@ -57,7 +57,7 @@ def show_agent_down_banner() -> None:
     """Render an "agent down" banner with start instructions.
 
     M4 Slice 12 (issue #49 / audit H2) replaces the old auto-spawn-plus-
-    loading-screen flow with this passive banner. ADR-009 prescribes a
+    loading-screen flow with this passive banner. ADR-LLNCH-009 prescribes a
     symmetric hub-spoke topology — the local agent is a peer like any
     other, started by the user (typically via ``llauncher agent
     start``), not auto-spawned by whichever tool happened to start
@@ -89,7 +89,7 @@ def show_agent_down_banner() -> None:
     with st.expander("Why doesn't the UI start the agent for me?"):
         st.markdown(
             "Earlier versions of llauncher auto-spawned the local agent on UI "
-            "load. ADR-009 ratified a symmetric hub-spoke topology where "
+            "load. ADR-LLNCH-009 ratified a symmetric hub-spoke topology where "
             "every node — including ``local`` — is a peer started "
             "deliberately by the user. Having the UI fork a daemon implicitly "
             "made ``local`` a special case and obscured failures (e.g. a port "

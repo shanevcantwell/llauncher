@@ -1,4 +1,4 @@
-"""Size-based rotation for llauncher per-server log files (ADR-013).
+"""Size-based rotation for llauncher per-server log files (ADR-LLNCH-013).
 
 Each `llama-server` process writes to ``{LOG_DIR}/{stem}-{port}.log``,
 where ``stem`` comes from :func:`llauncher.core.process.log_stem_for`

@@ -253,7 +253,7 @@ class NodeRegistry:
         ``api_key=None``. Without this self-heal, the UI would send
         no ``X-Api-Key`` header to the local agent and bounce off
         every non-exempt endpoint with 401 — see issue #126 for the
-        ADR-003 exempt-paths drift that makes this acute.
+        ADR-LLNCH-003 exempt-paths drift that makes this acute.
 
         Only the entry literally named ``local`` is touched — remote
         nodes use their own tokens (operator-supplied via the Nodes
@@ -452,7 +452,7 @@ class NodeRegistry:
         return False
 
     # ``start_local_agent`` removed in M4 Slice 12 (issue #49 / audit H2).
-    # ADR-009 prescribes a symmetric hub-spoke topology where every node —
+    # ADR-LLNCH-009 prescribes a symmetric hub-spoke topology where every node —
     # including ``local`` — is started deliberately by the user (typically
     # via ``llauncher-agent``), not auto-spawned by whatever tool happened
     # to load first. The UI now renders an "agent down" banner via

@@ -1,4 +1,4 @@
-"""ADR-016 — canonical self-swap worked example, as an executable proof.
+"""ADR-LLNCH-016 — canonical self-swap worked example, as an executable proof.
 
 The worked example: an agent harness, talking to the llauncher MCP child
 over stdio, calls ``swap_server(port=P, model_name=B)`` to replace the
@@ -8,9 +8,9 @@ underlying ``llama-server`` inference process is replaced.
 
 This file drives the swap through the *same* in-process dispatch table
 the real MCP server uses (``llauncher.mcp_server.server._dispatch_tool``)
-and asserts on the four properties ADR-016 §5 enumerates:
+and asserts on the four properties ADR-LLNCH-016 §5 enumerates:
 
-1. The ``SwapResult`` envelope conforms to the ADR-016 §3 contract — every
+1. The ``SwapResult`` envelope conforms to the ADR-LLNCH-016 §3 contract — every
    harness-facing field is present, has the documented type, and has the
    value expected for a ``swapped`` outcome.
 2. The MCP dispatch callable is the *same Python object* before and after
@@ -26,10 +26,10 @@ variant is marked ``@pytest.mark.live`` matching the convention in
 ``test_swap.py``.
 
 References:
-- ADR-016 (this ADR), §§1–5
-- ADR-011 (swap semantics v2): the five-phase mechanic under test
-- ADR-010 (port at the call site): the verb shape the test drives
-- ADR-014 (cancellation): the recovery branch (covered separately in
+- ADR-LLNCH-016 (this ADR), §§1–5
+- ADR-LLNCH-011 (swap semantics v2): the five-phase mechanic under test
+- ADR-LLNCH-010 (port at the call site): the verb shape the test drives
+- ADR-LLNCH-014 (cancellation): the recovery branch (covered separately in
   ``test_mcp_flows.py``; this file documents the link but does not
   duplicate the assertion)
 - Issue #56: the M5 task this test closes
@@ -48,9 +48,9 @@ from llauncher.core import lockfile as lf
 pytestmark = pytest.mark.integration
 
 
-# ── ADR-016 §3 contract: fields the harness depends on ─────────────────────
+# ── ADR-LLNCH-016 §3 contract: fields the harness depends on ─────────────────────
 #
-# Edits here are a contract change and must update ADR-016 in lockstep.
+# Edits here are a contract change and must update ADR-LLNCH-016 in lockstep.
 HARNESS_CONTRACT_FIELDS: dict[str, type | tuple[type, ...]] = {
     "success": bool,
     "action": str,
@@ -94,10 +94,10 @@ def _port_is_listening(port: int, timeout: float = 2.0) -> bool:
 async def test_self_swap_canonical_worked_example(
     mcp_env, register_model, mcp_dispatch
 ):
-    """ADR-016 worked example, executable form.
+    """ADR-LLNCH-016 worked example, executable form.
 
     Drives the swap through the MCP dispatch table and asserts the four
-    properties enumerated in ADR-016 §5.
+    properties enumerated in ADR-LLNCH-016 §5.
     """
     register_model("alpha")  # model A, the harness's current "brain"
     register_model("beta")   # model B, the harness's desired new brain
@@ -131,14 +131,14 @@ async def test_self_swap_canonical_worked_example(
             "swap_server", {"port": port, "model_name": "beta"}
         )
 
-        # ── Property (1): ADR-016 §3 envelope contract ──────────────────
+        # ── Property (1): ADR-LLNCH-016 §3 envelope contract ──────────────────
         for field, expected_type in HARNESS_CONTRACT_FIELDS.items():
             assert field in result, (
-                f"ADR-016 §3 violation: contracted field {field!r} "
+                f"ADR-LLNCH-016 §3 violation: contracted field {field!r} "
                 f"missing from swap_server response: {result!r}"
             )
             assert isinstance(result[field], expected_type), (
-                f"ADR-016 §3 violation: field {field!r} has type "
+                f"ADR-LLNCH-016 §3 violation: field {field!r} has type "
                 f"{type(result[field]).__name__}, expected {expected_type}; "
                 f"value={result[field]!r}"
             )
@@ -159,7 +159,7 @@ async def test_self_swap_canonical_worked_example(
         # would be caught here even though the fixture's _dispatch closure
         # is always the same reference.
         assert _srv_mod._mcp_state is mcp_state_before, (
-            "ADR-016 §2 violation: srv._mcp_state identity changed across "
+            "ADR-LLNCH-016 §2 violation: srv._mcp_state identity changed across "
             "swap — the MCP control-channel state was torn down and "
             "recreated, meaning the control channel did not survive"
         )
@@ -207,7 +207,7 @@ async def test_self_swap_canonical_worked_example(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Negative envelope contract — failure paths still honor ADR-016 §3
+# Negative envelope contract — failure paths still honor ADR-LLNCH-016 §3
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -218,7 +218,7 @@ async def test_self_swap_envelope_contract_on_rejected_preflight(
 
     The harness branches on ``success`` / ``action`` / ``port_state`` before
     inspecting anything else, so those fields must be present and well-typed
-    on every outcome, not just the happy path. ADR-016 §3 pins the contract
+    on every outcome, not just the happy path. ADR-LLNCH-016 §3 pins the contract
     as universal across SwapResult outcomes.
     """
     register_model("alpha")
@@ -233,17 +233,17 @@ async def test_self_swap_envelope_contract_on_rejected_preflight(
 
         for field, expected_type in HARNESS_CONTRACT_FIELDS.items():
             assert field in result, (
-                f"ADR-016 §3 violation on failure path: {field!r} missing"
+                f"ADR-LLNCH-016 §3 violation on failure path: {field!r} missing"
             )
             assert isinstance(result[field], expected_type), (
-                f"ADR-016 §3 violation on failure path: {field!r} has "
+                f"ADR-LLNCH-016 §3 violation on failure path: {field!r} has "
                 f"type {type(result[field]).__name__}"
             )
 
         assert result["success"] is False
         assert result["action"] == "rejected_preflight"
         assert result["port_state"] == "unchanged"
-        # previous_model echoes the still-running model, per ADR-011's
+        # previous_model echoes the still-running model, per ADR-LLNCH-011's
         # rejected_preflight semantics — the harness can keep using it.
         assert result["previous_model"] == "alpha"
         assert result["model"] == "alpha"
@@ -256,7 +256,7 @@ async def test_self_swap_envelope_contract_on_rejected_preflight(
 #
 # Marked ``@pytest.mark.live`` per the convention in test_swap.py. Skips
 # unless LLAUNCHER_INTEGRATION_REAL=1 and the two GGUF / binary env vars
-# are wired. This is the canonical end-to-end proof of ADR-016 — the
+# are wired. This is the canonical end-to-end proof of ADR-LLNCH-016 — the
 # stub-mode test above proves the orchestration and the contract; this
 # proves the actual inference channel cuts over.
 # ─────────────────────────────────────────────────────────────────────────────

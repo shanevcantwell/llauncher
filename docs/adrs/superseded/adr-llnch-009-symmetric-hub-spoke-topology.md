@@ -1,9 +1,9 @@
-# ADR-009: Symmetric Hub/Spoke Topology
+# ADR-LLNCH-009: Symmetric Hub/Spoke Topology
 
-**Status:** Superseded by ADR-018  
+**Status:** Superseded by ADR-LLNCH-018  
 **Date:** 2026-05-02  
 
-> **Note (2026-06-25):** Superseded by [ADR-018](../accepted/018-llauncher-system-service.md),
+> **Note (2026-06-25):** Superseded by [ADR-LLNCH-018](../accepted/adr-llnch-018-llauncher-system-service.md),
 > which replaces *only this ADR's deployment posture* — the framing of the local
 > agent as a user-started peer with state under `$HOME`. The symmetric hub/spoke
 > *topology* below (config sovereignty, per-node registry, self-loop dispatch,
@@ -17,7 +17,7 @@
 - Where does the master copy of model configurations live?
 - What does `nodes.json` represent — a global topology, or each node's local view?
 
-ADR-001 ("TypeScript Extension for Pi") observed in passing that "each llauncher agent is peer-to-peer — no central head service," but treated this as a contextual note rather than a first-class decision. The implementation appears to follow it, and the scoping conversation for the v2 spec confirmed: *"anything can be a hub and anything can be a spoke, depending on command line."*
+ADR-LLNCH-001 ("TypeScript Extension for Pi") observed in passing that "each llauncher agent is peer-to-peer — no central head service," but treated this as a contextual note rather than a first-class decision. The implementation appears to follow it, and the scoping conversation for the v2 spec confirmed: *"anything can be a hub and anything can be a spoke, depending on command line."*
 
 This ADR promotes that observation to an explicit architectural decision and pins the consequences for config ownership, peer discovery, and dispatch.
 
@@ -73,7 +73,7 @@ A node identifies itself via `LLAUNCHER_AGENT_NODE_NAME` (env), defaulting to `s
 - Single binary, single mental model. Every node is identical software; the human or agent decides its current role.
 - No single point of failure at the topology level. Any node going down affects only direct interactions with it; peers continue independently.
 - Config ownership is unambiguous: the node where the file lives is sovereign.
-- Plays well with ADR-008's stateless facade: each node's facade reaches its own local sources of truth or, via the remote-dispatch path, a peer's.
+- Plays well with ADR-LLNCH-008's stateless facade: each node's facade reaches its own local sources of truth or, via the remote-dispatch path, a peer's.
 
 **Negative:**
 
@@ -89,6 +89,6 @@ A node identifies itself via `LLAUNCHER_AGENT_NODE_NAME` (env), defaulting to `s
 
 ## Relationship to Other ADRs
 
-- **Builds on ADR-008** (stateless facade): the facade pattern is what makes "anything can be a hub" cheap — a hub is just a facade instance whose `target` resolves to a remote node.
-- **Promotes ADR-001's observation** ("peer-to-peer — no central head service") to an explicit topology decision.
-- **Constrains ADR-010** (forthcoming, port ownership): port resolution is local to the target node; no cross-node port coordination.
+- **Builds on ADR-LLNCH-008** (stateless facade): the facade pattern is what makes "anything can be a hub" cheap — a hub is just a facade instance whose `target` resolves to a remote node.
+- **Promotes ADR-LLNCH-001's observation** ("peer-to-peer — no central head service") to an explicit topology decision.
+- **Constrains ADR-LLNCH-010** (forthcoming, port ownership): port resolution is local to the target node; no cross-node port coordination.

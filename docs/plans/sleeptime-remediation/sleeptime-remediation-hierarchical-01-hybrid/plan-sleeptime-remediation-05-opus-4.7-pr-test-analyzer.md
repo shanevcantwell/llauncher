@@ -433,7 +433,7 @@ from fastapi.testclient import TestClient
 class TestFullStackAuthAndHealth:
     """End-to-end: boot a minimal app with auth, verify auth gate blocks then lets through.
 
-    This tests ADR-003 (auth middleware) + ADR-005 (model health endpoint)
+    This tests ADR-LLNCH-003 (auth middleware) + ADR-LLNCH-005 (model health endpoint)
     interacting as they would in production — not just their isolated behaviors.
     """
 

@@ -40,7 +40,7 @@ Both approaches correctly identified and prioritized:
 
 5. **Test quality is systemically weak** — 5 of 8 test files rated WEAK or TAUTOLOGICAL. Both plans agree on the same per-file verdicts (test_agent_middleware.py and test_ttl_cache.py are STRONG; test_gpu_health.py, test_remote_node_auth.py, test_core_settings_auth.py, test_adr_cross_cutting.py are WEAK).
 
-6. **ADR-006 `/dev/memfd` fabrication** — correctly identified as fabricated (memfd is Linux-only, not macOS). Both plans recommend removing it and documenting actual `system_profiler SPDisplaysDataType` approach.
+6. **ADR-LLNCH-006 `/dev/memfd` fabrication** — correctly identified as fabricated (memfd is Linux-only, not macOS). Both plans recommend removing it and documenting actual `system_profiler SPDisplaysDataType` approach.
 
 7. **CLI `json` parameter shadowing stdlib module** (`cli.py`) — correctly flagged by both approaches for rename to `as_json`.
 
@@ -81,7 +81,7 @@ Both `tests/unit/test_state.py` and `tests/integration/test_state.py` exist. Whe
 
 **M2. Both plans propose a `_MISSING` sentinel for the TTL cache** (`util/cache.py`). This is unnecessary complexity — the cache's current `None` return for misses is acceptable because no caller depends on distinguishing "cached None" from "cache miss." The codebase doesn't cache callables that return `None`. Adding a sentinel adds API surface without confirmed need (the conflict matrix itself notes this as D5: defer).
 
-**M3. Both plans recommend merging ADR-005 and ADR-006 into a single "Pre-flight Validation Pipeline" ADR.** While conceptually sound, the merger should be done via **supersession**, not deletion. Current ADRs must remain with a `Superseded by: ADR-007` header (immutability principle). Neither plan addresses the deprecation policy explicitly — this gap is noted in analysis-trimmed.md and carried forward here.
+**M3. Both plans recommend merging ADR-LLNCH-005 and ADR-LLNCH-006 into a single "Pre-flight Validation Pipeline" ADR.** While conceptually sound, the merger should be done via **supersession**, not deletion. Current ADRs must remain with a `Superseded by: ADR-LLNCH-007` header (immutability principle). Neither plan addresses the deprecation policy explicitly — this gap is noted in analysis-trimmed.md and carried forward here.
 
 **M4. Plan 01's exit gate commands contain hallucinated project names.** The consolidated checklist references `llaunchr/remote/node.py`, `launcher/cli.py`, and `llauncher/agent/server.py` (missing the `mcp_` prefix in rollback commands). These would fail if executed verbatim. All verification commands in this unified plan have been regenerated against the actual file tree.
 
@@ -315,16 +315,16 @@ Based on consensus from both plans' PR Test Analyzer findings, rewrite the follo
 
 Both plans agree all four new ADRs need structural rewrites. The approach should be:
 
-1. **ADR-003 (Auth):** Add alternatives analysis (mTLS, OAuth/JWT, Unix socket — rejected with rationale), honest consequences table, cross-references to ADR-004 and merged pre-flight ADR. Correct auth path table to match implementation (some paths listed as exempt are actually protected).
+1. **ADR-LLNCH-003 (Auth):** Add alternatives analysis (mTLS, OAuth/JWT, Unix socket — rejected with rationale), honest consequences table, cross-references to ADR-LLNCH-004 and merged pre-flight ADR. Correct auth path table to match implementation (some paths listed as exempt are actually protected).
 
-2. **ADR-004 (CLI):** Tighten existing draft. Add shell completion status, exit code granularity discussion, Typer vs Click/argparse comparison in alternatives section.
+2. **ADR-LLNCH-004 (CLI):** Tighten existing draft. Add shell completion status, exit code granularity discussion, Typer vs Click/argparse comparison in alternatives section.
 
-3. **ADR-005 + ADR-006 → Merged into new ADR-007 (Pre-flight Validation Pipeline):** Combine model health and GPU monitoring under single architectural decision. Remove `/dev/memfd` fabrication from old ADR-006 — replace with actual `system_profiler SPDisplaysDataType`. Document build-vs-adopt analysis for GPU backends.
+3. **ADR-LLNCH-005 + ADR-LLNCH-006 → Merged into new ADR-LLNCH-007 (Pre-flight Validation Pipeline):** Combine model health and GPU monitoring under single architectural decision. Remove `/dev/memfd` fabrication from old ADR-LLNCH-006 — replace with actual `system_profiler SPDisplaysDataType`. Document build-vs-adopt analysis for GPU backends.
 
-4. **Deprecation policy:** Current ADR-005 and ADR-006 must NOT be deleted. Add header to each:
+4. **Deprecation policy:** Current ADR-LLNCH-005 and ADR-LLNCH-006 must NOT be deleted. Add header to each:
    ```markdown
    ## Status
-   Superseded by [ADR-007](./007-pre-flight-validation-pipeline.md) (2026-04-27).
+   Superseded by [ADR-LLNCH-007](./007-pre-flight-validation-pipeline.md) (2026-04-27).
    Preserved for audit trail; do not modify further.
    ```
 
@@ -416,7 +416,7 @@ Full suite + linting            → Final gate: pytest + ruff/bandit pass
 | Patch vs. revert | Patch sprint (fix bugs, keep tests/ADRs) | Revert `a4d0361..9c73c71` and re-run from scratch | ~74 real tests exist; even after removing weak ones, ~50 pass-test behavioral assertions remain valuable for regression catching. ADR scaffolding (structure, cross-references) is salvageable with structural rewrite. Bugs are concentrated in specific files — not systemic architectural failure. |
 | Sequential vs. parallel execution | Sequential within phases (single worker per file at a time) | 3 concurrent workers as Plan 01 proposed | Both plans' own analysis shows parallelism doesn't reduce wall-clock due to shared-file dependencies. Plan 01's "Worker A edits gpu.py while Worker B runs GPU tests" is serialization disguised as parallelism. Sequential execution prevents merge conflicts on middleware.py, registry.py, gpu.py. |
 | `to_dict()` masking strategy | `"has_api_key": bool` (Plan 03) | `"api_key": "***"` masked string (Plan 02) | Boolean is semantically cleaner for display-only paths; no false implication of key content length. Masked string keeps field name identical (backward compatible) but implies a value exists that can be unmasked. Plan 03 performed full caller impact audit. |
-| ADR merge policy | New ADR-007 supersedes 005+006; originals preserved with superseded header | Delete old ADRs entirely (Plan 02 implied) or keep all four separate (status quo) | Immutability principle: ADRs are audit trail, not living docs. Deletion erases decision history. Keeping all four without cross-reference creates confusion about which is current. Supersession with preserved originals satisfies both concerns. |
+| ADR merge policy | New ADR-LLNCH-007 supersedes 005+006; originals preserved with superseded header | Delete old ADRs entirely (Plan 02 implied) or keep all four separate (status quo) | Immutability principle: ADRs are audit trail, not living docs. Deletion erases decision history. Keeping all four without cross-reference creates confusion about which is current. Supersession with preserved originals satisfies both concerns. |
 | TTL cache sentinel (`_MISSING`) | Not implemented (deferred) | Add `_MISSING = object()` sentinel to distinguish None from cache miss (both plans propose this) | No caller in the codebase caches callables that return `None`. The ambiguity is theoretical, not practical. Adding sentinel adds API surface without confirmed need — defer until a real use case emerges (as Plan 01's D5 decision log item notes). |
 
 ---
@@ -451,7 +451,7 @@ Full suite + linting            → Final gate: pytest + ruff/bandit pass
 ### Phase P3: Cleanup and Documentation (~2–4 h)
 - [ ] **P3-1a:** Rewrite weak test files (core_settings_auth, remote_node_auth, gpu_health, agent_models_health_api, adr_cross_cutting)
 - [ ] **P3-1b:** Add gap tests: ROCm/MPS parsing, VRAM estimation for 3B/14B/70B, whitespace/oversized tokens
-- [ ] **P3-2:** ADR rewrites — add alternatives analysis to 003/004; merge 005+006 → new ADR-007 with supersession headers on originals
+- [ ] **P3-2:** ADR rewrites — add alternatives analysis to 003/004; merge 005+006 → new ADR-LLNCH-007 with supersession headers on originals
 - [ ] **P3-3:** Remove stale empty `llauncher/mcp/` directory
 - [ ] **P3-4:** Add pre-commit lint rules for bare except + timing-unsafe comparison patterns
 - [ ] **Final Gate:** `pytest tests/ -v` exits 0; full suite includes ~95+ behavioral assertions (up from ~74); ADR cross-references verified

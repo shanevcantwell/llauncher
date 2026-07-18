@@ -1,4 +1,4 @@
-# ADR-001: TypeScript Extension for Pi to Control llauncher Agents
+# ADR-LLNCH-001: TypeScript Extension for Pi to Control llauncher Agents
 
 **Status:** Accepted  
 **Date:** 2026-04-24  
@@ -141,7 +141,7 @@ llaunch_swap_server({ model_name: "model-A", node: "dev-node", port: 9091 })
 The agent's `/start-with-eviction/{model_name}` in `routing.py` references `port` but only declares `model_name` in the function signature. FastAPI may or may not parse the query param correctly.
 
 - **Mitigation:** Send `?port=X` as query param. If the agent errors, surface it clearly to the LLM.
-- **Fix:** Add `port: int | None = Query(None)` to the function signature in `routing.py`. *(This is a separate fix — see ADR-002.)*
+- **Fix:** Add `port: int | None = Query(None)` to the function signature in `routing.py`. *(This is a separate fix — see ADR-LLNCH-002.)*
 
 ### Port confusion
 

@@ -1,4 +1,4 @@
-"""``orphan`` verb — discover unmanaged llama-server processes per ADR-015.
+"""``orphan`` verb — discover unmanaged llama-server processes per ADR-LLNCH-015.
 
 An *orphan* is a live ``llama-server`` process that llauncher did not
 launch (or whose claim it has since lost). Concretely, a process found
@@ -6,10 +6,10 @@ by :func:`llauncher.core.process.find_all_llama_servers_annotated` whose
 ``(port, pid)`` does not match a live, parseable lockfile in
 ``LAUNCHER_RUN_DIR``.
 
-ADR-015 deliberately scopes M1 of this work to **annotation and listing
+ADR-LLNCH-015 deliberately scopes M1 of this work to **annotation and listing
 only** — there is no ``adopt`` verb in this module. A future revision
 may add ``adopt_orphan`` to claim an unmanaged process by writing a
-lockfile for it; that work is tracked in ADR-015 §Deferred Work.
+lockfile for it; that work is tracked in ADR-LLNCH-015 §Deferred Work.
 """
 
 from __future__ import annotations

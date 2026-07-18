@@ -1,4 +1,4 @@
-## Worker Brief: ADR-003 Agent API Authentication
+## Worker Brief: ADR-LLNCH-003 Agent API Authentication
 
 Implement ALL tasks from Phase 1 of `/tmp/llauncher_implementation_plan.md`. These are the specific tasks you must complete:
 
@@ -72,7 +72,7 @@ feat(agent): add API key authentication middleware
 - Update NodeRegistry.add_node() with optional api_key parameter
 - Add unit tests for middleware, settings, and remote auth flow
 
-Refs: ADR-003
+Refs: ADR-LLNCH-003
 ```
 
 Read the full plan at `/tmp/llauncher_implementation_plan.md` for any additional context. Execute all tasks above, then commit and push to origin/main.

@@ -89,7 +89,7 @@ def test_config_store_update_name_mismatch(mock_config_store, sample_model_confi
 
 
 # ---------------------------------------------------------------------------
-# Issue #60 — ConfigStore CRUD emits audit-log entries per ADR-008
+# Issue #60 — ConfigStore CRUD emits audit-log entries per ADR-LLNCH-008
 # ---------------------------------------------------------------------------
 
 

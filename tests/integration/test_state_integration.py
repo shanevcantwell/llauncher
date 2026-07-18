@@ -31,7 +31,7 @@ def test_state_refresh(mock_config_store, sample_model_config):
 
 @pytest.mark.skip(
     reason="v1 path: LauncherState.can_start + ModelConfig.default_port "
-    "are removed in v2 (ADR-008, ADR-010). Validation now lives in "
+    "are removed in v2 (ADR-LLNCH-008, ADR-LLNCH-010). Validation now lives in "
     "ChangeRules.validate_start; port comes from the caller. Will be "
     "deleted alongside the v1 path in M3 (#46)."
 )
@@ -69,7 +69,7 @@ def test_can_start_validation(launcher_state, sample_model_config):
 
 @pytest.mark.skip(
     reason="v1 path: LauncherState.start_server is replaced by "
-    "llauncher.operations.start; default_port removed (ADR-010). "
+    "llauncher.operations.start; default_port removed (ADR-LLNCH-010). "
     "v2 equivalents covered in tests/unit/test_operations_*.py. "
     "Removed in M3 (#46)."
 )
@@ -84,7 +84,7 @@ def test_start_server_success(launcher_state, sample_model_config):
     mock_proc = MagicMock()
     mock_proc.pid = 5678
 
-    # ADR-010 / issue #58: port is now required at the call site;
+    # ADR-LLNCH-010 / issue #58: port is now required at the call site;
     # ``state.start_server`` no longer auto-allocates via find_available_port.
     with patch('llauncher.state.is_port_in_use', return_value=False):
         with patch('llauncher.state.Path.exists', return_value=True):
@@ -100,7 +100,7 @@ def test_start_server_success(launcher_state, sample_model_config):
 
 @pytest.mark.skip(
     reason="v1 path: LauncherState.stop_server is replaced by "
-    "llauncher.operations.stop; default_port removed (ADR-010). "
+    "llauncher.operations.stop; default_port removed (ADR-LLNCH-010). "
     "v2 equivalents covered in tests/unit/test_operations_*.py. "
     "Removed in M3 (#46)."
 )
@@ -195,7 +195,7 @@ class TestLauncherStateEdgeCases:
     def test_start_server_model_not_found(self, state_with_models):
         """start_server returns error for unknown model.
 
-        Port is now required (ADR-010 / issue #58); the value is irrelevant
+        Port is now required (ADR-LLNCH-010 / issue #58); the value is irrelevant
         here because the model-not-found check fires before port handling.
         """
         success, msg, process = state_with_models.start_server(
@@ -207,7 +207,7 @@ class TestLauncherStateEdgeCases:
 
     @pytest.mark.skip(
         reason="v1 path: state.start_server no longer auto-allocates ports "
-        "per ADR-010 / issue #58. Port-allocation failure is now the "
+        "per ADR-LLNCH-010 / issue #58. Port-allocation failure is now the "
         "operations-layer / CLI's concern, not state's. Removed in M3 (#46)."
     )
     def test_start_server_port_allocation_failure(self, state_with_models):
@@ -215,7 +215,7 @@ class TestLauncherStateEdgeCases:
 
     def test_start_server_exception_during_start(self, state_with_models):
         """start_server handles exception during process start."""
-        # Port supplied directly per ADR-010 / issue #58 — state no longer
+        # Port supplied directly per ADR-LLNCH-010 / issue #58 — state no longer
         # allocates. 9001 is non-blacklisted and avoids the searxng:8080
         # collision on this developer's host.
         with patch("llauncher.state.Path.exists", return_value=True):
@@ -246,7 +246,7 @@ class TestLauncherStateEdgeCases:
 
     @pytest.mark.skip(
         reason="v1 path: get_model_status returned a default_port field "
-        "that no longer exists (ADR-010 removed default_port from "
+        "that no longer exists (ADR-LLNCH-010 removed default_port from "
         "ModelConfig — port lives at the call site). Removed in M3 (#46)."
     )
     def test_get_model_status_stopped(self, state_with_models):

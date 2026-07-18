@@ -1,6 +1,6 @@
 """Tests for MCP servers tools.
 
-Per ADR-010, the verb tools (start/stop/swap) are thin wrappers around
+Per ADR-LLNCH-010, the verb tools (start/stop/swap) are thin wrappers around
 :mod:`llauncher.operations` and return its result envelope verbatim.
 The read tools (server_status, get_server_logs) still go through
 LauncherState for per-call refresh.
@@ -344,7 +344,7 @@ class TestGetTools:
 
     def test_returns_nine_tools(self):
         """start, stop, swap, cancel, server_status, get_server_logs,
-        list_orphans (ADR-015), server_metrics + server_slots (ADR-LLNCH-019).
+        list_orphans (ADR-LLNCH-015), server_metrics + server_slots (ADR-LLNCH-019).
         """
         tools = get_tools()
         names = [t.name for t in tools]
@@ -355,7 +355,7 @@ class TestGetTools:
             assert expected in names
 
     def test_start_server_requires_model_and_port(self):
-        """start_server tool schema requires both model_name and port (ADR-010)."""
+        """start_server tool schema requires both model_name and port (ADR-LLNCH-010)."""
         tool = next(t for t in get_tools() if t.name == "start_server")
         required = set(tool.inputSchema["required"])
         assert required == {"model_name", "port"}
@@ -517,7 +517,7 @@ class TestDelegationRouting:
         assert result["action"] == "swapped"
 
 
-# ─────────────────────── cancel_server (ADR-014) ──────────────────────
+# ─────────────────────── cancel_server (ADR-LLNCH-014) ──────────────────────
 
 
 class TestCancelServer:

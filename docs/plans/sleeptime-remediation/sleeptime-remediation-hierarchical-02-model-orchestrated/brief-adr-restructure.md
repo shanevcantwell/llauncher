@@ -7,7 +7,7 @@
 
 ## Objective
 
-Rewrite ADRs 003, 004, 005, and 006 so they meet genuine architectural documentation standards: real decisions between alternatives with honest consequences, proper cross-references, no cargo-cult templating. Merge ADR-005 (Model Cache Health) and ADR-006 (GPU Resource Monitoring) into a single cohesive "Pre-flight Validation Pipeline" ADR.
+Rewrite ADRs 003, 004, 005, and 006 so they meet genuine architectural documentation standards: real decisions between alternatives with honest consequences, proper cross-references, no cargo-cult templating. Merge ADR-LLNCH-005 (Model Cache Health) and ADR-LLNCH-006 (GPU Resource Monitoring) into a single cohesive "Pre-flight Validation Pipeline" ADR.
 
 ---
 
@@ -26,7 +26,7 @@ Rewrite ADRs 003, 004, 005, and 006 so they meet genuine architectural documenta
 
 ## Output Documents Required
 
-### Document 1: Rewritten ADR-003 — Agent API Authentication (merge from old 003)
+### Document 1: Rewritten ADR-LLNCH-003 — Agent API Authentication (merge from old 003)
 
 **New scope:** The decision isn't just "X-Api-Key header middleware" — it's the complete auth model for the agent HTTP API. Must include:
 
@@ -55,8 +55,8 @@ Rewrite ADRs 003, 004, 005, and 006 so they meet genuine architectural documenta
 | All other paths | Yes | Agent API — peer agents and CLI tools must authenticate |
 
 **Cross-references:**
-- ADR-004: CLI commands (`llauncher node add`, `llauncher model start`) use `--api-key` flag to set headers
-- ADR-005/006 (merged): Health/status endpoints are exempt from auth — this is intentional; these endpoints return capability info, not control-plane operations
+- ADR-LLNCH-004: CLI commands (`llauncher node add`, `llauncher model start`) use `--api-key` flag to set headers
+- ADR-LLNCH-005/006 (merged): Health/status endpoints are exempt from auth — this is intentional; these endpoints return capability info, not control-plane operations
 
 **Open Questions:** Explicitly documented and scoped:
 - Key rotation mechanism design (deferred, with timeline estimate)
@@ -65,7 +65,7 @@ Rewrite ADRs 003, 004, 005, and 006 so they meet genuine architectural documenta
 
 ---
 
-### Document 2: Rewritten ADR-004 — CLI Subcommand Interface (from old 004)
+### Document 2: Rewritten ADR-LLNCH-004 — CLI Subcommand Interface (from old 004)
 
 **This is the best existing draft. Focus on tightening:**
 
@@ -89,8 +89,8 @@ Rewrite ADRs 003, 004, 005, and 006 so they meet genuine architectural documenta
 - Shell completion: Not implemented. Typer supports `typer-cli` for this but adds an extra dependency. Deferred until user demand justifies it.
 
 **Cross-references:**
-- ADR-003: CLI commands that interact with authenticated nodes use `--api-key <key>` or read from config
-- ADR-005/006 (merged): `llauncher model health` command wraps the `/models/health` endpoint; `llauncher server start-with-eviction` triggers VRAM pre-flight
+- ADR-LLNCH-003: CLI commands that interact with authenticated nodes use `--api-key <key>` or read from config
+- ADR-LLNCH-005/006 (merged): `llauncher model health` command wraps the `/models/health` endpoint; `llauncher server start-with-eviction` triggers VRAM pre-flight
 
 ---
 
@@ -138,8 +138,8 @@ Rewrite ADRs 003, 004, 005, and 006 so they meet genuine architectural documenta
 - *Negative (acknowledged):* Adding subprocess calls to health checking increases startup latency; each backend has different failure modes that must be handled gracefully
 
 **Cross-references:**
-- ADR-003: Health and status endpoints are explicitly exempt from authentication — necessary for cluster orchestration tools to probe node state without credentials
-- ADR-004: CLI `llauncher model health` and `llauncher server start-with-eviction` commands interface with this pipeline
+- ADR-LLNCH-003: Health and status endpoints are explicitly exempt from authentication — necessary for cluster orchestration tools to probe node state without credentials
+- ADR-LLNCH-004: CLI `llauncher model health` and `llauncher server start-with-eviction` commands interface with this pipeline
 
 ---
 
@@ -194,6 +194,6 @@ Proposed | Accepted | Superseded by [ADR-NNN]
 3. Every ADR has a Consequences section with both positive and negative tradeoffs explicitly stated
 4. The merged pre-flight ADR correctly replaces two separate concerns under one coherent architecture
 5. Cross-references create a connected graph — no ADRs stand alone
-6. No fabricated technical claims (the `/dev/memfd` fabrication from old ADR-006 must be removed)
+6. No fabricated technical claims (the `/dev/memfd` fabrication from old ADR-LLNCH-006 must be removed)
 7. Auth path table in 003 matches actual implementation
 8. "Open Questions" are scoped as deferred items with explicit justification, not used to punt core decisions

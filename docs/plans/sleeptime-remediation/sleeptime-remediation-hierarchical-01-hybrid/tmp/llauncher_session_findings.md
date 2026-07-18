@@ -9,7 +9,7 @@
 
 | Topic | Where to Verify | Session Evidence |
 |-------|-----------------|------------------|
-| **Swap/Eviction with rollback** (ADR-002) | `state.py:EvictionResult`, `_start_with_eviction_impl()` (~537 lines, 5-phase decision tree + 3 rollback blocks) | Multiple sessions show this was actively built Apr 25. Todo #1–#5 all completed. Commit push done. |
+| **Swap/Eviction with rollback** (ADR-LLNCH-002) | `state.py:EvictionResult`, `_start_with_eviction_impl()` (~537 lines, 5-phase decision tree + 3 rollback blocks) | Multiple sessions show this was actively built Apr 25. Todo #1–#5 all completed. Commit push done. |
 | **MCP server with tools** (12+ tools across models/servers/config) | `mcp_server/tools/models.py`, `servers.py`, `config.py` | Built and verified; Phase 1 testing complete |
 | **Agent HTTP API on port 8765** | `agent/server.py`, `agent/routing.py` (start, stop, swap, status, logs, models endpoints) | Consistently tested across sessions |
 | **Remote node aggregation** | `remote/node.py`, `registry.py`, `state.py` | `RemoteState` with multi-node discovery and health reporting built |
@@ -34,7 +34,7 @@
 
 ---
 
-### 2. 🟠 HIGH: Subagent Dialogue Buffer / Iterative Debate Protocol (ADR-003)
+### 2. 🟠 HIGH: Subagent Dialogue Buffer / Iterative Debate Protocol (ADR-LLNCH-003)
 **Impact:** Enables true multi-agent iterative workflows within llauncher's ecosystem, not just one-shot queries. Would allow subagents to debate/refine architectural decisions before implementation.
 
 **What was discussed:** Session `019dbacc-1545-721d-9b62-57f08f6b7ed2` (Apr 23) presents "ADR 003: Ephemeral Dialogue Buffer for Multi-Agent Interaction" — an append-only structured buffer where subagents and main session write turns, with a "conductor" deciding next speaker. Described as moving from "one-way consultation to iterative debate protocol."
@@ -144,13 +144,13 @@
 
 | Priority | Topic | Sessions | Docs Written? | Suggested ADR # |
 |----------|-------|----------|---------------|-----------------|
-| 🔴 CRITICAL | Auth on Agent API | 019dc51f, 019dbacc | ✅ `docs/reviews/2026-04-25-enhancement-no-auth-agent-api.md` | ADR-003 |
-| 🟠 HIGH | Subagent Dialogue Buffer (ADR-003 concept) | 019dbacc, 019dc9b4 | ❌ | ADR-004 |
-| 🟠 HIGH | CLI Subcommand Interface | 019dbb3e, 019dc0d8 | ❌ | ADR-005 |
-| 🟠 HIGH | Model Cache/Download Management | 019dc58e, 019dc0d8 | ❌ | ADR-006 |
-| 🟡 MEDIUM | GPU Resource Monitoring | 019dc8ad, 019dc634 | ❌ | ADR-007 |
+| 🔴 CRITICAL | Auth on Agent API | 019dc51f, 019dbacc | ✅ `docs/reviews/2026-04-25-enhancement-no-auth-agent-api.md` | ADR-LLNCH-003 |
+| 🟠 HIGH | Subagent Dialogue Buffer (ADR-LLNCH-003 concept) | 019dbacc, 019dc9b4 | ❌ | ADR-LLNCH-004 |
+| 🟠 HIGH | CLI Subcommand Interface | 019dbb3e, 019dc0d8 | ❌ | ADR-LLNCH-005 |
+| 🟠 HIGH | Model Cache/Download Management | 019dc58e, 019dc0d8 | ❌ | ADR-LLNCH-006 |
+| 🟡 MEDIUM | GPU Resource Monitoring | 019dc8ad, 019dc634 | ❌ | ADR-LLNCH-007 |
 | 🟡 MEDIUM | SearXNG Extension Pattern Lessons | 019dc634, 019dbb3e | ❌ | (extension RFC) |
-| 🟡 MEDIUM | Enhancement Repeat Penalty | 019dc8f7, 019dbacc | ✅ `enhancement_repeat_penalty.md` exists | ADR-008 |
+| 🟡 MEDIUM | Enhancement Repeat Penalty | 019dc8f7, 019dbacc | ✅ `enhancement_repeat_penalty.md` exists | ADR-LLNCH-008 |
 | 🟢 LOW | Version Consistency | 019dc996 | ✅ Fixed in-progress | N/A (resolved) |
 | 🟢 LOW | OpenAPI/docs for FastAPI | 019dc51f | ❌ | N/A (simple fix) |
 | 🟢 LOW | Rollback Abstraction | 019dc51f | ❌ | N/A (refactor, no ADR needed) |
@@ -159,7 +159,7 @@
 
 ## Notes for ADR Authoring
 
-1. **ADR-003 (Auth):** Design docs already exist. The review doc contains middleware sketches + FastAPI-native alternatives with acceptance criteria. Pick the simpler approach to avoid over-engineering.
-2. **ADR-004 (Dialogue Buffer):** This is experimental/strategic. Sessions show it's aspirational — a "conductor" pattern for iterative debate. Don't implement until ADR proves value; capture as proposal first.
-3. **ADR-005 (CLI):** User has strong preferences about simplicity: "verb-named `.sh` files, no Makefiles." Follow this convention. Mirror existing core/process.py APIs as subcommands.
+1. **ADR-LLNCH-003 (Auth):** Design docs already exist. The review doc contains middleware sketches + FastAPI-native alternatives with acceptance criteria. Pick the simpler approach to avoid over-engineering.
+2. **ADR-LLNCH-004 (Dialogue Buffer):** This is experimental/strategic. Sessions show it's aspirational — a "conductor" pattern for iterative debate. Don't implement until ADR proves value; capture as proposal first.
+3. **ADR-LLNCH-005 (CLI):** User has strong preferences about simplicity: "verb-named `.sh` files, no Makefiles." Follow this convention. Mirror existing core/process.py APIs as subcommands.
 4. **Session `019dc8f7` and `019dc8ad`:** These show a detailed debugging session of the Pi footer extension trying to bridge llauncher context window data into the TUI — important for understanding how llauncher's `/status` API is consumed by external tools.

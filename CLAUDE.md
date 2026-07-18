@@ -36,16 +36,16 @@ changes, **migrate deterministically at the door, once** (rewrite in place),
 or **fail loud**. Never dual-parse two shapes of the same artifact; never
 trust-and-degrade on an unrecognized one (`PARSE-AT-THE-DOOR`).
 
-- Observed anchors (no invariant without a violation): ADR-003's original
+- Observed anchors (no invariant without a violation): ADR-LLNCH-003's original
   opt-in-auth compat posture, removed by the security cohort (PR #75/#87);
-  ADR-017 first draft's bare-string `node_tokens.json` dual-parse, caught in
+  ADR-LLNCH-017 first draft's bare-string `node_tokens.json` dual-parse, caught in
   review 2026-06-10.
 - Enforcement surface: PR review — a diff that parses two shapes of one
   artifact, or justifies itself as "backcompat" for a persisted format, fails
   review. Prose-backed until a CI gate exists; treat as provisional per
   `CODE_CONSTITUTION.md` §Use.
 - Not a shim, unaffected: default-off / opt-in *feature* posture
-  (security stance, ADR-003 / ADR-017).
+  (security stance, ADR-LLNCH-003 / ADR-LLNCH-017).
 
 ## Autonomy contract (operator-ratified 2026-06-10)
 

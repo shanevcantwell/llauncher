@@ -447,9 +447,9 @@ Already implemented in `build_command()` at line 142 of `core/process.py`. Confi
 
 > **ADR TIMING NOTE:** Structural ADRs (#003, #004) that govern cross-cutting patterns should be written as the corresponding code changes happen (during Phases 1 and 2), not retrofitted later. Writing documentation after decisions lock in risks becoming "write down what we already did" — lower value than establishing the pattern going forward.
 >
-> **ADR-006 (lazy-init pattern)** is written as part of Phase 1 (alongside the code change) because it establishes a pattern that will be reused by any future MCP entry point. The other ADRs follow after Phases 2-3 are settled.
+> **ADR-LLNCH-006 (lazy-init pattern)** is written as part of Phase 1 (alongside the code change) because it establishes a pattern that will be reused by any future MCP entry point. The other ADRs follow after Phases 2-3 are settled.
 
-### Subtask 5a: Create ADR-003 — State Ownership and Refresh Discipline
+### Subtask 5a: Create ADR-LLNCH-003 — State Ownership and Refresh Discipline
 
 Document:
 - The four-instance problem (one per process, each with independent `LauncherState`)
@@ -458,9 +458,9 @@ Document:
 - Why UI keeps per-session state in Streamlit (inherent to SessionState model; merging into global singleton would break concurrent users)
 - Remote layer stays independent — it talks HTTP only, never touches another node's `LauncherState`
 
-### Subtask 5b: Create ADR-004 — Import Layer Boundaries and Cross-Layer Reach
+### Subtask 5b: Create ADR-LLNCH-004 — Import Layer Boundaries and Cross-Layer Reach
 
-Model this after prompt-prix's ADR-006. Define allowed imports between layers:
+Model this after prompt-prix's ADR-LLNCH-006. Define allowed imports between layers:
 
 ```
 ┌──────────────┬─────────────────────────────────────────────┐
@@ -476,7 +476,7 @@ Model this after prompt-prix's ADR-006. Define allowed imports between layers:
 
 **Enforcement:** Document that enforcement happens via PR review. Consider adding `import-linter` to CI in the future for automated checks (not phase 5 scope — track as follow-on).
 
-### Subtask 5c: Create ADR-005 — Refresh and Reconcile Pattern
+### Subtask 5c: Create ADR-LLNCH-005 — Refresh and Reconcile Pattern
 
 Document the canonical refresh path for each operation type to prevent regression of Phase 2 redundancies:
 
@@ -488,7 +488,7 @@ Document the canonical refresh path for each operation type to prevent regressio
 | POST /stop (Agent HTTP) | `refresh_running_servers()` only | None needed | Need process state to verify port + capture config_name before removal. No post-scan needed. |
 | POST /eviction (Agent HTTP) | `refresh()` | Method-internal phase 5 handles it | Pre-flight needs configs; eviction impl reconciles internally in its own phase 5. |
 
-### Subtask 5d: Create ADR-006 — MCP State Initialization Pattern
+### Subtask 5d: Create ADR-LLNCH-006 — MCP State Initialization Pattern
 
 Document the lazy-init pattern established by Phase 1 as the canonical approach for any new endpoint process (if additional entry points are added in the future):
 - Never use `state = LauncherState()` at import time in a new process
@@ -505,7 +505,7 @@ Phase 0 ────► Phase 1 ────► Phase 2 ────┬──►
                            │           │                       │
                            ▼           ├──► Phase 4a-h (minor fixes — all parallelizable)
                         ┌─────────────┐ │   
-                        │ Phase 5     │◘──► ADR-003, -004, -005, -006 
+                        │ Phase 5     │◘──► ADR-LLNCH-003, -004, -005, -006 
                         │ Governance  │       governance layer
                         └─────────────┘       
 ```
@@ -527,7 +527,7 @@ Phase 0 ────► Phase 1 ────► Phase 2 ────┬──►
 |---|----------|------------|-----------|
 | D1| MCP refresh policy (per-call vs. TTL vs. lazy-init-once) | **Per-call refresh** — every read tool handler calls `state.refresh()` before reading, in addition to getting the singleton via `get_mcp_state()`. Lazy-init once has a staleness window after external config changes. TTL is a halfway house with undocumented windows. Per-call adds ~5-20ms per MCP tool call (imperceptible to agents reasoning between calls) and guarantees zero-staleness. |
 | D2| Phase 2 before Phase 1 for momentum? | **Allowed but not default** — disjoint file sets mean either order works; Phase 1 first is default (correctness before performance), Phase 2 first gives quick wins if building confidence matters more than the theoretical ordering. Document decision in Phase ordering callout. |
-| D3| Write ADRs before or after code decisions? | **Write structural ADRs alongside code** — ADR-006 during Phase 1 (lazy-init pattern), ADR-003/004 drafted in parallel with their phases, finalized in Phase 5. Prevents documentation from becoming "write down what we already did" vs establishing patterns going forward. |
+| D3| Write ADRs before or after code decisions? | **Write structural ADRs alongside code** — ADR-LLNCH-006 during Phase 1 (lazy-init pattern), ADR-LLNCH-003/004 drafted in parallel with their phases, finalized in Phase 5. Prevents documentation from becoming "write down what we already did" vs establishing patterns going forward. |
 | D4| Replace `refresh()` with just process scan in POST /start? | **No — keep full refresh** for config data lookup and rule validation | can_start() needs self.models for model name resolution and Path existence checks. Post-mutation re-scan only is incorrect. Removing post-mutation scan IS correct (optimistic write covers it). |
 | D5| Replace temp_instance with just `is_port_in_use(port)`? | **No — retain can_start() call** after state.running check | The current code drops full validation, including external-process detection. can_start(config, caller="ui") calls is_port_in_use() which does a targeted one-port psutil scan (~1ms) vs. the full process_iter in temp_instance (~50-200ms). Both are valid; retaining can_start preserves correctness for non-llauncher processes on target port. |
 | D6| UI keep per-session state or merge into global singleton? | **Keep separate** (per-session st.session_state) | Streamlit's SessionState model makes merging across browser sessions technically difficult and risky (one user's actions would affect another). Each session has its own LauncherState instance — this is the correct design constraint for the UI layer. |
@@ -545,7 +545,7 @@ Phase 0 ────► Phase 1 ────► Phase 2 ────┬──►
 |------|-------------------|------------|--------|------------|
 | MCP lazy-init changes initialization timing subtly (state created on first call vs import time) | 1 | Low | Low — behavior is functionally identical; clients see same results regardless of when state was initialized. Add assertion in debug mode if needed. |
 | Changing Agent HTTP refresh pattern could break edge cases with external config edits between refresh and mutation | 2 | Medium | Medium — the POST /start fix (keeping full refresh) mitigates most risk. The POST /stop optimization (process-only scan before stop) assumes configs haven't changed since last refresh, which is fine since post-stop only returns already-captured data. |
-| Streamlit session isolation broken by shared state leaks | 3+ | Low | High — documented in ADR-003 as a design constraint; keep UI state explicitly in st.session_state |
+| Streamlit session isolation broken by shared state leaks | 3+ | Low | High — documented in ADR-LLNCH-003 as a design constraint; keep UI state explicitly in st.session_state |
 
 ### Observability
 
@@ -611,4 +611,4 @@ Add across phases:
 
 ---
 
-*This plan incorporates corrections from auditor review: merged Phase 1 into lazy-singleton approach, fixed POST /start correctness bug, added can_start() preservation to model_card.py replacement, removed already-optimal GET /status from changes, resolved GitHub issue mappings, and clarified out-of-scope items. Additional post-review patches: committed per-call refresh policy for MCP (not TTL), added _find_model_by_path symlink resolution fix as Phase 4h, restructured ADR timing so ADR-006 is written alongside Phase 1 code changes, documented alternative ordering for momentum (Phase 2 before Phase 1). Ready for worker execution after Phase 0 discovery confirmation.*
+*This plan incorporates corrections from auditor review: merged Phase 1 into lazy-singleton approach, fixed POST /start correctness bug, added can_start() preservation to model_card.py replacement, removed already-optimal GET /status from changes, resolved GitHub issue mappings, and clarified out-of-scope items. Additional post-review patches: committed per-call refresh policy for MCP (not TTL), added _find_model_by_path symlink resolution fix as Phase 4h, restructured ADR timing so ADR-LLNCH-006 is written alongside Phase 1 code changes, documented alternative ordering for momentum (Phase 2 before Phase 1). Ready for worker execution after Phase 0 discovery confirmation.*

@@ -1,4 +1,4 @@
-"""Unit tests for ``llauncher.core.log_rotation`` (ADR-013).
+"""Unit tests for ``llauncher.core.log_rotation`` (ADR-LLNCH-013).
 
 The rotation helper is opportunistic — it runs at process-start time,
 not on every write — and tests exercise it directly against tmp_path

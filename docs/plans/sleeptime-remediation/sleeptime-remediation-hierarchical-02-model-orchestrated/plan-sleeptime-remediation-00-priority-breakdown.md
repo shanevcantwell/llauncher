@@ -59,7 +59,7 @@ The composite produces a ranked priority ladder. "Blocker" items must be resolve
 | M1 | MEDIUM | Timezone | `model_health.py:93` | python-reviewer | `datetime.fromtimestamp()` returns naive local time, not UTC as docstring says. Add `tz=timezone.utc`. |
 | M2 | MEDIUM | Type Safety | `gpu.py:389` (`_to_float`) | python-reviewer | `.strip()` called before type check — will `AttributeError` on int/float inputs from JSON nvidia-smi output. |
 | M3 | MEDIUM | Scope Leak | `routing.py:13-22` | python-reviewer | Global mutable `_state` in routing — add proper accessor or `@lru_cache(maxsize=1)`. |
-| M4 | MEDIUM | ADR Misalignment | `ADR-003 lines 38-43` vs `middleware.py:13, 49` | security-reviewer | ADR claims `/status`, `/models` unauthenticated; implementation protects them. Docs are wrong — must be corrected to match code. |
+| M4 | MEDIUM | ADR Misalignment | `ADR-LLNCH-003 lines 38-43` vs `middleware.py:13, 49` | security-reviewer | ADR claims `/status`, `/models` unauthenticated; implementation protects them. Docs are wrong — must be corrected to match code. |
 | M5 | N/A | Unclaimed Changes | `routing.py`, `state.py`, `util/__init__.py`, `conftest.py` | code-explorer | New `/models/health/{model_name}` detail endpoint, state-layer integration, cache module exposure, shared test fixtures — all unmentioned in original summary. Verify these are intentional. |
 
 ---
@@ -70,7 +70,7 @@ The composite produces a ranked priority ladder. "Blocker" items must be resolve
 |---|----------|-----------|-----------|-----------|------|------|
 | L1 | LOW | Dead Parameters | `gpu.py:112` | python-reviewer | `_collect_devices` has unused `simulate`, `num_simulated` params. |
 | L2 | LOW | Import Placement | `model_health.py:81` | python-reviewer | `from pathlib import Path` inside function body — move to module top. |
-| L3 | MEDIUM (operational risk) | ADR Quality — operational liability | All 4 ADRs | architect | SHALLOW/RUBBER-STAMP verdict on all four. **Not cosmetic** — wrong ADR-003 causes operators to misconfigure monitoring tools that probe `/status` without auth credentials because the ADR falsely claims it's unauthenticated. Need proper alternatives sections, honest consequences, cross-references. Merge ADR-005+006 into single Pre-flight Validation Pipeline ADR. |
+| L3 | MEDIUM (operational risk) | ADR Quality — operational liability | All 4 ADRs | architect | SHALLOW/RUBBER-STAMP verdict on all four. **Not cosmetic** — wrong ADR-LLNCH-003 causes operators to misconfigure monitoring tools that probe `/status` without auth credentials because the ADR falsely claims it's unauthenticated. Need proper alternatives sections, honest consequences, cross-references. Merge ADR-LLNCH-005+006 into single Pre-flight Validation Pipeline ADR. |
 
 ---
 
@@ -107,7 +107,7 @@ Test quality **depends on code fixes** — it cannot run meaningfully in paralle
 | P1 High | 8 items (+ demoted B5) | ~5 hours (worker) | Yes — fix before production promotion |
 | P2 Medium + Bundled M1/M2 | 6 items | ~2 hours (worker) | After P0/P1; M1/M2 bundled with their respective phase edits, no standalone Phase E needed |
 | Test Overhaul | 9 files, ~20 new tests | ~8-10 hours (worker, sequential after code fixes) | **Sequential** — begins only after Phase A+B commits verified. Estimate includes re-execution time when test assertions must update for changed production API surfaces. |
-| ADR Restructure | 4 documents → 3 merged | ~4 hours (planner review cycle) | Documentation — non-blocking but required for production audit trail. ADR-004 rewrite can begin in parallel after Phase A; merged 005+006 and rewritten 003 wait for code verification. |
+| ADR Restructure | 4 documents → 3 merged | ~4 hours (planner review cycle) | Documentation — non-blocking but required for production audit trail. ADR-LLNCH-004 rewrite can begin in parallel after Phase A; merged 005+006 and rewritten 003 wait for code verification. |
 
 **Total estimated effort: ~22-27 hours of focused work across sequential-within-phases execution.**
 
@@ -124,7 +124,7 @@ Test quality **depends on code fixes** — it cannot run meaningfully in paralle
 5. **Phase B** (Sequential, after Phase A full verification): Worker fixes P1 items — cache Lock+invalidate merged into single atomic change owned by silent-failure-hunter brief; MPS parser fix; simulate-flag rewrite; startup warnings; CLI json rename; ctx param cleanup. Bundled M1 (timezone) and M2 (`_to_float`) into their respective file edits during Phase B — no standalone Phase E needed.
 6. **Phase B verification** (`pytest tests/` — full suite)
 7. **Phase C: Test Overhaul** (Sequential, after Phase B commits merged): Worker rewrites 5 weak/tautological test files + adds ~20 gap tests. Estimate includes time for updating assertions to match changed production API surfaces.
-8. **Phase D-1**: Planner begins ADR-004 rewrite immediately (non-blocking — references stable CLI architecture)
-9. **Phase D-2** (After Phase B verification): Planner begins rewritten ADR-003 and merged Pre-flight Validation Pipeline ADR using verified code as source material
+8. **Phase D-1**: Planner begins ADR-LLNCH-004 rewrite immediately (non-blocking — references stable CLI architecture)
+9. **Phase D-2** (After Phase B verification): Planner begins rewritten ADR-LLNCH-003 and merged Pre-flight Validation Pipeline ADR using verified code as source material
 10. **Strategic-planner iterative review cycle** on all rewritten ADRs until authentic approval without prompting
 11. **Phase F**: Final verification — re-run ground-truth check against remediated commits

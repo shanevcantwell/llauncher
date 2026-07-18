@@ -1,6 +1,6 @@
 """Unit tests for ``llauncher.operations`` (the v2 tool layer).
 
-Per ADR-008 and ADR-010. Verifies start/stop verb semantics, lockfile
+Per ADR-LLNCH-008 and ADR-LLNCH-010. Verifies start/stop verb semantics, lockfile
 reconciliation behavior, and audit-log discipline.
 """
 
@@ -28,7 +28,7 @@ def run_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Redirect lockfile writes to a tmp dir and inject the path into reads.
 
     Also redirects marker reads/writes (the marker module's module-level
-    ``LAUNCHER_RUN_DIR`` constant is bound at import time). ADR-014 added
+    ``LAUNCHER_RUN_DIR`` constant is bound at import time). ADR-LLNCH-014 added
     a marker take/release to ``operations.start`` so this is needed for
     every test that exercises ``start``.
     """
@@ -1208,7 +1208,7 @@ def test_swap_failed_when_rollback_also_fails(
 def test_swap_uses_snapshot_config_for_rollback(
     run_dir: Path, marker_run_dir: Path, audit_path: Path
 ) -> None:
-    """A mid-swap config edit doesn't poison rollback (ADR-011 §Rollback)."""
+    """A mid-swap config edit doesn't poison rollback (ADR-LLNCH-011 §Rollback)."""
     import os
 
     lf.write_lockfile(8081, "old", os.getpid(), run_dir=run_dir)
@@ -1406,7 +1406,7 @@ def test_swap_default_preflight_proceeds_when_both_pass(
 def test_startup_logs_capped_at_max(
     run_dir: Path, marker_run_dir: Path, audit_path: Path, mock_popen: MagicMock
 ) -> None:
-    """Startup logs are capped (ADR-011 open question 2 — preserve ADR-002 cap)."""
+    """Startup logs are capped (ADR-LLNCH-011 open question 2 — preserve ADR-LLNCH-002 cap)."""
     import os
 
     lf.write_lockfile(8081, "old", os.getpid(), run_dir=run_dir)
@@ -1716,7 +1716,7 @@ def test_swap_terminate_unexpected_exception_now_propagates(
 
 
 # ---------------------------------------------------------------------------
-# ADR-014: cancellation tests
+# ADR-LLNCH-014: cancellation tests
 # ---------------------------------------------------------------------------
 
 
@@ -1752,7 +1752,7 @@ def test_start_cancel_before_preflight_returns_cancelled(
 def test_start_rejected_in_progress_when_marker_present(
     run_dir: Path, audit_path: Path, sample_config: ModelConfig
 ) -> None:
-    """A pre-existing marker on the port causes start to reject (ADR-014)."""
+    """A pre-existing marker on the port causes start to reject (ADR-LLNCH-014)."""
     from llauncher.core import marker as mk
 
     # Pre-existing marker simulates another op in flight.
@@ -1772,7 +1772,7 @@ def test_start_rejected_in_progress_when_marker_present(
 def test_start_cancel_post_commit_completes_with_advisory(
     run_dir: Path, audit_path: Path, sample_config: ModelConfig, mock_popen: MagicMock
 ) -> None:
-    """A cancel that arrives after the lockfile is written is a no-op (ADR-014)."""
+    """A cancel that arrives after the lockfile is written is a no-op (ADR-LLNCH-014)."""
     # Patch is_cancelled to return False during early checkpoints, True
     # only on the post-commit check. The function is called several times;
     # the last call is the post-commit one in operations/start.py.
@@ -1878,7 +1878,7 @@ def test_swap_cancel_during_readiness_rolls_back_as_cancelled(
 def test_swap_cancel_after_success_is_no_op_with_advisory(
     run_dir: Path, marker_run_dir: Path, audit_path: Path, mock_popen: MagicMock
 ) -> None:
-    """Cancel that arrives after readiness returns ready is a no-op (ADR-014)."""
+    """Cancel that arrives after readiness returns ready is a no-op (ADR-LLNCH-014)."""
     import os as _os
 
     lf.write_lockfile(8081, "old", _os.getpid(), run_dir=run_dir)
@@ -1912,7 +1912,7 @@ def test_swap_cancel_after_success_is_no_op_with_advisory(
 def test_start_cancel_after_preflight_returns_cancelled(
     run_dir: Path, audit_path: Path, sample_config: ModelConfig, mock_popen: MagicMock
 ) -> None:
-    """Cancel at the *post-preflight* checkpoint (ADR-014) yields no state change.
+    """Cancel at the *post-preflight* checkpoint (ADR-LLNCH-014) yields no state change.
 
     ``is_cancelled`` returns False at the pre-preflight checkpoint and True
     at the post-preflight one, exercising the second cancel gate in
@@ -1952,7 +1952,7 @@ def test_swap_same_model_in_flight_marker_rejects(
     """Same-model swap while a marker is already held → ``rejected_in_progress``.
 
     The 1b same-model short-circuit still takes the marker for concurrency
-    safety (ADR-011); when ``take_marker`` raises ``FileExistsError`` because
+    safety (ADR-LLNCH-011); when ``take_marker`` raises ``FileExistsError`` because
     another op already holds it, ``swap`` returns the in-progress result
     rather than the idempotent ``already_running``. Exercises the
     ``except FileExistsError`` branch in the same-model path.

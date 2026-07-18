@@ -60,7 +60,7 @@ Each managed node runs its own `llauncher-agent`. The Streamlit UI's head dashbo
 └──────────┘ └──────────┘ └──────────┘
 ```
 
-### Layer Boundaries (Current State — See ADR-004 for planned enforcement)
+### Layer Boundaries (Current State — See ADR-LLNCH-004 for planned enforcement)
 
 | Layer | May Import | Must NOT Import |
 |-------|-----------|-----------------|
@@ -141,14 +141,14 @@ Each managed node runs its own `llauncher-agent`. The Streamlit UI's head dashbo
 |------|---------|
 | `adrs/001-ts-extension-for-pi.md` | **Approved.** TS extension design to let Pi coding agents control llauncher nodes via native fetch() against agent REST API. Zero npm deps. Two-port awareness (agent port 8765 vs inference port). Tool surface table with node management. Known bug: `start-with-eviction` endpoint missing `port` query param in FastAPI signature. |
 | `adrs/002-swap-eviction-consistency.md` | **Draft.** Five-phase eviction redesign for `state.start_with_eviction()`. Currently broken (UI and Agent API have no rollback). Proposed: single `EvictionResult` dataclass with 4 port_states (`unchanged/restored/serving/unavailable`). MCP uses `strict_rollback=True`, UI/Agent use `False`. Full decision tree + migration plan. |
-| `PLAN-architectural-remediation.md` | **Comprehensive 5-phase plan.** Phase 0 (discovery), Phase 1 (MCP lazy singleton — already implemented per phase1-verification.md with partial bug found), Phase 2 (Agent HTTP redundancy elimination), Phase 3 (cleanup/dead code), Phase 4a-h (minor fixes: logs expander, orphaned log cleanup, remote node Pydantic validation, np exposure in MCP output), Phase 5 (ADR governance — ADR-003/004/005/006). Contains all GitHub issue mappings. |
+| `PLAN-architectural-remediation.md` | **Comprehensive 5-phase plan.** Phase 0 (discovery), Phase 1 (MCP lazy singleton — already implemented per phase1-verification.md with partial bug found), Phase 2 (Agent HTTP redundancy elimination), Phase 3 (cleanup/dead code), Phase 4a-h (minor fixes: logs expander, orphaned log cleanup, remote node Pydantic validation, np exposure in MCP output), Phase 5 (ADR governance — ADR-LLNCH-003/004/005/006). Contains all GitHub issue mappings. |
 | `plans/phase1-verification.md` | Verification report for Phase 1. Confirms lazy singleton pattern implemented with partial object caching bug discovered in `get_mcp_state()`. Full test plan with pass/fail status per section. 86 tests passing, 94% coverage on modified files. Critical gap: no end-to-end stale-data-elimination test exists. |
 | `MCP.md` | MCP integration documentation |
 | Architecture docs (1-3-) | Layer diagrams, cross-layer reach patterns, refresh-reconcile patterns |
 
 ### `/pi-footer-extension/` — Pi Extension Work
 
-TypeScript extension stub for Pi coding agent to control llauncher nodes natively (no stdio transport). Defined in ADR-001.
+TypeScript extension stub for Pi coding agent to control llauncher nodes natively (no stdio transport). Defined in ADR-LLNCH-001.
 
 ---
 
@@ -272,7 +272,7 @@ Both files use atomic write (write to `.tmp` then rename). ConfigStore also prov
 
 | Issue | Status | Details |
 |-------|--------|---------|
-| UI/Agent API eviction rollback (ADR-002) | Draft plan, NOT implemented | ADR-002 proposes 5-phase with rollback. Current `start_with_eviction` in state.py appears to be already upgraded (code shows full implementation with `_start_with_eviction_impl`). Need to confirm whether the migration tasks from ADR-002's Phase II have been executed. The `EvictionResult` dataclass and `_compat` wrapper exist, but agent/routing.py and UI still may not use the new pattern fully. |
+| UI/Agent API eviction rollback (ADR-LLNCH-002) | Draft plan, NOT implemented | ADR-LLNCH-002 proposes 5-phase with rollback. Current `start_with_eviction` in state.py appears to be already upgraded (code shows full implementation with `_start_with_eviction_impl`). Need to confirm whether the migration tasks from ADR-LLNCH-002's Phase II have been executed. The `EvictionResult` dataclass and `_compat` wrapper exist, but agent/routing.py and UI still may not use the new pattern fully. |
 | Partial object caching bug in get_mcp_state() | Bug found during phase1 verification | Current code has try/except but verify it properly clears `_mcp_state = None`. See `phase1-verification.md` Section F. |
 | No end-to-end stale-data test for Phase 1 | Gap confirmed by verification | Phase 1's core value proposition (zero staleness on reads) is untested at integration level |
 | Post-mutation refresh redundancy in Agent HTTP | Planned → Phase 2 of remediation plan | POST /start does `refresh()` + mutation + another `refresh_running_servers()`. 3 scans for eviction. Plan says reduce to 1. |
@@ -282,29 +282,29 @@ Both files use atomic write (write to `.tmp` then rename). ConfigStore also prov
 
 | Feature | Source | Notes |
 |---------|--------|-------|
-| ADR-003: State ownership and refresh discipline doc | PLAN Phase 5a | Formal governance document for the one-per-process + refresh-on-read pattern |
-| ADR-004: Import layer boundaries enforcement | PLAN Phase 5b | MAY/MUST NOT import table (already documented in this summary) |
-| ADR-005: Refresh/reconcile patterns doc | PLAN Phase 5c | Canonical refresh paths per operation type |
-| ADR-006: MCP state initialization pattern | PLAN Phase 5d | Lazy-init as canonical for new processes |
+| ADR-LLNCH-003: State ownership and refresh discipline doc | PLAN Phase 5a | Formal governance document for the one-per-process + refresh-on-read pattern |
+| ADR-LLNCH-004: Import layer boundaries enforcement | PLAN Phase 5b | MAY/MUST NOT import table (already documented in this summary) |
+| ADR-LLNCH-005: Refresh/reconcile patterns doc | PLAN Phase 5c | Canonical refresh paths per operation type |
+| ADR-LLNCH-006: MCP state initialization pattern | PLAN Phase 5d | Lazy-init as canonical for new processes |
 | Pydantic validation on remote node config (Issue #27) | PLAN Phase 4e | New `RemoteNodeConfig` model before writing to nodes.json |
 | Logs expander in dashboard running servers (Issue #16) | PLAN Phase 4a | Add log viewer UI component to dashboard |
 | Orphaned log file cleanup (Issue #10) | PLAN Phase 4b | Document as known limitation + add cleanup button/script |
 | Remote model management via dashboard (Issue #15) | Explicitly OUT OF SCOPE in plan | Feature request for full remote CRUD from UI; backlog item |
 | Windows `run.bat` fix (Issue #14) | Requires Windows test env | Separate worker needed |
-| TS extension for Pi (ADR-001) | Approved, not yet implemented | TypeScript extension at `~/.pi/agent/extensions/llauncher.ts` |
+| TS extension for Pi (ADR-LLNCH-001) | Approved, not yet implemented | TypeScript extension at `~/.pi/agent/extensions/llauncher.ts` |
 
 ---
 
 ## 5. ADR Summary
 
-### ADR-001: TypeScript Extension for Pi to Control llauncher Agents
+### ADR-LLNCH-001: TypeScript Extension for Pi to Control llauncher Agents
 **Status:** ✅ Approved  
 **Problem:** No way for pi coding agents to control llauncher nodes programmatically — MCP requires Python stdio transport, adding overhead and complexity.
 **Decision:** Build a single-file TS extension using native `fetch()` with zero npm dependencies. Maps directly to agent REST endpoints. No abstraction layer. Uses shared `nodes.json` registry from Python codebase. Two-port awareness (agent port 8765 vs inference ports).
 **Tool Surface:** 12 tools — list_models, get_model_config, server_status, get_server_logs (reads); start_server, stop_server, swap_server (writes); add_node, remove_node (node management). All node parameter is explicit per-call. Parallel all-nodes queries supported.
 **Known Bug:** Agent's `/start-with-eviction/{model_name}` FastAPI endpoint references `port` query param but doesn't declare it in function signature — will likely cause 422 validation errors. Fix: add `port: int | None = Query(None)` to routing.py.
 
-### ADR-002: Unified Swap-with-Eviction Semantics
+### ADR-LLNCH-002: Unified Swap-with-Eviction Semantics
 **Status:** Draft  
 **Problem:** Three entry surfaces (UI, Agent API, MCP tool) implement swap/eviction differently. MCP tool has ~120 lines of rollback logic; UI and Agent API call a broken `start_with_eviction` that has NO rollback — if new model fails to start, old model is dead with no recovery.
 **Decision:** Elevate `state.start_with_eviction()` to be the single source of truth with full 5-phase implementation (pre-flight → stop-old → start-new → readiness-poll → rollback). Return structured `EvictionResult` instead of `(bool, str)`. All three entry points delegate to one method.
@@ -317,17 +317,17 @@ Both files use atomic write (write to `.tmp` then rename). ConfigStore also prov
 
 The following was discovered during verification after the initial summary was written:
 
-### ADR-002 — Partially Implemented (Core Done, Downstream Incomplete)
+### ADR-LLNCH-002 — Partially Implemented (Core Done, Downstream Incomplete)
 
 **What IS implemented:**
-- `EvictionResult` dataclass exists in `state.py:33` with all fields from ADR-002
+- `EvictionResult` dataclass exists in `state.py:33` with all fields from ADR-LLNCH-002
 - `_start_with_eviction_impl()` implements full 5-phase swap flow with rollback (lines ~280-470 of state.py)
 - MCP tool (`mcp_server/tools/servers.py:swap_server`) delegates to `_start_with_eviction_impl(strict_rollback=True)` — thin wrapper, not inline duplicate
 - Agent HTTP (`agent/routing.py`) imports `EvictionResult` and calls `_start_with_eviction_impl(strict_rollback=False)`
 
 **What is NOT yet implemented (gap between draft ADR and code):**
 1. **Audit log enum NOT updated**: `AuditEntry.result` in `models/config.py` still has old values `Literal["success", "error", "validation_error"]` — missing `"rolled_back"` and `"unavailable"` as required by Phase 3c of the remediation plan. This means audit entries for swap outcomes will lose structured rollback/unavailable information even though state computes it correctly.
-2. **Agent API response structure**: The eviction handler in routing.py (line ~260+) calls `_start_with_eviction_impl` and returns a dict with `success`, `port_state`, `previous_model`, `new_model` fields, but doesn't currently include the full structured `EvictionResult` mapping that ADR-002 envisions for the JSON response body on both success AND error.
+2. **Agent API response structure**: The eviction handler in routing.py (line ~260+) calls `_start_with_eviction_impl` and returns a dict with `success`, `port_state`, `previous_model`, `new_model` fields, but doesn't currently include the full structured `EvictionResult` mapping that ADR-LLNCH-002 envisions for the JSON response body on both success AND error.
 3. **UI dashboard uses `dashboard.py`, not `model_card.py`**: The main app imports tab1 from `dashboard.py` and tab2 from `nodes.py`. The file `ui/tabs/model_card.py` exists as a component but is NOT imported in the top-level tab navigation — it may be used internally by dashboard.py or may be residual/stub code.
 4. **Manager/running tabs exist as files but are not active UI routes**: Neither `manager.py`, `forms.py`, nor `model_card.py` appear to be mounted as Streamlit tabs in app.py. The Dashboard tab appears self-contained within dashboard.py.
 
@@ -335,16 +335,16 @@ The following was discovered during verification after the initial summary was w
 
 | Claim in Summary | Verdict | Correction |
 |-----------------|---------|------------|
-| MCP swap_server uses `_start_with_eviction_impl(strict_rollback=True)` | ✅ Confirmed | Line 225 of servers.py — delegation is thin, ~30 lines not ~120 as described in ADR-002 context |
+| MCP swap_server uses `_start_with_eviction_impl(strict_rollback=True)` | ✅ Confirmed | Line 225 of servers.py — delegation is thin, ~30 lines not ~120 as described in ADR-LLNCH-002 context |
 | Agent HTTP imports EvictionResult | ✅ Confirmed | routing.py line 8 |
 | UI has separate Model Card tab | ❌ Correction needed | Dashboard.py handles all model display; model_card.py is a component not mounted as top-level tab |
 
-### Revised "Implemented vs Planned" — ADR-002 Row
+### Revised "Implemented vs Planned" — ADR-LLNCH-002 Row
 
 Replace the earlier entry with:
 
 | Feature | Status | Details |
 |---------|--------|---------|
-| Swap/Eviction with rollback (ADR-002) | ⚠️ Core implemented, integration incomplete | `EvictionResult` + `_start_with_eviction_impl()` with full 5-phase in state.py ✅. MCP tool delegates with strict_rollback=True ✅. Agent HTTP uses it with strict_rollback=False ✅. BUT: AuditEntry.result enum NOT updated (still old Literal values) ⚠️. UI tab structure different than documented (dashboard.py instead of model_card.py). Phase 3c audit enrichment and Phase 5b/c ADR docs remain pending |
+| Swap/Eviction with rollback (ADR-LLNCH-002) | ⚠️ Core implemented, integration incomplete | `EvictionResult` + `_start_with_eviction_impl()` with full 5-phase in state.py ✅. MCP tool delegates with strict_rollback=True ✅. Agent HTTP uses it with strict_rollback=False ✅. BUT: AuditEntry.result enum NOT updated (still old Literal values) ⚠️. UI tab structure different than documented (dashboard.py instead of model_card.py). Phase 3c audit enrichment and Phase 5b/c ADR docs remain pending |
 
 ---

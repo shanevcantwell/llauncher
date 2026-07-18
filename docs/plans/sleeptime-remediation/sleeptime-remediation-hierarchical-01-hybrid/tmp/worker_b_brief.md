@@ -90,7 +90,7 @@ feat(core): add model cache health validation and GPU resource monitoring
 - Add Model Registry tab to Streamlit dashboard showing file status indicators
 - Handle symlinks via Path.resolve(), broken link detection, permission checks
 
-Refs: ADR-005, ADR-006
+Refs: ADR-LLNCH-005, ADR-LLNCH-006
 ```
 
 Read the full implementation plan at /tmp/llauncher_implementation_plan.md for additional context and specifications. Follow existing llauncher coding patterns and style."

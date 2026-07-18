@@ -1,4 +1,4 @@
-"""Unit tests for ``GPUHealthCollector`` (ADR-006).
+"""Unit tests for ``GPUHealthCollector`` (ADR-LLNCH-006).
 
 Covers:
 - no backend returns empty list

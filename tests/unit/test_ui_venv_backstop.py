@@ -1,4 +1,4 @@
-"""Guards for ADR-023 Phase B — UI shared-venv fail-loud backstop (issue #228).
+"""Guards for ADR-LLNCH-023 Phase B — UI shared-venv fail-loud backstop (issue #228).
 
 The UI runs as a per-operator ``systemd --user`` unit whose ExecStart resolves
 ``/usr/local/bin/llauncher-ui`` -> ``/opt/llauncher/venv/bin/llauncher-ui``, a

@@ -10,19 +10,19 @@
        claims from the model's report. For each, return CONFIRMED / PARTIAL / MISSING /       
        OVERSTATED with the file panh ·nd a one-line note: g      high effort)             
             e    n    e t     p      r a    plex request before making changes. Press 
-       1. ADR-003: Auth middleware via LAUNCHER_AGENT_TOKEN env var, X-Api-Key header,
+       1. ADR-LLNCH-003: Auth middleware via LAUNCHER_AGENT_TOKEN env var, X-Api-Key header,
        401 absent / 403 wrong, exempts /health and docs paths, disables OpenAPI when
  ─     token active.   ─       ─      ────────────────────────────────────────────────────────
-       2. ADR-003: RemoteNode has optional api_key field; NodeRegistry.add_node() accepts 
+       2. ADR-LLNCH-003: RemoteNode has optional api_key field; NodeRegistry.add_node() accepts 
         api_key and persists─to─nodes.json.───────────────────────────────────────────────────
   esc t3.iADR-004: New cli.py (~357 lines), Typer-based, with subcommand groups model,tokens  
        server, node, config. Rich tables + --json flag. Entry point in pyproject.toml.        
-       4. ADR-005: New core/model_health.py with ModelHealthResult Pydantic model and         
+       4. ADR-LLNCH-005: New core/model_health.py with ModelHealthResult Pydantic model and         
        check_model_health(). Existence → readability → size > 1MB → symlink resolution.       
        /models/health endpoint added in agent/routing.py. New Streamlit UI tab for model
        registry status.                                                                       
-       5. ADR-005: New util/cache.py providing TTL cache used by health/GPU.                  
-       6. ADR-006: New core/gpu.py with GPUHealthCollector, NVIDIA/ROCm/MPS backends,
+       5. ADR-LLNCH-005: New util/cache.py providing TTL cache used by health/GPU.                  
+       6. ADR-LLNCH-006: New core/gpu.py with GPUHealthCollector, NVIDIA/ROCm/MPS backends,
        auto-detect. /status extended with per-device metrics. VRAM pre-flight returning       
        409 on /start-with-eviction.                                                           
        7. Tests: 83 new tests claimed (11 auth + ~39 health/GPU + 23 CLI + 9                  
@@ -59,7 +59,7 @@
        ---
        Verification Report: Commits a4d0361..9c73c71
 
-       1. ADR-003: Auth middleware — CONFIRMED
+       1. ADR-LLNCH-003: Auth middleware — CONFIRMED
        /home/shane/github/shanevcantwell/llauncher/llauncher/agent/middleware.py:
        LAUNCHER_AGENT_TOKEN env var read in core/settings.py (line 43), X-Api-Key header
        checked, 401 on absent / 403 on wrong or empty key confirmed in dispatch logic
@@ -67,31 +67,31 @@
        create_app() in server.py sets docs_url=None / redoc_url=None when auth is active.
         Exactly as claimed.
 
-       2. ADR-003: RemoteNode api_key / NodeRegistry.add_node — CONFIRMED
+       2. ADR-LLNCH-003: RemoteNode api_key / NodeRegistry.add_node — CONFIRMED
        /home/shane/github/shanevcantwell/llauncher/llauncher/remote/node.py line 69:
        api_key: str | None = None in __init__, serialized in to_dict().
        /home/shane/github/shanevcantwell/llauncher/llauncher/remote/registry.py
        add_node() (line 65) accepts api_key, passes it to RemoteNode, and _save() writes
        api_key into nodes.json.
 
-       3. ADR-004: cli.py — CONFIRMED
+       3. ADR-LLNCH-004: cli.py — CONFIRMED
        /home/shane/github/shanevcantwell/llauncher/llauncher/cli.py is exactly 357 lines.
         Typer subcommand groups model_app, server_app, node_app, config_app all present
        with app.add_typer(). pyproject.toml line 27 registers llauncher =
        "llauncher.cli:app". Rich tables and --json flag verified in file structure.
 
-       4. ADR-005: model_health.py, /models/health endpoint, Streamlit tab — CONFIRMED
+       4. ADR-LLNCH-005: model_health.py, /models/health endpoint, Streamlit tab — CONFIRMED
        /home/shane/github/shanevcantwell/llauncher/llauncher/core/model_health.py:
        ModelHealthResult Pydantic model present (line 22). check_model_health() checks
        existence via Path.resolve() → is_file(), readability via open, size > 1 MiB.
        /models/health at routing.py line 226 confirmed. Streamlit model_registry.py tab
        (122 lines) confirmed; app.py line 202 adds it as third tab.
 
-       5. ADR-005: util/cache.py — CONFIRMED
+       5. ADR-LLNCH-005: util/cache.py — CONFIRMED
        /home/shane/github/shanevcantwell/llauncher/llauncher/util/cache.py: _TTLCache
        class present (54 lines). Used in both model_health.py and gpu.py.
 
-       6. ADR-006: gpu.py, /status extended, 409 on /start-with-eviction — CONFIRMED
+       6. ADR-LLNCH-006: gpu.py, /status extended, 409 on /start-with-eviction — CONFIRMED
        /home/shane/github/shanevcantwell/llauncher/llauncher/core/gpu.py:
        GPUHealthCollector with NVIDIA/ROCm/MPS backends present (438 lines). /status
        endpoint in routing.py line 178-181 calls collector and merges gpu key.
@@ -324,7 +324,7 @@
 
 ● security-reviewer(Auth middleware security audit)
   ⎿  Prompt:
-       Repo: /home/shane/github/shanevcantwell/llauncher. ADR-003 added API key
+       Repo: /home/shane/github/shanevcantwell/llauncher. ADR-LLNCH-003 added API key
        authentication on the agent HTTP API (port 8765). It was written by a smaller
        model overnight. Audit it as if it were going to production.
 
@@ -377,7 +377,7 @@
        Here are the findings from the full audit.
 
        ---
-       Security Audit: ADR-003 API Key Authentication
+       Security Audit: ADR-LLNCH-003 API Key Authentication
 
        1. CRITICAL — Timing Attack via Naive String Comparison
 
@@ -487,7 +487,7 @@
        is not None.
 
        ---
-       6. MEDIUM — ADR-003 Claims Read-Only Endpoints Are Unauthenticated; Implementation
+       6. MEDIUM — ADR-LLNCH-003 Claims Read-Only Endpoints Are Unauthenticated; Implementation
         Protects All
 
        File: docs/adrs/003-agent-api-authentication.md, lines 38–43 vs. middleware.py
@@ -551,7 +551,7 @@
        ──────┤
        │     │          │                  │         │ ADR claims read-only endpoints
              │
-       │ 6   │ MEDIUM   │ ADR-003          │ line 38 │ unauthenticated; implementation
+       │ 6   │ MEDIUM   │ ADR-LLNCH-003          │ line 38 │ unauthenticated; implementation
              │
        │     │          │                  │         │ protects them — docs are wrong
              │
@@ -874,14 +874,14 @@
 
        Behaviors Claimed by ADRs But Not Tested
 
-       - Token size limit / oversized header rejection (ADR-003)
-       - Whitespace-only token normalization (ADR-003)
+       - Token size limit / oversized header rejection (ADR-LLNCH-003)
+       - Whitespace-only token normalization (ADR-LLNCH-003)
        - _estimate_vram_mb VRAM heuristic for non-7B sizes (3B, 14B, 70B, no-match
-       fallback) (ADR-006)
+       fallback) (ADR-LLNCH-006)
        - Partial GPU offload scaling (n_gpu_layers < 999) in _estimate_vram_mb
-       - Exact 1 MB boundary for model health validity (ADR-005)
-       - ROCm backend parsing (ADR-006)
-       - ping() updating node.status and node.last_seen on success/failure (ADR-003)
+       - Exact 1 MB boundary for model health validity (ADR-LLNCH-005)
+       - ROCm backend parsing (ADR-LLNCH-006)
+       - ping() updating node.status and node.last_seen on success/failure (ADR-LLNCH-003)
        - CLI server start port-conflict error path
   ⎿  Done (16 tool uses · 56.0k tokens · 1m 47s)
 
@@ -905,7 +905,7 @@
        burden, security implications?
        4. Does it match the existing ADR style in 001 and 002? Or does it pattern-match a
         generic ADR template from training data?
-       5. Scope creep / under-spec — does ADR-003 (auth) really only specify the
+       5. Scope creep / under-spec — does ADR-LLNCH-003 (auth) really only specify the
        middleware, or does it punt critical design questions like token rotation,
        multi-tenant keys, audit logging?
        6. Coherence across the 4 ADRs — do 005 and 006 overlap (model health vs GPU
@@ -953,7 +953,7 @@
        baseline. Now to the critique.
 
        ---
-       ADR-003 (Auth): SHALLOW
+       ADR-LLNCH-003 (Auth): SHALLOW
        This presents itself as a decision but only documents one approach (X-Api-Key
        header middleware) without considering real alternatives like mTLS, OAuth/JWT,
        Unix socket binding, SSH-tunnel-only access, or reverse proxy delegation — all
@@ -964,7 +964,7 @@
        the actual decision; the "Open Questions" section is doing load-bearing work that
        the Decision section should own.
 
-       ADR-004 (CLI): ADEQUATE
+       ADR-LLNCH-004 (CLI): ADEQUATE
        This is the most honest of the four. The decision is genuinely scoped (Typer
        subcommands, local-state vs remote split), the "double-discovery problem" is named
         explicitly as a negative consequence, and the open questions are tactical rather
@@ -975,7 +975,7 @@
         or machine-readable output (JSON mode), which are table stakes for "CI/CD
        pipelines" usage it claims to enable.
 
-       ADR-005 (Model Cache Health): RUBBER-STAMP
+       ADR-LLNCH-005 (Model Cache Health): RUBBER-STAMP
        This reads as a feature spec dressed in ADR clothing. The "Decision" is "add a
        check and an endpoint" — there is no choice being made between alternatives (e.g.,
         lazy validation at load time vs eager at startup vs filesystem-watcher
@@ -986,7 +986,7 @@
        distinct features: pre-flight check, health endpoint, and a register CLI command —
         these warrant separate ADRs or one cohesive proposal.
 
-       ADR-006 (GPU Monitoring): SHALLOW with scope-overlap
+       ADR-LLNCH-006 (GPU Monitoring): SHALLOW with scope-overlap
        A real decision here would be "build vs adopt" (nvitop, gpustat, pynvml, NVML
        directly, Prometheus node_exporter) — none are evaluated. The Apple MPS approach
        via /dev/memfd is fabricated; that path doesn't exist on macOS and memfd is a

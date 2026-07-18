@@ -1,4 +1,4 @@
-# ADR-017: Trusted-Host Session-Token Issuance (Design B)
+# ADR-LLNCH-017: Trusted-Host Session-Token Issuance (Design B)
 
 **Status:** Draft
 **Date:** 2026-06-10
@@ -7,7 +7,7 @@
 
 ## Context
 
-ADR-003 and the security-hardening cohort (Wave 1+2, v2-final) landed the
+ADR-LLNCH-003 and the security-hardening cohort (Wave 1+2, v2-final) landed the
 *enforcement* layer for agent authentication: loopback-default bind,
 refuse-to-start non-loopback without `LLAUNCHER_AGENT_TOKEN`, `X-Api-Key`
 middleware with `hmac.compare_digest`, audit-logged endpoints. The
@@ -26,9 +26,9 @@ trusted UI host becomes "type host and port."
 
 ### Design constraints
 
-1. Static-token auth (ADR-003) remains intact as the fallback for any client
+1. Static-token auth (ADR-LLNCH-003) remains intact as the fallback for any client
    outside the trusted range. This ADR supersedes only the *static-token-only*
-   language of ADR-003, not the ADR itself.
+   language of ADR-LLNCH-003, not the ADR itself.
 2. Existing v0.3.x deployments must upgrade with **zero configuration change
    and zero new attack surface**. The feature is strictly opt-in.
 3. The threat-model honesty must be loud (see below) so trusted-host issuance
@@ -186,7 +186,7 @@ of this where operators will read it.
   pinging unauthenticated — intended, but a behavior change from #133.
 
 **Same-orbit cleanups bundled with this phase:**
-- **#126** — ADR-003 exempt-paths drift vs. live middleware: resolve while
+- **#126** — ADR-LLNCH-003 exempt-paths drift vs. live middleware: resolve while
   the middleware is open.
 - **#125** — `/node-info` self-loop short-circuit: cooperative, would remove
   the local-node auth path entirely; bundle if cheap.
@@ -201,6 +201,6 @@ of this where operators will read it.
 
 ## Supersession note
 
-Supersedes the static-token-*only* framing of ADR-003 §Decision. ADR-003
+Supersedes the static-token-*only* framing of ADR-LLNCH-003 §Decision. ADR-LLNCH-003
 remains in force for the static path and stays in `completed/`; on
 ratification, add an Amendment Note there pointing here.

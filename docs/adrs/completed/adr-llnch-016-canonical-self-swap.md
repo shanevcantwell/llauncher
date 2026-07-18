@@ -1,14 +1,14 @@
-# ADR-016: Canonical Self-Swap — Worked Example and Integration Test
+# ADR-LLNCH-016: Canonical Self-Swap — Worked Example and Integration Test
 
 **Status:** Accepted
 **Date:** 2026-05-24
-**Relationship to other ADRs:** ADR-011 (swap semantics v2) defines the five-phase mechanic this ADR exercises end-to-end. ADR-010 (port at the call site) defines the verb shape (`swap_server(port, model_name)`) the MCP tool exposes and that the worked example drives. ADR-014 (cancellation) supplies the recovery branch when readiness polling hangs. ADR-008 (stateless facade) and ADR-001 (pi-coding-agent TypeScript footer) are the two consumers whose contract this ADR pins.
+**Relationship to other ADRs:** ADR-LLNCH-011 (swap semantics v2) defines the five-phase mechanic this ADR exercises end-to-end. ADR-LLNCH-010 (port at the call site) defines the verb shape (`swap_server(port, model_name)`) the MCP tool exposes and that the worked example drives. ADR-LLNCH-014 (cancellation) supplies the recovery branch when readiness polling hangs. ADR-LLNCH-008 (stateless facade) and ADR-LLNCH-001 (pi-coding-agent TypeScript footer) are the two consumers whose contract this ADR pins.
 
-**Supersedes:** No prior ADR. ADR-011 stated the self-swap property — "swap leaves the inference channel intact for the harness's MCP transport" — but neither the prose timeline nor the executable proof existed.
+**Supersedes:** No prior ADR. ADR-LLNCH-011 stated the self-swap property — "swap leaves the inference channel intact for the harness's MCP transport" — but neither the prose timeline nor the executable proof existed.
 
 ## Context
 
-ADR-011 codified llauncher's swap as a five-phase mechanic with a structurally-clean separation between two transports:
+ADR-LLNCH-011 codified llauncher's swap as a five-phase mechanic with a structurally-clean separation between two transports:
 
 - **The MCP control channel** is the agent's stdio child (`mcp_server.server.main_async`). The harness talks to that child over stdio JSON-RPC; nothing in the swap path touches it.
 - **The inference channel** is a *separate* `llama-server` HTTP process, spawned and owned by `llauncher.operations.swap`. Swap reaps the old `llama-server` and spawns a new one on the same port. The MCP child is uninvolved.
@@ -27,7 +27,7 @@ This ADR fixes all three. It is a documentation-and-test ADR by intent: no produ
 
 The canonical self-swap is: an agent harness, talking to the llauncher MCP child over stdio, calls `swap_server(port=P, model_name=B)` to replace model A (currently running on P) with model B. The harness *itself* is running on top of model A — the inference its next completion call will hit lives on P. The interesting property is that the call returns successfully and the harness's *very next* completion request, sent over HTTP to `http://localhost:P/...`, hits a freshly-loaded model B without any reconnect on the MCP side.
 
-The five-phase swap (ADR-011) maps onto five wall-clock moments visible to the harness:
+The five-phase swap (ADR-LLNCH-011) maps onto five wall-clock moments visible to the harness:
 
 | Time | Event | What dies | What stays alive |
 |------|-------|-----------|------------------|
@@ -53,7 +53,7 @@ Three independent facts that, together, make the survival property structural ra
 
 1. **The MCP child is a separate OS process from any `llama-server`.** The MCP server is the stdio-attached Python process spawned by the harness; `llama-server` processes are spawned by `llauncher.core.process.start_server` as fully-detached children of the agent process tree. The swap path's `proc.stop_server_by_port(port)` (`operations/swap.py:380`) operates only on the PID claimed by the lockfile on that port, which is — by construction — a `llama-server` PID, never the MCP child's PID.
 2. **The transports are non-overlapping.** MCP is JSON-RPC over stdio between the harness and the MCP child. Inference is HTTP between the harness and the `llama-server` on port P. The swap mutates only the latter. There is no shared socket, no shared file descriptor, and no shared event loop.
-3. **The lifecycles are distinct.** The agent's stdio lifecycle is owned by the harness (which spawned the MCP child); the inference lifecycle is owned by llauncher's lockfile registry. They communicate only through the file-system seam ADR-008 ratified (lockfile, marker, audit log) — none of which the MCP child needs to read or write to keep its stdio attached.
+3. **The lifecycles are distinct.** The agent's stdio lifecycle is owned by the harness (which spawned the MCP child); the inference lifecycle is owned by llauncher's lockfile registry. They communicate only through the file-system seam ADR-LLNCH-008 ratified (lockfile, marker, audit log) — none of which the MCP child needs to read or write to keep its stdio attached.
 
 A future change that tried to make a single process handle both surfaces — e.g., an embedded `llama.cpp` in the MCP child — would violate this ADR's contract. Such a change must be its own ADR explicitly superseding this one.
 
@@ -75,7 +75,7 @@ The following fields are **introspection-only** and not part of the harness-faci
 - `port` — echo of the request; the harness already knows.
 - `message` — human-readable; the harness may pass it to the operator but must not parse it.
 - `startup_logs` — failure-case debugging only; the harness surfaces it to the operator on `success=False` and otherwise ignores it.
-- `cancel_ignored_post_commit` (ADR-014) — set when a cancel arrived after spawn-commit; the harness honors it as a "your cancel was too late" advisory but the swap completed successfully and the contract above still holds.
+- `cancel_ignored_post_commit` (ADR-LLNCH-014) — set when a cancel arrived after spawn-commit; the harness honors it as a "your cancel was too late" advisory but the swap completed successfully and the contract above still holds.
 
 A field rename or removal in this contractual subset is a breaking change requiring a new ADR. A change in the introspection-only subset is not.
 
@@ -83,9 +83,9 @@ A field rename or removal in this contractual subset is a breaking change requir
 
 The interesting failure mode for self-swap is *not* "swap fails fast" — that case is well-tested by `tests/integration/test_swap.py::test_swap_rollback_on_invalid_model`. The interesting case is **readiness hang**: the new `llama-server` spawned, the lockfile was written, but the model is taking 90 s to load (mmap stall on a slow disk, weights checksum, a corrupt GGUF that hangs in deserialization). The harness's `swap_server` call is now blocked inside `wait_for_server_ready` for up to `DEFAULT_READINESS_TIMEOUT_S` (120 s).
 
-ADR-014 supplies the recovery: while the swap is hung in Phase 5, the harness (or any other client of the same MCP child) can issue `cancel_server(port=P)` over the same MCP transport. Because cancel is dispatched through the *same* MCP child but a *different* tool handler, and the readiness-poll loop has a phase-boundary cancel check on each `check_interval` tick (default 1 s), the cancel signal is observed within ~1 s by the running `swap`. The poll returns `(False, logs)`; `swap` falls into the rollback branch, restarts the previous model, and returns a `SwapResult` with `action="cancelled"` and `port_state="restored"`.
+ADR-LLNCH-014 supplies the recovery: while the swap is hung in Phase 5, the harness (or any other client of the same MCP child) can issue `cancel_server(port=P)` over the same MCP transport. Because cancel is dispatched through the *same* MCP child but a *different* tool handler, and the readiness-poll loop has a phase-boundary cancel check on each `check_interval` tick (default 1 s), the cancel signal is observed within ~1 s by the running `swap`. The poll returns `(False, logs)`; `swap` falls into the rollback branch, restarts the previous model, and returns a `SwapResult` with `action="cancelled"` and `port_state="restored"`.
 
-The MCP transport's survival across the *swap* is what this ADR makes canonical; the MCP transport's responsiveness *during* the swap is what ADR-014 makes canonical. Together they answer "the harness is never stuck — it always has a working control channel and always has a deterministic way out of a hung swap."
+The MCP transport's survival across the *swap* is what this ADR makes canonical; the MCP transport's responsiveness *during* the swap is what ADR-LLNCH-014 makes canonical. Together they answer "the harness is never stuck — it always has a working control channel and always has a deterministic way out of a hung swap."
 
 The integration test exercises the happy path. The cancel-during-hang path is covered by `tests/integration/test_mcp_flows.py::test_cancel_post_commit_during_swap_is_advisory` and `test_cancel_during_start_pre_commit`; this ADR does not duplicate it, only references it as the recovery branch.
 
@@ -107,7 +107,7 @@ The test is marked `@pytest.mark.integration` (matching `test_mcp_flows.py`). It
 - A new harness author has a single document (`docs/examples/self-swap-timeline.md`) that answers "what happens when I call `swap_server` on the model I'm currently using" without reading source.
 - A refactor that breaks the MCP-survival property fails the integration test instead of breaking a downstream silently.
 - The harness-facing subset of `SwapResult` is pinned in §3. Internal refactors of `SwapResult` can proceed freely as long as that subset is preserved.
-- The cancel recovery branch (ADR-014) has a documented home; future contributors reading the worked example see how the two ADRs compose.
+- The cancel recovery branch (ADR-LLNCH-014) has a documented home; future contributors reading the worked example see how the two ADRs compose.
 
 ### Negative
 
@@ -122,8 +122,8 @@ The test is marked `@pytest.mark.integration` (matching `test_mcp_flows.py`). It
 
 ## Relationship to Other ADRs
 
-- **Operationalizes ADR-011** (swap semantics v2): the five-phase mechanic is the substrate; this ADR pins the timeline and the harness-facing contract above it.
-- **Builds on ADR-010** (port at the call site): the worked example uses the port-keyed `swap_server(port, model_name)` shape verbatim.
-- **Composes with ADR-014** (cancellation): the recovery branch in §4 is the canonical use case for cancel.
-- **Pins the consumer of ADR-008** (stateless facade): the MCP child and the inference process communicate only through the file-system seam ADR-008 ratified; that is exactly why the MCP control channel survives the swap.
-- **Pins a contract for ADR-001** (pi-coding-agent footer): the response-shape contract in §3 is what the footer extension and any future TS-side consumer can rely on.
+- **Operationalizes ADR-LLNCH-011** (swap semantics v2): the five-phase mechanic is the substrate; this ADR pins the timeline and the harness-facing contract above it.
+- **Builds on ADR-LLNCH-010** (port at the call site): the worked example uses the port-keyed `swap_server(port, model_name)` shape verbatim.
+- **Composes with ADR-LLNCH-014** (cancellation): the recovery branch in §4 is the canonical use case for cancel.
+- **Pins the consumer of ADR-LLNCH-008** (stateless facade): the MCP child and the inference process communicate only through the file-system seam ADR-LLNCH-008 ratified; that is exactly why the MCP control channel survives the swap.
+- **Pins a contract for ADR-LLNCH-001** (pi-coding-agent footer): the response-shape contract in §3 is what the footer extension and any future TS-side consumer can rely on.

@@ -1,8 +1,8 @@
 # State Ownership — Who Owns What Truth, and How
 
 > **HISTORICAL — pre-v2 (April 2026).** This document predates the
-> `llauncher/operations/` stateless-facade refactor (ADR-008) and the
-> port-keyed HTTP endpoints (ADR-010). The "four LauncherState instances"
+> `llauncher/operations/` stateless-facade refactor (ADR-LLNCH-008) and the
+> port-keyed HTTP endpoints (ADR-LLNCH-010). The "four LauncherState instances"
 > framing, the model-keyed routes, and the `state.py`-centric layering
 > are pre-v2 artifacts. For the current architecture see
 > `docs/v2-handoff.md` and ADRs 008–016. Preserved here for archaeological

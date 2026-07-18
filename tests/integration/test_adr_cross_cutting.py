@@ -1,6 +1,6 @@
 """Integration tests covering cross-cutting interactions between ADRs 003–006.
 
-Tests auth (ADR-003) + model health pre-flight (ADR-005) + GPU VRAM check (ADR-006)
+Tests auth (ADR-LLNCH-003) + model health pre-flight (ADR-LLNCH-005) + GPU VRAM check (ADR-LLNCH-006)
 working together as the full stack would, plus CLI parity with HTTP API."""
 
 import pytest

@@ -1,7 +1,7 @@
 """Model Registry tab — health status overview for all configured models.
 
 Rendered as a table with colour-coded status indicators (ready / missing /
-corrupted / unknown) using the ``check_model_health()`` helper from ADR-005.
+corrupted / unknown) using the ``check_model_health()`` helper from ADR-LLNCH-005.
 """
 
 from __future__ import annotations

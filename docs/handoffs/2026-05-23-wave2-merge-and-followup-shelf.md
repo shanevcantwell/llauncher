@@ -8,7 +8,7 @@ Branch `main` is at `b7a8d80` (`chore(security): XS follow-up batch — #107 #11
 
 **Plan controls landed post-merge (from `docs/plans/security-hardening-plan.md` §3):** C1, C2, C3, C4, C5, C7, C10, C11, C12. **Remaining from plan:** C8 (#82, user-punted) and C9 (#86, user-punted). The security cohort main thrust is closed; the post-review MEDIUM/LOW shelf is also closed.
 
-v2 refactor milestone state unchanged from prior dossier: M1–M4 complete; M5 has one item left (#56 canonical self-swap integration test, ADR-016); M6/M7 not started.
+v2 refactor milestone state unchanged from prior dossier: M1–M4 complete; M5 has one item left (#56 canonical self-swap integration test, ADR-LLNCH-016); M6/M7 not started.
 
 **Network-trust posture:** loopback default, auth-required-on-non-loopback (C1+C2 via #75), body cap 1 MiB (C3 via #103), no CORS by design (C4 via #108 + pinning tests), C1 hardened so `create_app` constructor cannot silently build no-auth (#110); whitespace-token rejection + real runtime guard on the test-only no-auth escape hatch (#116).
 
@@ -101,7 +101,7 @@ The security cohort is post-merge complete for the documented threat model. Two 
 Picking a posture on these is the next gate for "ship the alpha." Neither has an engineering work-item shape yet; both need design Q&A first.
 
 ### Larger threads (unchanged from prior dossier)
-- **#56** — M5 canonical self-swap integration test (ADR-016). Single dedicated session.
+- **#56** — M5 canonical self-swap integration test (ADR-LLNCH-016). Single dedicated session.
 - **#69** — Streamlit `AppTest` harness. Multi-session; unlocks UI coverage.
 - **#82** — `LAUNCHER_MODELS_ROOT` containment (user-punted; needs design Q&A first).
 - **#86** — TLS/mTLS scoping (user-punted; design-doc shape).

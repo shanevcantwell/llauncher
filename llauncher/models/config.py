@@ -1,6 +1,6 @@
 """Pydantic models for llauncher configuration.
 
-Per ADR-010: port is a deployment-time concern handled at the call site,
+Per ADR-LLNCH-010: port is a deployment-time concern handled at the call site,
 not an attribute of ``ModelConfig``. Per Issue #42 scaffolding: ``kind``
 field discriminates the backend inference engine; only ``llama_server``
 is implemented in M1, vLLM follows in M6.
@@ -80,7 +80,7 @@ def _skip_path_validation() -> Iterator[None]:
 #   :attr:`ModelConfig.model_path` (``core/process.py``). Duplication
 #   bypasses the path validator on ``model_path``.
 # * ``--host`` / ``--port`` — supplied at start time as runtime
-#   parameters (ADR-010). An override here defeats port allocation
+#   parameters (ADR-LLNCH-010). An override here defeats port allocation
 #   and the loopback-default binding (C2, PR #75).
 #
 # Kept intentionally small; the rest of llauncher's managed flags
@@ -113,12 +113,12 @@ DENIED_EXTRA_ARG_FLAGS: frozenset[str] = frozenset({
 # ``build_command`` by ``tests/unit/test_process.py`` (every flag the builder
 # emits must appear here or in ``DENIED_EXTRA_ARG_FLAGS``).
 #
-# Scope note (issue #156 / ADR-024): this catches each flag in the *exact
+# Scope note (issue #156 / ADR-LLNCH-024): this catches each flag in the *exact
 # spelling* ``build_command`` emits. It deliberately does **not** resolve
 # llama-server short/long aliases — e.g. ``ctx_size`` is emitted as ``-c``, so
 # a literal ``-c`` in ``extra_args`` is caught but the long alias
 # ``--ctx-size`` is not. Alias-complete, table-driven config→argv rendering is
-# the job of the ADR-024 render matrix (``auto:draft``), not this narrow
+# the job of the ADR-LLNCH-024 render matrix (``auto:draft``), not this narrow
 # correctness fix. What this fix guarantees is that the silent first-wins loss
 # is gone for every flag llauncher actually puts on the command line.
 MANAGED_NATIVE_FLAG_TO_FIELD: dict[str, str] = {
@@ -154,7 +154,7 @@ class BackendKind(str, Enum):
     """Inference backend discriminator (Issue #42 scaffolding).
 
     Only ``LLAMA_SERVER`` is implemented in M1. Additional kinds (vLLM, TGI,
-    etc.) are introduced under ADR-012 in M6.
+    etc.) are introduced under ADR-LLNCH-012 in M6.
     """
 
     LLAMA_SERVER = "llama_server"
@@ -164,7 +164,7 @@ class ModelConfig(BaseModel):
     """Configuration for a single inference server model.
 
     Note that this model does **not** carry port information — port is
-    supplied at call time per ADR-010.
+    supplied at call time per ADR-LLNCH-010.
     """
 
     # ``validate_assignment``: the ``extra_args`` deny-list (C7) is also
@@ -315,7 +315,7 @@ class ModelConfig(BaseModel):
         Silent migration of legacy fields (per the v2 migration policy:
         old data is not precious; user re-specifies if needed):
 
-        - Drops ``default_port`` (per ADR-010: port is a call-site concern).
+        - Drops ``default_port`` (per ADR-LLNCH-010: port is a call-site concern).
         - Drops ``port`` (legacy synonym, same reason).
         - Drops ``host`` (legacy; defaults handled at start time).
         - Drops ``np`` (issue #235: dead, mislabeled duplicate of
@@ -324,7 +324,7 @@ class ModelConfig(BaseModel):
         - Migrates ``extra_args`` from ``list[str]`` to ``str``.
         """
         data = data.copy()
-        # Silent drop of port-related legacy fields per ADR-010.
+        # Silent drop of port-related legacy fields per ADR-LLNCH-010.
         data.pop("default_port", None)
         data.pop("port", None)
         data.pop("host", None)
@@ -409,7 +409,7 @@ class AuditEntry(BaseModel):
 class ChangeRules(BaseModel):
     """Rules for validating actions before execution.
 
-    Per ADR-010, ``port`` is now a required argument for start/swap
+    Per ADR-LLNCH-010, ``port`` is now a required argument for start/swap
     validation — there is no fallback to a per-config preferred port.
     """
 

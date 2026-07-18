@@ -1,6 +1,6 @@
 """Unit tests for ``ui/utils.py::render_op_result`` (issue #51, M4 Slice 14).
 
-The renderer is the single point of truth for translating ADR-010/011
+The renderer is the single point of truth for translating ADR-LLNCH-010/011
 operation envelopes into Streamlit feedback. Tests are split between:
 
 - ``classify_action`` — pure-logic; covers every documented action

@@ -34,7 +34,7 @@ AGENT_API_KEY: str | None = Field(default=None, env="LAUNCHER_AGENT_TOKEN")
 
 The plan says middleware should skip auth for `/health`, `/docs`, `/openapi.json`. This is technically correct — the FastAPI `BaseHTTPMiddleware.dispatch()` will intercept all requests including `/health`. However, **the test in Task 1.2 (test file) creates a synthetic app where `/health` and `/start/foo` are registered as regular routes** rather than using actual route objects. The middleware must be tested against the real `router.include_router(router)` from `server.py`, not a mock app.
 
-**Additional edge case:** The plan doesn't address what happens when auth is **active but** the client sends an empty string `X-Api-Key: ""`. Per ADR-003, this should be rejected (403), and the plan's test does check for it — good. But the middleware must distinguish between "header absent" → 401/403 vs. "wrong header" → also 403. Current spec doesn't specify status code difference.
+**Additional edge case:** The plan doesn't address what happens when auth is **active but** the client sends an empty string `X-Api-Key: ""`. Per ADR-LLNCH-003, this should be rejected (403), and the plan's test does check for it — good. But the middleware must distinguish between "header absent" → 401/403 vs. "wrong header" → also 403. Current spec doesn't specify status code difference.
 
 **Recommendation:** Use consistent HTTP status codes:
 - Missing `X-Api-Key` header when token is configured → **401 Unauthorized** (authentication required)
@@ -126,7 +126,7 @@ class ModelHealthResult:
     last_modified: datetime | None
 ```
 
-However, the existing codebase's Pydantic layer (`models/config.py`) uses **BaseModel** with rich features: `Field()` constraints, validators, `.to_dict()`, `model_validate()`. The ADR-005 spec says the health check response shape is JSON-oriented. A dataclass is functionally fine but creates an inconsistency — all other data shapes in this project are Pydantic BaseModel subclasses.
+However, the existing codebase's Pydantic layer (`models/config.py`) uses **BaseModel** with rich features: `Field()` constraints, validators, `.to_dict()`, `model_validate()`. The ADR-LLNCH-005 spec says the health check response shape is JSON-oriented. A dataclass is functionally fine but creates an inconsistency — all other data shapes in this project are Pydantic BaseModel subclasses.
 
 **Suggested fix:** Define as:
 ```python
@@ -225,7 +225,7 @@ class _TTLCache:
 
 ### C. Plan uses inconsistent ADR reference naming
 
-In the integration section, references switch between `ADR-003`, `ADRF-003` (with "F" suffix). The F-suffix doesn't match any documented ADR numbering convention and will confuse workers. Use consistent reference format throughout.
+In the integration section, references switch between `ADR-LLNCH-003`, `ADRF-003` (with "F" suffix). The F-suffix doesn't match any documented ADR numbering convention and will confuse workers. Use consistent reference format throughout.
 
 ---
 
@@ -242,7 +242,7 @@ In the integration section, references switch between `ADR-003`, `ADRF-003` (wit
 
 ## Overall Recommendation: **APPROVED WITH MINOR FIXES**
 
-The plan is architecturally sound overall — module boundaries are respected, the dependency graph shows genuine parallelization potential, and the sequential ordering of ADR-003 before 004/005/006 is correct. The four CONCERN items above are fixable within the existing planning phase without requiring re-scoping:
+The plan is architecturally sound overall — module boundaries are respected, the dependency graph shows genuine parallelization potential, and the sequential ordering of ADR-LLNCH-003 before 004/005/006 is correct. The four CONCERN items above are fixable within the existing planning phase without requiring re-scoping:
 
 1. **Fix Task 1.1** to match the actual `core/settings.py` architecture (simple module-level constant approach recommended for speed)
 2. **Add Task 0** (test baseline gate) before any worker is dispatched  

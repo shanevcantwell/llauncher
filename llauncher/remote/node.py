@@ -1,6 +1,6 @@
 """Remote node client for connecting to llauncher agents.
 
-Per ADR-009 the topology is symmetric: every node runs an agent and
+Per ADR-LLNCH-009 the topology is symmetric: every node runs an agent and
 every node also acts as a client of peer agents. The same
 :class:`RemoteNode` abstraction is therefore used to talk to the
 *local* node too — but routing local calls over HTTP-loopback wastes
@@ -348,9 +348,9 @@ class RemoteNode:
             return None
 
     def start_server(self, model_name: str, port: int) -> dict | None:
-        """Start ``model_name`` on ``port`` on this node (ADR-010).
+        """Start ``model_name`` on ``port`` on this node (ADR-LLNCH-010).
 
-        Per ADR-010, port is supplied at the call site. The HTTP body
+        Per ADR-LLNCH-010, port is supplied at the call site. The HTTP body
         carries the model name; the path carries the port.
 
         Returns:
@@ -394,7 +394,7 @@ class RemoteNode:
             return {"success": False, "error": str(e)}
 
     def swap_server(self, model_name: str, port: int) -> dict | None:
-        """Swap the model on ``port`` to ``model_name`` per ADR-011."""
+        """Swap the model on ``port`` to ``model_name`` per ADR-LLNCH-011."""
         if self._is_self_loop():
             from llauncher import operations as ops
 
@@ -428,7 +428,7 @@ class RemoteNode:
             return {"success": False, "error": str(e)}
 
     def delete_model(self, model_name: str) -> dict | None:
-        """Delete ``model_name`` from this node's config (ADR-008 §4.1)."""
+        """Delete ``model_name`` from this node's config (ADR-LLNCH-008 §4.1)."""
         if self._is_self_loop():
             from llauncher import operations as ops
 

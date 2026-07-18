@@ -137,10 +137,10 @@ Phase H: Integration Test Replacement [2h] ← can run after Phase C foundation
   Replace tautological tests in test_adr_cross_cutting.py with full-stack auth+health E2E suite
   
 Phase I: ADR Documentation Rewrites [8h total] ← independent of all code phases, any worker absorbs
-  ADR-003 (Auth) → alternatives analysis (mTLS/OAuth/Unix socket/reverse proxy), consequences + risk tables
-  ADR-004 (CLI) → Typer vs Click/argparse comparison, dependency gap G4 fix, shell completion status, double-discovery analysis
-  ADR-005 (Model Health) → decision documented + alternatives analyzed, 1MB heuristic justified, GGUF header deferred to Phase 2
-  ADR-006 (GPU Monitoring) → factual correction (/dev/memfd fabrication removed), build-vs-adopt analysis, per-platform accuracy statements
+  ADR-LLNCH-003 (Auth) → alternatives analysis (mTLS/OAuth/Unix socket/reverse proxy), consequences + risk tables
+  ADR-LLNCH-004 (CLI) → Typer vs Click/argparse comparison, dependency gap G4 fix, shell completion status, double-discovery analysis
+  ADR-LLNCH-005 (Model Health) → decision documented + alternatives analyzed, 1MB heuristic justified, GGUF header deferred to Phase 2
+  ADR-LLNCH-006 (GPU Monitoring) → factual correction (/dev/memfd fabrication removed), build-vs-adopt analysis, per-platform accuracy statements
 
 Phase J: Full Test Suite Run + Atomic PR [1h]
 ```
@@ -167,7 +167,7 @@ Phase J: Full Test Suite Run + Atomic PR [1h]
 | F | CLI/Registry Public API Cleanup | `cli.py`, `registry.py` | 3.5 | No | 1 | Individual file revert; registry.get_filtered() is additive | Phase B complete (registry chmod lands); Phase C foundation confirmed stable |
 | G | Test Remediation Sprint | ~8 test files across batches G1–G3 | 10 | No | Up to 3 | Revert each test file independently; never affects source code | Phase C complete (foundation locks in place for thread-safety tests) |
 | H | Integration Test Replacement | `test_adr_cross_cutting.py` | 2 | No | 1–2 | Single-file revert | Phase C stable; middleware changes from Phase B verified working |
-| I | ADR Documentation Rewrites | ADR-003, ADR-004, ADR-005, ADR-006 (docs/adrs/) | 8 | No | N/A (absorb into any worker) | Anytime safe — no code impact | None; can start Phase 0 immediately in parallel with any other phase |
+| I | ADR Documentation Rewrites | ADR-LLNCH-003, ADR-LLNCH-004, ADR-LLNCH-005, ADR-LLNCH-006 (docs/adrs/) | 8 | No | N/A (absorb into any worker) | Anytime safe — no code impact | None; can start Phase 0 immediately in parallel with any other phase |
 | J | Full Test Suite + Atomic PR | All files touched above | 1 | **Yes** | All | Single `git revert` from current HEAD if needed | Every preceding phase has passed its verification gate |
 
 ### Timeline Summary
@@ -263,7 +263,7 @@ Each phase must pass its exit gate before proceeding to the next dependent phase
 | **F** (CLI/Registry) | 1. `grep -n "as_json\|json:" llauncher/cli.py` (should see as_json, no bare json param in Typer signatures) <br>2. `grep "_nodes\.values\|_nodes\.items" llauncher/cli.py` (must be 0 outside registry internals) <br>3. `grep "def get_filtered(" llauncher/remote/registry.py` | ✅ json→as_json across all 4 commands; ctx params removed from all 7 functions; _nodes direct access replaced with public API; get_filtered() method exists on registry |
 | **G** (Test Sprint) | Run per-batch pytest; verify no new failures and no tautology patterns remain <br>`grep -rn 'isinstance.*object\|self=None\|or exit_code\|\.hasattr' tests/` → expect 0 matches | ✅ All existing tests pass; ✅ Tautological assertions removed; ✅ New coverage exists for: whitespace tokens, oversized keys, port conflict CLI, malformed JSON config, VRAM heuristics 3B/14B/70B, exact 1MB boundary, ROCm Pattern B, MPS named GPUs |
 | **H** (Integration) | `python -m pytest tests/integration/test_adr_cross_cutting.py -v` — verify ≥4 real E2E scenarios <br>`grep -n "home/node/github" tests/integration/` → expect 0 matches (no hardcoded paths) | ✅ TestFullStackAuthAndHealth class present with auth gate + health exempt + model health detail endpoints; ✅ TTL cache isolation test present; ✅ No tautological `or` conditions; ✅ No source-code-reading assertions; ✅ Zero hardcoded absolute paths |
-| **I** (ADR Docs) | Each ADR file must contain: alternatives analysis table, consequences table, risk/mitigation matrix, cross-references to all sibling ADRs <br>`grep -l "Alternatives Analysis\|Consequences Table\|Risk.*Mitigation" docs/adrs/00{3,4,5,6}.md` → expect 4 matches | ✅ All four ADRs contain structured tables matching baseline style from ADR-001/002; ✅ /dev/memfd fabrication removed from ADR-006; ✅ Cross-references use absolute paths to sibling docs; ✅ Typer/rich dependency gap documented in ADR-004 |
+| **I** (ADR Docs) | Each ADR file must contain: alternatives analysis table, consequences table, risk/mitigation matrix, cross-references to all sibling ADRs <br>`grep -l "Alternatives Analysis\|Consequences Table\|Risk.*Mitigation" docs/adrs/00{3,4,5,6}.md` → expect 4 matches | ✅ All four ADRs contain structured tables matching baseline style from ADR-LLNCH-001/002; ✅ /dev/memfd fabrication removed from ADR-LLNCH-006; ✅ Cross-references use absolute paths to sibling docs; ✅ Typer/rich dependency gap documented in ADR-LLNCH-004 |
 | **J** (Final Gate) | 1. `pytest tests/ -x --tb=short` — full suite <br>2. `grep -c "api_key" llauncher/remote/node.py llaunchr/remote/registry.py cli.py` (verify masking correct) <br>3. Manual: start agent with token → verify 401 on write, 200 on /health | ✅ All tests pass (exit code 0); ✅ No plaintext API keys in serialization; ✅ hmac.compare_digest verified at runtime; ✅ openapi.json suppressed under auth; ✅ File permissions correct after node add |
 
 ---
@@ -289,7 +289,7 @@ If Phase B's hmac change introduces a bug preventing valid key authentication:
 1. Set `LAUNCHER_AGENT_TOKEN=""` (empty string → None in settings) to revert to no-auth mode
 2. Restart agent — unauthenticated access restored immediately
 3. Apply `git checkout HEAD~N -- llauncher/agent/middleware.py` for targeted file revert
-4. This is the backward-compatible emergency path documented since ADR-003 design
+4. This is the backward-compatible emergency path documented since ADR-LLNCH-003 design
 
 ### Key Risk Mitigation During Rollout
 
@@ -380,7 +380,7 @@ These artifacts are referenced by this master document but should not be edited 
 
 ### Documentation Accuracy Themes (Present in ≥2 Plans)
 - **ADR-to-code misalignment** → All six plans independently confirmed the same root cause: ADRs were written as abstract proposals but code already implemented divergent decisions. Plan 06 structured this as the primary focus; others noted it as a secondary observation.
-- **Phantom mechanisms** → The `/dev/memfd` fabrication in ADR-006 (Plan 06) was the only plan to catch this specific error, though Plans 02/04 both independently verified actual macOS implementation uses `system_profiler`.
+- **Phantom mechanisms** → The `/dev/memfd` fabrication in ADR-LLNCH-006 (Plan 06) was the only plan to catch this specific error, though Plans 02/04 both independently verified actual macOS implementation uses `system_profiler`.
 
 ---
 

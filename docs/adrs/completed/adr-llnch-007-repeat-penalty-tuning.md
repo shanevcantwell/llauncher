@@ -1,4 +1,4 @@
-# ADR-007: Add `repeat_penalty` Configuration Support
+# ADR-LLNCH-007: Add `repeat_penalty` Configuration Support
 
 **Status:** Accepted  
 **Date:** 2026-04-26  

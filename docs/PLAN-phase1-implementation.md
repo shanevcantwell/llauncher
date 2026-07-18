@@ -108,7 +108,7 @@ def get_mcp_state() -> "LauncherState":
 Every read handler gets two lines at the top of its body:
 
 ```python
-# Per-call refresh — ADR-006 pattern: zero-staleness on every read.
+# Per-call refresh — ADR-LLNCH-006 pattern: zero-staleness on every read.
 # Dispatch layer only does lazy-init; this ensures fresh data across invocations.
 get_mcp_state().refresh()  # type: ignore[union-attr]
 ```
@@ -131,7 +131,7 @@ async def list_models(state: LauncherState, args: dict) -> dict:
     """List all configured models with status.
     ...docstring..."""
     
-    # Per-call refresh — ADR-006 pattern: zero-staleness on every read.
+    # Per-call refresh — ADR-LLNCH-006 pattern: zero-staleness on every read.
     # Dispatch layer only does lazy-init; this ensures fresh data across invocations.
     get_mcp_state().refresh()  # type: ignore[union-attr]
 
@@ -154,7 +154,7 @@ async def get_model_config(state: LauncherState, args: dict) -> dict:
     """Get full configuration for a specific model by name.
     ...docstring..."""
     
-    # Per-call refresh — ADR-006 pattern: zero-staleness on every read.
+    # Per-call refresh — ADR-LLNCH-006 pattern: zero-staleness on every read.
     # Dispatch layer only does lazy-init; this ensures fresh data across invocations.
     get_mcp_state().refresh()  # type: ignore[union-attr]
 
@@ -177,7 +177,7 @@ async def server_status(state: LauncherState, args: dict) -> dict:
     """Get status of all running servers.
     ...docstring..."""
     
-    # Per-call refresh — ADR-006 pattern: zero-staleness on every read.
+    # Per-call refresh — ADR-LLNCH-006 pattern: zero-staleness on every read.
     get_mcp_state().refresh()  # type: ignore[union-attr]
 
     servers = []
@@ -345,7 +345,7 @@ with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
-| First-access lazy init throws (corrupt config.json, permissions) | Low | Medium | Each handler retries on every call (no cached failure). ADR-006 documents this. |
+| First-access lazy init throws (corrupt config.json, permissions) | Low | Medium | Each handler retries on every call (no cached failure). ADR-LLNCH-006 documents this. |
 | asyncio event loop blocked during refresh (~5-20ms per read tool call) | Low | Low | Typical MCP usage is sequential agents reasoning between calls; no high-concurrency concern currently. Note in code for future `asyncio.to_thread` migration if needed. |
 | Concurrent handlers from multiple agents reading stale data simultaneously | N/A | N/A | Single-process Python, single event loop per connection — calls are serialized. |
 

@@ -237,7 +237,7 @@ class TestDenyListContents:
     def test_runtime_binding_flags_present(self) -> None:
         """``--host`` / ``--port`` / ``-m`` / ``--model`` are set by
         ``build_command`` from runtime parameters and managed fields;
-        duplication via ``extra_args`` bypasses ADR-010 / model_path
+        duplication via ``extra_args`` bypasses ADR-LLNCH-010 / model_path
         validation.
         """
         for flag in ("--host", "--port", "-m", "--model"):

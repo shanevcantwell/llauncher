@@ -1,9 +1,9 @@
 """MCP tools for server management (start/stop/swap/status/logs).
 
-Per ADR-010, the verb-style tools (``start_server``, ``stop_server``,
+Per ADR-LLNCH-010, the verb-style tools (``start_server``, ``stop_server``,
 ``swap_server``) are port-keyed and delegate to
 :mod:`llauncher.operations`. The MCP server is a thin wrapper that
-translates tool arguments into op calls and returns the ADR-010 result
+translates tool arguments into op calls and returns the ADR-LLNCH-010 result
 envelope (``success``, ``action``, ``port``, etc.) verbatim.
 
 The read-side tools (``server_status``, ``get_server_logs``) still
@@ -53,7 +53,7 @@ def get_tools() -> list[Tool]:
                 "action='rejected_occupied' if a different model is already "
                 "running on that port — use swap_server for that case. "
                 "Both 'model_name' and 'port' are required; the port is "
-                "always specified by the caller (ADR-010). The model_name "
+                "always specified by the caller (ADR-LLNCH-010). The model_name "
                 "must exactly match a model from list_models."
             ),
             inputSchema={
@@ -121,7 +121,7 @@ def get_tools() -> list[Tool]:
         Tool(
             name="cancel_server",
             description=(
-                "Cancel an in-flight start or swap on this port (ADR-014). "
+                "Cancel an in-flight start or swap on this port (ADR-LLNCH-014). "
                 "Sets a cancel flag on the in-flight marker; the running "
                 "op picks it up at the next phase boundary (typically "
                 "within ~1 s during readiness poll). Returns success with "
@@ -155,13 +155,13 @@ def get_tools() -> list[Tool]:
             name="list_orphans",
             description=(
                 "List unmanaged llama-server processes on this node "
-                "(ADR-015). An orphan is a live llama-server that "
+                "(ADR-LLNCH-015). An orphan is a live llama-server that "
                 "llauncher did not launch — its (port, pid) does not "
                 "match any live lockfile. Returns each orphan's pid, "
                 "port (when discoverable from argv), and a "
                 "cmdline_unreadable flag for processes whose argv "
                 "could not be read. Adopt is intentionally not "
-                "exposed in this revision — see ADR-015 §Deferred Work."
+                "exposed in this revision — see ADR-LLNCH-015 §Deferred Work."
             ),
             inputSchema={
                 "type": "object",
@@ -232,14 +232,14 @@ def get_tools() -> list[Tool]:
     ]
 
 
-# ─────────── Verb tools (ADR-010, port-keyed, ops-backed) ──────────
+# ─────────── Verb tools (ADR-LLNCH-010, port-keyed, ops-backed) ──────────
 
 
 async def start_server(args: dict) -> dict:
     """Start ``args['model_name']`` on ``args['port']``.
 
     Thin wrapper over :func:`llauncher.operations.start`. Returns the
-    ADR-010 result envelope.
+    ADR-LLNCH-010 result envelope.
     """
     model_name = args.get("model_name")
     port = args.get("port")
@@ -293,10 +293,10 @@ async def stop_server(args: dict) -> dict:
 
 
 async def swap_server(args: dict) -> dict:
-    """Swap to ``args['model_name']`` on ``args['port']`` per ADR-011.
+    """Swap to ``args['model_name']`` on ``args['port']`` per ADR-LLNCH-011.
 
     Thin wrapper over :func:`llauncher.operations.swap`. Returns the
-    ADR-010 result envelope, including ``rolled_back`` and
+    ADR-LLNCH-010 result envelope, including ``rolled_back`` and
     ``previous_model`` when a rollback occurred.
     """
     port = args.get("port")
@@ -325,7 +325,7 @@ async def swap_server(args: dict) -> dict:
 
 
 async def cancel_server(args: dict) -> dict:
-    """Cancel an in-flight start/swap on ``args['port']`` per ADR-014.
+    """Cancel an in-flight start/swap on ``args['port']`` per ADR-LLNCH-014.
 
     Thin wrapper over :func:`llauncher.core.marker.request_cancel`. Returns
     a small envelope so the caller can distinguish "cancel delivered" from
@@ -391,7 +391,7 @@ async def server_slots(args: dict) -> dict:
 
 
 async def list_orphans(state: LauncherState, args: dict) -> dict:
-    """List unmanaged llama-server processes per ADR-015.
+    """List unmanaged llama-server processes per ADR-LLNCH-015.
 
     Read-side tool; refreshes orphan state once per call.
     """

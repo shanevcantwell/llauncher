@@ -1,8 +1,8 @@
-# ADR-025: UI Endpoint-Layer Boundary, Enforced by a Static Test
+# ADR-LLNCH-025: UI Endpoint-Layer Boundary, Enforced by a Static Test
 
 **Status:** Accepted
 **Date:** 2026-06-30
-**Related:** ADR-008 (LauncherState stateless facade), ADR-010 (port ownership at the call site); `docs/ARCHITECTURE.md` (layer map + forbidden edges)
+**Related:** ADR-LLNCH-008 (LauncherState stateless facade), ADR-LLNCH-010 (port ownership at the call site); `docs/ARCHITECTURE.md` (layer map + forbidden edges)
 
 ## Context
 
@@ -11,7 +11,7 @@
 For the UI that means two concrete obligations:
 
 - Backend verbs go through the orchestration facades — `state` (the
-  `LauncherState` facade, ADR-008) and `operations` (the stateless verbs).
+  `LauncherState` facade, ADR-LLNCH-008) and `operations` (the stateless verbs).
 - Remote-node I/O goes through `remote/` — `NodeRegistry` / `RemoteNode` /
   `RemoteAggregator` — which is the **single sanctioned HTTP client**. `remote`
   and `agent` are peers across the network boundary (`docs/ARCHITECTURE.md`);

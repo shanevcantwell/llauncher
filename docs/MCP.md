@@ -2,7 +2,7 @@
 
 The llauncher MCP (Model Context Protocol) server provides programmatic control over llama-server instances, enabling LLM agents and automation scripts to manage model deployments.
 
-MCP is llauncher's canonical surface. The HTTP Agent (port 8765 by default) exposes the same verbs over REST for multi-node setups (ADR-009 hub-spoke). The `llauncher` Typer CLI and Streamlit UI are human-facing consumers of the same `operations/` service layer (ADR-008). Adding a verb to `operations/` surfaces it across all four boundaries.
+MCP is llauncher's canonical surface. The HTTP Agent (port 8765 by default) exposes the same verbs over REST for multi-node setups (ADR-LLNCH-009 hub-spoke). The `llauncher` Typer CLI and Streamlit UI are human-facing consumers of the same `operations/` service layer (ADR-LLNCH-008). Adding a verb to `operations/` surfaces it across all four boundaries.
 
 ## Overview
 
@@ -196,7 +196,7 @@ Get the full configuration for a specific model.
 
 #### `start_server`
 
-Start a llama-server instance for a specified model on a specified port. Per ADR-010, both `model_name` and `port` are required; there is no auto-allocation, no env-var fallback, and no per-config preferred port. Use `swap_server` if a different model is already running on that port.
+Start a llama-server instance for a specified model on a specified port. Per ADR-LLNCH-010, both `model_name` and `port` are required; there is no auto-allocation, no env-var fallback, and no per-config preferred port. Use `swap_server` if a different model is already running on that port.
 
 **Input:**
 ```json
@@ -208,7 +208,7 @@ Start a llama-server instance for a specified model on a specified port. Per ADR
 
 **Required parameters:**
 - `model_name` (string): exact name from `list_models` (`identification.name`).
-- `port` (integer): port to bind. Required at every API boundary (ADR-010).
+- `port` (integer): port to bind. Required at every API boundary (ADR-LLNCH-010).
 
 **Output (Success):**
 ```json
@@ -528,7 +528,7 @@ Add a new model configuration to the store.
 
 #### `delete_model`
 
-Delete a model configuration from the store (ADR-008 §4.1). Idempotent on a missing name and refuses to delete a model that is currently running.
+Delete a model configuration from the store (ADR-LLNCH-008 §4.1). Idempotent on a missing name and refuses to delete a model that is currently running.
 
 **Input:**
 ```json
@@ -620,7 +620,7 @@ Update an existing model's configuration.
 - `no_mmap`: Enable/disable memory mapping
 - `extra_args`: Additional command-line arguments (subject to the managed-flag deny-list)
 
-Per ADR-010, port is a call-site argument and is not persisted in `ModelConfig` — `default_port` is silently dropped if supplied here.
+Per ADR-LLNCH-010, port is a call-site argument and is not persisted in `ModelConfig` — `default_port` is silently dropped if supplied here.
 
 **Use Cases:**
 - Tune model performance parameters
@@ -700,7 +700,7 @@ Validate a model configuration without applying it.
    → Find which model is on port 8081
 
 2. swap_server({port: 8081, model_name: "llama-3.1"})
-   → Atomic five-phase swap with rollback (ADR-011);
+   → Atomic five-phase swap with rollback (ADR-LLNCH-011);
      no need to stop first
 
 3. get_server_logs({port: 8081})
@@ -786,7 +786,7 @@ Start models on-demand based on requests:
 
 ```python
 def ensure_model_running(model_name: str, port: int):
-    """Caller picks the port (ADR-010); no auto-allocation."""
+    """Caller picks the port (ADR-LLNCH-010); no auto-allocation."""
     models = client.call_tool("list_models", {})
     status = next((m for m in models["models"] if m["identification"]["name"] == model_name), None)
 
@@ -802,20 +802,20 @@ def ensure_model_running(model_name: str, port: int):
 
 ## Environment Variables
 
-The v2 `LAUNCHER_*` env-var family (per ADR-008 / ADR-013):
+The v2 `LAUNCHER_*` env-var family (per ADR-LLNCH-008 / ADR-LLNCH-013):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LAUNCHER_RUN_DIR` | `~/.llauncher/run` | Per-port lockfile and in-flight marker directory |
 | `LAUNCHER_AUDIT_PATH` | `~/.llauncher/audit.jsonl` | JSON Lines audit log (commanded vs. observed) |
-| `LAUNCHER_LOG_DIR` | `~/.llauncher/logs` | Per-server log directory (append mode, ADR-013) |
+| `LAUNCHER_LOG_DIR` | `~/.llauncher/logs` | Per-server log directory (append mode, ADR-LLNCH-013) |
 | `LAUNCHER_LOG_MAX_BYTES` | `52428800` (50 MiB) | Per-log rotation threshold |
 | `LAUNCHER_LOG_KEEP` | `3` | Retained rotated log files per server |
 | `LAUNCHER_FOOTER_CACHE_S` | `1.0` | `/footer-context/{port}` TTL (seconds; `<= 0` disables) |
 | `LLAUNCHER_AGENT_HOST` | `127.0.0.1` | HTTP Agent bind host. Non-loopback requires a token. |
 | `LLAUNCHER_AGENT_PORT` | `8765` | HTTP Agent listen port |
 | `LLAUNCHER_AGENT_NODE_NAME` | hostname | Friendly node identifier |
-| `LLAUNCHER_AGENT_TOKEN` | — | Required when binding off-loopback (ADR-003); `-` reads stdin |
+| `LLAUNCHER_AGENT_TOKEN` | — | Required when binding off-loopback (ADR-LLNCH-003); `-` reads stdin |
 | `BLACKLISTED_PORTS` | `` | Comma-separated list of reserved ports |
 
 ---
@@ -919,7 +919,7 @@ For the HTTP agent API (used in multi-node setups), see the agent documentation 
 > process and must not be conflated. See [`auth.md`](auth.md) for the full
 > model (who needs a token, exempt paths, resolution precedence).
 
-The MCP tools map to these HTTP endpoints (all port-keyed per ADR-010; `routing.py`):
+The MCP tools map to these HTTP endpoints (all port-keyed per ADR-LLNCH-010; `routing.py`):
 
 | MCP Tool | HTTP Endpoint |
 |----------|---------------|

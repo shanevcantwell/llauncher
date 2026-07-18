@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-The codebase contains **multiple critical violations** of the documented architecture patterns, primarily around state ownership and refresh/reconcile discipline. The most severe issue is that `state.py` imports from `core/model_health`, which violates layer boundaries per ADR-008 (State Ownership). Additionally, there are inconsistencies in how refresh is called across endpoints.
+The codebase contains **multiple critical violations** of the documented architecture patterns, primarily around state ownership and refresh/reconcile discipline. The most severe issue is that `state.py` imports from `core/model_health`, which violates layer boundaries per ADR-LLNCH-008 (State Ownership). Additionally, there are inconsistencies in how refresh is called across endpoints.
 
 ---
 
@@ -34,7 +34,7 @@ Endpoint Layer → State Orchestration → Core Layer → Remote Layer
 The **State Orchestration layer** (`state.py`) should only import from **Core Layer** modules. The `core/model_health` module (if it exists) would be part of the Core Layer, but this creates a problematic dependency cycle:
 
 - `state.py` imports `check_model_health()` for pre-flight validation
-- Per ADR-008, health checks are infrastructure concerns that should be called **by** state, not import additional core logic
+- Per ADR-LLNCH-008, health checks are infrastructure concerns that should be called **by** state, not import additional core logic
 
 **Risk:** Creates tight coupling between state management and health checking; makes testing harder (mocking health checks requires mocking the entire Core Layer).
 
@@ -60,7 +60,7 @@ state = get_state()
 return list(state.running.items())  # NO REFRESH CALLED
 ```
 
-**Why this violates ADR-008:**
+**Why this violates ADR-LLNCH-008:**
 
 Per `docs/4-state-ownership.md`:
 > "There is **one source of truth for configs** (disk) but **four independent instances** of `LauncherState`, each with its own in-memory copy. No synchronization mechanism exists between them."
@@ -168,7 +168,7 @@ Every agent HTTP handler calls either:
 - `state.refresh()` (for read+write operations)
 - `state.refresh_running_servers()` (for status-only reads)
 
-This ensures the Agent HTTP state instance is always current, which is correct per ADR-008.
+This ensures the Agent HTTP state instance is always current, which is correct per ADR-LLNCH-008.
 
 ---
 
@@ -183,7 +183,7 @@ with open(temp_path, "w") as f:
 temp_path.replace(CONFIG_PATH)  # Atomic on POSIX
 ```
 
-**Compliance:** Follows ADR-008's requirement for atomic config persistence.
+**Compliance:** Follows ADR-LLNCH-008's requirement for atomic config persistence.
 
 ---
 

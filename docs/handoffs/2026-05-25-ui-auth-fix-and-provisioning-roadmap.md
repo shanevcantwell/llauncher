@@ -70,19 +70,19 @@ A mid-session tangent rewrote the git subagent's contract to absorb all `git` + 
 ### Open issues this session left untouched
 
 - **#134** — Phase 0 docs. Smallest unit of work; can ship in a single session. Recommended next move if continuing the provisioning thread.
-- **#135** — Phase 1 (Design B session tokens). 2-3 sessions including ADR draft (would file as `docs/adrs/draft/017-session-token-issuance.md`, supersedes the static-token-only portion of ADR-003).
+- **#135** — Phase 1 (Design B session tokens). 2-3 sessions including ADR draft (would file as `docs/adrs/draft/017-session-token-issuance.md`, supersedes the static-token-only portion of ADR-LLNCH-003).
 - **#136** — Phase 2 (Design D pairing CLI). Depends on Phase 1's `SessionTokenStore`.
 - **#86** — Phase 3 (mTLS). User-punted; ADR-shaped design work, not code.
 
 ### Pre-existing carry-forward from prior dossiers (unchanged)
 
-- **#117** — cross-repo doc link for ADR-016 (blocked on sibling pi-coding-agent repo). v2-final, non-blocking.
+- **#117** — cross-repo doc link for ADR-LLNCH-016 (blocked on sibling pi-coding-agent repo). v2-final, non-blocking.
 - **#122** — Streamlit `use_container_width` deprecation. The warning continued to appear in this session's runtime logs. v2-final, non-blocking.
 - **#119** (UI IA pass), **#120** (`--alias` to llama-server), **#69** (Streamlit AppTest harness) — v3-alpha milestone.
 - **#121** (model-card surface) — v4-alpha milestone.
 - **#42** (vLLM backend adapter) — gates `v2.0.0`.
 - **#125** — `/node-info` self-loop short-circuit. Tangential to Phase 1 (would obviate auth path entirely for the local node) — worth bundling.
-- **#126** — ADR-003 exempt-paths drift vs live middleware. Same orbit as Phase 1's ADR work.
+- **#126** — ADR-LLNCH-003 exempt-paths drift vs live middleware. Same orbit as Phase 1's ADR work.
 - Worktree shelf cleanup (`worktree-agent-*` + `agent-*` paths) still deferred from prior sessions.
 
 ### Stale branches likely safe to delete

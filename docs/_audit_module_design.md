@@ -9,15 +9,15 @@
 
 | Category | Status |
 |----------|--------|
-| Agent API surface | ⚠️ Partial - Missing port-keyed routes per ADR-010, no `/footer-context` (M5) |
+| Agent API surface | ⚠️ Partial - Missing port-keyed routes per ADR-LLNCH-010, no `/footer-context` (M5) |
 | Data models | ✅ Complete - `ModelConfig` has `kind` discriminator, missing discriminated union for M6 |
 | Process management lifecycle | ✅ Complete - Lockfile/marker patterns match design docs |
 | Remote operations (hub-spoke) | ⚠️ Partial - Infrastructure exists but not wired to v2 ops layer; no self-loop short-circuit |
 | Swap semantics | ✅ Complete in `operations.py`, but **dual-swap problem**: HTTP/MCP still use v1 path |
-| GPU monitoring | ✅ Complete per ADR-006 spec, but VRAM check not wired into swap pre-flight (M2 slice 2) |
+| GPU monitoring | ✅ Complete per ADR-LLNCH-006 spec, but VRAM check not wired into swap pre-flight (M2 slice 2) |
 | Roadmap alignment | ⚠️ M3 done (v2 ops), M4 UI incomplete (auto-spawn still present), M5/M6 pending |
 
-**Critical finding:** The `operations.py::swap()` function exists and is fully implemented per ADR-011, but **no surface calls it**. HTTP Agent and MCP use the v1 path through `state._start_with_eviction_impl()`. This contradicts ADR-011's "single entry point" requirement.
+**Critical finding:** The `operations.py::swap()` function exists and is fully implemented per ADR-LLNCH-011, but **no surface calls it**. HTTP Agent and MCP use the v1 path through `state._start_with_eviction_impl()`. This contradicts ADR-LLNCH-011's "single entry point" requirement.
 
 ---
 
@@ -25,7 +25,7 @@
 
 ### Design Doc References
 - M3: UI migration, port-keyed verbs
-- ADR-010: Port ownership at call site (port-keyed routes)
+- ADR-LLNCH-010: Port ownership at call site (port-keyed routes)
 - M5 Item 1: Footer contract (`/footer-context/{port}`)
 
 ### Implementation Status: ⚠️ Partial
@@ -36,13 +36,13 @@
 - ✅ HTTP Agent structure correct
 - ✅ Authentication middleware present
 - ❌ Routes still use model-keyed endpoints: `/start/{model_name}`, `/stop/{port}`
-- ❌ Missing port-keyed POST routes per ADR-010:
+- ❌ Missing port-keyed POST routes per ADR-LLNCH-010:
   - `POST /swap/{port}` body `{model}`
   - Should drop `/start-with-eviction/{model}`
 
 **Agent routing.py**
-- ✅ VRAM pre-flight helper `_check_vram_sufficient()` exists (ADR-006)
-- ✅ Model health check endpoint: `/models/health` and `/models/health/{name}` (ADR-005)
+- ✅ VRAM pre-flight helper `_check_vram_sufficient()` exists (ADR-LLNCH-006)
+- ✅ Model health check endpoint: `/models/health` and `/models/health/{name}` (ADR-LLNCH-005)
 - ❌ Still uses `state._start_with_eviction_impl()` for eviction start
 - ❌ No `/footer-context/{port}` endpoint per M5 Item 1
 
@@ -53,7 +53,7 @@
 
 | File | Gap | Design Doc |
 |------|-----|------------|
-| `agent/routing.py` | Uses model-keyed routes instead of port-keyed | ADR-010 §"Verb Space" |
+| `agent/routing.py` | Uses model-keyed routes instead of port-keyed | ADR-LLNCH-010 §"Verb Space" |
 | `agent/routing.py` | No `/footer-context/{port}` endpoint (M5 Item 1) | M5 Design §Footer Contract |
 | `agent/server.py` | Not directly at fault, but no new endpoints added | N/A |
 
@@ -68,9 +68,9 @@
 ## 2. Core Module
 
 ### Design Doc References
-- ADR-008: Lockfile as authoritative claim, stateless facade
-- ADR-011: Swap semantics v2 with in-flight marker
-- ADR-006: GPU monitoring per device
+- ADR-LLNCH-008: Lockfile as authoritative claim, stateless facade
+- ADR-LLNCH-011: Swap semantics v2 with in-flight marker
+- ADR-LLNCH-006: GPU monitoring per device
 - M5 Item 2 (Logs lifecycle): Rotation, bounded tail
 
 ### Implementation Status: ✅ Complete
@@ -86,33 +86,33 @@
 **Lockfile (`lockfile.py`)**
 - ✅ Atomic write with `O_EXCL`
 - ✅ Staleness reconciliation via `is_pid_alive()`
-- ✅ JSON persistence format matches ADR-008 spec
-- ⚠️ No env-var sentinel pattern (still uses argv check) - deferred to M6 per ADR-012
+- ✅ JSON persistence format matches ADR-LLNCH-008 spec
+- ⚠️ No env-var sentinel pattern (still uses argv check) - deferred to M6 per ADR-LLNCH-012
 
 **Marker (`marker.py`)**
 - ✅ In-flight swap marker with `O_EXCL` atomicity
 - ✅ Stale-marker reconciliation via `llauncher_pid`
-- ✅ JSON format matches ADR-011 spec
+- ✅ JSON format matches ADR-LLNCH-011 spec
 
 #### Specific Gaps
 
 | File | Gap | Design Doc |
 |------|-----|------------|
 | `core/process.py` | Log files opened in `"w"` mode (truncate) instead of `"a"` (append) | M5 Item 2: "Logs survive restarts" |
-| `core/lockfile.py` | No env-var sentinel (`LAUNCHER_OWNED_PID`) yet - still argv-based | ADR-012 Amendment Notes for ADR-008 |
+| `core/lockfile.py` | No env-var sentinel (`LAUNCHER_OWNED_PID`) yet - still argv-based | ADR-LLNCH-012 Amendment Notes for ADR-LLNCH-008 |
 
 #### Roadmap Alignment Notes
 
 - **M5 Item 2 (Logs lifecycle):** Partially done - bounded tail in `stream_logs()` ✅, but no rotation/append mode ❌
-- **ADR-006:** GPU collector fully implemented per spec ✅
-- **ADR-011:** Marker module complete ✅
+- **ADR-LLNCH-006:** GPU collector fully implemented per spec ✅
+- **ADR-LLNCH-011:** Marker module complete ✅
 
 ---
 
 ## 3. Models Module
 
 ### Design Doc References
-- ADR-010: No `default_port`, port at call site
+- ADR-LLNCH-010: No `default_port`, port at call site
 - Issue #42 / M6: Backend discriminator (`kind` enum)
 - M6 Slice 19: ModelConfig as discriminated union
 
@@ -127,7 +127,7 @@ class ModelConfig(BaseModel):
 ```
 
 - ✅ `BackendKind` enum exists with `LLAMA_SERVER`
-- ✅ No `default_port`, no `port` field (ADR-010)
+- ✅ No `default_port`, no `port` field (ADR-LLNCH-010)
 - ❌ **Not a discriminated union** - M6 Slice 19 not done
 
 #### Specific Gaps
@@ -167,7 +167,7 @@ class VLLMConfig(ModelConfig):
 ## 4. Remote Module
 
 ### Design Doc References
-- ADR-009: Symmetric hub-spoke topology, per-node sovereignty
+- ADR-LLNCH-009: Symmetric hub-spoke topology, per-node sovereignty
 - M3 Slice 8: Self-loop short-circuit when target resolves to this node
 - v2-handoff: Multi-node infrastructure exists but NOT wired to v2 operations layer
 
@@ -209,9 +209,9 @@ class VLLMConfig(ModelConfig):
 ## 5. Operations Module (`operations.py`)
 
 ### Design Doc References
-- ADR-008: Stateless facade pattern
-- ADR-010: Port-keyed verbs with structured result envelope
-- ADR-011: Swap semantics v2 five-phase mechanic
+- ADR-LLNCH-008: Stateless facade pattern
+- ADR-LLNCH-010: Port-keyed verbs with structured result envelope
+- ADR-LLNCH-011: Swap semantics v2 five-phase mechanic
 - M2 Slice 2: Wire model health and VRAM pre-flight into swap
 
 ### Implementation Status: ✅ Complete (functionality), ⚠️ Partially Wired (integration)
@@ -222,9 +222,9 @@ class VLLMConfig(ModelConfig):
 ```python
 def start(model_name: str, port: int, *, caller: str) -> StartResult:
 ```
-- ✅ Returns `StartResult` with ADR-010 envelope (`action`, `success`, etc.)
+- ✅ Returns `StartResult` with ADR-LLNCH-010 envelope (`action`, `success`, etc.)
 - ✅ Reconciles stale lockfiles before starting
-- ✅ Records audit entries per ADR-008
+- ✅ Records audit entries per ADR-LLNCH-008
 
 **stop()**
 ```python
@@ -239,13 +239,13 @@ def stop(port: int, *, caller: str) -> StopResult:
 def swap(model_name: str, port: int, *, caller: str,
          model_health_check=None, vram_check=None) -> SwapResult:
 ```
-- ✅ Five-phase mechanic per ADR-011:
+- ✅ Five-phase mechanic per ADR-LLNCH-011:
   - Phase 1: Pre-flight validation (model exists, lockfile valid, no marker)
   - Phase 2: Take in-flight marker
   - Phase 3: Stop old model
   - Phase 4 + 5: Start new + readiness poll
   - Rollback on failure
-- ✅ Returns `SwapResult` with all eight action values per ADR-011 table:
+- ✅ Returns `SwapResult` with all eight action values per ADR-LLNCH-011 table:
   - `swapped`, `already_running`, `rolled_back`, `failed`
   - `rejected_preflight`, `rejected_stop_failed`, `rejected_in_progress`, `rejected_empty`
 - ⚠️ **Pluggable pre-flight seams not wired** (M2 Slice 2):
@@ -270,7 +270,7 @@ def swap(model_name: str, port: int, *, caller: str,
 ## 6. GPU Monitoring (`gpu.py`)
 
 ### Design Doc References
-- ADR-006: Backend-agnostic collector with per-process attribution
+- ADR-LLNCH-006: Backend-agnostic collector with per-process attribution
 
 ### Implementation Status: ✅ Complete
 
@@ -279,7 +279,7 @@ def swap(model_name: str, port: int, *, caller: str,
 - ✅ `GPUHealthCollector` auto-detects backend (nvidia-smi → rocm-smi → MPS)
 - ✅ Caching via `_TTLCache(5 seconds)` to avoid SMI overhead
 - ✅ Process attribution maps llama-server PIDs to GPU devices
-- ✅ Returns structured health data matching ADR-006 spec
+- ✅ Returns structured health data matching ADR-LLNCH-006 spec
 
 **Supported backends:**
 | Backend | Detection | Status |
@@ -295,7 +295,7 @@ def swap(model_name: str, port: int, *, caller: str,
 
 #### Roadmap Alignment Notes
 
-- **ADR-006:** Fully implemented per spec ✅
+- **ADR-LLNCH-006:** Fully implemented per spec ✅
 - **M2 Slice 2:** VRAM check callable exists but NOT wired into swap pre-flight ⚠️
 
 ---
@@ -303,13 +303,13 @@ def swap(model_name: str, port: int, *, caller: str,
 ## 7. Config Store (`core/config.py`)
 
 ### Design Doc References
-- ADR-010: No `default_port`, silent migration of legacy fields
+- ADR-LLNCH-010: No `default_port`, silent migration of legacy fields
 
 ### Implementation Status: ✅ Complete
 
 #### Current State
 
-- ✅ `from_dict_unvalidated()` drops port-related legacy fields per ADR-010
+- ✅ `from_dict_unvalidated()` drops port-related legacy fields per ADR-LLNCH-010
 - ✅ Silent drop policy (no migration log)
 - ✅ Atomic save via temp file + rename
 
@@ -331,11 +331,11 @@ def swap(model_name: str, port: int, *, caller: str,
 ## Critical Issues
 
 ### Issue #1: Dual-Swap Problem (BLOCKING M2)
-The v2 `operations.swap()` function is fully implemented per ADR-011 but **no surface calls it**:
+The v2 `operations.swap()` function is fully implemented per ADR-LLNCH-011 but **no surface calls it**:
 - HTTP Agent `/start-with-eviction/{model}` uses `state._start_with_eviction_impl()`
 - MCP `swap_server` tool uses `state._start_with_eviction_impl()`
 
-**ADR-011 §"Single Entry Point" violation.**
+**ADR-LLNCH-011 §"Single Entry Point" violation.**
 
 ### Issue #2: Auto-Spawn Still Present (BLOCKING M4)
 M4 Design says "Drop auto-spawn" but `NodeRegistry.start_local_agent()` still exists and is called from UI.

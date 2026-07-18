@@ -104,7 +104,7 @@ door, then delete it (`PARSE-AT-THE-DOOR`).
 | `nodes.json` | `~/.llauncher/nodes.json` | — | Peer registry. **Never** carries `api_key` (control C10/#83); tokens live in the sidecar above. |
 
 `~/.llauncher/` is the live default, overridable via `LAUNCHER_STATE_DIR`
-(issue #196). In systemd `--system` mode (ADR-018) state relocates under
+(issue #196). In systemd `--system` mode (ADR-LLNCH-018) state relocates under
 `LAUNCHER_STATE_DIR=/var/lib/llauncher`; `agent.env` there is mode `0640`,
 group `inference`, so the operator UI and a non-admin agent account can
 read it in place without copying secrets. On Windows, `install.ps1`
@@ -130,7 +130,7 @@ llauncher." It isn't. A second local user (e.g. `claude`) drives via its
 **own in-process MCP server**, which is tokenless. What that second user
 needs is **shared access to the state** — lockfiles, `config.json`, the
 run dir — which is exactly what `LAUNCHER_STATE_DIR=/var/lib/llauncher`
-(group `inference`) provides (ADR-018). The group-readable `agent.env`
+(group `inference`) provides (ADR-LLNCH-018). The group-readable `agent.env`
 (0640, group `inference`) is for the *other* plane: the UI and any
 remote/HTTP clients that do cross the network boundary.
 
@@ -150,7 +150,7 @@ So in system mode there are two distinct enablers, often conflated:
 - **Rotation:** edit the `LLAUNCHER_AGENT_TOKEN=` line in `agent.env` (or
   export `LLAUNCHER_AGENT_TOKEN` to override), restart the agent, and
   update clients. See the run-as-a-service doc.
-- **Roadmap:** ADR-017 (draft) adds opt-in trusted-host *session-token*
+- **Roadmap:** ADR-LLNCH-017 (draft) adds opt-in trusted-host *session-token*
   issuance (`POST /session`) on top of this static-token model — it does
   not replace it. Static-token auth remains the fallback.
 
@@ -162,6 +162,6 @@ So in system mode there are two distinct enablers, often conflated:
 | Token resolution precedence + env-file parser | `llauncher/core/agent_token.py` (`resolve_agent_token`, `parse_env_file`) |
 | Loopback / refuse-to-start guard | `llauncher/agent/server.py` (`run_agent`) |
 | Local-UI / remote-node token sourcing | `llauncher/remote/registry.py` |
-| Rationale | ADR-003 (static token), ADR-018 (system mode), ADR-017 (session tokens, draft) |
+| Rationale | ADR-LLNCH-003 (static token), ADR-LLNCH-018 (system mode), ADR-LLNCH-017 (session tokens, draft) |
 </content>
 </invoke>

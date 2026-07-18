@@ -111,7 +111,7 @@ class TestAddModelIntegration:
 
     @pytest.mark.skip(
         reason="v1 path: default_port removed from ModelConfig "
-        "(ADR-010 — port lives at the call site, not on the model). "
+        "(ADR-LLNCH-010 — port lives at the call site, not on the model). "
         "Validation surface no longer mentions default_port. "
         "Removed in M3 alongside other v1 surface (#46)."
     )

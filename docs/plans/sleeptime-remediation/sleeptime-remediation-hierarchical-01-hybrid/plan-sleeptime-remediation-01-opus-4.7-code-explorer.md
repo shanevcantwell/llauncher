@@ -39,7 +39,7 @@ Either way, delivery tracking metrics are inaccurate. This is P0 because downstr
 
 `tests/conftest.py` added a 23-line `_patch_model_health` fixture (autouse=True) that patches `llauncher.state.check_model_health` to always return valid across all tests. The docstring explains it prevents "small test temp-files from triggering the >1 MB health gate" — but this means every existing state/eviction test that uses a temp model file passes **only because the health check is stubbed**, not because those paths work with real health gates.
 
-The "zero regressions" claim holds true, but only under this fixture injection. Without it, tests would hit real filesystem checks on temp models and likely fail — meaning existing regression baselines were never exercised against the actual ADR-005 gate.
+The "zero regressions" claim holds true, but only under this fixture injection. Without it, tests would hit real filesystem checks on temp models and likely fail — meaning existing regression baselines were never exercised against the actual ADR-LLNCH-005 gate.
 
 ### P1 — Unclaimed Behavioral Changes
 
@@ -47,7 +47,7 @@ Two code changes from the delivery are not documented in any ADR or summary:
 
 **P1-a: state.py pre-flight health gate (line 242)**
 ```python
-# Pre-flight: check model file health (ADR-005)
+# Pre-flight: check model file health (ADR-LLNCH-005)
 health = check_model_health(config.model_path)
 if not health.valid:
     ...
@@ -60,7 +60,7 @@ if not health.valid:
 ```python
 @router.get("/models/health/{model_name}")
 async def model_health_detail(model_name: str) -> dict:
-    """Health status for a single model (ADR-005)."""
+    """Health status for a single model (ADR-LLNCH-005)."""
     ...
 ```
 
@@ -148,20 +148,20 @@ Tests needing real health checks can call `check_model_health` directly; tests c
 
 ### P1-2: Document state.py Health Gate as Behavioral Change
 
-Add a comment/docstring block in `state.py` at the `start_server()` function that explicitly notes the behavioral change from ADR-005:
+Add a comment/docstring block in `state.py` at the `start_server()` function that explicitly notes the behavioral change from ADR-LLNCH-005:
 
 ```python
 def start_server(self, model_name: str, caller: str = "unknown", 
                  port: int | None = None) -> tuple[bool, str, subprocess.Popen | None]:
     """Start a server for the given model.
 
-    Behavioral note (ADR-005): Model file health is now validated via
+    Behavioral note (ADR-LLNCH-005): Model file health is now validated via
     ``check_model_health()`` before process launch. Previously this was a
     bare ``Path.exists()`` check. The new gate produces richer error messages
     (e.g., "Model path does not exist", "File is empty", "Symlink target 
     missing") and may reject files the old check would have allowed (e.g.,
     very small or non-readable files). Callers should be prepared for a wider
-    set of validation_error messages than before ADR-005.
+    set of validation_error messages than before ADR-LLNCH-005.
     
     ...existing docstring content...
     """
@@ -173,24 +173,24 @@ This comment serves two purposes:
 
 ### P1-3: Document Unclaimed API Surface (`/models/health/{model_name}`)
 
-**Preferred approach (ADR supplement):** Write ADR-006b documenting the per-model health detail endpoint as an intentional extension of the Agent API surface from ADR-005. This captures the design decision explicitly.
+**Preferred approach (ADR supplement):** Write ADR-006b documenting the per-model health detail endpoint as an intentional extension of the Agent API surface from ADR-LLNCH-005. This captures the design decision explicitly.
 
 ```
 docs/adrs/006-gpu-resource-monitoring-supplement.md
 (or 007 if 006 is already taken for a different purpose)
 
 Title: Per-Model Health Detail Endpoint Extension
-Related: ADR-003, ADR-005
+Related: ADR-LLNCH-003, ADR-LLNCH-005
 Date: [delivery date]
 
 ## Context
-ADR-005 added model health validation to the startup flow. During implementation, 
+ADR-LLNCH-005 added model health validation to the startup flow. During implementation, 
 a natural extension was needed: a per-model health detail endpoint for programmatic 
 consumption (dashboard refresh, monitoring probes).
 
 ## Decision
-Added GET /models/health/{model_name} to routing.py as part of the ADR-005 delivery 
-commit batch. This endpoint is documented inline with docstring reference to ADR-005 
+Added GET /models/health/{model_name} to routing.py as part of the ADR-LLNCH-005 delivery 
+commit batch. This endpoint is documented inline with docstring reference to ADR-LLNCH-005 
 and tested in test_agent_models_health_api.py (test_health_detail_* methods).
 
 ## Rationale
@@ -199,13 +199,13 @@ GET /models/health list response. Enables targeted monitoring probes per-model.
 
 ## Trade-offs considered
 (a) Add as separate endpoint vs. extending GET /models/health with optional param → chose separate path for clarity and RESTful conventions
-(b) Require authentication → inherited from ADR-003 auth middleware policy
+(b) Require authentication → inherited from ADR-LLNCH-003 auth middleware policy
 ```
 
 **Alternative (inline-only):** If writing an ADR supplement feels excessive for one line of new API surface, add a doc comment in routing.py referencing the ADR explicitly:
 
 ```python
-# NOTE: This endpoint extends ADR-005 model health validation into public API.
+# NOTE: This endpoint extends ADR-LLNCH-005 model health validation into public API.
 # Tested in tests/unit/test_agent_models_health_api.py::TestAgentModelsHealthAPI::test_health_detail_*
 @router.get("/models/health/{model_name}")
 async def model_health_detail(model_name: str) -> dict:
@@ -296,8 +296,8 @@ grep -rc "def test_" tests/unit/test_agent_middleware.py \
 python3 -m pytest tests/ -x --tb=short 2>&1 | tail -20
 
 # 3. Behavioral changes are documented
-grep -n "ADR-005\|health gate\|behavioral change" llauncher/state.py
-grep -rn "ADR-005\|model_health_detail" llauncher/agent/routing.py
+grep -n "ADR-LLNCH-005\|health gate\|behavioral change" llauncher/state.py
+grep -rn "ADR-LLNCH-005\|model_health_detail" llauncher/agent/routing.py
 
 # 4. No unclaimed API endpoints (re-scan routing files)
 grep -rn "@router\." llauncher/agent/routing.py
@@ -310,7 +310,7 @@ grep -A2 "_patch_model_health" tests/conftest.py | head -10
 - [ ] Test count in all artifacts matches `grep` output exactly (±0% tolerance — no more rounding/parameterized inflation)
 - [ ] `_patch_model_health` is either removed or explicitly opt-in (not autouse), with updated tests using the fixture where needed
 - [ ] Full test suite passes after fixture changes
-- [ ] `start_server()` docstring includes behavioral change note referencing ADR-005 health gate
+- [ ] `start_server()` docstring includes behavioral change note referencing ADR-LLNCH-005 health gate
 - [ ] `/models/health/{model_name}` endpoint is either documented in an ADR supplement or has inline ADR reference comment
 - [ ] `_TTLCache` re-export has explanatory comment
 - [ ] Verification gate checklist is finalized as a reusable annex

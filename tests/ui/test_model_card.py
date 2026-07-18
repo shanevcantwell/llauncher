@@ -64,7 +64,7 @@ def _click_and_run(at, key):
 
 
 def _set_port(at, port=PORT, *, node_name="local", model_name=MODEL):
-    """Type a port into the card's ADR-010 port picker (no run)."""
+    """Type a port into the card's ADR-LLNCH-010 port picker (no run)."""
     at.number_input(key=f"start_{node_name}_{model_name}_port").set_value(port)
 
 
@@ -178,7 +178,7 @@ class TestStartDispatch:
         at = _card(tab_harness, card_state, mock_aggregator, "local", model_dict)
 
         assert at.button(key=f"toggle_start_local_{MODEL}").disabled
-        # Defence-in-depth (ADR-010): even a click that somehow fires must
+        # Defence-in-depth (ADR-LLNCH-010): even a click that somehow fires must
         # not reach either dispatch door while the picker yields no port.
         _click_and_run(at, f"toggle_start_local_{MODEL}")
         assert not at.exception
@@ -711,7 +711,7 @@ class TestLogsExpander:
 # port picker branches, driven through the card
 # ---------------------------------------------------------------------------
 class TestPortPickerThroughCard:
-    """The ADR-010 picker gates the start verb per its four inline states."""
+    """The ADR-LLNCH-010 picker gates the start verb per its four inline states."""
 
     def test_blacklisted_port_disables_start_and_dispatches_nothing(
         self, tab_harness, card_state, mock_aggregator, model_dict,

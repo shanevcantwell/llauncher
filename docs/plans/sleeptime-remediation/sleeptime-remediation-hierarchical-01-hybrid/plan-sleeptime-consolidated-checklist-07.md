@@ -11,7 +11,7 @@
 | P03 | Opus 4.7 Security Reviewer | hmac.compare_digest(), openapi_url suppression, file permission hardening, to_dict() masking, ADR doc corrections |
 | P04 | Opus 4.7 Silent-Failure Hunter | GPU bare-except logging, ROCm restructure, /status degraded flag, stat() diagnostic fix, cache sentinel |
 | P05 | Opus 4.7 PR Test Analyzer | gpu.py bug fixes (ROCM/MPS/simulate), test remediation, missing coverage, integration test rewrite |
-| P06 | Opus 4.7 Architect | ADR-003/004/005/006 rewrites — alternatives analysis, factual corrections, cross-references |
+| P06 | Opus 4.7 Architect | ADR-LLNCH-003/004/005/006 rewrites — alternatives analysis, factual corrections, cross-references |
 
 ## Project Lead Resolution Directives (DO NOT CHANGE)
 1. **`node.py::to_dict()`**: Use `"has_api_key": self.api_key is not None` — **boolean**, NOT masked `"***"`
@@ -1175,7 +1175,7 @@ if result._stat_failed or (result.size_bytes or 0) < _MIN_SIZE_BYTES:
 
 #### Step 1.4: Add cross-references section  
 - **Source:** `[P06 Phase 3 §3B]`
-- **Action:** Append "CROSS-REFERENCES" section linking to ADR-004 (CLI), ADR-005 (model health auth gate), ADR-006 (GPU status). Use markdown `./filename.md` links.
+- **Action:** Append "CROSS-REFERENCES" section linking to ADR-LLNCH-004 (CLI), ADR-LLNCH-005 (model health auth gate), ADR-LLNCH-006 (GPU status). Use markdown `./filename.md` links.
 - **Risk:** LOW
 - **Depends on:** none
 
@@ -1219,7 +1219,7 @@ if result._stat_failed or (result.size_bytes or 0) < _MIN_SIZE_BYTES:
 
 #### Step 1.5: Add consequences + risk tables + open questions  
 - **Source:** `[P06 Phase 2 §2B — Consequences, Risk, Open Questions]`
-- **Action:** Insert structured tables for Consequences (operator workflow, CI/CD integration, new code surface), Risk & Mitigation (missing deps CRITICAL, shell completion, ConfigStore race condition), and Open Questions (swap command alias, partial success exit codes). Add cross-references to ADR-003, 005, 006.
+- **Action:** Insert structured tables for Consequences (operator workflow, CI/CD integration, new code surface), Risk & Mitigation (missing deps CRITICAL, shell completion, ConfigStore race condition), and Open Questions (swap command alias, partial success exit codes). Add cross-references to ADR-LLNCH-003, 005, 006.
 - **Risk:** LOW
 - **Depends on:** Step 1.4
 
@@ -1249,7 +1249,7 @@ if result._stat_failed or (result.size_bytes or 0) < _MIN_SIZE_BYTES:
 
 #### Step 1.4: Add cross-references  
 - **Source:** `[P06 Phase 1 §1B — CROSS-REFERENCES]`
-- **Action:** Append links to ADR-006 (VRAM pre-flight via /start-with-eviction), ADR-003 (/models/health auth gating), and reference to ADR-002.
+- **Action:** Append links to ADR-LLNCH-006 (VRAM pre-flight via /start-with-eviction), ADR-LLNCH-003 (/models/health auth gating), and reference to ADR-LLNCH-002.
 - **Risk:** LOW
 - **Depends on:** Step 1.3
 
@@ -1286,7 +1286,7 @@ if result._stat_failed or (result.size_bytes or 0) < _MIN_SIZE_BYTES:
 
 #### Step 1.5: Add cross-references  
 - **Source:** `[P06 Phase 1 §1C — CROSS-REFERENCES]`
-- **Action:** Append links to ADR-005 (/start-with-eviction composite validation pipeline), ADR-003 (GPU data via /status read-only exempt endpoint, pre-flight behind auth middleware), and reference ADR-002.
+- **Action:** Append links to ADR-LLNCH-005 (/start-with-eviction composite validation pipeline), ADR-LLNCH-003 (GPU data via /status read-only exempt endpoint, pre-flight behind auth middleware), and reference ADR-LLNCH-002.
 - **Risk:** LOW
 - **Depends on:** Step 1.4
 
@@ -1408,28 +1408,28 @@ grep -n 'from pathlib import Path\|import pathlib' llauncher/core/model_health.p
 grep -A2 'def check_model_health' llauncher/core/model_health.py | grep -c "from pathlib"; echo "(should be 0 — no deferred import inside function)"
 
 # === ADR DOCUMENTATION CHECKS ===
-echo "\n=== ADR-003: AUTHENTICATION DOCUMENT ==="
+echo "\n=== ADR-LLNCH-003: AUTHENTICATION DOCUMENT ==="
 grep -c 'mTLS\|OAuth\|Unix socket\|Reverse proxy' docs/adrs/003-agent-api-authentication.md || echo "alternatives section may need review"
 grep -c 'CROSS-REFERENCES\|Cross-references' docs/adrs/003-agent-api-authentication.md
 echo "--- should have alternatives + cross-references sections ---"
 
-echo "\n=== ADR-004: CLI DOCUMENT ==="
+echo "\n=== ADR-LLNCH-004: CLI DOCUMENT ==="
 grep -i 'typer.*not declared\|missing.*dependenc\|EXTRAS\.CLI\|pyproject' docs/adrs/004-cli-subcommand-interface.md | head -5
 egrep 'add_completion.*True\|completion.*enabled' docs/adrs/004-cli-subcommand-interface.md || echo "check: shell completion guidance documented"
 grep -c 'CROSS-REFERENCES' docs/adrs/004-cli-subcommand-interface.md
 
-echo "\n=== ADR-005: MODEL HEALTH DOCUMENT ==="
+echo "\n=== ADR-LLNCH-005: MODEL HEALTH DOCUMENT ==="
 grep -c 'GGUF.*magic\|header.*validat\|SHA256.*manifest' docs/adrs/005-model-cache-health.md || echo "alternatives may need review"
 grep -i '1 MiB\|MIN_SIZE_BYTES\|one megabyte' docs/adrs/005-model-cache-health.md | head -3
 grep -c 'CROSS-REFERENCES' docs/adrs/005-model-cache-health.md
 
-echo "\n=== ADR-006: GPU DOCUMENT ==="
-echo "--- ADR-006 must NOT contain /dev/memfd (fabrication fix) ---"
+echo "\n=== ADR-LLNCH-006: GPU DOCUMENT ==="
+echo "--- ADR-LLNCH-006 must NOT contain /dev/memfd (fabrication fix) ---"
 grep -i 'memfd' docs/adrs/006-gpu-resource-monitoring.md; echo "(should be empty above — fabrication corrected)"
-echo "--- ADR-006 should mention system_profiler and sysctl hw.memsize ---"
+echo "--- ADR-LLNCH-006 should mention system_profiler and sysctl hw.memsize ---"
 grep -i 'system_profiler\|hw\.memsize' docs/adrs/006-gpu-resource-monitoring.md | head -3
 
-echo "--- ADR-006 build-vs-adopt analysis present ---"
+echo "--- ADR-LLNCH-006 build-vs-adopt analysis present ---"
 grep -c 'pynvml\|nvitop\|gpustat\|Prometheus.*Node_Exporter' docs/adrs/006-gpu-resource-monitoring.md || echo "build-vs-adopt table may need review"
 
 echo "\n=== REGRESSION TESTS ==="

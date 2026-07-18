@@ -1,9 +1,9 @@
-# Plan: Opus 4.7 Security Review Remediation — ADR-003 Findings
+# Plan: Opus 4.7 Security Review Remediation — ADR-LLNCH-003 Findings
 
 **Plan ID:** `PLAN-ADR003-REM-001`  
 **Author:** Strategic Planner (op. 4.7 security remediation)  
 **Date:** 2026-04-26  
-**Related Audit:** Opus 4.7 Automated Security Review of ADR-003  
+**Related Audit:** Opus 4.7 Automated Security Review of ADR-LLNCH-003  
 **Status:** Awaiting Implementer handoff
 
 ---
@@ -322,7 +322,7 @@ def to_dict(self) -> dict:
 |-----------|--------|
 | **File** | `docs/adrs/003-agent-api-authentication.md` |
 | **Lines** | 38–43 (Decision section) vs. `middleware.py:13,49` (implementation) |
-| **Root Cause** | ADR-003 states: *"FastAPI middleware checks X-Api-Key header on all `/start`, `/stop`, `/swap`, `/nodes/` endpoints (**read-only endpoints like `/status`, `/health`, `/models` remain unauthenticated**)".* The implementation is stricter than documented: ALL non-exempt paths require auth. Only hardcoded paths (`/health`, `/docs`, `/redoc`, and formerly `/openapi.json`) are exempt — not the read/write distinction described in the ADR. |
+| **Root Cause** | ADR-LLNCH-003 states: *"FastAPI middleware checks X-Api-Key header on all `/start`, `/stop`, `/swap`, `/nodes/` endpoints (**read-only endpoints like `/status`, `/health`, `/models` remain unauthenticated**)".* The implementation is stricter than documented: ALL non-exempt paths require auth. Only hardcoded paths (`/health`, `/docs`, `/redoc`, and formerly `/openapi.json`) are exempt — not the read/write distinction described in the ADR. |
 
 #### Chosen Fix
 

@@ -1,6 +1,6 @@
 """Default pre-flight check adapters for the swap mechanic.
 
-Per ADR-005 (model health) and ADR-006 (GPU/VRAM monitoring). These
+Per ADR-LLNCH-005 (model health) and ADR-LLNCH-006 (GPU/VRAM monitoring). These
 functions adapt :mod:`llauncher.core.model_health` and
 :mod:`llauncher.core.gpu` into the
 :data:`llauncher.operations.swap.PreflightCheck` shape — a callable
@@ -89,7 +89,7 @@ def estimate_vram_mb(config: ModelConfig) -> int:
        partial-offload configurations.
 
     The estimate is intentionally rough; treat it as a guard rail, not a
-    precise budget. ADR-006 / Issue #42 may refine this when the backend
+    precise budget. ADR-LLNCH-006 / Issue #42 may refine this when the backend
     adapter layer lands.
     """
     haystack = f"{config.model_path} {config.name}"

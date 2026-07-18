@@ -17,7 +17,7 @@ def _patch_model_health(request):
 
     Prevents small test temp-files from triggering the >1 MB health gate,
     which would break existing state/eviction tests that were written before
-    ADR-005 was added.
+    ADR-LLNCH-005 was added.
 
     Patch target moved (issue #57): ``state.py`` no longer imports
     ``check_model_health``; the operations layer's preflight module is the

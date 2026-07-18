@@ -6,7 +6,7 @@ Both ``scripts/systemd/install.sh`` (--user mode) and
 ``/opt/llauncher/venv`` has never been composed on the host — with **no
 silent fallback to a repo venv** (the acceptance criterion's own words).
 ``install.sh --system`` mode is UNCHANGED by #360 (it still recomposes this
-checkout's dev-tree ``.venv`` via ADR-023 Phase A) and is asserted to stay
+checkout's dev-tree ``.venv`` via ADR-LLNCH-023 Phase A) and is asserted to stay
 that way.
 
 These tests never touch the real ``/opt/llauncher/venv`` (a fully composed
@@ -131,7 +131,7 @@ def test_user_mode_preflight_passes_when_pinned_venv_present(tmp_path: Path):
 
 def test_system_mode_preflight_unchanged_checks_dev_tree_venv(tmp_path: Path):
     """--system mode must NOT be redirected to /opt — it still checks this
-    checkout's own .venv (ADR-023 Phase A, untouched by #360). Run as a
+    checkout's own .venv (ADR-LLNCH-023 Phase A, untouched by #360). Run as a
     non-root synthetic invocation to exercise only the venv preflight
     ordering (it fails before the root check would even matter, since the
     venv preflight runs first)."""

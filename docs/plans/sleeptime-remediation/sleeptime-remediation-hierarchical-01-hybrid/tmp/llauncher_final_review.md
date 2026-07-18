@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-26  
 **Reviewer:** Code Review Subagent (Final Sign-off Pass)  
-**Scope:** All implementation files for ADR-003 (Auth), ADR-005 (Model Health), ADR-006 (GPU Monitoring), ADR-004 (CLI)
+**Scope:** All implementation files for ADR-LLNCH-003 (Auth), ADR-LLNCH-005 (Model Health), ADR-LLNCH-006 (GPU Monitoring), ADR-LLNCH-004 (CLI)
 
 ---
 
@@ -28,7 +28,7 @@ All four ADRs have been substantially implemented. The codebase is **functionall
 
 ## ADR-by-ADR Verification
 
-### ADR-003 (Auth): MEETS DECISION ⬚⬚⬚⬚◯
+### ADR-LLNCH-003 (Auth): MEETS DECISION ⬚⬚⬚⬚◯
 
 **Decision summary:** API key authentication via `X-Api-Key` header; 401 for missing, 403 for wrong; /health, /docs, /openapi.json exempted; FastAPI docs disabled via constructor when auth active; RemoteNode carries api_key; NodeRegistry persists it.
 
@@ -50,7 +50,7 @@ All four ADRs have been substantially implemented. The codebase is **functionall
 | Node registry round-trip (load saves keys) | ✅ | `_load()` reads api_key, passes to RemoteNode; `_save()` writes it back |
 
 **⚠️ Warning — Middleware empty key status code:**  
-`middleware.py:56-59`: When `X-Api-Key: ""` is sent (header present but empty), the check `not api_key` evaluates True (empty string is falsy in Python), returning **401** instead of the spec'd **403**. Per ADR-003, a "present but wrong key" should be 403 Forbidden. An empty header IS present — just invalid value. This is a minor semantic gap: practically both reject the request, but 401 signals "no credentials" while 403 signals "invalid credentials."
+`middleware.py:56-59`: When `X-Api-Key: ""` is sent (header present but empty), the check `not api_key` evaluates True (empty string is falsy in Python), returning **401** instead of the spec'd **403**. Per ADR-LLNCH-003, a "present but wrong key" should be 403 Forbidden. An empty header IS present — just invalid value. This is a minor semantic gap: practically both reject the request, but 401 signals "no credentials" while 403 signals "invalid credentials."
 
 *Recommended fix:* Separate header presence from validation:
 ```python
@@ -62,7 +62,7 @@ if api_key != self.expected_token:
 
 ---
 
-### ADR-005 (Model Health): MEETS DECISION ⬚⬚⬚⬚◯
+### ADR-LLNCH-005 (Model Health): MEETS DECISION ⬚⬚⬚⬚◯
 
 **Decision summary:** `check_model_health()` validates existence → readability → size >1MB; ModelHealthResult is Pydantic BaseModel; symlinks resolved via Path.resolve(); integrated into start_server() pre-flight; API endpoints /models/health and /models/health/{name}; TTL cache (60s); Streamlit Model Registry tab.
 
@@ -84,7 +84,7 @@ if api_key != self.expected_token:
 
 ---
 
-### ADR-006 (GPU Monitoring): MEETS DECISION ⬚⬚◯◯
+### ADR-LLNCH-006 (GPU Monitoring): MEETS DECISION ⬚⬚◯◯
 
 **Decision summary:** GPUHealthCollector auto-detects NVIDIA→ROCm→MPS backends; clean empty response when no GPUs; TTL cache (5s); /status includes gpu key; VRAM pre-flight on /start-with-eviction returns 409 Conflict with required/available MB details.
 
@@ -110,11 +110,11 @@ if api_key != self.expected_token:
 *Recommended fix:* In `_query_ROCM()`, append `GPUDevice(...)` (dataclass) instead of `.to_dict()` to match the NVIDIA path. The `.to_dict()` conversion should happen at serialization time (in `get_health()` → `to_dict()`), not during query.
 
 **⚠️ Observation — GPU VRAM UI widget not implemented:**  
-ADR-006 specifies: *"Per-GPU VRAM gauge/meter showing used vs total"* and *"Warning badge when two servers on same GPU would exceed capacity"*. Neither the dashboard.py nor any other Streamlit component implements GPU visualization. The `/status` API endpoint correctly serves GPU data, but the UI layer has no corresponding display widgets. This is acceptable as a "core functionality complete, UX polish deferred" state — the ADR says this is part of the feature but not a blocking requirement for API/server-side correctness.
+ADR-LLNCH-006 specifies: *"Per-GPU VRAM gauge/meter showing used vs total"* and *"Warning badge when two servers on same GPU would exceed capacity"*. Neither the dashboard.py nor any other Streamlit component implements GPU visualization. The `/status` API endpoint correctly serves GPU data, but the UI layer has no corresponding display widgets. This is acceptable as a "core functionality complete, UX polish deferred" state — the ADR says this is part of the feature but not a blocking requirement for API/server-side correctness.
 
 ---
 
-### ADR-004 (CLI): MEETS DECISION ⬚⬚⬚⬚⬚
+### ADR-LLNCH-004 (CLI): MEETS DECISION ⬚⬚⬚⬚⬚
 
 **Decision summary:** Typer-based CLI with model/server/node/config subcommand groups; local commands use LauncherState + ConfigStore; remote commands use NodeRegistry + httpx; Rich table output with color coding and --json flag; pyproject.toml console script entry point.
 
@@ -128,7 +128,7 @@ ADR-006 specifies: *"Per-GPU VRAM gauge/meter showing used vs total"* and *"Warn
 | Server start/stop/status (local LauncherState) | ✅ | Creates fresh `LauncherState()` instance per invocation; delegates to its methods |
 | Node add/list/remove/status (NodeRegistry + httpx pings) | ✅ | Uses `NodeRegistry` for CRUD; `node_status()` calls `.ping()` on each node via httpx inside RemoteNode |
 | Node add supports --api-key parameter | ✅ | `cli.py:207-215`: `--api-key / -k` option, passed through to `registry.add_node(api_key=...)`; persists to nodes.json (tested) |
-| CLI-Autentication integration with ADR-003 | ✅ | When a node has api_key stored in nodes.json, RemoteNode._get_headers() injects X-Api-Key header on all HTTP calls |
+| CLI-Autentication integration with ADR-LLNCH-003 | ✅ | When a node has api_key stored in nodes.json, RemoteNode._get_headers() injects X-Api-Key header on all HTTP calls |
 | Rich table output with color coding | ✅ | `_print_table()` helper uses `rich.table.Table` with color mappings: green (running/online/serving), red (offline/error), yellow (stopped) |
 | --json flag on list/status commands | ✅ | model list, server status, node list (implied via to_dict()), node status all support --json → parseable JSON output |
 | pyproject.toml entry point `llauncher` | ✅ | `[project.scripts] llauncher = "llauncher.cli:app"`; works correctly |
@@ -142,14 +142,14 @@ ADR-006 specifies: *"Per-GPU VRAM gauge/meter showing used vs total"* and *"Warn
 
 | Module | Test File(s) | Coverage | Quality Notes |
 |---|---|---|---|
-| Settings (ADR-003) | `test_core_settings_auth.py` | ✅ 3 tests: default None, env var set, empty→None | Uses importlib.reload pattern for clean isolation. Good coverage of auth settings behavior. |
-| Middleware (ADR-003) | `test_agent_middleware.py` | ✅ 5 tests: no-token-allows, missing-key-401, valid-key-200, wrong-key-403, exempt-paths | Covers all four ADR-specified status codes and exempt paths. Missing test for empty-string-header → 403 (confirms the bug I flagged). |
-| Model Health (ADR-005) | `test_model_health.py` | ✅ 9 tests: valid file, nonexistent, empty/small, symlink, broken-symlink, unreadable, last_modified, cache-invalidation | Comprehensive edge case coverage. Uses fixture for cache reset before each test — excellent pattern. |
-| GPU Health (ADR-006) | `test_gpu_health.py` | ✅ 8 tests: no-backend-empty, NVIDIA-parse, multi-GPU, lifecycle-mapping, VRAM-consistency, TTL-cache-invalid, TTL-cache-hit, is-available | Good mock-based testing. Note: the simulated `_query_NVIDIA(simulated_output=True)` path doesn't exercise _map_processes (devices have empty pid), but this is acceptable since the actual code test covers it via refresh(). |
-| Model Health API (ADR-005) | `test_agent_models_health_api.py` | ✅ 6 tests: health-list-200, health-with-mock-data, detail-200, detail-404, missing-file-exists-false, vram-409-error-detail | Integrates with real FastAPI TestClient and patched routing state. Good cross-cutting test of VRAM+health combined diagnostic in 409 errors. |
-| Remote Node Auth (ADR-003) | `test_remote_node_auth.py` | ✅ 3 tests: key-includes-header, no-key-empty-headers, empty-string→None | Directly tests _get_headers() behavior. Confirms API key normalization to None for empty string. |
-| CLI (ADR-004) | `test_cli.py` | ✅ 21 tests across all 4 groups: help, model list/info/JSON, server status/start/stop, node add/list/remove/status/API-key persistence, config path/validate, edge cases | The most comprehensive test file. Uses fixtures + mocking extensively. Covers both rich-table and --json output paths. |
-| TTL Cache (ADR-005+006) | `test_ttl_cache.py` | ✅ present | Tests _TTLCache utility used by both model_health and gpu modules |
+| Settings (ADR-LLNCH-003) | `test_core_settings_auth.py` | ✅ 3 tests: default None, env var set, empty→None | Uses importlib.reload pattern for clean isolation. Good coverage of auth settings behavior. |
+| Middleware (ADR-LLNCH-003) | `test_agent_middleware.py` | ✅ 5 tests: no-token-allows, missing-key-401, valid-key-200, wrong-key-403, exempt-paths | Covers all four ADR-specified status codes and exempt paths. Missing test for empty-string-header → 403 (confirms the bug I flagged). |
+| Model Health (ADR-LLNCH-005) | `test_model_health.py` | ✅ 9 tests: valid file, nonexistent, empty/small, symlink, broken-symlink, unreadable, last_modified, cache-invalidation | Comprehensive edge case coverage. Uses fixture for cache reset before each test — excellent pattern. |
+| GPU Health (ADR-LLNCH-006) | `test_gpu_health.py` | ✅ 8 tests: no-backend-empty, NVIDIA-parse, multi-GPU, lifecycle-mapping, VRAM-consistency, TTL-cache-invalid, TTL-cache-hit, is-available | Good mock-based testing. Note: the simulated `_query_NVIDIA(simulated_output=True)` path doesn't exercise _map_processes (devices have empty pid), but this is acceptable since the actual code test covers it via refresh(). |
+| Model Health API (ADR-LLNCH-005) | `test_agent_models_health_api.py` | ✅ 6 tests: health-list-200, health-with-mock-data, detail-200, detail-404, missing-file-exists-false, vram-409-error-detail | Integrates with real FastAPI TestClient and patched routing state. Good cross-cutting test of VRAM+health combined diagnostic in 409 errors. |
+| Remote Node Auth (ADR-LLNCH-003) | `test_remote_node_auth.py` | ✅ 3 tests: key-includes-header, no-key-empty-headers, empty-string→None | Directly tests _get_headers() behavior. Confirms API key normalization to None for empty string. |
+| CLI (ADR-LLNCH-004) | `test_cli.py` | ✅ 21 tests across all 4 groups: help, model list/info/JSON, server status/start/stop, node add/list/remove/status/API-key persistence, config path/validate, edge cases | The most comprehensive test file. Uses fixtures + mocking extensively. Covers both rich-table and --json output paths. |
+| TTL Cache (ADR-LLNCH-005+006) | `test_ttl_cache.py` | ✅ present | Tests _TTLCache utility used by both model_health and gpu modules |
 
 **Missing coverage:** 
 - No explicit integration test exercising the cross-ADR flow (auth → health check → VRAM pre-flight → start). The end-to-end test in `tests/integration/test_end_to_end.py` (mentioned in plan) would cover this but may not have been executed/passed. Not blocking for unit-level sign-off.
@@ -162,7 +162,7 @@ ADR-006 specifies: *"Per-GPU VRAM gauge/meter showing used vs total"* and *"Warn
 ### 1. Middleware: Empty `X-Api-Key` → 401 instead of 403 [Warning]
 **File:** `llauncher/agent/middleware.py`, lines 56–59  
 **Impact:** Low. Both 401 and 403 reject the request. The distinction is semantic (authentication vs authorization) rather than functional. However, HTTP semantics are more precise when 403 means "invalid credentials" which is what an empty key represents.  
-**Recommendation:** Fix before final merge to match ADR-003 spec exactly.
+**Recommendation:** Fix before final merge to match ADR-LLNCH-003 spec exactly.
 
 ### 2. ROCm Query Returns Dicts Not Dataclasses [Warning]
 **File:** `llauncher/core/gpu.py`, line ~165 (`_query_ROCM`)  

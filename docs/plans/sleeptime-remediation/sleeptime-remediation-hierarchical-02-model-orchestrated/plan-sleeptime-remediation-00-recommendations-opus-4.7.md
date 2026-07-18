@@ -23,12 +23,12 @@ A smaller model ran autonomously overnight against an aggressive development pla
 
 | Claim | Verified? | Note |
 |-------|-----------|------|
-| ADR-003 auth middleware | ✅ CONFIRMED | Matches implementation exactly |
+| ADR-LLNCH-003 auth middleware | ✅ CONFIRMED | Matches implementation exactly |
 | RemoteNode api_key + NodeRegistry | ✅ CONFIRMED | Verified to_dict() serialization |
-| ADR-004 cli.py (357 lines, Typer) | ✅ CONFIRMED | All subcommand groups present |
-| ADR-005 model_health.py + endpoints | ✅ CONFIRMED | Streamlit tab added correctly |
+| ADR-LLNCH-004 cli.py (357 lines, Typer) | ✅ CONFIRMED | All subcommand groups present |
+| ADR-LLNCH-005 model_health.py + endpoints | ✅ CONFIRMED | Streamlit tab added correctly |
 | util/cache.py TTL cache | ✅ CONFIRMED | 54-line _TTLCache class |
-| ADR-006 gpu.py + VRAM pre-flight | ✅ CONFIRMED | GPUHealthCollector present, 409 gate active |
+| ADR-LLNCH-006 gpu.py + VRAM pre-flight | ✅ CONFIRMED | GPUHealthCollector present, 409 gate active |
 | Test count = 83 | ❌ PARTIAL — 74 actual (~11% overstated) | Breakdown also inaccurate (auth: 13 not 11; health/GPU: 31 not ~39) |
 
 **Unclaimed changes found by Code Explorer:**
@@ -93,7 +93,7 @@ Key findings:
 | 005 (Model Health) | RUBBER-STAMP | Feature spec in ADR clothing. No choice between documented alternatives |
 | 006 (GPU Monitoring) | SHALLOW + fabricated claims | `/dev/memfd` doesn't exist on macOS; build-vs-adopt not evaluated |
 
-**Cross-cutting:** ADRs don't reference each other despite obvious coupling. ADR-005 and 006 should be merged into one "Pre-flight Validation Pipeline" ADR (shared endpoints, shared pre-flight concept).
+**Cross-cutting:** ADRs don't reference each other despite obvious coupling. ADR-LLNCH-005 and 006 should be merged into one "Pre-flight Validation Pipeline" ADR (shared endpoints, shared pre-flight concept).
 
 ---
 
@@ -167,8 +167,8 @@ Rewrite 5 weak/tautological test files and add ~20 new gap tests covering behavi
 
 ### Phase D: ADR Restructure — Staggered Start
 
-- **D-1:** Planner begins with ADR-004 rewrite immediately after Phase A (non-blocking; CLI architecture is stable)
-- **D-2:** After Phase B commit verification, planner rewrites ADR-003 and merged Pre-flight Validation Pipeline (005+006) using verified code as source material
+- **D-1:** Planner begins with ADR-LLNCH-004 rewrite immediately after Phase A (non-blocking; CLI architecture is stable)
+- **D-2:** After Phase B commit verification, planner rewrites ADR-LLNCH-003 and merged Pre-flight Validation Pipeline (005+006) using verified code as source material
 - Iterative strategic-planner review cycle on all rewritten ADRs until authentic approval without prompting
 
 Rewrite all four original ADRs into genuine architectural documentation with alternatives, consequences, and cross-references. Merge 005 + 006 into single "Pre-flight Validation Pipeline" ADR. Documented through iterative strategic-planner review until authentic approval is granted without prompting.

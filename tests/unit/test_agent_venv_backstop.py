@@ -7,7 +7,7 @@ template) now resolves ``ExecStart`` through
 ``/usr/local/bin/llauncher-agent -> /opt/llauncher/venv/bin/llauncher-agent``
 instead of ``@VENV_BIN@/llauncher-agent`` (this checkout's dev ``.venv``).
 
-Mirrors ``tests/unit/test_ui_venv_backstop.py`` (ADR-023 Phase B, issue #228)
+Mirrors ``tests/unit/test_ui_venv_backstop.py`` (ADR-LLNCH-023 Phase B, issue #228)
 for the UI unit — same shape, same invariant (VENV-OWNED-OR-GUARANTEED /
 PARSE-AT-THE-DOOR), applied to the agent's --user template.
 

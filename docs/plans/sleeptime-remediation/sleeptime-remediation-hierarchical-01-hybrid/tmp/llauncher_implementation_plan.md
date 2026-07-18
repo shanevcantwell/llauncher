@@ -22,11 +22,11 @@ cat /tmp/baseline_test_results.txt
 
 ## Executive Summary
 
-This plan implements four architectural decisions that collectively harden, extend, and observability-enable the llauncher agent platform. **ADR-003** adds authentication as a critical security foundation — the only blocking task, since all network-facing features benefit from secured access. **ADRs 004–006** are independent higher-impact features: a CLI subcommand interface (ADR-004) for operator ergonomics, model cache health validation (ADR-005) to prevent wasted GPU cycles on missing/corrupted weights, and GPU resource monitoring (ADR-006) to enable informed scheduling decisions. No ADR strictly depends on another beyond ADR-003's security layer serving as a natural first step; the remaining three can execute in parallel by different workers. Each phase includes explicit test-first tasks with file paths, function signatures, and acceptance criteria.
+This plan implements four architectural decisions that collectively harden, extend, and observability-enable the llauncher agent platform. **ADR-LLNCH-003** adds authentication as a critical security foundation — the only blocking task, since all network-facing features benefit from secured access. **ADRs 004–006** are independent higher-impact features: a CLI subcommand interface (ADR-LLNCH-004) for operator ergonomics, model cache health validation (ADR-LLNCH-005) to prevent wasted GPU cycles on missing/corrupted weights, and GPU resource monitoring (ADR-LLNCH-006) to enable informed scheduling decisions. No ADR strictly depends on another beyond ADR-LLNCH-003's security layer serving as a natural first step; the remaining three can execute in parallel by different workers. Each phase includes explicit test-first tasks with file paths, function signatures, and acceptance criteria.
 
 ---
 
-## Phase 1: Foundation / Security (ADR-003 — Agent API Authentication)
+## Phase 1: Foundation / Security (ADR-LLNCH-003 — Agent API Authentication)
 
 **Rationale:** Unauthenticated agent API is a critical security vulnerability. All other network-facing features (CLI, TS extension, remote aggregation) must eventually operate over authenticated channels. Auth is the prerequisite for secure-by-default operation and should be first.
 
@@ -274,7 +274,7 @@ def create_app():
 
 | # | Type | File Path | Description | Acceptance Criteria |
 |---|------|-----------|-------------|---------------------|
-| 1.7 | check | `llauncher/agent/routing.py` | The middleware intercepts all requests at the FastAPI level, so no changes to individual route handlers are needed for auth enforcement. However: (a) Verify `/health` is listed in unauthenticated paths. (b) Confirm response structure from `/start-with-eviction/` includes `port_state` field per ADR-002 migration plan Task 4. | No route-level code changes required; middleware handles all auth at dispatch level |
+| 1.7 | check | `llauncher/agent/routing.py` | The middleware intercepts all requests at the FastAPI level, so no changes to individual route handlers are needed for auth enforcement. However: (a) Verify `/health` is listed in unauthenticated paths. (b) Confirm response structure from `/start-with-eviction/` includes `port_state` field per ADR-LLNCH-002 migration plan Task 4. | No route-level code changes required; middleware handles all auth at dispatch level |
 | 1.8 | check | `llauncher/agent/server.py` | Confirm docs gating uses constructor params (Task 1.6). Confirm middleware wiring happens after routes are defined but before return. | Code review confirms correct mounting order |
 
 ### Task 1.5: Extend Node Registry for Auth Credentials
@@ -282,7 +282,7 @@ def create_app():
 | # | Type | File Path | Description | Acceptance Criteria |
 |---|------|-----------|-------------|---------------------|
 | 1.9 | impl | `llauncher/remote/node.py` | Add optional `api_key: str = ""` field to the `RemoteNode` data model (or `NodeConfig`). When making HTTP calls (`ping()`, `get_status()`, etc.), include header `X-Api-Key: <key>` if set. Preserve backward compat when api_key is empty string or None. | Authenticated request header present when key configured; no auth header when key absent |
-| 1.10 | impl | `llauncher/remote/registry.py` | Extend `NodeRegistry.add_node()` to accept optional `api_key` parameter and persist it in nodes.json. Update the UI node registration dialog (see ADR-004 CLI also needs this). | New node with api_key persisted to disk; round-trip read writes header correctly |
+| 1.10 | impl | `llauncher/remote/registry.py` | Extend `NodeRegistry.add_node()` to accept optional `api_key` parameter and persist it in nodes.json. Update the UI node registration dialog (see ADR-LLNCH-004 CLI also needs this). | New node with api_key persisted to disk; round-trip read writes header correctly |
 | 1.11 | test | `tests/unit/test_remote_node_auth.py` (NEW) | See signatures below | Tests pass |
 
 **Test file: `tests/unit/test_remote_node_auth.py`**
@@ -331,20 +331,20 @@ feat(agent): add API key authentication middleware
 - Update NodeRegistry.add_node() with optional api_key parameter
 - Add unit tests for middleware, settings, and remote auth flow
 
-Refs: ADR-003, Issue #security
+Refs: ADR-LLNCH-003, Issue #security
 ```
 
 ---
 
 ## Phase 2: Core Features (ADRs 005 + 004 + 006)
 
-All three can execute in parallel. Ordering within this phase is logical rather than dependency-bound: model cache health first (affects server start path), CLI second (new entry point), GPU monitoring last (observability). However, the GPU metrics will be consumed by both the agent API and the UI — so ADR-005's pre-flight integration with VRAM estimates is a cross-cutting concern best addressed as Phase 3.
+All three can execute in parallel. Ordering within this phase is logical rather than dependency-bound: model cache health first (affects server start path), CLI second (new entry point), GPU monitoring last (observability). However, the GPU metrics will be consumed by both the agent API and the UI — so ADR-LLNCH-005's pre-flight integration with VRAM estimates is a cross-cutting concern best addressed as Phase 3.
 
-### ADR-005: Model Cache Health Validation
+### ADR-LLNCH-005: Model Cache Health Validation
 
 | # | Type | File Path | Description | Acceptance Criteria |
 |---|------|-----------|-------------|---------------------|
-| 2.1 | impl | `llauncher/core/model_health.py` (NEW) | Implement `check_model_health(model_path: str) -> ModelHealthResult`. **ModelHealthResult is a Pydantic BaseModel** with fields: `valid: bool = False`, `reason: str \| None = None`, `size_bytes: int \| None = Field(default=None, ge=0)`, `exists: bool = False`, `readable: bool = False`, `last_modified: datetime \| None = None`. Validation: exists → readable → size > 1MB (heuristic). If path is symlink, resolve via `Path.resolve()`. No GGUF header parsing in Phase 1 (deferred per ADR-005 recommendation). | Function returns valid=True for good files, False with descriptive reason for missing/corrupted/empty; symlinks resolved correctly |
+| 2.1 | impl | `llauncher/core/model_health.py` (NEW) | Implement `check_model_health(model_path: str) -> ModelHealthResult`. **ModelHealthResult is a Pydantic BaseModel** with fields: `valid: bool = False`, `reason: str \| None = None`, `size_bytes: int \| None = Field(default=None, ge=0)`, `exists: bool = False`, `readable: bool = False`, `last_modified: datetime \| None = None`. Validation: exists → readable → size > 1MB (heuristic). If path is symlink, resolve via `Path.resolve()`. No GGUF header parsing in Phase 1 (deferred per ADR-LLNCH-005 recommendation). | Function returns valid=True for good files, False with descriptive reason for missing/corrupted/empty; symlinks resolved correctly |
 | 2.2 | test | `tests/unit/test_model_health.py` (NEW) | See signatures below — all assertions use `.model_dump()` on results instead of `__dict__` or dataclass conversion. | All tests pass |
 
 > **Reviewer Fix Applied:** ModelHealthResult uses Pydantic BaseModel (not dataclass). Tests call `.model_dump()`.
@@ -444,7 +444,7 @@ def test_unreadable_file():
 | # | Type | File Path | Description | Acceptance Criteria |
 |---|------|-----------|-------------|---------------------|
 | 2.3 | impl | `llauncher/state.py` | Integrate `check_model_health()` into `start_server()` pre-flight and `_start_with_eviction_impl()` Phase 1 validation. Call health check after getting model config, before any process spawn. On failure: return early with `success=False`, log error to audit, skip start. The existing pre-flight already checks `config.model_path` exists via some mechanism — replace or augment that check with the richer `check_model_health()`. | Start on missing model file returns error immediately (no OOM later); health status appears in audit log |
-| 2.4 | impl | `llauncher/agent/routing.py` | Add two new endpoints: `GET /models/health` and `GET /models/health/{model_name}`. The list endpoint iterates all configured models, calls `check_model_health()` for each (with optional caching), returns structured response per ADR-005 spec (`.model_dump(result)`). Detail endpoint filters by name. Both require auth if middleware active (enforced by Task 1.3). | Endpoints return correct JSON; missing files show `"exists": false` without errors |
+| 2.4 | impl | `llauncher/agent/routing.py` | Add two new endpoints: `GET /models/health` and `GET /models/health/{model_name}`. The list endpoint iterates all configured models, calls `check_model_health()` for each (with optional caching), returns structured response per ADR-LLNCH-005 spec (`.model_dump(result)`). Detail endpoint filters by name. Both require auth if middleware active (enforced by Task 1.3). | Endpoints return correct JSON; missing files show `"exists": false` without errors |
 | 2.5 | test | `tests/unit/test_model_health_api.py` or extend existing `tests/unit/test_agent.py` | Test both `/models/health` and `/models/health/{name}` endpoints with mocked file system (using pytest's `monkeypatch`). Verify health response shape matches ADR spec, using `.model_dump()`. | Health API returns correct structure; handles missing models gracefully |
 | 2.6 | impl | `llauncher/ui/tabs/dashboard.py` or new tab component `llauncher/ui/tabs/model_registry.py` (NEW) | Add a "Model Registry" section/tab in Streamlit UI displaying model health table: columns for name, path, exists (✓/✗), size, last modified, status ("ready"/"missing"/"corrupted"/"unknown"). Status determined by `check_model_health()` results. | New tab renders correctly; status indicators match health check output |
 | 2.7 | impl | `llauncher/core/model_health.py` — cache layer | Add a simple TTL-aware cache for `check_model_health()` results using the `_TTLCache` utility (defined in `llauncher/util/cache.py`, Task 3.1 below). Key is the model path string, default TTL of 60 seconds. Invalidate on config changes (add/remove/update operations). | Health check called only once per start; cached result returned for subsequent calls within TTL |
@@ -463,12 +463,12 @@ feat(core): add model cache health validation
 - Add Model Registry tab to Streamlit dashboard showing file status indicators
 - Handle symlinks via Path.resolve(), broken link detection, permission checks
 
-Refs: ADR-005, Finding W8
+Refs: ADR-LLNCH-005, Finding W8
 ```
 
 ---
 
-### ADR-004: CLI Subcommand Interface
+### ADR-LLNCH-004: CLI Subcommand Interface
 
 | # | Type | File Path | Description | Acceptance Criteria |
 |---|------|-----------|-------------|---------------------|
@@ -581,7 +581,7 @@ def test_server_stop_nonexistent_port():
 
 def test_cli_integration_with_auth():
     """When node has api_key, CLI includes it on HTTP requests (integration)."""
-    # This tests the cross-cutting integration with ADR-003
+    # This tests the cross-cutting integration with ADR-LLNCH-003
     runner.invoke(app, ["node", "add", "authed-node", "--host", "127.0.0.1", "--api-key", "secret"])
     result = runner.invoke(app, ["node", "status", "authed-node"])
     assert result.exit_code == 0  # Won't actually connect to port 8765 in test env — just verify no crash
@@ -599,16 +599,16 @@ feat(cli): add subcommand interface via Typer
 - Register CLI entry point in pyproject.toml as 'llauncher' console script
 - Local state commands (model list/info, server start/stop/status) delegate to LauncherState + ConfigStore
 - Remote commands (node add/list/remove/status) use NodeRegistry with httpx for pings
-- Node registration supports --api-key parameter (ADR-003 integration point)
+- Node registration supports --api-key parameter (ADR-LLNCH-003 integration point)
 - Rich table-formatted output with color-coded status; --json flag for machine-readable mode
 - All local operations mirror agent API behavior exactly — no divergence
 
-Refs: ADR-004
+Refs: ADR-LLNCH-004
 ```
 
 ---
 
-### ADR-006: GPU Resource Monitoring and VRAM Tracking
+### ADR-LLNCH-006: GPU Resource Monitoring and VRAM Tracking
 
 | # | Type | File Path | Description | Acceptance Criteria |
 |---|------|-----------|-------------|---------------------|
@@ -755,7 +755,7 @@ feat(core): add GPU resource monitoring and VRAM tracking
 - Integrate GPU metrics into Streamlit dashboard as VRAM gauge widget
 - Per-process attribution: map llama-server PIDs to GPUs via SMI process table
 
-Refs: ADR-006, Finding from session 019dc8ad (Pi footer context meter gap)
+Refs: ADR-LLNCH-006, Finding from session 019dc8ad (Pi footer context meter gap)
 ```
 
 ---
@@ -769,7 +769,7 @@ This phase ties all four ADRs together and ensures end-to-end correctness. Tasks
 | **3.1a** | impl | `llauncher/core/gpu.py` + cache import | `GPUHealthCollector` now imports `_TTLCache` from `llauncher/util/cache.py`. Add a private instance: `self._cache = _TTLCache(ttl_seconds=5)`. In `refresh()`, call `self._cache.invalidate()` before re-querying. In `get_health()`, return `self._cache.get("health")` if present, else query and store. | Collector uses TTL cache; stale results automatically refreshed after TTL; manual `refresh()` bypasses cache entirely |
 | **3.1b** | impl | `llauncher/core/model_health.py` + cache import | `check_model_health()` uses the same `_TTLCache` from `llauncher/util/cache.py`. Add a module-level instance: `_health_cache = _TTLCache(ttl_seconds=60)`. Inside `check_model_health()`: first check `_health_cache.get(model_path)`; if miss, run full validation and store result via `_health_cache.set(model_path, result, ttl_seconds=60)`. Add public function `invalidate_health_cache(model_path: str | None = None)` for config-change invalidation (None invalidates all). | Health results cached for 60s; config change triggers cache purge; stale results refreshed automatically after TTL |
 | **3.1c** | impl | `llauncher/core/model_health.py` + `gpu.py` integration | In `start_server()` pre-flight: when VRAM check fails (409 from `/start-with-eviction/`), augment the error message to include model cache health status if the model path is configured. e.g., `{ "error": "insufficient_vram", "required_mb": X, "available_mb": Y, "model_health_hint": { "exists": false, "reason": "path not found" } }` when health check reveals missing file alongside VRAM issue. This gives operators a single diagnostic picture: is the server blocked because of VRAM or corrupted/missing model files? | Combined diagnostics appear in error messages when both VRAM and model cache checks fail; single call to `check_model_health()` serves both purposes |
-| 3.2 | impl | `pi-footer-extension/` or new TS extension update | Update the Pi footer extension's LLauncher tools to include auth headers when node has api_key configured (ADR-003). Also add health and GPU data consumption in the context meter tool (ADR-005 + ADR-006). This extends beyond llauncher Python codebase but is called out in sessions as a downstream consumer. | TS extension injects X-Api-Key header; context meter shows VRAM from /status?full=true |
+| 3.2 | impl | `pi-footer-extension/` or new TS extension update | Update the Pi footer extension's LLauncher tools to include auth headers when node has api_key configured (ADR-LLNCH-003). Also add health and GPU data consumption in the context meter tool (ADR-LLNCH-005 + ADR-LLNCH-006). This extends beyond llauncher Python codebase but is called out in sessions as a downstream consumer. | TS extension injects X-Api-Key header; context meter shows VRAM from /status?full=true |
 | 3.3 | test | `tests/integration/test_end_to_end.py` (NEW) | See signatures below — end-to-end scenarios covering all four ADRs interacting: auth-gated start, health check before start, GPU pre-flight on successful start, CLI operation through the same path. | All scenarios pass against a running agent with test fixtures |
 
 > **Reviewer Fix Applied:** Task 3.1 was too vague ("combined diagnostics"). It is now broken into three concrete tasks (3.1a: TTL cache in gpu.py; 3.1b: TTL cache in model_health.py; 3.1c: combined VRAM+health error messages). Each has specific file paths, function names, and acceptance criteria.
@@ -799,28 +799,28 @@ class TestEndToEndAuthAndHealth:
         return client
 
     def test_start_without_auth_fails(self, unauthed_client):
-        """ADR-003: Unauthenticated start is rejected."""
+        """ADR-LLNCH-003: Unauthenticated start is rejected."""
         resp = unauthed_client.post("/start/foo")
         assert resp.status_code == 401   # missing key → 401 Unauthorized
 
     def test_start_with_valid_key_and_missing_file_rejected_by_health(self, authenticated_client):
-        """ADR-003 + ADR-005: Authenticated request still blocked by missing model file health check."""
+        """ADR-LLNCH-003 + ADR-LLNCH-005: Authenticated request still blocked by missing model file health check."""
         # Model config exists but path doesn't — auth passes, health check rejects
         resp = authenticated_client.post("/start/configured-but-missing-model")
         assert resp.status_code in [400, 422]  # Depends on error type chosen for missing file
 
     def test_start_with_valid_file_succeeds(self, authenticated_client):
-        """ADR-003 + ADR-005: Valid auth + valid model file = start attempt."""
+        """ADR-LLNCH-003 + ADR-LLNCH-005: Valid auth + valid model file = start attempt."""
         resp = authenticated_client.post("/start/valid-model")
-        assert resp.status_code in [200, 409]  # 409 if VRAM insufficient (ADR-006), 200 for success
+        assert resp.status_code in [200, 409]  # 409 if VRAM insufficient (ADR-LLNCH-006), 200 for success
 
     def test_start_with_both_vram_and_health_issues(self, authenticated_client):
-        """ADR-003 + ADR-005 + ADR-006: Combined diagnostics when both checks fail."""
+        """ADR-LLNCH-003 + ADR-LLNCH-005 + ADR-LLNCH-006: Combined diagnostics when both checks fail."""
         resp = authenticated_client.post("/start/broken-model-on-low-vram")
         assert resp.status_code in [409]  # Combined error with model_health_hint
 
     def test_gpu_status_includes_processes(self, authenticated_client, running_server):
-        """ADR-003 + ADR-006: Authenticated status includes GPU process attribution."""
+        """ADR-LLNCH-003 + ADR-LLNCH-006: Authenticated status includes GPU process attribution."""
         resp = authenticated_client.get("/status?full=true")
         assert resp.status_code == 200
         data = resp.json()
@@ -830,10 +830,10 @@ class TestEndToEndAuthAndHealth:
 
 
 class TestEndToEndCLIIntegration:
-    """ADR-004 integration with ADR-003 auth."""
+    """ADR-LLNCH-004 integration with ADR-LLNCH-003 auth."""
 
     def test_cli_node_add_persists_api_key(self):
-        """ADR-004 + ADR-003: CLI node add with --api-key persists correctly."""
+        """ADR-LLNCH-004 + ADR-LLNCH-003: CLI node add with --api-key persists correctly."""
         from typer.testing import CliRunner
         from llauncher.cli import app
         runner = CliRunner()
@@ -849,7 +849,7 @@ class TestEndToEndCLIIntegration:
         assert hasattr(node_data, "api_key") and node_data.api_key == "cli-secret"  # or however Registry stores it
 
     def test_cli_server_start_uses_local_state(self):
-        """ADR-004: Local server operations go through LauncherState directly (not HTTP)."""
+        """ADR-LLNCH-004: Local server operations go through LauncherState directly (not HTTP)."""
         from typer.testing import CliRunner
         from llauncher.cli import app
         runner = CliRunner()
@@ -860,14 +860,14 @@ class TestEndToEndCLIIntegration:
 
 **Git commit convention:**
 ```
-refactor: integrate ADR-003 auth into TS extension and CLI node operations
+refactor: integrate ADR-LLNCH-003 auth into TS extension and CLI node operations
 
 - Update Pi footer llauncher extension to inject X-Api-Key header for nodes with api_key configured
-- Extend context meter tool to consume GPU data from /status?full=true (ADR-006)
+- Extend context meter tool to consume GPU data from /status?full=true (ADR-LLNCH-006)
 - Add comprehensive end-to-end integration tests covering all four ADRs interacting
 - Cross-cutting health + VRAM diagnostics in combined error messages
 
-Refs: ADR-003, ADR-004, ADR-005, ADR-006
+Refs: ADR-LLNCH-003, ADR-LLNCH-004, ADR-LLNCH-005, ADR-LLNCH-006
 ```
 
 ---
@@ -894,14 +894,14 @@ pytest tests/ -v --tb=short
 
 | Risk | Severity | Mitigation | Owner | Phase |
 |------|----------|-----------|-------|-------|
-| **nvidia-smi not available** in target environments | Medium | `GPUHealthCollector` returns empty backends list without crashing; VRAM pre-flight is a no-op when no GPUs detected. Tests mock missing CLI tools. | ADR-006 implementer | Phase 2 |
-| **Auth breaks existing TS extension** before it's updated | High until fixed | Middleware only activates when `LAUNCHER_AGENT_TOKEN` is set — if users don't configure the env var, behavior is unchanged (backward compat). The token must be explicitly set for auth to activate. Per-node api_key in nodes.json is also optional — only affects requests when present. | ADR-003 implementer | Phase 1 → Phase 2 transition |
-| **Model health check I/O overhead** on every start | Low ( mitigated by caching) | TTL cache with config-change invalidation ensures at-most-one check per session. Health API also caches its results. For network-mounted paths, operators can override by setting a `SKIP_HEALTH_CHECK` env var if needed in Phase 2+. | ADR-005 implementer | Phase 2 |
-| **VRAM estimation heuristic accuracy** — model size ≠ VRAM usage | Medium | Document the heuristic clearly as an estimate. The actual SMI measurement is authoritative; estimation only pre-fails obviously insufficient cases. False positives (rejecting a valid start) are acceptable because false negatives (OOM crash) are worse. Phase 2 can refine based on operator feedback. | ADR-006 implementer | Phase 2 |
-| **CLI output divergence from agent API** — operators confused if behaviors differ | Medium | CLI delegates to identical core methods (`LauncherState`, `ConfigStore`). The single source of truth means both entry points share the same business logic, reducing divergence risk. Add integration tests (Task 3.3) that verify parity. | ADR-004 implementer | Phase 2+Phase 3 |
-| **Dependency cycle** — new CLI imports state/state management creating circular deps | Medium ( architectural ) | CLI should import from `core/` and `remote/` only, not from `agent/`, `mcp_server/`, or `ui/`. The existing layer boundary table in the codebase summary already constrains this. Verify with a static import analysis after Phase 2 completion. | ADR-004 implementer → reviewer verification | Phase 2 |
-| **Node registry schema migration** — adding `api_key` to nodes.json may break old node registrations | Low | The `RemoteNode` dataclass defaults `api_key` to empty string or None, so existing JSON entries (which lack the field) produce the same behavior as no-auth nodes. Pydantic v2's extra="ignore" on models ensures unknown fields in persisted JSON don't cause errors. | ADR-003 implementer + ADR-004 | Phase 1 → Phase 2 transition |
-| **TTL cache consistency** — stale data visible during config changes before invalidation propagates | Low | Use explicit `invalidate_health_cache()` call in ConfigStore.add_model/remove_model/update_model; set TTL to 60s (generous) for model health, 5s for GPU. Cache miss on expired entry auto-refreshes. For config changes, force full invalidation via the public API. | ADR-005 + ADR-006 implementers | Phase 2+3 transition |
+| **nvidia-smi not available** in target environments | Medium | `GPUHealthCollector` returns empty backends list without crashing; VRAM pre-flight is a no-op when no GPUs detected. Tests mock missing CLI tools. | ADR-LLNCH-006 implementer | Phase 2 |
+| **Auth breaks existing TS extension** before it's updated | High until fixed | Middleware only activates when `LAUNCHER_AGENT_TOKEN` is set — if users don't configure the env var, behavior is unchanged (backward compat). The token must be explicitly set for auth to activate. Per-node api_key in nodes.json is also optional — only affects requests when present. | ADR-LLNCH-003 implementer | Phase 1 → Phase 2 transition |
+| **Model health check I/O overhead** on every start | Low ( mitigated by caching) | TTL cache with config-change invalidation ensures at-most-one check per session. Health API also caches its results. For network-mounted paths, operators can override by setting a `SKIP_HEALTH_CHECK` env var if needed in Phase 2+. | ADR-LLNCH-005 implementer | Phase 2 |
+| **VRAM estimation heuristic accuracy** — model size ≠ VRAM usage | Medium | Document the heuristic clearly as an estimate. The actual SMI measurement is authoritative; estimation only pre-fails obviously insufficient cases. False positives (rejecting a valid start) are acceptable because false negatives (OOM crash) are worse. Phase 2 can refine based on operator feedback. | ADR-LLNCH-006 implementer | Phase 2 |
+| **CLI output divergence from agent API** — operators confused if behaviors differ | Medium | CLI delegates to identical core methods (`LauncherState`, `ConfigStore`). The single source of truth means both entry points share the same business logic, reducing divergence risk. Add integration tests (Task 3.3) that verify parity. | ADR-LLNCH-004 implementer | Phase 2+Phase 3 |
+| **Dependency cycle** — new CLI imports state/state management creating circular deps | Medium ( architectural ) | CLI should import from `core/` and `remote/` only, not from `agent/`, `mcp_server/`, or `ui/`. The existing layer boundary table in the codebase summary already constrains this. Verify with a static import analysis after Phase 2 completion. | ADR-LLNCH-004 implementer → reviewer verification | Phase 2 |
+| **Node registry schema migration** — adding `api_key` to nodes.json may break old node registrations | Low | The `RemoteNode` dataclass defaults `api_key` to empty string or None, so existing JSON entries (which lack the field) produce the same behavior as no-auth nodes. Pydantic v2's extra="ignore" on models ensures unknown fields in persisted JSON don't cause errors. | ADR-LLNCH-003 implementer + ADR-LLNCH-004 | Phase 1 → Phase 2 transition |
+| **TTL cache consistency** — stale data visible during config changes before invalidation propagates | Low | Use explicit `invalidate_health_cache()` call in ConfigStore.add_model/remove_model/update_model; set TTL to 60s (generous) for model health, 5s for GPU. Cache miss on expired entry auto-refreshes. For config changes, force full invalidation via the public API. | ADR-LLNCH-005 + ADR-LLNCH-006 implementers | Phase 2+3 transition |
 
 ---
 
@@ -913,7 +913,7 @@ Phase 0 (Gate — before all implementation):
   └─ Gate: no undocumented pre-existing failures → proceed
 
 Phase 1 (Sequential, prerequisite for Phase 2 B):
-  ADR-003 [Auth Middleware]
+  ADR-LLNCH-003 [Auth Middleware]
   ├─ Settings module-level constant pattern
   ├─ Auth middleware with 401/403 status codes
   ├─ Docs gating via FastAPI constructor params
@@ -924,9 +924,9 @@ Phase 1 (Sequential, prerequisite for Phase 2 B):
            + 1.12–1.13 (logging, docs) — ~7 tasks
 
 Phase 2 (Three Independent Workers):
-  Worker B: ADR-005 [Model Health]     ← No dependencies on ADR-003/004/006
-  Worker C: ADR-004 [CLI Subcommand]   ← Depends on Phase 1 auth fields in RemoteNode
-  Worker D: ADR-006 [GPU Monitoring]    ← No dependencies on ADR-003/004/005
+  Worker B: ADR-LLNCH-005 [Model Health]     ← No dependencies on ADR-LLNCH-003/004/006
+  Worker C: ADR-LLNCH-004 [CLI Subcommand]   ← Depends on Phase 1 auth fields in RemoteNode
+  Worker D: ADR-LLNCH-006 [GPU Monitoring]    ← No dependencies on ADR-LLNCH-003/004/005
 
   Worker B tasks (2.1–2.7): Model health impl, tests, state integration, 
                           API endpoints, UI tab, TTL cache layer — ~7 tasks
@@ -946,10 +946,10 @@ Phase 3 (Integration, depends on Phase 2 completion):
 ```
 
 **Recommended worker allocation:**
-- **Worker A** executes: Tasks 1.1–1.2, 1.3–1.5, 1.6, 1.9–1.11, 1.12–1.13 (ADR-003 only) — ~7 tasks
-- **Worker B** executes: Tasks 2.1–2.7 + 3.1b + 3.1c partial (ADR-005 + cache utility) — after baseline gate passes, independent — ~9 tasks  
-- **Worker C** executes: Tasks 2.8–2.15 (ADR-004 only) — after Worker A completes and RemoteNode has api_key field — ~8 tasks
-- **Worker D** executes: Tasks 2.16–2.21 + 3.1a (ADR-006 + cache utility) — independent core feature, parallel with B/C — ~7 tasks
+- **Worker A** executes: Tasks 1.1–1.2, 1.3–1.5, 1.6, 1.9–1.11, 1.12–1.13 (ADR-LLNCH-003 only) — ~7 tasks
+- **Worker B** executes: Tasks 2.1–2.7 + 3.1b + 3.1c partial (ADR-LLNCH-005 + cache utility) — after baseline gate passes, independent — ~9 tasks  
+- **Worker C** executes: Tasks 2.8–2.15 (ADR-LLNCH-004 only) — after Worker A completes and RemoteNode has api_key field — ~8 tasks
+- **Worker D** executes: Tasks 2.16–2.21 + 3.1a (ADR-LLNCH-006 + cache utility) — independent core feature, parallel with B/C — ~7 tasks
 
 After Phase 2 completes: Integration tests and TS extension updates (Phase 3) executed by a reviewer or single worker.
 

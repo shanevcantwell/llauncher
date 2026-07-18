@@ -61,7 +61,7 @@ async def _dispatch_tool(name: str, arguments: dict) -> dict:
     """Dispatch to the appropriate tool handler.
 
     The verb tools (``start_server``, ``stop_server``, ``swap_server``,
-    ``delete_model``) are stateless per ADR-008 — they delegate to
+    ``delete_model``) are stateless per ADR-LLNCH-008 — they delegate to
     :mod:`llauncher.operations` and do not need the LauncherState
     singleton. Stateless config tools (``validate_config``) likewise
     bypass it.
@@ -72,7 +72,7 @@ async def _dispatch_tool(name: str, arguments: dict) -> dict:
     singleton. Read handlers refresh on their passed-in instance for
     per-call freshness (#31/#32).
     """
-    # ── Stateless verb tools (ADR-010, ops-backed) ──────────────────
+    # ── Stateless verb tools (ADR-LLNCH-010, ops-backed) ──────────────────
     if name == "start_server":
         return await servers_tools.start_server(arguments)
     elif name == "stop_server":

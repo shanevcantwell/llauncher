@@ -4,7 +4,7 @@
 reconciliation**: the whole class of bug (Windows silent-500, Linux "Authentication required")
 ships invisibly because **E2E does not go through all surfaces** — `ui/` and `cli.py` are mock-only,
 and the one seam the auth bug lives in (a real `X-Api-Key` over a real socket) is untested. The
-governing decision for this (**ADR-018 / #168**) already exists but has sat un-ratified since
+governing decision for this (**ADR-LLNCH-018 / #168**) already exists but has sat un-ratified since
 2026-06-13. **Non-live AND live e2e are now green on `main`** — the blocking fixture bug (#316) was
 fixed, Opus-reviewed, and merged this session (`03dd9f8`); both live-model tests pass.
 
@@ -51,11 +51,11 @@ A true E2E must exercise all four architecture doors: `agent/` (HTTP), `mcp_serv
 - **UI-tab AppTest coverage is deliberately deferred behind a UI redesign.** #69 was *closed as
   blocked* ("writing AppTest coverage against tabs about to be restructured is wasted work"). The
   redesign is **#119** (open, `pri:next`). Do **not** build per-tab UI tests before #119.
-- **ADR-018 / #168 is the governing decision** for "close the UI coverage exemption" — a
+- **ADR-LLNCH-018 / #168 is the governing decision** for "close the UI coverage exemption" — a
   comprehensive draft (100%-of-exercised floor, `branch=true`, drop the `ui/*` omit, `xfail(strict)`
   deferral ledger, exercise `ui/*` via `AppTest`). It is **DRAFT, awaiting operator ratification.**
   Two wrinkles at ratification: (a) the number **018 is already taken** by the accepted systemd ADR —
-  renumber; (b) #290 is a related mis-numbered salvage (ADR-019 collision) cross-referencing #168.
+  renumber; (b) #290 is a related mis-numbered salvage (ADR-LLNCH-019 collision) cross-referencing #168.
 - **Browser/Playwright E2E is explicitly out of scope.** Settled.
 
 ### The unlock
@@ -74,8 +74,8 @@ bug that ate 2026-07-15 on both platforms.
    Bind a real agent on a real port; real `RemoteNode` with `X-Api-Key`; assert 200 (good token) vs
    401/403 (wrong/missing) vs correct framing with a CRLF/BOM token (#310/#127 guard).
 3. **#318 — marker hygiene** (auto:fix). Declare the markers in `pytest.ini`; adopt
-   `--strict-markers`. Needed by ADR-018's deferral-ledger discipline anyway.
-4. **ADR-018 / #168 — ratify + execute (operator decision).** Renumber (018 taken). Amend to a
+   `--strict-markers`. Needed by ADR-LLNCH-018's deferral-ledger discipline anyway.
+4. **ADR-LLNCH-018 / #168 — ratify + execute (operator decision).** Renumber (018 taken). Amend to a
    *phased* plan: land `branch=true` + the reason-required deferral ledger + #317 now; **gate the
    floor-flip-to-100, the `ui/*` omit-drop, and UI-tab AppTest coverage on #119.** This makes
    all-surfaces coverage a *requirement*, not a draft.
@@ -127,7 +127,7 @@ bug that ate 2026-07-15 on both platforms.
 2. Build **#317** (real-socket auth vertical slice) — the enforcement surface for today's outage.
    Highest-value unblocked build; decoupled from #119.
 3. **#318** marker hygiene.
-4. Bring **ADR-018 / #168** to the operator for ratification (renumbered, phased). Execute the
+4. Bring **ADR-LLNCH-018 / #168** to the operator for ratification (renumbered, phased). Execute the
    unblocked steps.
 5. **#319** with the operator (sudo-reads) — fix the live Linux UI auth.
 6. **#320** stays gated on **#119**.

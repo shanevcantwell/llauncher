@@ -168,7 +168,7 @@ class TestDispatchTool:
 
     @pytest.mark.asyncio
     async def test_dispatch_tool_delete_model(self):
-        """Dispatch to delete_model tool — stateless per ADR-008."""
+        """Dispatch to delete_model tool — stateless per ADR-LLNCH-008."""
         with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
             with patch(
                 "llauncher.mcp_server.server.config_tools.delete_model",
@@ -176,7 +176,7 @@ class TestDispatchTool:
             ):
                 result = await _dispatch_tool("delete_model", {})
                 assert result == "delete_model_result"
-                # ADR-008: stateless verb must not touch the singleton
+                # ADR-LLNCH-008: stateless verb must not touch the singleton
                 mock_get.assert_not_called()
 
 
@@ -240,7 +240,7 @@ class TestInterfaceCloseout:
         """Dispatch to cancel_server — stateless verb, bypasses the singleton.
 
         Covers server.py:83 — the ``cancel_server`` arm of ``_dispatch_tool``
-        in the stateless verb group (ADR-010/ADR-014), reached before
+        in the stateless verb group (ADR-LLNCH-010/ADR-LLNCH-014), reached before
         ``get_mcp_state``.
         """
         with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:

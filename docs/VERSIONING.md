@@ -3,7 +3,7 @@
 llauncher carries two numbering axes that are **independent**:
 
 - **Internal generation** — `v1`, `v2`, `v3` … denotes the *architecture
-  epoch* (e.g. `v2` is the `operations/` stateless-facade refactor, ADR-008+).
+  epoch* (e.g. `v2` is the `operations/` stateless-facade refactor, ADR-LLNCH-008+).
 - **External semver** — `0.x` (`0.4.0a0` / `v0.4.0-alpha`) denotes the
   *release*, per `pyproject.toml`, `llauncher/__init__.py`, and the latest git
   tag.

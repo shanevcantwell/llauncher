@@ -1,6 +1,6 @@
 """Unit tests for ``llauncher.operations.preflight``.
 
-Per ADR-005 (model health) + ADR-006 (GPU/VRAM). These adapters bridge
+Per ADR-LLNCH-005 (model health) + ADR-LLNCH-006 (GPU/VRAM). These adapters bridge
 the core health/GPU modules into the swap mechanic's
 :data:`PreflightCheck` shape.
 """

@@ -15,7 +15,7 @@ must do and to name the gaps that remain.
 ## Edit-time layer map (read this first while editing)
 
 > Minimal distillation of the layering doctrine for use *at edit time*. Deeper context:
-> the full invariant below, the ADRs it cites (esp. ADR-008 stateless facade, ADR-010
+> the full invariant below, the ADRs it cites (esp. ADR-LLNCH-008 stateless facade, ADR-LLNCH-010
 > port-keyed endpoints), and the historical `docs/1-architecture-layers.md` /
 > `docs/2-cross-layer-reach.md`.
 
@@ -25,7 +25,7 @@ ENDPOINT        agent/ (HTTP)   mcp_server/ (stdio)   ui/ (Streamlit)   cli.py
                      └─────────────────┴────────┬──────────┴─────────────┘
                                                 ▼
 ORCHESTRATION   operations/  (stateless verbs: start · stop · swap · delete · orphan · preflight)
-                state.py     (LauncherState facade — ADR-008)
+                state.py     (LauncherState facade — ADR-LLNCH-008)
                                                 ▼
 CORE            core/  (config · process · settings · lockfile · audit_log · model_health)
                                                 ▼
@@ -58,7 +58,7 @@ REMOTE (client) remote/  (NodeRegistry · RemoteNode · RemoteAggregator)
 > path into `core` and keep token *materialization* in `agent`. Tracked: #171 (audited in
 > the conformance ledger below).
 
-### Enforced UI boundary (ADR-025)
+### Enforced UI boundary (ADR-LLNCH-025)
 
 `ui/` reaches the backend **only** through `state`/`operations`/`remote` — backend verbs
 via the orchestration facades, all node I/O via `remote/` (`NodeRegistry` / `RemoteNode`
@@ -88,17 +88,17 @@ above disagree, this one is the target.
    import graph. A module physically cannot name a symbol it does not import, so the
    rule stops a cross-layer edge from being *authored*. It does **not** bound what a
    running process can reach over other channels (HTTP, a shell, a `sys.path` insert) —
-   only what the source may import. *(→ the edit-time layer map above; ADR-008)*
+   only what the source may import. *(→ the edit-time layer map above; ADR-LLNCH-008)*
 
 2. **`remote` and `agent` are network peers, not Python neighbors.** They share exactly
    one thing: the HTTP wire contract. `remote` is a client; `agent` is a server. Neither
    imports the other in Python — a shared helper is hoisted **down** into `core`, never
-   reached sideways. *(→ ADR-009)*
+   reached sideways. *(→ ADR-LLNCH-009)*
 
 3. **The orchestration facade is stateless.** `LauncherState` and `operations/` hold no
    cross-call session state; every read rebuilds the live process table from the
    filesystem and the OS per call. Identity of result depends on current ground truth,
-   not call history. *(→ ADR-008)*
+   not call history. *(→ ADR-LLNCH-008)*
 
 4. **`ModelConfig.name` is the mint (ONE-MINT).** It is the single authority for
    local-model identity across the ecosystem. Every other string — port, adapter, log
@@ -118,12 +118,12 @@ above disagree, this one is the target.
    shapes of the same artifact; never trust-and-degrade on an unrecognized one. When a
    shape changes, migrate deterministically in place, once. *(→ ecosystem
    ground-physics constitution: PARSE-AT-THE-DOOR; project `CLAUDE.md` local rule;
-   ADR-017)*
+   ADR-LLNCH-017)*
 
 7. **Ports are owned at the call site.** `start` / `stop` / `swap` and every port-keyed
    endpoint take the port as an explicit caller-supplied argument; the orchestration
-   layer never allocates or derives it. `ModelConfig` carries no port. *(→ ADR-010;
-   ADR-011)*
+   layer never allocates or derives it. `ModelConfig` carries no port. *(→ ADR-LLNCH-010;
+   ADR-LLNCH-011)*
 
 ---
 
@@ -150,13 +150,13 @@ point downward; siblings do not import siblings.**
   (`httpx`/`requests`/`urllib3`/`urllib.request`/`http.client`/`socket`/`aiohttp`/`pycurl`
   — the guard's `_HTTP_*` sets are authoritative) nor import a peer endpoint
   (`agent`/`mcp_server`/`cli`). **Enforced statically** by
-  `tests/architecture/test_ui_layer_boundaries.py` (ADR-025) — the deterministic catch
+  `tests/architecture/test_ui_layer_boundaries.py` (ADR-LLNCH-025) — the deterministic catch
   for the cross-layer reach that escaped to an alpha tag.
 
 ### Orchestration (stateless verbs + facade)
 
 **What lives here:** `operations/` (start · stop · swap · delete · orphan · preflight),
-`state.py` (`LauncherState` — ADR-008).
+`state.py` (`LauncherState` — ADR-LLNCH-008).
 
 **Rules:**
 - Holds no cross-call session state; rebuilds from ground truth per call (rule 3).
@@ -227,7 +227,7 @@ point downward; siblings do not import siblings.**
 ┌─────────────────────────────────────────────────────────────┐
 │ ORCHESTRATION (stateless)                                     │
 │   operations/  (start·stop·swap·delete·orphan·preflight)      │
-│   state.py     (LauncherState facade — ADR-008)               │
+│   state.py     (LauncherState facade — ADR-LLNCH-008)               │
 └─────────────────────────────┬───────────────────────────────┘
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
@@ -269,7 +269,7 @@ a unit test of a `core` mechanic would drag in the orchestration facade and its
 filesystem assumptions, and a change to an endpoint could silently alter `core`
 behavior. The peer split between `remote` and `agent` is the same principle across the
 network boundary — a client that imported its server would couple the two into one
-deployable, defeating the symmetric hub-spoke topology (ADR-009) where any node is both.
+deployable, defeating the symmetric hub-spoke topology (ADR-LLNCH-009) where any node is both.
 
 **A single mint** is what keeps model identity from fragmenting into per-consumer
 dialects. The ecosystem has many envelopes for the same model — a port, a log filename,
@@ -329,7 +329,7 @@ One row per invariant rule. Each violation paired with the contracted correct sh
 | A second module redefines model identity (e.g. keys a registry by sanitized log name instead of `ModelConfig.name`). | All identity flows from `ModelConfig.name`; the sanitized log name is an envelope derived from it, never an alternate authority. |
 | llama-server is started without `--alias`, so `/v1/models` reports the GGUF filename; or `--alias` is moved into `extra_args` where a config can override it. | `build_command` emits `--alias config.name` unconditionally; `--alias` stays on `DENIED_EXTRA_ARG_FLAGS`. |
 | A loader accepts both a legacy bare-string and a new dict shape of `node_tokens.json`, branching on which it sees. | The artifact is migrated to one shape at the door (or the load fails loud); exactly one shape is parsed thereafter. |
-| `operations.start` allocates a free port itself when the caller omits one. | `port` is a required argument; the caller (endpoint) chooses it per ADR-010. |
+| `operations.start` allocates a free port itself when the caller omits one. | `port` is a required argument; the caller (endpoint) chooses it per ADR-LLNCH-010. |
 
 ---
 
@@ -337,11 +337,11 @@ One row per invariant rule. Each violation paired with the contracted correct sh
 
 | ADR / decision | What it fixes | File / status |
 |----------------|--------------|---------------|
-| ADR-008: LauncherState stateless facade | Rules 1, 3 — the downward layer arrow and the stateless orchestration facade | `docs/adrs/accepted/008-launcher-state-stateless-facade.md` — Accepted |
-| ADR-009: Symmetric hub-spoke topology | Rule 2 — `remote`/`agent` as network peers sharing only the HTTP wire | `docs/adrs/completed/009-symmetric-hub-spoke-topology.md` — Completed |
-| ADR-010: Port ownership at call site | Rule 7 — port is a call-site argument; `ModelConfig` carries none | `docs/adrs/completed/010-port-ownership-at-call-site.md` — Completed |
-| ADR-011: Swap semantics v2 | Rule 7 — the port-keyed `swap` and its preflight | `docs/adrs/completed/011-swap-semantics-v2.md` — Completed |
-| ADR-016: Canonical self-swap | Rules 4–5 — canonical identity preserved across an agent's self-swap | `docs/adrs/completed/016-canonical-self-swap.md` — Completed |
-| ADR-017: (node-token persistence) | Rule 6 — parse-at-the-door; the bare-string `node_tokens.json` dual-parse caught in review is the anchor violation | `docs/adrs/` — see CLAUDE.md local rule |
+| ADR-LLNCH-008: LauncherState stateless facade | Rules 1, 3 — the downward layer arrow and the stateless orchestration facade | `docs/adrs/accepted/adr-llnch-008-launcher-state-stateless-facade.md` — Accepted |
+| ADR-LLNCH-009: Symmetric hub-spoke topology | Rule 2 — `remote`/`agent` as network peers sharing only the HTTP wire | `docs/adrs/completed/adr-llnch-009-symmetric-hub-spoke-topology.md` — Completed |
+| ADR-LLNCH-010: Port ownership at call site | Rule 7 — port is a call-site argument; `ModelConfig` carries none | `docs/adrs/completed/adr-llnch-010-port-ownership-at-call-site.md` — Completed |
+| ADR-LLNCH-011: Swap semantics v2 | Rule 7 — the port-keyed `swap` and its preflight | `docs/adrs/completed/adr-llnch-011-swap-semantics-v2.md` — Completed |
+| ADR-LLNCH-016: Canonical self-swap | Rules 4–5 — canonical identity preserved across an agent's self-swap | `docs/adrs/completed/adr-llnch-016-canonical-self-swap.md` — Completed |
+| ADR-LLNCH-017: (node-token persistence) | Rule 6 — parse-at-the-door; the bare-string `node_tokens.json` dual-parse caught in review is the anchor violation | `docs/adrs/` — see CLAUDE.md local rule |
 | Issue #120: EMIT-CANONICAL `--alias` | Rule 5 — the wire reports the minted name | Implemented (`core/process.py`); roadmap reference stale, see reconciliation note |
 | Ecosystem ground-physics constitution | Rules 4, 5, 6 — ONE-MINT, IDENTITY⊥ENVELOPE, EMIT-CANONICAL, PARSE-AT-THE-DOOR | `operating-doctrine` → `ground-physics/GROUND_PHYSICS.md` (six data-plane invariants + dev-plane disciplines; migrated 2026-06-22 from the design-docs scratchpad, then to `operating-doctrine`). The earlier "out-of-tree (private) / restated in `CLAUDE.md`" note was stale — no such restatement existed. |
