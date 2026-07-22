@@ -8,7 +8,7 @@ PRs and commits):
   alignment plan in `ALIGNMENT_ROADMAP.md`. (Canonical home as of the
   2026-06-22 migration; the old `design-docs/ecosystem-ground-physics/` path
   is a `MOVED.md` tombstone.)
-- `.claude/architecture.md` — layer map and forbidden import edges.
+- `docs/ARCHITECTURE.md` — layer map and forbidden import edges.
 
 ## llauncher's position in the ecosystem physics
 
