@@ -140,4 +140,4 @@ for the full set of layer contracts, that ADR would supersede the bespoke scan.
 | `tests/architecture/test_ui_layer_boundaries.py` | Created | AST scan of `llauncher/ui/**`; fails on direct-HTTP or peer/sibling imports; self-checking meta-test |
 | `tests/ui/conftest.py` | Created | `AppTest` harness fixture (`tab_harness`), mocked-facade fixtures, `forbid_direct_http` |
 | `tests/ui/test_nodes_tab.py` | Created | Add Node form rendered smoke (salvage #134 → #69 intent) + behavioral remote-I/O test |
-| `.claude/architecture.md`, `docs/ARCHITECTURE.md` | Modified | Explicit "enforced by tests/architecture/test_ui_layer_boundaries.py" line |
+| `docs/ARCHITECTURE.md` | Modified | Explicit "enforced by tests/architecture/test_ui_layer_boundaries.py" line |
