@@ -8,7 +8,7 @@ peers across the network boundary need the *identical* payload:
 * ``remote.RemoteNode.get_node_info`` returns it in-process on the #62
   self-loop short-circuit (issue #125), skipping the loopback HTTP hop.
 
-Per the layer doctrine (``.claude/architecture.md``), ``remote`` must not
+Per the layer doctrine (`docs/ARCHITECTURE.md`), ``remote`` must not
 import ``agent`` — they are peers across the wire. The shared builder is
 therefore hoisted *down* into ``core`` rather than reached for sideways,
 so both the server endpoint and the client self-loop path can call it.

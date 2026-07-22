@@ -5,9 +5,7 @@ boundary between layers enforceable. Its purpose is to distinguish a valid compo
 from a violation — not to describe what the code currently does, but to state what it
 must do and to name the gaps that remain.
 
-> Edit-time companion: `.claude/architecture.md` is the terse layer map kept open while
-> editing. This document is the governing version — invariant-first, with an audited
-> conformance ledger. Where the two disagree, this one is the target.
+> This document is the governing layer-map and invariant. It is the single authority for the layering doctrine, the mint, and the conformance ledger.
 
 ---
 
@@ -20,7 +18,7 @@ Seven rules. All seven apply simultaneously.
    import graph. A module physically cannot name a symbol it does not import, so the
    rule stops a cross-layer edge from being *authored*. It does **not** bound what a
    running process can reach over other channels (HTTP, a shell, a `sys.path` insert) —
-   only what the source may import. *(→ `.claude/architecture.md`; ADR-008)*
+   only what the source may import. *(→ ADR-008)*
 
 2. **`remote` and `agent` are network peers, not Python neighbors.** They share exactly
    one thing: the HTTP wire contract. `remote` is a client; `agent` is a server. Neither
@@ -236,7 +234,7 @@ rules and is in violation on two.
 | Violation | Why it breaks the invariant | Evidence (`path:symbol`) | Resolved by |
 |-----------|----------------------------|--------------------------|-------------|
 | **Models imports Core (upward edge).** `ModelConfig`'s blacklisted-ports default-factory sources its list from `core.settings`. | Breaks rule 1: `models/` is the floor and must be dependency-free relative to llauncher's own layers; importing `core` inverts the arrow. | `llauncher/models/config.py:17` — `from llauncher.core.settings import BLACKLISTED_PORTS` (consumed at `ChangeRules.blacklisted_ports`) | Invert the dependency: pass the blacklist in at construction/validation time, or hoist the constant to `models`/`util` so the edge points down. Tracked: #170. |
-| **`remote` imports `agent` (sideways/upward edge).** `remote/registry.py` imports `resolve_agent_token` from `agent.auth` to source the local node's token. | Breaks rule 2: client importing its server couples the two across the network-peer boundary they are supposed to share only over HTTP. | `llauncher/remote/registry.py:85` — `from llauncher.agent.auth import resolve_agent_token` | Hoist the token **read** path into `core`; keep token **materialization** in `agent.auth`. Known regression, also noted in `.claude/architecture.md`. Tracked: #171. |
+| **`remote` imports `agent` (sideways/upward edge).** `remote/registry.py` imports `resolve_agent_token` from `agent.auth` to source the local node's token. | Breaks rule 2: client importing its server couples the two across the network-peer boundary they are supposed to share only over HTTP. | `llauncher/remote/registry.py:85` — `from llauncher.agent.auth import resolve_agent_token` | Hoist the token **read** path into `core`; keep token **materialization** in `agent.auth`. Known regression, also noted in the violations table above. Tracked: #171. |
 
 > **Reconciliation note (rule 5).** `EMIT-CANONICAL` conforms as of
 > `core/process.py:build_command`. However the project `CLAUDE.md` and the ecosystem

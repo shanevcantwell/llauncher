@@ -5,7 +5,7 @@ short TTL cache (``LLAUNCHER_METRICS_CACHE_S``) absorbing poll cadence,
 and an injectable HTTP fetch seam (test-only, production-inert) mirroring
 ``gpu.py``'s ``nvidia-smi`` mock. Outbound HTTP from ``core`` to the
 target model server's own port is a client call, not an upward import —
-the layer rule holds (see ``.claude/architecture.md``).
+the layer rule holds (see ``docs/ARCHITECTURE.md``).
 
 Two capability tiers, kept **physically separate** — never a shared call
 gated by a flag — per the ADR:
