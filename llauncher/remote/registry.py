@@ -77,6 +77,12 @@ class NodeRegistry:
                         )
                         host = fixed_host
                         migrated = True
+                    if name == "local" and host == "localhost":
+                        logger.info(
+                            "Migrated local node host from 'localhost' to '127.0.0.1'"
+                        )
+                        host = "127.0.0.1"
+                        migrated = True
                     self._nodes[name] = RemoteNode(
                         name=node_data["name"],
                         host=host,
@@ -442,7 +448,7 @@ class NodeRegistry:
                 if not local_node:
                     token = self._resolve_local_token()
                     self.add_node(
-                        "local", "localhost", AGENT_PORT,
+                        "local", "127.0.0.1", AGENT_PORT,
                         api_key=token, overwrite=True,
                     )
                 return True
