@@ -42,9 +42,12 @@ import pytest
 
 from llauncher.core.agent_token import (
     _read_env_file_token,
+    _read_stdin_token,
+    _strip_bom,
     _strip_token_lines,
     count_env_file_token_lines,
     parse_env_file,
+    resolve_agent_token,
 )
 
 # A realistic Windows-authored agent.env: UTF-8 BOM at the head, CRLF line
@@ -259,3 +262,67 @@ class TestConfigStoreCrlfBom:
         # except-branch silently returned an empty store.
         assert set(models) == {"bom-model"}
         assert models["bom-model"].model_path == "/models/bom-model.gguf"
+
+
+class TestStripBomHelper:
+    """``_strip_bom`` (issue #127): the in-memory-string BOM strip."""
+
+    def test_strips_leading_bom(self) -> None:
+        assert _strip_bom("﻿abc123") == "abc123"
+
+    def test_noop_without_bom(self) -> None:
+        assert _strip_bom("abc123") == "abc123"
+
+    def test_bom_only_strips_to_empty(self) -> None:
+        assert _strip_bom("﻿") == ""
+
+    def test_plain_strip_does_not_remove_bom(self) -> None:
+        # Documents the exact defect this helper exists to fix: str.strip()
+        # does not treat U+FEFF as whitespace.
+        assert "﻿abc123".strip() == "﻿abc123"
+
+
+class TestReadStdinTokenBomStrip:
+    """``_read_stdin_token`` strips a BOM before the empty-check (#127)."""
+
+    def test_bom_prefixed_stdin_token_is_stripped(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import io
+
+        monkeypatch.setattr(
+            "sys.stdin", io.StringIO("﻿stdin-token-xyz\n")
+        )
+
+        token = _read_stdin_token()
+
+        assert token == "stdin-token-xyz"
+        assert "﻿" not in token
+
+    def test_bom_only_stdin_line_still_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import io
+
+        monkeypatch.setattr("sys.stdin", io.StringIO("﻿\n"))
+
+        with pytest.raises(RuntimeError):
+            _read_stdin_token()
+
+
+class TestResolveAgentTokenEnvValueBomStrip:
+    """``resolve_agent_token``'s ``env_value`` handling strips a BOM (#127)
+    before the ``== "-"`` comparison, so a BOM-prefixed "-" still routes
+    to the stdin path rather than being treated as a literal token."""
+
+    def test_bom_prefixed_literal_token_is_stripped(self) -> None:
+        token = resolve_agent_token(env_value="﻿real-token-123")
+        assert token == "real-token-123"
+        assert "﻿" not in token
+
+    def test_bom_prefixed_dash_still_triggers_stdin_path(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import io
+
+        monkeypatch.setattr("sys.stdin", io.StringIO("piped-token-456\n"))
+
+        token = resolve_agent_token(env_value="﻿-")
+
+        assert token == "piped-token-456"
