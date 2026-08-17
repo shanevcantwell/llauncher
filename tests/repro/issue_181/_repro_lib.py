@@ -120,6 +120,10 @@ def _wait_until_scannable(pid: int, timeout: float = 2.0) -> None:
         except (psutil.NoSuchProcess, psutil.ZombieProcess, psutil.AccessDenied):
             pass
         time.sleep(0.02)
+    raise TimeoutError(
+        f"pid {pid} did not become scannable (argv containing 'llama-server') "
+        f"within {timeout}s"
+    )
 
 
 class ZombieFake:
@@ -182,6 +186,10 @@ def _wait_until_status(pid: int, *, want_running: bool, timeout: float = 2.0) ->
             if not want_running:
                 return
         time.sleep(0.02)
+    raise TimeoutError(
+        f"pid {pid} did not reach want_running={want_running} status "
+        f"within {timeout}s"
+    )
 
 
 def assert_no_fake_leaks() -> None:
