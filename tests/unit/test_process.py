@@ -14,6 +14,8 @@ from llauncher.core.process import (
     stop_server_by_pid,
     find_server_by_port,
     find_all_llama_servers,
+    find_all_llama_servers_annotated,
+    invalidate_process_scan_cache,
     stream_logs,
     _tail_file,
     is_port_in_use,
@@ -586,6 +588,74 @@ class TestFindServer:
         with patch("psutil.process_iter", return_value=[]):
             results = find_all_llama_servers()
             assert results == []
+
+
+class TestProcessScanCache:
+    """Tests for the issue #392 TTL cache fronting the process-table scans.
+
+    ``_reset_process_scan_cache`` (autouse, tests/conftest.py) purges the
+    cache before and after every test, so each test here starts cold.
+    """
+
+    def test_repeated_calls_within_ttl_hit_cache(self):
+        """Two calls within the TTL window scan psutil.process_iter once."""
+        mock_proc = MagicMock()
+        mock_proc.name.return_value = "llama-server"
+        mock_proc.cmdline.return_value = ["llama-server", "--port", "8080"]
+
+        with patch("psutil.process_iter", return_value=[mock_proc]) as mock_iter:
+            first = find_all_llama_servers()
+            second = find_all_llama_servers()
+
+            assert mock_iter.call_count == 1
+            assert first == second == [mock_proc]
+
+    def test_call_after_ttl_rescans(self):
+        """A call after the TTL has elapsed triggers a fresh scan."""
+        mock_proc = MagicMock()
+        mock_proc.name.return_value = "llama-server"
+        mock_proc.cmdline.return_value = ["llama-server", "--port", "8080"]
+
+        fake_time = [1000.0]
+        with patch("psutil.process_iter", return_value=[mock_proc]) as mock_iter, \
+             patch("time.monotonic", side_effect=lambda: fake_time[0]):
+            find_all_llama_servers()
+            assert mock_iter.call_count == 1
+
+            fake_time[0] += 3.1  # past the 3s TTL
+            find_all_llama_servers()
+            assert mock_iter.call_count == 2
+
+    def test_scan_functions_have_independent_cache_keys(self):
+        """Calling one scan function must not serve the other's cached result."""
+        mock_proc = MagicMock()
+        mock_proc.name.return_value = "llama-server"
+        mock_proc.cmdline.return_value = ["llama-server", "--port", "8080"]
+
+        with patch("psutil.process_iter", return_value=[mock_proc]) as mock_iter:
+            plain = find_all_llama_servers()
+            annotated = find_all_llama_servers_annotated()
+
+            # Distinct shapes: bare Process list vs (proc, port, bool) tuples.
+            assert plain == [mock_proc]
+            assert annotated == [(mock_proc, 8080, False)]
+            # Each populated its own cache slot rather than reusing the
+            # other's — two independent scans, not one shared hit.
+            assert mock_iter.call_count == 2
+
+    def test_invalidate_forces_rescan_within_ttl(self):
+        """invalidate_process_scan_cache() forces a rescan even inside the TTL."""
+        mock_proc = MagicMock()
+        mock_proc.name.return_value = "llama-server"
+        mock_proc.cmdline.return_value = ["llama-server", "--port", "8080"]
+
+        with patch("psutil.process_iter", return_value=[mock_proc]) as mock_iter:
+            find_all_llama_servers()
+            assert mock_iter.call_count == 1
+
+            invalidate_process_scan_cache()
+            find_all_llama_servers()
+            assert mock_iter.call_count == 2
 
 
 class TestStreamLogs:

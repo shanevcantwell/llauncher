@@ -539,6 +539,80 @@ class TestLauncherStateBase:
         assert "No server running" in message
 
 
+class TestProcessScanCacheIntegration:
+    """Issue #392: LauncherState.refresh() must not re-scan psutil on every
+    call within one Streamlit rerun, and a start/stop must still be
+    reflected immediately (not after the TTL) because the mutation sites
+    in state.py explicitly invalidate the cache.
+    """
+
+    def test_refresh_called_repeatedly_scans_process_table_only_twice(
+        self, mock_config_store
+    ):
+        """Simulates 3-4 tab renders calling refresh() in one rerun.
+
+        Construction (__post_init__) triggers the first refresh, which
+        performs exactly 2 scans (find_all_llama_servers +
+        find_all_llama_servers_annotated). Every subsequent .refresh()
+        call within the TTL must be served entirely from cache.
+        """
+        with patch("psutil.process_iter", return_value=[]) as mock_iter:
+            state = LauncherState()  # __post_init__ calls refresh() once
+            state.refresh()
+            state.refresh()
+            state.refresh()
+
+            assert mock_iter.call_count == 2
+
+    def test_start_then_refresh_reflects_change_immediately(
+        self, mock_config_store, tmp_path
+    ):
+        """A just-performed start is visible on the very next refresh(),
+        proving the mutation-site invalidation (not just the TTL expiring)
+        is what makes the new server show up.
+        """
+        model_path = tmp_path / "test_model.gguf"
+        model_path.write_text("mock")
+
+        with patch("psutil.process_iter", return_value=[]):
+            state = LauncherState()
+
+        state.models = {
+            "test_model": ModelConfig.from_dict_unvalidated({
+                "name": "test_model",
+                "model_path": str(model_path),
+                "n_gpu_layers": 255,
+                "ctx_size": 4096,
+            })
+        }
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 4242
+        mock_proc.name.return_value = "llama-server"
+        mock_proc.cmdline.return_value = [
+            "llama-server", "--port", "9321", "-m", str(model_path),
+        ]
+
+        with patch("llauncher.state.process_start_server") as mock_start, \
+             patch("llauncher.state.is_port_in_use", return_value=False):
+            mock_started_process = MagicMock()
+            mock_started_process.pid = 4242
+            mock_start.return_value = mock_started_process
+
+            success, _msg, _proc = state.start_server(
+                model_name="test_model", port=9321, caller="test",
+            )
+        assert success is True
+
+        # Cache was populated (empty) at construction; without invalidation
+        # this refresh would still report nothing running.
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            state.refresh_running_servers()
+
+        assert 9321 in state.running
+        assert state.running[9321].config_name == "test_model"
+
+
 class TestUptimeFormatting:
     """Tests for format_uptime function."""
 
