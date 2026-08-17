@@ -209,16 +209,24 @@ if (Test-Path $TokenFile) {
 if (-not (Test-Path $EnvFile)) {
     if ($migratedMirrorToken) {
         Info "Seeding $EnvFile from the template using the live token found in the stale agent.token mirror..."
-        (Get-Content $EnvExample) `
-            -replace 'replace-me-with-a-random-token', $migratedMirrorToken `
-            | Set-Content -Path $EnvFile -Encoding utf8
+        # IMPORTANT: write WITHOUT a UTF-8 BOM -- Windows PowerShell 5.1's
+        # `Set-Content -Encoding utf8` prepends EF BB BF, which would
+        # corrupt the first key name (issue #127).
+        $seedLines = @((Get-Content $EnvExample) `
+            -replace 'replace-me-with-a-random-token', $migratedMirrorToken)
+        [System.IO.File]::WriteAllLines(
+            $EnvFile, $seedLines, (New-Object System.Text.UTF8Encoding($false)))
         Say "Wrote $EnvFile, carrying forward the token from $TokenFile (not overwritten with a fresh one)."
     } else {
         Info "Seeding $EnvFile from the template (one-time; see agent.env.example header)..."
         $token = & $VenvPython -c "import secrets; print(secrets.token_urlsafe(32))"
-        (Get-Content $EnvExample) `
-            -replace 'replace-me-with-a-random-token', $token.Trim() `
-            | Set-Content -Path $EnvFile -Encoding utf8
+        # IMPORTANT: write WITHOUT a UTF-8 BOM -- Windows PowerShell 5.1's
+        # `Set-Content -Encoding utf8` prepends EF BB BF, which would
+        # corrupt the first key name (issue #127).
+        $seedLines = @((Get-Content $EnvExample) `
+            -replace 'replace-me-with-a-random-token', $token.Trim())
+        [System.IO.File]::WriteAllLines(
+            $EnvFile, $seedLines, (New-Object System.Text.UTF8Encoding($false)))
         Say "Wrote $EnvFile with a generated 32-byte token."
     }
     Info "Edit it to set LLAUNCHER_AGENT_NODE_NAME / HOST / PORT as needed."
@@ -299,7 +307,12 @@ if (Test-Path $TokenFile) {
     if (-not $tokenValueExisting) {
         $mirrorToken = (Get-Content $TokenFile -Raw).Trim()
         if ($mirrorToken) {
-            Add-Content -Path $EnvFile -Value "LLAUNCHER_AGENT_TOKEN=$mirrorToken" -Encoding utf8
+            # IMPORTANT: append WITHOUT a UTF-8 BOM -- Windows PowerShell
+            # 5.1's `Add-Content -Encoding utf8` prepends EF BB BF, which
+            # would corrupt the first key name (issue #127).
+            $appendedLines = @((Get-Content $EnvFile) + "LLAUNCHER_AGENT_TOKEN=$mirrorToken")
+            [System.IO.File]::WriteAllLines(
+                $EnvFile, $appendedLines, (New-Object System.Text.UTF8Encoding($false)))
             Say "Migrated live token from $TokenFile into $EnvFile (agent.env has no token line)."
         }
     }

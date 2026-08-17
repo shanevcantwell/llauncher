@@ -114,16 +114,34 @@ def default_env_path() -> Path:
     return LAUNCHER_STATE_DIR / "agent.env"
 
 
+def _strip_bom(value: str) -> str:
+    """Strip a leading UTF-8 BOM (``\\ufeff``) from ``value``, if present.
+
+    ``str.strip()`` does **not** remove ``\\ufeff`` — it is a zero-width
+    non-breaking space, not whitespace by Python's ``str.isspace()``
+    classification — so a BOM that survives into an in-memory string (stdin,
+    an env var) needs an explicit strip rather than a plain ``.strip()``
+    call (issue #127). File-read call sites already decode with
+    ``utf-8-sig`` (see :func:`parse_env_file`), which consumes a leading BOM
+    at decode time; this helper covers the two sources that do not go
+    through that decode step.
+    """
+    return value.lstrip("﻿")
+
+
 def _read_stdin_token() -> str:
     """Read a single token line from stdin.
 
     Raises ``RuntimeError`` if stdin is closed or yields an empty
     value — the operator explicitly requested the stdin path with
     ``LLAUNCHER_AGENT_TOKEN=-``, so a missing token is a fatal config
-    error, not a fallback trigger.
+    error, not a fallback trigger. The line is BOM-stripped before the
+    empty-check (issue #127) so a BOM-only stdin line still raises
+    ``RuntimeError`` rather than resolving to a token consisting only of
+    an invisible character.
     """
     line = sys.stdin.readline()
-    token = line.strip()
+    token = _strip_bom(line.strip())
     if not token:
         raise RuntimeError(
             "LLAUNCHER_AGENT_TOKEN=- requested but no token was provided on stdin"
@@ -188,7 +206,7 @@ def parse_env_file(path: Path) -> dict[str, str]:
         if "=" not in line:
             continue
         key, _, value = line.partition("=")
-        key = key.strip()
+        key = _strip_bom(key.strip())
         if not key:
             continue
         result[key] = value.strip()
@@ -228,7 +246,7 @@ def count_env_file_token_lines(path: Path) -> int:
     count = 0
     for raw_line in text.splitlines():
         stripped = raw_line.lstrip()
-        key = stripped.partition("=")[0].rstrip()
+        key = _strip_bom(stripped.partition("=")[0].rstrip())
         if key == _TOKEN_KEY:
             count += 1
     return count
@@ -247,7 +265,7 @@ def _strip_token_lines(text: str) -> str:
     kept: list[str] = []
     for raw_line in text.splitlines(keepends=True):
         stripped = raw_line.lstrip()
-        key = stripped.partition("=")[0].rstrip()
+        key = _strip_bom(stripped.partition("=")[0].rstrip())
         if key == _TOKEN_KEY:
             continue
         kept.append(raw_line)
@@ -365,6 +383,13 @@ def resolve_agent_token(
     """
     if env_value is None:
         env_value = os.environ.get("LLAUNCHER_AGENT_TOKEN")
+
+    if env_value is not None:
+        # BOM-strip before the "-" comparison (issue #127) so a
+        # BOM-prefixed "-" (e.g. from a Windows-authored env block) still
+        # triggers the stdin path rather than being treated as a literal
+        # (and useless) token value.
+        env_value = _strip_bom(env_value)
 
     if env_value == "-":
         return _read_stdin_token()
