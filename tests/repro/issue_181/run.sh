@@ -8,7 +8,7 @@
 #
 # SAFETY: this script does NOT invoke broad pytest and NEVER touches real
 # ports 8081/8082, the real llama.cpp binary, the GPU, or the running
-# llauncher agent. It only runs the four repro modules below.
+# llauncher agent. It only runs the three repro modules below.
 set -u
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,7 +27,6 @@ export PYTHONPATH="$HERE:$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 declare -a MODULES=(
   "A1:zombie blindness -> eject no-op:repro_a1_zombie_blindness.py"
-  "A2:scan vs lockfile divergence:repro_a2_scan_vs_lockfile_divergence.py"
   "B:model_path collision misattribution:repro_b_model_path_misattribution.py"
   "C:bogus uptime (start_time=now):repro_c_bogus_uptime.py"
 )

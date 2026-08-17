@@ -84,37 +84,15 @@ SIGKILLs it without reaping (→ zombie, pid still exists), then asserts
 `can_stop(18181, caller="ui") == (False, "No server running on port 18181")`.
 Reaps in teardown.
 
-## Defect A2 — scan vs lockfile divergence
+## Defect A2 — withdrawn (false pin)
 
-`tests/repro/issue_181/repro_a2_scan_vs_lockfile_divergence.py`
-
-**Symptom.** The UI eject path and the MCP/operations stop path use two
-unsynchronized models of "what is running" and can give **opposite** answers
-for the same port.
-
-**Code path.**
-- UI: `state.py::refresh_running_servers` (line 91, argv scan, run once at
-  `LauncherState` construction and cached in `st.session_state` —
-  `ui/app.py:23`) → `state.py::can_stop` (line 243) →
-  `(False, "No server running…")`.
-- Operations: `operations/stop.py::stop` → `_reconcile_for_stop` (line 62) →
-  `lf.read_lockfile(port)` returns the live claim, read fresh every call →
-  must terminate.
-
-**Expected-correct vs actual-buggy.** Correct: both paths derive from one
-authority (the lockfile). Buggy: scan and lockfile disagree; the UI refuses
-while operations would stop.
-
-**How the script demonstrates it.** Builds `LauncherState` (a real scan)
-*before* anything is running, so `self.running` is genuinely empty — not
-hand-assigned. Only afterwards does it spawn a live fake and write its
-lockfile, mirroring a server started by another caller between the UI's
-cached scan and its next rerun. It then asserts `_reconcile_for_stop` hands
-back a live claim (stoppable) while the UI's already-built, deliberately
-un-rescanned state still returns `can_stop() == (False, …)`. The divergence
-is asserted explicitly (`ops_stoppable != ui_ok`). It does **not** call
-`operations.stop.stop` (no need to actually terminate to show the
-disagreement).
+A2 asserted on `state.py::can_stop()`. That function is unreachable from any
+user-facing path: its only source caller is `state.py::stop_server`, which
+is itself reached only from `_start_with_eviction_impl` — a subtree with
+zero source callers. All four live surfaces (UI, CLI, MCP, agent HTTP) route
+stops through `operations/stop.py::stop` after the #57/#332 migration. So A2
+pinned dead code and would report divergence regardless of any fix — a false
+pin, not a real repro. Withdrawn from this set rather than landed.
 
 ## Defect B — `_find_model_by_path` first-match misattribution
 
