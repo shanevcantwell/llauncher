@@ -16,9 +16,37 @@ from llauncher.core.settings import (
     BLACKLISTED_PORTS,
 )
 from llauncher.models.config import ModelConfig
+from llauncher.util.cache import _TTLCache
 
 
 DEFAULT_SERVER_BINARY = LLAMA_SERVER_PATH
+
+# Issue #392: LauncherState.refresh() triggers two full psutil.process_iter
+# scans (find_all_llama_servers + find_all_llama_servers_annotated), and
+# refresh() itself is called redundantly up to 3-4x per Streamlit rerun
+# (once per tab render). A full process-table scan on Windows is expensive
+# enough (measured ~8.4-8.6s for /status vs 8ms for /node-info) that this
+# redundancy alone produced the observed UI stall. A short TTL cache in
+# front of each scan collapses the redundant calls within one rerun while
+# staying invisible across genuine start/stop actions, which explicitly
+# invalidate the cache (see llauncher.state's self.running mutation sites).
+#
+# Each scan function gets its OWN cache key — they return different shapes
+# (bare Process list vs (Process, port, bool) tuples) and must never share
+# a cached result.
+_PROCESS_SCAN_CACHE = _TTLCache(ttl_seconds=3)
+_SCAN_KEY_ALL_SERVERS = "find_all_llama_servers"
+_SCAN_KEY_ALL_SERVERS_ANNOTATED = "find_all_llama_servers_annotated"
+
+
+def invalidate_process_scan_cache() -> None:
+    """Purge the cached process-table scans (issue #392).
+
+    Call this immediately after any mutation that changes what's running
+    (start/stop/rollback) so the next refresh() reflects reality instead of
+    serving a stale scan for up to the cache's TTL.
+    """
+    _PROCESS_SCAN_CACHE.invalidate_all()
 
 # Re-export for backward compatibility — historical code imports
 # ``LOG_DIR`` from this module, and tests use
@@ -464,9 +492,16 @@ def find_server_by_port(port: int) -> psutil.Process | None:
 def find_all_llama_servers() -> list[psutil.Process]:
     """Find all running llama-server processes.
 
+    Cached for ``_PROCESS_SCAN_CACHE``'s TTL (issue #392) under its own key
+    — see :func:`invalidate_process_scan_cache`.
+
     Returns:
         List of all llama-server processes.
     """
+    cached = _PROCESS_SCAN_CACHE.get(_SCAN_KEY_ALL_SERVERS)
+    if cached is not None:
+        return cached
+
     servers = []
 
     for proc in psutil.process_iter(["pid", "cmdline", "name"]):
@@ -481,6 +516,7 @@ def find_all_llama_servers() -> list[psutil.Process]:
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             continue
 
+    _PROCESS_SCAN_CACHE.set(_SCAN_KEY_ALL_SERVERS, servers)
     return servers
 
 
@@ -506,11 +542,19 @@ def find_all_llama_servers_annotated() -> list[tuple[psutil.Process, int | None,
     :meth:`llauncher.state.LauncherState.refresh_running_servers` so the
     two scans agree on what counts as a port.
 
+    Cached for ``_PROCESS_SCAN_CACHE``'s TTL (issue #392) under its own key,
+    independent of :func:`find_all_llama_servers`'s cache entry — see
+    :func:`invalidate_process_scan_cache`.
+
     Returns:
         List of ``(proc, port, cmdline_unreadable)`` tuples. ``port`` is
         ``None`` when no ``--port`` argument was found OR when cmdline
         was unreadable; the third element disambiguates these.
     """
+    cached = _PROCESS_SCAN_CACHE.get(_SCAN_KEY_ALL_SERVERS_ANNOTATED)
+    if cached is not None:
+        return cached
+
     annotated: list[tuple[psutil.Process, int | None, bool]] = []
 
     for proc in psutil.process_iter(["pid", "cmdline", "name"]):
@@ -548,6 +592,7 @@ def find_all_llama_servers_annotated() -> list[tuple[psutil.Process, int | None,
         except (psutil.NoSuchProcess, psutil.ZombieProcess):
             continue
 
+    _PROCESS_SCAN_CACHE.set(_SCAN_KEY_ALL_SERVERS_ANNOTATED, annotated)
     return annotated
 
 

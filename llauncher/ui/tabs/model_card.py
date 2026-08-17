@@ -448,11 +448,12 @@ def _handle_start(
             st.toast(f"Model config not found: {model_name}", icon="❌")
             return
 
-        # Check if port is in use by another of our servers
-        temp_state = LauncherState()
-        temp_state.refresh()
-
-        if target_port in temp_state.running:
+        # Check if port is in use by another of our servers. Use the
+        # already-refreshed session `state` (issue #392) — constructing and
+        # refreshing a throwaway LauncherState here duplicated 2 full
+        # psutil.process_iter scans per Start click for no behavioral gain,
+        # since _render_eviction_dialog below reads state.running anyway.
+        if target_port in state.running:
             # Port is occupied by another llauncher server - show eviction dialog
             _render_eviction_dialog(state, node_name, target_port, model_name, "")
         else:

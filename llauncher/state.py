@@ -11,6 +11,7 @@ from llauncher.core.config import ConfigStore
 from llauncher.core.process import (
     DEFAULT_SERVER_BINARY,
     find_all_llama_servers,
+    invalidate_process_scan_cache,
     is_port_in_use,
     start_server as process_start_server,
     stop_server_by_pid,
@@ -303,6 +304,9 @@ class LauncherState:
                 config_name=model_name,
                 start_time=datetime.now(),
             )
+            # Issue #392: a just-performed start must be reflected on the
+            # very next refresh(), not after the process-scan cache's TTL.
+            invalidate_process_scan_cache()
 
             self.record_action("start", model_name, caller, "success", f"Started on port {port}")
             return True, f"Started {model_name} on port {port}", process
@@ -338,6 +342,8 @@ class LauncherState:
         if success:
             model_name = self.running[port].config_name
             del self.running[port]
+            # Issue #392: reflect the just-performed stop immediately.
+            invalidate_process_scan_cache()
             self.record_action("stop", model_name, caller, "success", f"Stopped port {port}")
             return True, f"Stopped server on port {port}"
         else:
@@ -468,6 +474,7 @@ class LauncherState:
                 config_name=model_name,
                 start_time=datetime.now(),
             )
+            invalidate_process_scan_cache()  # issue #392
             new_started = True
             self.record_action("start", model_name, caller, "success", f"Started on port {port}")
         except Exception as e:
@@ -485,6 +492,7 @@ class LauncherState:
                     config_name=previous_model,
                     start_time=datetime.now(),
                 )
+                invalidate_process_scan_cache()  # issue #392
                 self.record_action("rollback", previous_model, caller, "success",
                                    f"Rolled back old server on port {port}")
                 return EvictionResult(
@@ -497,6 +505,7 @@ class LauncherState:
                 )
             except Exception:
                 self.running.pop(port, None)
+                invalidate_process_scan_cache()  # issue #392
                 return EvictionResult(
                     success=False,
                     port_state="unavailable",
@@ -521,6 +530,7 @@ class LauncherState:
                 # Terminate new process
                 stop_server_by_pid(new_pid)
                 self.running.pop(port, None)
+                invalidate_process_scan_cache()  # issue #392
 
                 # Rollback logic on readiness failure
                 if strict_rollback and previous_model and previous_model in self.models:
@@ -533,6 +543,7 @@ class LauncherState:
                             config_name=previous_model,
                             start_time=datetime.now(),
                         )
+                        invalidate_process_scan_cache()  # issue #392
                         self.record_action("rollback", previous_model, caller, "success",
                                            f"Rolled back old server on port {port} (readiness failure)")
                         return EvictionResult(
@@ -545,6 +556,7 @@ class LauncherState:
                         )
                     except Exception:
                         self.running.pop(port, None)
+                        invalidate_process_scan_cache()  # issue #392
                         return EvictionResult(
                             success=False,
                             port_state="unavailable",
@@ -564,6 +576,7 @@ class LauncherState:
             # wait_for_server_ready itself raised
             stop_server_by_pid(new_pid)
             self.running.pop(port, None)
+            invalidate_process_scan_cache()  # issue #392
 
             if strict_rollback and previous_model and previous_model in self.models:
                 old_config = self.models[previous_model]
@@ -575,6 +588,7 @@ class LauncherState:
                         config_name=previous_model,
                         start_time=datetime.now(),
                     )
+                    invalidate_process_scan_cache()  # issue #392
                     self.record_action("rollback", previous_model, caller, "success",
                                        f"Rolled back old server on port {port} (readiness error)")
                     return EvictionResult(
@@ -587,6 +601,7 @@ class LauncherState:
                     )
                 except Exception:
                     self.running.pop(port, None)
+                    invalidate_process_scan_cache()  # issue #392
                     return EvictionResult(
                         success=False,
                         port_state="unavailable",

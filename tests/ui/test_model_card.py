@@ -23,8 +23,9 @@ confirm gate in the UI. Remote-node cards dispatch through the
 
 Every test here asserts that seam — which orchestration call fired, with what
 arguments — never widget cosmetics. UI-only pre-dispatch authority (the
-argv-scan occupied check and the ``state.can_start`` gate) is pinned **as it
-ships today**; its redesign is banked as #333 and will re-pin these tests.
+occupied-port check, now reading ``state.running`` directly per #392, and
+the ``state.can_start`` gate) is pinned **as it ships today**; its redesign
+is banked as #333 and will re-pin these tests.
 
 Idiom: ``_click_and_run`` — a card control's click only lands on the next
 script run, and most handlers end in ``st.rerun()``, which ``at.run()`` folds
@@ -104,18 +105,18 @@ def card_state(mock_state):
 
 
 @pytest.fixture
-def mock_occupancy():
-    """Patch the fresh ``LauncherState()`` argv-scan in ``_handle_start``.
+def mock_occupancy(card_state):
+    """The occupied-port check's data source (issue #392).
 
-    The occupied-port check (#333, pinned as-shipped) consults a *fresh*
-    scan, not the passed-in state. Yields the scan double; seed
-    ``.running[port]`` to drive the start→eviction reroute.
+    Historically ``_handle_start`` consulted a *fresh* ``LauncherState()``
+    argv-scan rather than the passed-in ``state`` — a redundant
+    ``psutil.process_iter`` scan removed in #392 with zero behavior change:
+    the check now reads ``state.running`` directly, same as
+    ``_render_eviction_dialog`` already did. This fixture is kept (aliased
+    to ``card_state``) so existing tests can still seed
+    ``mock_occupancy.running[port]`` to drive the start->eviction reroute.
     """
-    with patch("llauncher.ui.tabs.model_card.LauncherState") as cls:
-        scan = MagicMock(name="occupancy-scan")
-        scan.running = {}
-        cls.return_value = scan
-        yield scan
+    return card_state
 
 
 @pytest.fixture

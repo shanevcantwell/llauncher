@@ -3,6 +3,7 @@ import logging
 import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
+from llauncher.core.process import invalidate_process_scan_cache
 from llauncher.state import LauncherState
 from llauncher.models.config import ModelConfig
 
@@ -109,6 +110,24 @@ def _restore_root_logger_handlers():
                 handler.close()
         root.handlers = before
         root.setLevel(before_level)
+
+
+@pytest.fixture(autouse=True)
+def _reset_process_scan_cache():
+    """Purge the module-level process-scan TTL cache before every test.
+
+    Issue #392: ``find_all_llama_servers`` / ``find_all_llama_servers_annotated``
+    in ``llauncher.core.process`` are now cached (TTL=3s) to collapse
+    redundant ``psutil.process_iter`` scans within one UI rerun. That cache
+    is module-level state and persists across test invocations within the
+    same process — without this reset, a mocked scan result from one test
+    could leak into the next test's assertions (or a real-scan result
+    could shadow a subsequent mock). Reset both before AND after so a
+    populated cache never survives past this test either.
+    """
+    invalidate_process_scan_cache()
+    yield
+    invalidate_process_scan_cache()
 
 
 @pytest.fixture(autouse=True)
