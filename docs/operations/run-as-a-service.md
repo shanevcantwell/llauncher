@@ -96,6 +96,28 @@ not a substitute for network scoping.
 
 ---
 
+## Building llama-server
+
+`LLAMA_SERVER_PATH` (see `llauncher/core/settings.py`) must point at a
+`llama-server` binary before the agent can start anything. If you build
+llama.cpp from source rather than using a prebuilt release, use the
+recommended build recipe instead of a bare `cmake` invocation — it sets
+`CMAKE_BUILD_TYPE=Release` and `GGML_CUDA_FA_ALL_QUANTS=ON` explicitly and
+verifies both stuck, because both fail *silently* (wrong build type, or
+flash-attention silently falling back to the CPU backend — issue #397):
+
+```bash
+./scripts/build-llama-server.sh --cuda-arch 86      # Linux; 89 Ada, 90 Hopper
+```
+
+```powershell
+.\scripts\windows\build-llama-server.ps1 -CudaArch 86
+```
+
+Both print the `LLAMA_SERVER_PATH=` value to set on success.
+
+---
+
 ## Ubuntu / Linux (systemd user unit)
 
 ### Install
