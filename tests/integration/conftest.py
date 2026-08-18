@@ -26,6 +26,7 @@ are marked ``@pytest.mark.integration_real`` and skip by default.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -45,10 +46,38 @@ STUB_PATH = HERE / "_stubs" / "llama-server-stub"
 
 
 @pytest.fixture(scope="session")
-def stub_binary() -> Path:
+def stub_binary(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Return an invocable path to the stub "server" binary.
+
+    ``core/process.py::start_server`` calls bare ``subprocess.Popen([bin,
+    ...])`` — no shell, no shebang interpretation — which is exactly what
+    real llama-server invocation needs. ``tests/integration/_stubs/
+    llama-server-stub`` is a Python script relying on a ``#!`` shebang,
+    which POSIX's exec honors but Windows' ``CreateProcess`` does not
+    (``[WinError 193] %1 is not a valid Win32 application``).
+
+    The fix lives here, in the test fixture, not in production code: on
+    Windows we generate a tiny ``.cmd`` shim next to a session-scoped temp
+    dir that re-execs the stub through ``sys.executable``. ``build_command``
+    still receives a single binary path either way — real-binary behavior
+    (a real .exe path, no shim) is completely unaffected.
+    """
     assert STUB_PATH.exists(), f"stub missing: {STUB_PATH}"
-    assert os.access(STUB_PATH, os.X_OK), f"stub not executable: {STUB_PATH}"
-    return STUB_PATH
+
+    if os.name != "nt":
+        assert os.access(STUB_PATH, os.X_OK), f"stub not executable: {STUB_PATH}"
+        return STUB_PATH
+
+    # Windows: CreateProcess cannot exec a shebang script directly. Generate
+    # a .cmd shim that re-invokes the same interpreter running pytest right
+    # now against the stub script, forwarding all args untouched.
+    shim_dir = tmp_path_factory.mktemp("stub-shim")
+    shim_path = shim_dir / "llama-server-stub.cmd"
+    shim_path.write_text(
+        f'@echo off\r\n"{sys.executable}" "{STUB_PATH}" %*\r\n',
+        encoding="utf-8",
+    )
+    return shim_path
 
 
 @pytest.fixture
