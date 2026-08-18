@@ -1,5 +1,29 @@
 # Handoff — 2026-07-17: the UI has never loaded a model (llauncher as instrument)
 
+> **CORRECTION (2026-08-18).** This document's framing — that a model "has
+> never once loaded" and that the product's core purpose is therefore
+> unproven — conflated a Windows Streamlit **surface** defect with a **core**
+> defect. That conflation became the intake framing for every session since,
+> and repeatedly pulled investigation into the core, which is not implicated.
+>
+> The discriminating evidence: the same `operations.start()` succeeds over
+> the agent HTTP API and fails only through the Windows Streamlit surface. A
+> static trace of the UI load path found identity sourced from
+> `ModelConfig.name` byte-for-byte, with no re-derivation at any hop; the
+> UI's delegated path and an external API client converge on one route
+> (`POST /start/{port}`) and one function with one untransformed argument.
+> **A defect that reproduces on one platform's surface but not through the
+> API is a surface defect by construction.**
+>
+> API-first stateless core with a thin client is the ecosystem's whitepaper
+> design — not a weakness to route around. Surface defects are fixed in
+> surface space; the core does not move. This is the same discipline
+> llauncher already enforces one level down, where an envelope defect is
+> fixed in envelope space and never by bending the mint.
+>
+> Rescoped and tracked at **#378**. The observations below remain accurate as
+> a record of what was seen; only the core-vs-surface attribution was wrong.
+
 > Read this whole file before touching anything. It corrects a record that
 > otherwise reads as "mostly working." It is not mostly working.
 
