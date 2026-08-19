@@ -310,6 +310,22 @@ if (-not (Test-Path $EnvFile)) {
     }
 }
 
+# --- Remind about LLAMA_SERVER_PATH if unset (issue #380) --------------
+# The code default (llauncher/core/settings.py) is
+# ~/.local/bin/llama-server, which does not exist on Windows -- a fresh
+# Windows operator who never sets LLAMA_SERVER_PATH hits a silent-until-
+# /start "Server binary not found" failure on their very first model load,
+# with nothing in the setup path having told them the var exists. This is
+# a loud reminder only (not a hard gate) -- LLAMA_SERVER_PATH stays a
+# commented, opt-in example in agent.env.example (issue #123) so a fresh
+# install never silently bakes in a host-specific path.
+$llamaPathLine = (Get-Content $EnvFile) | Where-Object { $_ -match '^LLAMA_SERVER_PATH=' } | Select-Object -Last 1
+if (-not $llamaPathLine) {
+    Warn "LLAMA_SERVER_PATH is not set in ${EnvFile} -- the code default (~/.local/bin/llama-server) does not exist on Windows."
+    Info "  Add a line to ${EnvFile}:  LLAMA_SERVER_PATH=C:\path\to\llama-server.exe"
+    Info "  Then re-run this script (or restart the service) to pick it up. See ${EnvExample} for the full example."
+}
+
 # Lock the env file: remove inheritance, grant current user only.
 $me = "$env:USERDOMAIN\$env:USERNAME"
 function Set-OwnerOnlyAcl($path) {
