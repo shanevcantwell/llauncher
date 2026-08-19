@@ -63,6 +63,45 @@ def render_model_card(
         _render_model_details(state, aggregator, node_name, model_name, model, running_server)
 
 
+def _start_error_key(node_name: str, model_name: str) -> str:
+    """Session-state key for the sticky start-failure message (#401).
+
+    Mirrors the ``deleting_{node_name}_{model_name}`` / ``editing_{name}``
+    flag idiom already used by ``_render_delete_confirm``/``forms.py``:
+    the value is deliberate VIEW state — a rendered-until-cleared string —
+    never a cache of lifecycle truth (docs PR #411 / issue #410).
+    """
+    return f"start_error_{node_name}_{model_name}"
+
+
+def _render_start_error(node_name: str, model_name: str) -> None:
+    """Render the sticky start-failure message left by ``_handle_start``.
+
+    ``_handle_start`` writes the message to session state instead of
+    calling ``st.error`` directly, because the handler always ends in
+    ``st.rerun()`` (needed so the rest of the card reflects the attempt) —
+    an ``st.error`` call made just before a rerun is wiped before the
+    operator can read it (#401). Rendering from session state here, on the
+    pass *after* the rerun, is what makes the error actually sticky. It
+    stays visible until an explicit Dismiss or the next start attempt
+    supersedes it — never auto-cleared on render, so a slow reader isn't
+    racing the next script pass.
+    """
+    key = _start_error_key(node_name, model_name)
+    message = st.session_state.get(key)
+    if not message:
+        return
+
+    st.error(message)
+    if st.button(
+        "Dismiss",
+        key=f"{key}_dismiss",
+        width='stretch',
+    ):
+        st.session_state[key] = None
+        st.rerun()
+
+
 def _render_start_button(
     state: LauncherState,
     aggregator: RemoteAggregator | None,
@@ -85,6 +124,8 @@ def _render_start_button(
         model_name: Name of the model.
         status_icon: The status icon to display.
     """
+    _render_start_error(node_name, model_name)
+
     # Only look up local config for local nodes — remote models are served
     # by the target node's own config, so state.models (local) won't have them.
     if node_name == "local":
@@ -448,6 +489,8 @@ def _handle_start(
             st.toast(f"Model config not found: {model_name}", icon="❌")
             return
 
+        error_key = _start_error_key(node_name, model_name)
+
         # Check if port is in use by another of our servers. Use the
         # already-refreshed session `state` (issue #392) — constructing and
         # refreshing a throwaway LauncherState here duplicated 2 full
@@ -479,6 +522,7 @@ def _handle_start(
                         model_name, resolved_port
                     ) or {}
                     if res.get("success"):
+                        st.session_state[error_key] = None
                         st.toast(res.get("message") or f"Starting {model_name}", icon="✅")
                     else:
                         err = (
@@ -486,19 +530,26 @@ def _handle_start(
                             or res.get("error")
                             or "Local agent returned no result"
                         )
-                        st.error(err)
+                        # Errors must be sticky — toasts disappear too quickly
+                        # to read on a near-instant validation failure, and
+                        # st.error() here would be wiped by the st.rerun()
+                        # below before the operator can read it (#401).
+                        # Persist to session_state; _render_start_error
+                        # renders it on the next pass and clears it on
+                        # Dismiss (deliberate VIEW state, not cached
+                        # lifecycle truth — docs PR #411 / issue #410).
+                        st.session_state[error_key] = err
                         st.toast(err, icon="❌")
                 else:
                     result = ops.start(model_name, resolved_port, caller="ui")
                     if result.success:
+                        st.session_state[error_key] = None
                         st.toast(result.message, icon="✅")
                     else:
-                        # Errors must be sticky — toasts disappear too quickly
-                        # to read on a near-instant validation failure.
-                        st.error(result.message)
+                        st.session_state[error_key] = result.message
                         st.toast(result.message, icon="❌")
             else:
-                st.error(f"Cannot start: {msg}")
+                st.session_state[error_key] = f"Cannot start: {msg}"
                 st.toast(f"Cannot start: {msg}", icon="❌")
             st.rerun()
     elif aggregator:

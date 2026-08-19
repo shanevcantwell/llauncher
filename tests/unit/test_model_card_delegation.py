@@ -98,8 +98,19 @@ class TestHandleStartDelegation:
                 self._state(), None, "local", "m", target_port=8080
             )
 
-        # Surfaced as an error toast, not an AttributeError.
-        st.error.assert_called_once()
+        # Surfaced as a failure toast, not an AttributeError. #401: the
+        # message itself is no longer an immediate st.error() call here —
+        # it is persisted to session_state (keyed per node/model) and
+        # rendered sticky by _render_start_error on the next pass, so it
+        # survives _handle_start's own trailing st.rerun() instead of being
+        # wiped by it.
+        st.toast.assert_called_once_with(
+            "Local agent returned no result", icon="❌"
+        )
+        st.session_state.__setitem__.assert_any_call(
+            model_card._start_error_key("local", "m"),
+            "Local agent returned no result",
+        )
 
 
 # ───────────────────────────── _handle_stop ─────────────────────────────────
