@@ -237,11 +237,13 @@ if (-not (Test-Path $EnvFile)) {
     # went unnoticed until byte-inspected. Reuses the same
     # blank/`#`-comment filter already used below to build NSSM's
     # AppEnvironmentExtra from the live file, so the two "what counts as a
-    # real config line" definitions can't drift apart.
-    $templateKeyLines = @(Get-Content $EnvExample) | Where-Object {
-        $t = $_.Trim()
-        $t -and -not $t.StartsWith('#')
-    }
+    # real config line" definitions can't drift apart -- and trims each line
+    # before emission, mirroring that loop's `$trim` byte-for-byte so a future
+    # template key line with leading/trailing whitespace seeds identically to
+    # how NSSM would later read it.
+    $templateKeyLines = @(Get-Content $EnvExample | ForEach-Object { $_.Trim() } | Where-Object {
+        $_ -and -not $_.StartsWith('#')
+    })
     if ($migratedMirrorToken) {
         Info "Seeding $EnvFile from the template's required keys using the live token found in the stale agent.token mirror..."
         # IMPORTANT: write WITHOUT a UTF-8 BOM -- Windows PowerShell 5.1's

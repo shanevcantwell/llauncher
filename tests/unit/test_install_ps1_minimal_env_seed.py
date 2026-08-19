@@ -82,12 +82,21 @@ def test_seed_filters_template_to_key_lines_before_writing():
     exist and be the thing substituted and written, mirroring the
     existing $envPairs blank/#-comment filter used for AppEnvironmentExtra."""
     text = _source()
+    # The filter trims each line before emitting (ForEach-Object { $_.Trim() })
+    # so the seeded lines match NSSM's `$trim`-based $envPairs loop byte for
+    # byte -- a future template key line with leading/trailing whitespace seeds
+    # into agent.env exactly as NSSM would later read it, not with whitespace
+    # preserved. The Where-Object skip predicate stays identical to that loop.
     assert re.search(
-        r"\$templateKeyLines\s*=\s*@\(Get-Content \$EnvExample\)\s*\|\s*Where-Object",
+        r"\$templateKeyLines\s*=\s*@\(\s*Get-Content \$EnvExample"
+        r"\s*\|\s*ForEach-Object\s*\{\s*\$_\.Trim\(\)\s*\}"
+        r"\s*\|\s*Where-Object",
         text,
     ), (
-        "Expected a $templateKeyLines = @(Get-Content $EnvExample) | "
-        "Where-Object {...} filter step building the minimal seed content."
+        "Expected a $templateKeyLines = @(Get-Content $EnvExample | "
+        "ForEach-Object { $_.Trim() } | Where-Object {...}) filter step "
+        "building the minimal seed content, trimming each line to mirror the "
+        "NSSM $envPairs loop's emitted value."
     )
     # Both seed call sites (mirror-token path and fresh-token path) must
     # build $seedLines from the filtered variable, not the raw template.
