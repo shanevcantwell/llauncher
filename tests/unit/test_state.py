@@ -100,6 +100,49 @@ class TestStartWithEviction:
         start_entries = [e for e in mock_state.audit if e.action == "start"]
         assert len(start_entries) == 1
 
+    def test_eviction_readiness_poll_passes_live_process_handle(self, mock_state):
+        """Regression (#368): evict_and_swap must hand the live ``Popen`` to
+        ``wait_for_server_ready`` as ``process=`` so a child that dies on
+        launch fast-fails instead of burning the full readiness ceiling.
+
+        This asserts the *wiring* through the call site — the ``state.py``
+        gap that the process-level unit tests could not see (a diff that
+        re-dropped ``process=`` there would pass every other test green).
+        """
+        mock_state.models = {
+            "new_model": self.make_model("new_model", 8080),
+        }
+        mock_state.running = {
+            8080: RunningServer(
+                pid=1234,
+                port=8080,
+                config_name="old_model",
+                start_time=datetime.now(),
+            )
+        }
+
+        with patch("llauncher.state.process_start_server") as mock_start, \
+             patch("llauncher.state.process_stop_server", return_value=True), \
+             patch("llauncher.state.wait_for_server_ready",
+                   return_value=(True, [])) as mock_ready, \
+             patch.object(mock_state, "refresh_running_servers"):
+
+            mock_process = MagicMock()
+            mock_process.pid = 5678
+            mock_start.return_value = mock_process
+
+            success, message = mock_state.start_with_eviction(
+                model_name="new_model",
+                port=8080,
+                caller="test",
+            )
+
+        assert success is True, f"Expected success, got: {message}"
+        # The readiness poll must receive the exact live handle returned by
+        # process_start_server — not None. Without it the poll cannot fast-fail
+        # on a dead child and re-plateaus to the full timeout (#368).
+        assert mock_ready.call_args.kwargs.get("process") is mock_process
+
     def test_start_with_eviction_model_not_found(self, mock_state):
         """Test eviction when model does not exist."""
         mock_state.models = {
