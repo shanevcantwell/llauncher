@@ -1,0 +1,75 @@
+; llauncher-ensure-embedder — systemd *user* oneshot template.
+;
+; NOT wired into install.sh — the operator enables this deliberately. It is
+; the interim mechanism for keeping the resident embedder converged across
+; agent restarts (see issue #422: systemd's default KillMode kills child
+; llama-server processes on every `systemctl restart llauncher-agent`, and
+; ADR-015 has no adopt verb yet, so a restarted agent cannot re-adopt a
+; survivor even when one exists). The durable fix is ProdM's resident-models
+; design fork; this unit is the bridge until that lands.
+;
+; This unit runs scripts/systemd/ensure-server.sh with ITS OWN DEFAULTS
+; (embeddinggemma-300M-F32-pooled on port 8082) — no arguments are passed
+; in ExecStart below. To converge a different model/port, append NAME PORT
+; to ExecStart after copying, or run the script directly with explicit
+; arguments outside systemd.
+;
+; The script is idempotent (safe to re-run; a no-op prints one line and
+; exits 0), so this oneshot is equally safe wired to a login session, a
+; systemd --user timer, or just left as a one-time boot convergence.
+;
+; ---------------------------------------------------------------------------
+; Manual install (deliberate — no installer wires this; there is no @…@
+; substitution step, so replace /ABSOLUTE/PATH/TO/llauncher below with your
+; actual checkout path before copying):
+;
+;   sed "s|/ABSOLUTE/PATH/TO/llauncher|$(pwd)|" \
+;       scripts/systemd/llauncher-ensure-embedder.service.user.in \
+;       > ~/.config/systemd/user/llauncher-ensure-embedder.service
+;   systemctl --user daemon-reload
+;   systemctl --user enable --now llauncher-ensure-embedder.service
+;
+; (Run the sed line from the repo root so $(pwd) resolves to your checkout.)
+;
+; Verify:
+;   systemctl --user status llauncher-ensure-embedder.service
+;   journalctl --user -u llauncher-ensure-embedder.service -f
+;
+; Uninstall:
+;   systemctl --user disable --now llauncher-ensure-embedder.service
+;   rm ~/.config/systemd/user/llauncher-ensure-embedder.service
+;   systemctl --user daemon-reload
+; ---------------------------------------------------------------------------
+;
+; After=/Wants=network-online.target: the script talks to the local agent
+; over HTTP, so wait for the network stack even though the target is
+; loopback (matches the UI and agent user-unit templates' posture).
+;
+; After=llauncher-agent.service (best-effort, SAME scope only): if the
+; agent is also running as a `systemd --user` unit, this orders after it.
+; If the agent instead runs as a --system unit on this host (as it does on
+; this box today, per LAUNCHER_STATE_DIR=/var/lib/llauncher), cross-scope
+; Requires=/After= is not available to a --user unit (established posture:
+; see llauncher-ui.service.user.in and llauncher-agent.service.in) — this
+; line is then a harmless no-op (systemd ignores an After= on a unit name
+; that doesn't exist in this scope), and the script's own bounded readiness
+; poll + wire-verify (never `server status`, which can mislabel a model
+; sharing a gguf with another config) is the real convergence guarantee
+; regardless of ordering.
+;
+; No token/secret lives in this file: ensure-server.sh resolves
+; LLAUNCHER_AGENT_TOKEN at RUNTIME from an existing export or from
+; /var/lib/llauncher/agent.env (group-readable) — never embedded here.
+
+[Unit]
+Description=llauncher: ensure the resident embedder is converged onto its port
+Documentation=https://github.com/shanevcantwell/llauncher
+After=network-online.target llauncher-agent.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/ABSOLUTE/PATH/TO/llauncher/scripts/systemd/ensure-server.sh
+
+[Install]
+WantedBy=default.target
