@@ -33,7 +33,12 @@ check_python_floor() {
     }
 
     local found_major="${found%%.*}"
+    # Take the second dotted field only. The producer emits a fixed 2-part
+    # "%d.%d", but strip-shortest-prefix (${found#*.}) would carry a trailing
+    # ".patch" into found_minor if that ever drifts to 3 parts, feeding a
+    # non-integer to the `-lt` arithmetic test and hard-failing under set -e.
     local found_minor="${found#*.}"
+    found_minor="${found_minor%%.*}"
 
     if [ "$found_major" -lt "$required_major" ] || { [ "$found_major" -eq "$required_major" ] && [ "$found_minor" -lt "$required_minor" ]; }; then
         _python_floor_err "$python_bin is $found, but llauncher requires >=${required_major}.${required_minor} (pyproject.toml requires-python)."
