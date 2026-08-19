@@ -360,6 +360,16 @@ def start_server(
         # descriptor pointing at the same kernel inode — closing the
         # parent's wrapper does not affect the child's writes. This
         # holds on Linux and macOS regardless of ``start_new_session``.
+        #
+        # Issue #402: invalidation lives HERE, intrinsic to the spawn
+        # primitive, rather than pushed out to every caller. #392 gave
+        # state.py its own invalidate_process_scan_cache() calls, but
+        # operations/start.py and operations/swap.py — the actual live
+        # orchestration paths — never called it, so a scan taken right
+        # after a start could still serve a pre-spawn cached result.
+        # Invalidating on the primitive closes the class: no future
+        # caller of start_server() can forget.
+        invalidate_process_scan_cache()
         return process
     except OSError as e:
         raise OSError(f"Failed to create log file {log_file}: {e}")
@@ -451,6 +461,11 @@ def stop_server_by_pid(
         except psutil.TimeoutExpired:
             process.kill()
 
+        # Issue #402: invalidate here, intrinsic to the terminate
+        # primitive — see the matching note on start_server(). This is
+        # the sole exit that actually terminated a live process, so it's
+        # the sole exit that needs to purge the scan cache.
+        invalidate_process_scan_cache()
         return True
 
     except psutil.NoSuchProcess:

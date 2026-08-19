@@ -657,6 +657,78 @@ class TestProcessScanCache:
             find_all_llama_servers()
             assert mock_iter.call_count == 2
 
+    def test_start_server_invalidates_cache(self, minimal_config):
+        """Issue #402: start_server() purges the scan cache intrinsically.
+
+        Before the fix, only state.py's legacy path called
+        invalidate_process_scan_cache() after a start; operations/start.py
+        and operations/swap.py (the only live orchestration paths) never
+        did, so a status read taken right after a start could still serve
+        a pre-spawn cached scan for up to the 3s TTL. Invalidation now
+        lives on the primitive itself, so any caller — including a future
+        one — gets it for free.
+        """
+        mock_process = MagicMock()
+        mock_bin = MagicMock()
+        mock_bin.exists.return_value = True
+
+        with patch("llauncher.core.process.DEFAULT_SERVER_BINARY", mock_bin), \
+             patch("subprocess.Popen", return_value=mock_process), \
+             patch("llauncher.core.process.LOG_DIR") as mock_log_dir, \
+             patch(
+                 "llauncher.core.process.log_rotation.rotate_if_needed",
+                 return_value=False,
+             ), \
+             patch("psutil.process_iter", return_value=[]) as mock_iter:
+            mock_log_dir.mkdir = MagicMock()
+
+            # Warm the cache before the start.
+            find_all_llama_servers()
+            assert mock_iter.call_count == 1
+
+            start_server(minimal_config, port=8080)
+
+            # A scan immediately after start() must not be served from
+            # the pre-spawn cached result.
+            find_all_llama_servers()
+            assert mock_iter.call_count == 2
+
+    def test_stop_server_by_pid_invalidates_cache_on_success(self):
+        """Issue #402: stop_server_by_pid() purges the cache when it
+        actually terminates a process — the same intrinsic-invalidation
+        contract as start_server(), covering the reliably-observable stop
+        path called out in the issue (``/stop`` returns before the scan
+        cache would otherwise naturally expire).
+        """
+        mock_proc = MagicMock()
+        mock_proc.children.return_value = []
+
+        with patch("psutil.Process", return_value=mock_proc), \
+             patch("psutil.process_iter", return_value=[]) as mock_iter:
+            find_all_llama_servers()
+            assert mock_iter.call_count == 1
+
+            result = stop_server_by_pid(12345)
+            assert result is True
+
+            find_all_llama_servers()
+            assert mock_iter.call_count == 2
+
+    def test_stop_server_by_pid_leaves_cache_alone_when_nothing_stopped(self):
+        """A no-op stop (process already gone) has nothing to invalidate."""
+        with patch(
+            "psutil.Process", side_effect=psutil.NoSuchProcess(12345, None)
+        ), patch("psutil.process_iter", return_value=[]) as mock_iter:
+            find_all_llama_servers()
+            assert mock_iter.call_count == 1
+
+            result = stop_server_by_pid(12345)
+            assert result is False
+
+            # Still within the TTL and nothing changed — cache hit.
+            find_all_llama_servers()
+            assert mock_iter.call_count == 1
+
 
 class TestStreamLogs:
     """Tests for stream_logs function."""
