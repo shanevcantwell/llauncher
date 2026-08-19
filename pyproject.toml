@@ -50,6 +50,13 @@ build-backend = "hatchling.build"
 [tool.coverage.run]
 source = ["llauncher"]
 branch = false
+# Record file paths relative to this file's directory rather than absolute.
+# This is what makes the ``[tool.coverage.paths]`` alias below actually
+# match: coverage's path-alias machinery matches relative-path fragments,
+# so a worktree-recorded ``.claude/worktrees/<name>/llauncher/...`` path
+# can be collapsed onto the canonical ``llauncher/...`` root at
+# combine/report time instead of staying a separate, absolute identity (#361).
+relative_files = true
 omit = [
     # Console-script entry shim for ``llauncher-ui`` that subprocess-execs
     # ``python -m streamlit run`` (no cross-layer import, by design). Same
@@ -77,3 +84,28 @@ exclude_lines = [
 ]
 show_missing = true
 skip_covered = false
+
+# ---------------------------------------------------------------------------
+# Worktree path mapping (#361)
+# ---------------------------------------------------------------------------
+#
+# The shared venv's editable install (`_editable_impl_llauncher.pth`) always
+# resolves `llauncher` to the main checkout, regardless of which worktree
+# pytest is invoked from. When a worktree run's import resolution loses that
+# race, coverage measures against the main checkout's path and the worktree
+# run's own `source` root above never matches it — the run reads as ~0%
+# covered instead of erroring, which is a plausible-looking but false number,
+# not the environment defect it actually is (observed twice: PR #359 review,
+# PR #222 conflict-resolution report). This alias reconciles the *report*
+# (combine/report canonicalize any of these patterns onto `llauncher/`); it
+# does not touch the venv or the editable install. The sanctioned invocation
+# — `PYTHONPATH=<worktree> pytest` from inside the worktree (README.md
+# Testing section) — is what fixes import resolution itself; never repoint
+# the shared `.pth` to work around this, since that venv also backs the live
+# `llauncher-agent` systemd service.
+[tool.coverage.paths]
+source = [
+    "llauncher",
+    ".claude/worktrees/*/llauncher",
+    "/tmp/wt-*/llauncher",
+]
