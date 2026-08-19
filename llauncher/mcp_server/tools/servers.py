@@ -76,11 +76,16 @@ def get_tools() -> list[Tool]:
             description=(
                 "Stop whatever is running on this port. Idempotent: "
                 "returns success with action='already_empty' if nothing "
-                "was there. On a live process, typically returns "
-                "action='stopping' — the termination is accepted and "
-                "runs asynchronously (issue #140); the process may "
-                "still be shutting down when this call returns. Poll "
-                "server_status to confirm the port is actually empty."
+                "was there. On a live process there are two terminal "
+                "actions depending on the path: when the verb is "
+                "delegated to the local agent (the async production "
+                "path, issue #140/#200) it returns action='stopping' — "
+                "the termination is accepted and runs asynchronously, so "
+                "the process may still be shutting down when this call "
+                "returns; when handled in-process (non-delegated) it "
+                "runs synchronously and returns action='stopped' once "
+                "the process is gone. Either way, poll server_status to "
+                "confirm the port is actually empty."
             ),
             inputSchema={
                 "type": "object",

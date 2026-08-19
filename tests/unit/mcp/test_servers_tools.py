@@ -374,16 +374,18 @@ class TestGetTools:
         required = set(tool.inputSchema["required"])
         assert required == {"port"}
 
-    def test_stop_server_description_matches_async_contract(self):
-        """Issue #369: the delegated path (the production path) returns
-        action='stopping' on a live process — an accepted, asynchronous
-        termination (issue #140) — not a synchronous action='stopped'.
-        The description must document the real contract, not a
-        misleading synchronous-completion promise.
+    def test_stop_server_description_documents_both_terminal_actions(self):
+        """Issue #369: stop_server has two real live-process paths, and
+        the description must document both terminal actions — not assert
+        one is the whole contract. The delegated (async production) path
+        returns action='stopping' (accepted, asynchronous termination,
+        issue #140/#200); the in-process (non-delegated) path returns
+        action='stopped' synchronously (operations/stop.py). Both are
+        genuine outcomes; documenting only one is a misleading contract.
         """
         tool = next(t for t in get_tools() if t.name == "stop_server")
         assert "action='stopping'" in tool.description
-        assert "action='stopped'" not in tool.description
+        assert "action='stopped'" in tool.description
 
 
 # ─────────────────────── delegation gate (#200) ───────────────────────
