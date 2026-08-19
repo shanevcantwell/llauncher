@@ -76,14 +76,19 @@ tab hitting a node URL directly) that previously escaped to an alpha tag. A beha
 complement (`tests/ui/` AppTest harness, `forbid_direct_http`) asserts the same at
 runtime for the tabs it drives.
 
-**The UI is a thin client app; it holds no authoritative state.** Every render fetches
-ground truth via `state`/`operations`/`remote`; every action is a request to the backend;
-`st.session_state` carries **view state only** — widget continuity, an in-flight
-confirmation — never port occupancy, model identity, or server lifecycle truth. When the
-UI and the backend disagree, the UI is wrong: the repair is a re-fetch, never a wider
-`session_state`. Enforcement, honestly: the reach half is the AST guard above; this state
-half is prose today, with a lintable `session_state` key convention as the named
-follow-up if prose fails to hold (#410).
+**The UI is a thin client app.** It holds no authoritative state. Everything it shows is a
+render of ground truth fetched this pass, via `state`/`operations`/`remote`; everything it
+does is a request to the backend.
+
+`st.session_state` is for **view state only** — widget continuity, an in-flight
+confirmation the user hasn't answered yet. It never carries port occupancy, model
+identity, or server lifecycle truth. When the UI and the backend disagree, the UI is
+wrong, and the repair is a re-fetch — never a wider `session_state`.
+
+Enforcement is honestly split: the *reach* half (which modules the UI may touch) is
+mechanical — the AST guard above. The *state* half (what `session_state` may carry) is
+prose today; if prose fails to hold, the named follow-up is a lintable `session_state`
+key convention (#410).
 
 ---
 
