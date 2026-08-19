@@ -70,6 +70,8 @@ wait_for_http_ready() {
 # NAME (nameref) rather than by value so callers don't have to re-quote a
 # multi-element array through a string.
 dump_journal_tail() {
+    # `local -n` (nameref) requires bash >= 4.3; host floor is 5.2 (this
+    # comment is the enforcement surface for now).
     local -n _journalctl_scope="$1"
     local unit_name="$2"
     local lines="${3:-20}"

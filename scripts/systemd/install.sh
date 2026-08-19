@@ -392,8 +392,11 @@ if [ "$START_AFTER_INSTALL" -eq 1 ]; then
     # 0.0.0.0 (or empty) bind host means "listens on all interfaces" — poll
     # loopback in that case, since 0.0.0.0 is not itself a connectable
     # address. Defaults mirror llauncher/agent/config.py::AgentConfig.
-    HEALTH_HOST="$(grep -E '^LLAUNCHER_AGENT_HOST=' "$ENV_FILE" | tail -n1 | cut -d= -f2- | tr -d '[:space:]' || true)"
-    HEALTH_PORT="$(grep -E '^LLAUNCHER_AGENT_PORT=' "$ENV_FILE" | tail -n1 | cut -d= -f2- | tr -d '[:space:]' || true)"
+    # Strip surrounding single/double quotes (trailing sed) so a hand-edited
+    # quoted value (e.g. LLAUNCHER_AGENT_HOST='"0.0.0.0"') still hits the
+    # loopback fallback below rather than being polled verbatim.
+    HEALTH_HOST="$(grep -E '^LLAUNCHER_AGENT_HOST=' "$ENV_FILE" | tail -n1 | cut -d= -f2- | tr -d '[:space:]' | sed 's/^["'"'"']//;s/["'"'"']$//' || true)"
+    HEALTH_PORT="$(grep -E '^LLAUNCHER_AGENT_PORT=' "$ENV_FILE" | tail -n1 | cut -d= -f2- | tr -d '[:space:]' | sed 's/^["'"'"']//;s/["'"'"']$//' || true)"
     if [ -z "$HEALTH_HOST" ] || [ "$HEALTH_HOST" = "0.0.0.0" ]; then
         HEALTH_HOST="127.0.0.1"
     fi
