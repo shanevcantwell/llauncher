@@ -16,10 +16,10 @@
 
 | Category | Files | Tests |
 |----------|-------|-------|
-| Unit | 89 | 1381 |
+| Unit | 90 | 1405 |
 | Integration | 14 | 94 |
-| Other | 18 | 181 |
-| **Total** | **121** | **1656** |
+| Other | 18 | 188 |
+| **Total** | **122** | **1687** |
 
 ## Tests carrying special markers
 
@@ -937,7 +937,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_empty_token_rejected`**
   - *An empty LLAUNCHER_AGENT_TOKEN should be normalised to None.*
 
-#### `tests/unit/test_crlf_bom_token_parsing.py` (10 tests)
+#### `tests/unit/test_crlf_bom_token_parsing.py` (18 tests)
 
 - **`test_values_have_no_carriage_return_or_bom`**
 - **`test_comment_line_is_skipped_despite_crlf`**
@@ -950,6 +950,14 @@ ad-hoc markers used in the suite without declaration.
 - **`test_nodes_file_with_bom_loads_cleanly`**
 - **`test_node_tokens_file_with_bom_loads_cleanly`**
 - **`test_bom_prefixed_config_loads_models`**
+- **`test_strips_leading_bom`**
+- **`test_noop_without_bom`**
+- **`test_bom_only_strips_to_empty`**
+- **`test_plain_strip_does_not_remove_bom`**
+- **`test_bom_prefixed_stdin_token_is_stripped`**
+- **`test_bom_only_stdin_line_still_raises`**
+- **`test_bom_prefixed_literal_token_is_stripped`**
+- **`test_bom_prefixed_dash_still_triggers_stdin_path`**
 
 #### `tests/unit/test_dashboard.py` (15 tests)
 
@@ -1147,6 +1155,13 @@ ad-hoc markers used in the suite without declaration.
   - *Issue #298: two legacy same-key lines with NO pre-existing canonical*
 - **`test_legacy_only_migrates_without_dropping`**
 - **`test_no_legacy_keys_is_noop`**
+
+#### `tests/unit/test_install_ps1_no_bom_env_writes.py` (2 tests)
+
+- **`test_no_encoding_utf8_write_targets_env_file`**
+  - *No live (non-comment) line may write $EnvFile via*
+- **`test_env_file_seed_and_migration_writes_use_writealllines`**
+  - *The three known $EnvFile write sites (two template seeds, one*
 
 #### `tests/unit/test_install_ps1_nssm_fallback.py` (10 tests)
 
@@ -1538,12 +1553,20 @@ ad-hoc markers used in the suite without declaration.
 - **`test_api_key_help_names_both_platform_commands`**
   - *First-contact help tells you what the field wants, per platform.*
 
-#### `tests/unit/test_operations.py` (64 tests)
+#### `tests/unit/test_operations.py` (68 tests)
 
 - **`test_start_on_empty_port`**
 - **`test_start_idempotent_when_same_model_running`**
 - **`test_start_rejected_when_different_model_running`**
 - **`test_start_reconciles_stale_lockfile`**
+- **`test_start_waits_for_readiness_before_reporting_success`**
+  - *Issue #400: ``start`` must poll readiness (not just Popen success)*
+- **`test_start_reports_failure_when_process_dies_before_ready`**
+  - *Issue #400: a process that spawns and dies immediately (bad argv,*
+- **`test_start_readiness_failure_caps_startup_logs`**
+  - *Startup logs on the failure path are capped, mirroring swap's*
+- **`test_start_readiness_failure_terminate_accessdenied_does_not_mask_error`**
+  - *``psutil.AccessDenied`` from the cleanup terminate is logged, not*
 - **`test_start_errors_when_model_not_in_config`**
 - **`test_start_errors_when_process_launch_fails`**
 - **`test_start_errors_when_marker_write_fails`**
@@ -1773,7 +1796,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_default_vram_check_mixed_none_and_real_value_uses_real_value`**
   - *#241: the genuine-capacity path is unchanged when at least one device*
 
-#### `tests/unit/test_process.py` (74 tests)
+#### `tests/unit/test_process.py` (81 tests)
 
 - **`test_preferred_port_available`**
   - *Preferred port available - returns immediately.*
@@ -1853,6 +1876,20 @@ ad-hoc markers used in the suite without declaration.
   - *Find all llama-server processes.*
 - **`test_find_all_servers_empty`**
   - *Find all llama-server processes when none running.*
+- **`test_repeated_calls_within_ttl_hit_cache`**
+  - *Two calls within the TTL window scan psutil.process_iter once.*
+- **`test_call_after_ttl_rescans`**
+  - *A call after the TTL has elapsed triggers a fresh scan.*
+- **`test_scan_functions_have_independent_cache_keys`**
+  - *Calling one scan function must not serve the other's cached result.*
+- **`test_invalidate_forces_rescan_within_ttl`**
+  - *invalidate_process_scan_cache() forces a rescan even inside the TTL.*
+- **`test_start_server_invalidates_cache`**
+  - *Issue #402: start_server() purges the scan cache intrinsically.*
+- **`test_stop_server_by_pid_invalidates_cache_on_success`**
+  - *Issue #402: stop_server_by_pid() purges the cache when it*
+- **`test_stop_server_by_pid_leaves_cache_alone_when_nothing_stopped`**
+  - *A no-op stop (process already gone) has nothing to invalidate.*
 - **`test_stream_logs_by_pid`**
   - *Stream logs when pid provided and port extracted.*
 - **`test_stream_logs_by_model_name`**
@@ -1977,12 +2014,14 @@ ad-hoc markers used in the suite without declaration.
 - **`test_empty_run_dir_is_noop`**
   - *No lockfiles → empty result, no audit entries.*
 
-#### `tests/unit/test_registry_extended.py` (27 tests)
+#### `tests/unit/test_registry_extended.py` (28 tests)
 
 - **`test_is_local_agent_ready_with_existing_online_node`**
   - *Test when local node exists and is online.*
 - **`test_is_local_agent_ready_socket_success`**
   - *Test when socket connection succeeds but node doesn't exist in registry.*
+- **`test_load_migrates_localhost_local_node`**
+  - *The persisted local target is normalized to IPv4 exactly once.*
 - **`test_is_local_agent_ready_socket_failure`**
   - *Test when socket connection fails.*
 - **`test_is_local_agent_ready_os_error`**
@@ -2392,7 +2431,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_nonexistent_path_passes_through_unchanged`**
   - *A nonexistent path resolves to itself (failure deferred to use).*
 
-#### `tests/unit/test_state.py` (26 tests)
+#### `tests/unit/test_state.py` (28 tests)
 
 - **`test_start_with_eviction_successful`**
   - *Test successful eviction and start (compat wrapper).*
@@ -2430,6 +2469,10 @@ ad-hoc markers used in the suite without declaration.
   - *Test successful server stop.*
 - **`test_stop_server_not_running`**
   - *Test stopping a server that is not running.*
+- **`test_refresh_called_repeatedly_scans_process_table_only_twice`**
+  - *Simulates 3-4 tab renders calling refresh() in one rerun.*
+- **`test_start_then_refresh_reflects_change_immediately`**
+  - *A just-performed start is visible on the very next refresh(),*
 - **`test_format_uptime_hours_minutes_seconds`**
   - *Format uptime with hours, minutes, and seconds.*
 - **`test_format_uptime_hours_minutes`**
@@ -3039,7 +3082,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_mlock_and_temperature_pass_through_to_config`**
 - **`test_extra_args_and_reverse_prompt_pass_through_to_config`**
 
-#### `tests/ui/test_model_card.py` (37 tests)
+#### `tests/ui/test_model_card.py` (45 tests)
 
 - **`test_start_with_no_agent_dispatches_in_process_ops_start`**
 - **`test_start_with_agent_present_delegates_over_http`**
@@ -3049,6 +3092,12 @@ ad-hoc markers used in the suite without declaration.
 - **`test_start_when_config_vanished_between_render_and_click_dispatches_nothing`**
 - **`test_delegated_start_null_agent_body_is_handled_not_raised`**
 - **`test_rejected_in_process_start_stays_a_single_dispatch`**
+- **`test_rejected_in_process_start_leaves_a_sticky_error_after_rerun`**
+- **`test_can_start_gate_rejection_leaves_a_sticky_error_after_rerun`**
+- **`test_delegated_start_failure_leaves_a_sticky_error_after_rerun`**
+- **`test_dismiss_clears_the_sticky_error`**
+- **`test_a_successful_start_clears_a_previously_sticky_error`**
+- **`test_no_prior_failure_renders_no_error_and_no_dismiss_button`**
 - **`test_stop_with_no_agent_dispatches_ops_stop_not_legacy_state_path`**
 - **`test_stop_with_agent_present_delegates_over_http`**
 - **`test_delegated_stop_null_agent_body_is_handled_not_raised`**
@@ -3058,6 +3107,10 @@ ad-hoc markers used in the suite without declaration.
 - **`test_stop_on_remote_node_routes_through_aggregator`**
 - **`test_stop_on_remote_node_without_aggregator_dispatches_nothing`**
 - **`test_start_into_occupied_port_offers_eviction_instead_of_dispatching`**
+- **`test_eviction_dialog_survives_an_unrelated_rerun_then_confirms_once`**
+  - *Regression for #412: the dialog used to be render-transient — it*
+- **`test_eviction_dialog_clears_when_its_port_frees_while_pending`**
+  - *Regression for the #412 review: a pending eviction whose port frees*
 - **`test_eviction_confirm_with_no_agent_dispatches_ops_swap`**
 - **`test_eviction_confirm_with_agent_present_delegates_swap_over_http`**
 - **`test_eviction_cancel_dispatches_nothing`**
@@ -3097,7 +3150,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_size_column_scales_with_byte_count`**
 - **`test_local_target_calls_state_refresh_before_reading_models`**
 
-#### `tests/ui/test_models_tab.py` (14 tests)
+#### `tests/ui/test_models_tab.py` (13 tests)
 
 - **`test_registry_table_is_delegated_scoped_to_the_selected_target`**
 - **`test_registry_table_still_renders_while_an_edit_is_in_progress`**
@@ -3110,7 +3163,6 @@ ad-hoc markers used in the suite without declaration.
 - **`test_empty_remote_target_gets_no_onboarding_banner`**
 - **`test_each_local_model_gets_one_card_in_case_insensitive_name_order`**
 - **`test_running_local_server_reaches_its_own_card_and_no_other`**
-- **`test_same_model_running_on_two_ports_gets_two_controllable_cards`**
 - **`test_remote_target_cards_come_from_the_aggregator_not_local_state`**
 - **`test_remote_running_servers_are_filtered_to_the_target_node`**
 
