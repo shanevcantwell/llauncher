@@ -273,6 +273,131 @@ class TestStartDispatch:
 
 
 # ---------------------------------------------------------------------------
+# start failure — the error must survive _handle_start's trailing st.rerun()
+# (#401): a failure message written to session_state on one run must still
+# be readable (via at.error) on the *next* run, not just the run it failed on.
+# ---------------------------------------------------------------------------
+class TestStickyStartError:
+    """A start failure's message survives the handler's own ``st.rerun()``."""
+
+    def test_rejected_in_process_start_leaves_a_sticky_error_after_rerun(
+        self, tab_harness, card_state, mock_aggregator, model_dict,
+        mock_ops, mock_should_delegate, mock_local_agent_node,
+        mock_occupancy, port_is_free,
+    ):
+        from tests.ui.conftest import make_op_result
+
+        mock_ops.start.return_value = make_op_result(
+            success=False, action="rejected_occupied", message="port occupied"
+        )
+
+        at = _card(tab_harness, card_state, mock_aggregator, "local", model_dict)
+        _set_port(at)
+        _click_and_run(at, f"toggle_start_local_{MODEL}")
+
+        # The handler's st.rerun() already folded into _click_and_run's
+        # at.run(); a bare st.error() call would have been wiped by that
+        # rerun. Assert the message is still present on the AppTest's
+        # element tree *after* the rerun completed.
+        assert not at.exception
+        assert any("port occupied" in e.value for e in at.error)
+        assert at.session_state[f"start_error_local_{MODEL}"] == "port occupied"
+
+    def test_can_start_gate_rejection_leaves_a_sticky_error_after_rerun(
+        self, tab_harness, card_state, mock_aggregator, model_dict,
+        mock_ops, mock_should_delegate, mock_local_agent_node,
+        mock_occupancy, port_is_free,
+    ):
+        card_state.can_start.return_value = (False, "model path missing")
+
+        at = _card(tab_harness, card_state, mock_aggregator, "local", model_dict)
+        _set_port(at)
+        _click_and_run(at, f"toggle_start_local_{MODEL}")
+
+        assert not at.exception
+        assert any("model path missing" in e.value for e in at.error)
+
+    def test_delegated_start_failure_leaves_a_sticky_error_after_rerun(
+        self, tab_harness, card_state, mock_aggregator, model_dict,
+        mock_ops, mock_should_delegate, mock_local_agent_node,
+        mock_occupancy, port_is_free,
+    ):
+        mock_should_delegate.return_value = True
+        mock_local_agent_node.start_server.return_value = {
+            "success": False,
+            "error": "agent refused",
+        }
+
+        at = _card(tab_harness, card_state, mock_aggregator, "local", model_dict)
+        _set_port(at)
+        _click_and_run(at, f"toggle_start_local_{MODEL}")
+
+        assert not at.exception
+        assert any("agent refused" in e.value for e in at.error)
+
+    def test_dismiss_clears_the_sticky_error(
+        self, tab_harness, card_state, mock_aggregator, model_dict,
+        mock_ops, mock_should_delegate, mock_local_agent_node,
+        mock_occupancy, port_is_free,
+    ):
+        from tests.ui.conftest import make_op_result
+
+        mock_ops.start.return_value = make_op_result(
+            success=False, action="rejected_occupied", message="port occupied"
+        )
+
+        at = _card(tab_harness, card_state, mock_aggregator, "local", model_dict)
+        _set_port(at)
+        _click_and_run(at, f"toggle_start_local_{MODEL}")
+        assert any("port occupied" in e.value for e in at.error)
+
+        _click_and_run(at, f"start_error_local_{MODEL}_dismiss")
+
+        assert not at.exception
+        assert not at.error
+        assert at.session_state[f"start_error_local_{MODEL}"] is None
+
+    def test_a_successful_start_clears_a_previously_sticky_error(
+        self, tab_harness, card_state, mock_aggregator, model_dict,
+        mock_ops, mock_should_delegate, mock_local_agent_node,
+        mock_occupancy, port_is_free,
+    ):
+        from tests.ui.conftest import make_op_result
+
+        # First attempt fails and arms the sticky error.
+        mock_ops.start.return_value = make_op_result(
+            success=False, action="rejected_occupied", message="port occupied"
+        )
+        at = _card(tab_harness, card_state, mock_aggregator, "local", model_dict)
+        _set_port(at)
+        _click_and_run(at, f"toggle_start_local_{MODEL}")
+        assert any("port occupied" in e.value for e in at.error)
+
+        # A later successful attempt (e.g. port freed up) must not leave the
+        # stale failure message behind.
+        mock_ops.start.return_value = make_op_result(
+            success=True, action="started", message="started"
+        )
+        _click_and_run(at, f"toggle_start_local_{MODEL}")
+
+        assert not at.exception
+        assert not at.error
+        assert at.session_state[f"start_error_local_{MODEL}"] is None
+
+    def test_no_prior_failure_renders_no_error_and_no_dismiss_button(
+        self, tab_harness, card_state, mock_aggregator, model_dict,
+        mock_ops, mock_should_delegate, mock_local_agent_node,
+        mock_occupancy, port_is_free,
+    ):
+        at = _card(tab_harness, card_state, mock_aggregator, "local", model_dict)
+
+        assert not at.exception
+        assert not at.error
+        keys = {b.key for b in at.button}
+        assert f"start_error_local_{MODEL}_dismiss" not in keys
+
+
+# ---------------------------------------------------------------------------
 # stop — delegation gate × both doors (local node)
 # ---------------------------------------------------------------------------
 class TestStopDispatch:
