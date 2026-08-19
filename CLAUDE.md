@@ -47,6 +47,17 @@ trust-and-degrade on an unrecognized one (`PARSE-AT-THE-DOOR`).
 - Not a shim, unaffected: default-off / opt-in *feature* posture
   (security stance, ADR-003 / ADR-017).
 
+## Local rule: the Streamlit UI is a thin client app
+
+`ui/` holds no authoritative state. Every render fetches ground truth via
+`state`/`operations`/`remote`; every action is a request to the backend.
+`st.session_state` carries **view state only** (widget continuity, an in-flight
+confirmation) — never port occupancy, model identity, or lifecycle truth. When
+the UI and the backend disagree, the UI is wrong: repair by re-fetch, never by
+widening `session_state`. Full statement, enforcement surfaces, and the
+instant-fail row: `docs/ARCHITECTURE.md` (Enforced UI boundary, ADR-025;
+recorded via #410).
+
 ## Autonomy contract (operator-ratified 2026-06-10)
 
 - **Tier labels** are the standing dispatch contract:
