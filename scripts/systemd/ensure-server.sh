@@ -14,6 +14,17 @@
 #   ensure-server.sh [NAME] [PORT]
 #   ensure-server.sh embeddinggemma-300M-F32-pooled 8082   # defaults shown
 #
+# Environment (readiness poll tuning):
+#   ENSURE_SERVER_READY_TIMEOUT  seconds to wait for the wire to report NAME
+#                                after a start (default 30). The 30s default
+#                                suits the small resident embedder; a COLD
+#                                LOAD OF A LARGE MODEL needs a higher value
+#                                (weights read from disk into VRAM before the
+#                                server answers /v1/models) — raise this when
+#                                converging big ggufs or the poll will time
+#                                out on a start that is actually still loading.
+#   ENSURE_SERVER_POLL_INTERVAL  seconds between wire re-checks (default 1).
+#
 # Behavior:
 #   1. Port already serves NAME (verified on the WIRE, not `server status`
 #      — see the #TBD status-mislabel note below) -> exit 0, one line.
@@ -115,9 +126,12 @@ fi
 export LAUNCHER_STATE_DIR="${LAUNCHER_STATE_DIR:-$STATE_DIR}"
 
 llauncher_json() {
-    # Strips llauncher's own pydantic UserWarning lines (issue #156) that
-    # land on stderr but can otherwise confuse naive callers; --json output
-    # itself goes to stdout untouched.
+    # Thin passthrough to the CLI. No active stripping happens here — the
+    # isolation of llauncher's own pydantic UserWarning noise (issue #156)
+    # from parseable output comes for free from stderr/stdout separation:
+    # the warnings land on stderr, --json payloads on stdout, and every
+    # caller that parses this (wire_model_name, port_pid_and_name) reads
+    # only stdout, so the stderr chatter never reaches the JSON parser.
     "$LLAUNCHER_BIN" "$@"
 }
 
@@ -173,38 +187,74 @@ wait_for_wire_match() {
     return 1
 }
 
-# --- Converge ---------------------------------------------------------
-current_wire_name="$(wire_model_name "$PORT")"
+# --- Converge -------------------------------------------------------------
+# The mutating path (stop/start) is guarded by a per-port advisory lock so
+# two concurrent invocations (login-hook unit + cron poll firing together,
+# say) cannot double-start the same port. The pre-lock fast-path no-op check
+# below needs no lock — an idempotent wire read is safe to race — so it runs
+# first; a converger that finds NAME already serving exits without ever
+# contending for the lock. Only when action is needed do we take the lock,
+# and we re-read the wire *inside* it (a peer may have converged the port
+# while we blocked on acquisition).
+converge() {
+    # Re-check the wire under the lock: a concurrent converger may have
+    # already brought NAME up between our pre-lock read and our acquisition.
+    local current_wire_name
+    current_wire_name="$(wire_model_name "$PORT")"
 
+    if [ -n "$current_wire_name" ] && [ "$current_wire_name" = "$NAME" ]; then
+        echo "ensure-server: $NAME already serving on port $PORT (wire-verified)."
+        return 0
+    fi
+
+    if [ -n "$current_wire_name" ]; then
+        # Port serves something, but not NAME (or wire not yet reachable while
+        # status shows an occupant) -> stop the occupant, then start NAME.
+        # No `swap` verb exists in this CLI (verified via `llauncher server
+        # --help`); ADR-010 keeps port caller-supplied, so stop+start on the
+        # same port is the swap.
+        info "Port $PORT currently serves '$current_wire_name' (wire) — stopping before starting '$NAME'."
+        llauncher_json server stop "$PORT" >&2 || die "Failed to stop the occupant on port $PORT."
+    else
+        local occupant_pid
+        occupant_pid="$(port_pid_and_name "$PORT")"
+        if [ -n "$occupant_pid" ]; then
+            info "Port $PORT has a tracked process (pid $occupant_pid) but did not answer /v1/models — stopping it before starting '$NAME'."
+            llauncher_json server stop "$PORT" >&2 || die "Failed to stop the occupant on port $PORT."
+        else
+            info "Port $PORT is free — starting '$NAME'."
+        fi
+    fi
+
+    llauncher_json server start "$NAME" --port "$PORT" >&2 || die "Failed to start '$NAME' on port $PORT."
+
+    info "Waiting up to ${READY_TIMEOUT_SECS}s for port $PORT to wire-report '$NAME'..."
+    local readback
+    if readback="$(wait_for_wire_match "$PORT" "$NAME")"; then
+        echo "ensure-server: $NAME converged onto port $PORT (wire-verified)."
+        return 0
+    else
+        die "Timed out after ${READY_TIMEOUT_SECS}s waiting for port $PORT to report '$NAME'. Last wire readback: '${readback:-<unreachable>}'."
+    fi
+}
+
+# --- Pre-lock fast path: idempotent wire read, no lock needed --------------
+current_wire_name="$(wire_model_name "$PORT")"
 if [ -n "$current_wire_name" ] && [ "$current_wire_name" = "$NAME" ]; then
     echo "ensure-server: $NAME already serving on port $PORT (wire-verified)."
     exit 0
 fi
 
-if [ -n "$current_wire_name" ]; then
-    # Port serves something, but not NAME (or wire not yet reachable while
-    # status shows an occupant) -> stop the occupant, then start NAME.
-    # No `swap` verb exists in this CLI (verified via `llauncher server
-    # --help`); ADR-010 keeps port caller-supplied, so stop+start on the
-    # same port is the swap.
-    info "Port $PORT currently serves '$current_wire_name' (wire) — stopping before starting '$NAME'."
-    llauncher_json server stop "$PORT" >&2 || die "Failed to stop the occupant on port $PORT."
-else
-    occupant_pid="$(port_pid_and_name "$PORT")"
-    if [ -n "$occupant_pid" ]; then
-        info "Port $PORT has a tracked process (pid $occupant_pid) but did not answer /v1/models — stopping it before starting '$NAME'."
-        llauncher_json server stop "$PORT" >&2 || die "Failed to stop the occupant on port $PORT."
-    else
-        info "Port $PORT is free — starting '$NAME'."
-    fi
-fi
-
-llauncher_json server start "$NAME" --port "$PORT" >&2 || die "Failed to start '$NAME' on port $PORT."
-
-info "Waiting up to ${READY_TIMEOUT_SECS}s for port $PORT to wire-report '$NAME'..."
-if readback="$(wait_for_wire_match "$PORT" "$NAME")"; then
-    echo "ensure-server: $NAME converged onto port $PORT (wire-verified)."
+# --- Single-flight guard: per-port advisory lock over the mutating path ----
+LOCK_DIR="${XDG_RUNTIME_DIR:-/tmp}"
+LOCK_FILE="$LOCK_DIR/llauncher-ensure-${PORT}.lock"
+exec {LOCK_FD}>"$LOCK_FILE" || die "Could not open lock file $LOCK_FILE."
+if ! flock -n "$LOCK_FD"; then
+    # A concurrent converger already holds the lock and is doing the work.
+    # This is the expected outcome under a race, not an error — cron must
+    # not alert on it, so exit 0.
+    echo "ensure-server: another ensure invocation holds the lock for port $PORT — skipping (a concurrent converger is already doing the work)."
     exit 0
-else
-    die "Timed out after ${READY_TIMEOUT_SECS}s waiting for port $PORT to report '$NAME'. Last wire readback: '${readback:-<unreachable>}'."
 fi
+
+converge
