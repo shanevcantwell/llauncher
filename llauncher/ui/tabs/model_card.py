@@ -58,6 +58,15 @@ def render_model_card(
                 state, aggregator, node_name, model_name, status_icon
             )
 
+    # Eviction dialog renders at full card width (#412) — not nested inside
+    # the [4, 1]-ratio button_col, which squeezes a warning + 2-button row
+    # into a single-icon-sized column. It is gated on a session_state flag
+    # (armed by _handle_start, cleared by either Cancel or Confirm below) so
+    # it survives any rerun between the warning and the click, unlike the
+    # old render-transient call that lived only inside the click branch.
+    if not is_running:
+        _render_eviction_dialog_if_armed(state, node_name, model_name)
+
     # Collapsed expander for details (port, logs, edit button)
     with st.expander("📋 Details", expanded=False):
         _render_model_details(state, aggregator, node_name, model_name, model, running_server)
@@ -165,12 +174,72 @@ def _render_start_button(
         _handle_start(state, aggregator, node_name, model_name, target_port=chosen_port)
 
 
+def _eviction_flag_key(node_name: str, port: int, model_name: str) -> str:
+    """Session-state key for the pending-eviction-confirmation flag (#412).
+
+    Mirrors the ``deleting_{node_name}_{model_name}`` idiom already used by
+    ``_render_delete_confirm`` (:func:`_render_delete_confirm`): the value is
+    deliberate VIEW state — armed on entry, cleared on both Cancel and
+    Confirm — never a cache of lifecycle truth (docs PR #411 / issue #410).
+    Keyed by ``(node_name, port, model_name)`` per the issue's acceptance
+    criteria, since the port being evicted and the model requesting it are
+    both part of the dialog's identity.
+    """
+    return f"evicting_{node_name}_{port}_{model_name}"
+
+
+def _render_eviction_dialog_if_armed(
+    state: LauncherState,
+    node_name: str,
+    model_name: str,
+) -> None:
+    """Render the eviction dialog if a pending confirmation is armed.
+
+    Gates on the ``evicting_{node_name}_{port}_{model_name}`` flag set by
+    ``_handle_start`` **directly** — mirroring how the sibling
+    ``_render_delete_confirm`` gates on its own ``deleting_*`` flag — rather
+    than scanning ``state.running``. Scanning the live occupancy meant a flag
+    whose port had since freed was silently skipped (the flag leaked) and, on
+    a later rerun where that port was re-occupied, could resurrect the dialog
+    against a *different* occupant. The port lives in the flag key itself, so
+    it is recovered from the armed flag, not from the caller.
+
+    For a still-occupied port the occupant name is re-read live from
+    ``state.running`` inside ``_render_eviction_dialog`` (thin-client
+    discipline). When the flag's port is no longer occupied, the pending
+    eviction is moot — the port already freed — so the flag is cleared rather
+    than silently skipped, and no dialog renders.
+    """
+    prefix = f"evicting_{node_name}_"
+    suffix = f"_{model_name}"
+    for flag_key, armed in list(st.session_state.items()):
+        if not armed:
+            continue
+        if not (flag_key.startswith(prefix) and flag_key.endswith(suffix)):
+            continue
+        middle = flag_key[len(prefix):len(flag_key) - len(suffix)]
+        try:
+            port = int(middle)
+        except ValueError:
+            continue
+        if flag_key != _eviction_flag_key(node_name, port, model_name):
+            continue
+        if port not in state.running:
+            # Port freed while the confirmation sat pending — the eviction is
+            # moot. Clear the leaked flag so it can never resurrect the dialog
+            # against a later occupant of the same port.
+            st.session_state[flag_key] = False
+            continue
+        _render_eviction_dialog(state, node_name, port, model_name, flag_key)
+        return
+
+
 def _render_eviction_dialog(
     state: LauncherState,
     node_name: str,
     port: int,
     model_name: str,
-    status_icon: str,
+    flag_key: str,
 ) -> None:
     """Render eviction confirmation dialog.
 
@@ -179,7 +248,7 @@ def _render_eviction_dialog(
         node_name: Name of the node.
         port: Port that is in use.
         model_name: Name of the model to start.
-        status_icon: The status icon to display.
+        flag_key: The session_state key gating this dialog, cleared on exit.
     """
     # Get the model that's currently using this port
     existing_model = state.running.get(port)
@@ -198,6 +267,7 @@ def _render_eviction_dialog(
             key=f"evict_cancel_{node_name}_{port}_{model_name}",
             width='stretch',
         ):
+            st.session_state[flag_key] = False
             st.rerun()
     with col2:
         if st.button(
@@ -206,6 +276,7 @@ def _render_eviction_dialog(
             width='stretch',
             type="primary",
         ):
+            st.session_state[flag_key] = False
             # v2 ops migration (issue #57): route eviction through
             # ``operations.swap`` instead of the legacy
             # ``state.start_with_eviction_compat`` path. The M4 tab
@@ -495,10 +566,19 @@ def _handle_start(
         # already-refreshed session `state` (issue #392) — constructing and
         # refreshing a throwaway LauncherState here duplicated 2 full
         # psutil.process_iter scans per Start click for no behavioral gain,
-        # since _render_eviction_dialog below reads state.running anyway.
+        # since _render_eviction_dialog_if_armed below reads state.running
+        # anyway.
         if target_port in state.running:
-            # Port is occupied by another llauncher server - show eviction dialog
-            _render_eviction_dialog(state, node_name, target_port, model_name, "")
+            # Port is occupied by another llauncher server. Arm the pending-
+            # confirmation flag and rerun (#412) rather than rendering the
+            # dialog inline here: an unconditional st.rerun() anywhere else
+            # on the card between this click and the operator's Confirm/
+            # Cancel would otherwise silently drop the dialog, since nothing
+            # previously recorded that a confirmation was pending.
+            st.session_state[
+                _eviction_flag_key(node_name, target_port, model_name)
+            ] = True
+            st.rerun()
         else:
             resolved_port = target_port
             valid, msg = state.can_start(config, caller="ui", port=resolved_port)
