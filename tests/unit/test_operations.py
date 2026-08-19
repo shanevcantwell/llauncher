@@ -273,7 +273,7 @@ def test_start_readiness_failure_caps_startup_logs(
 ) -> None:
     """Startup logs on the failure path are capped, mirroring swap's
     ``STARTUP_LOG_TAIL_MAX`` tail-capping behavior (issue #400)."""
-    from llauncher.operations.swap import STARTUP_LOG_TAIL_MAX
+    from llauncher.operations.preflight import STARTUP_LOG_TAIL_MAX
 
     huge_logs = [f"line {i}" for i in range(STARTUP_LOG_TAIL_MAX + 25)]
     with patch("llauncher.operations.ConfigStore.get_model", return_value=sample_config), \

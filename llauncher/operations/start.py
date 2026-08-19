@@ -15,13 +15,11 @@ from llauncher.core import process as proc
 from llauncher.core.audit_log import AuditAction, AuditResult
 from llauncher.core.config import ConfigStore
 from llauncher.operations.preflight import (
+    DEFAULT_READINESS_TIMEOUT_S,
     PreflightCheck,
+    _tail_logs,
     default_model_health_check,
     run_preflight_check,
-)
-from llauncher.operations.swap import (
-    DEFAULT_READINESS_TIMEOUT_S,
-    _tail_logs,
 )
 
 logger = logging.getLogger(__name__)
