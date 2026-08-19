@@ -597,3 +597,59 @@ def validate_config(
 
 
 app.add_typer(config_app)
+
+# ---------------------------------------------------------------------------
+# audit command (issue #338)
+# ---------------------------------------------------------------------------
+
+
+@app.command("audit")
+def audit(
+    limit: int = typer.Option(200, "--limit", "-l", help="Bound the tail read (default: 200)."),
+    action: Optional[str] = typer.Option(
+        None, "--action", help="Filter to entries with this exact action value (e.g. 'started')."
+    ),
+    result: Optional[str] = typer.Option(
+        None, "--result", help="Filter to entries with this exact result value (e.g. 'success')."
+    ),
+    as_json: bool = typer.Option(False, "--json", "-j", help="Output in JSON format"),
+) -> None:
+    """Read recent audit-log entries (ADR-008, issue #64).
+
+    Mirrors the agent's ``GET /audit`` contract exactly
+    (``agent/routing.py::get_audit``): a bounded tail read via
+    :func:`llauncher.core.audit_log.read_entries`, followed by in-memory
+    ``action``/``result`` enum-value filtering. The audit log is
+    process-global (not port-scoped).
+    """
+    from llauncher.core import audit_log
+
+    entries = audit_log.read_entries(limit=int(limit))
+    if action:
+        entries = [e for e in entries if e.action.value == action]
+    if result:
+        entries = [e for e in entries if e.result.value == result]
+
+    if as_json:
+        _json_output([e.to_dict() for e in entries])
+        return
+
+    if not entries:
+        console.print("[yellow]No audit entries found.[/yellow]")
+        return
+
+    headers = ["TIMESTAMP", "ACTION", "RESULT", "CALLER", "PORT", "MODEL", "MESSAGE"]
+    rows: list[list] = []
+    for e in entries:
+        rows.append(
+            [
+                e.timestamp,
+                e.action.value,
+                e.result.value,
+                e.caller,
+                str(e.port) if e.port is not None else "-",
+                e.model or "-",
+                e.message,
+            ]
+        )
+    _print_table(headers, rows, title="Audit Log")
