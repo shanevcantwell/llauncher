@@ -76,6 +76,15 @@ tab hitting a node URL directly) that previously escaped to an alpha tag. A beha
 complement (`tests/ui/` AppTest harness, `forbid_direct_http`) asserts the same at
 runtime for the tabs it drives.
 
+**The UI is a thin client app; it holds no authoritative state.** Every render fetches
+ground truth via `state`/`operations`/`remote`; every action is a request to the backend;
+`st.session_state` carries **view state only** — widget continuity, an in-flight
+confirmation — never port occupancy, model identity, or server lifecycle truth. When the
+UI and the backend disagree, the UI is wrong: the repair is a re-fetch, never a wider
+`session_state`. Enforcement, honestly: the reach half is the AST guard above; this state
+half is prose today, with a lintable `session_state` key convention as the named
+follow-up if prose fails to hold (#410).
+
 ---
 
 ## The full invariant (the governing version)
@@ -151,7 +160,9 @@ point downward; siblings do not import siblings.**
   — the guard's `_HTTP_*` sets are authoritative) nor import a peer endpoint
   (`agent`/`mcp_server`/`cli`). **Enforced statically** by
   `tests/architecture/test_ui_layer_boundaries.py` (ADR-025) — the deterministic catch
-  for the cross-layer reach that escaped to an alpha tag.
+  for the cross-layer reach that escaped to an alpha tag. The UI is a **thin client**: no
+  authoritative state; `st.session_state` is view-state only (see the enforced UI
+  boundary above).
 
 ### Orchestration (stateless verbs + facade)
 
@@ -330,6 +341,7 @@ One row per invariant rule. Each violation paired with the contracted correct sh
 | llama-server is started without `--alias`, so `/v1/models` reports the GGUF filename; or `--alias` is moved into `extra_args` where a config can override it. | `build_command` emits `--alias config.name` unconditionally; `--alias` stays on `DENIED_EXTRA_ARG_FLAGS`. |
 | A loader accepts both a legacy bare-string and a new dict shape of `node_tokens.json`, branching on which it sees. | The artifact is migrated to one shape at the door (or the load fails loud); exactly one shape is parsed thereafter. |
 | `operations.start` allocates a free port itself when the caller omits one. | `port` is a required argument; the caller (endpoint) chooses it per ADR-010. |
+| A UI tab keeps lifecycle truth in `st.session_state` (port occupancy, running-model identity) and renders from it instead of re-fetching. | `session_state` holds only view state; every render rebuilds lifecycle facts via `state`/`operations`/`remote`. |
 
 ---
 
