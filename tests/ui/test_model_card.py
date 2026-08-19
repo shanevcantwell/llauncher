@@ -40,6 +40,7 @@ import pytest
 
 from llauncher.remote.node import RemoteServerInfo
 from llauncher.ui.tabs.model_card import (
+    _eviction_flag_key,
     _render_eviction_dialog,
     render_model_card,
 )
@@ -582,12 +583,56 @@ class TestEvictionConfirmGate:
         assert at.button(key=f"evict_confirm_local_{PORT}_{MODEL}") is not None
         assert at.button(key=f"evict_cancel_local_{PORT}_{MODEL}") is not None
 
+    def test_eviction_dialog_survives_an_unrelated_rerun_then_confirms_once(
+        self, tab_harness, card_state, mock_aggregator, model_dict,
+        mock_ops, mock_should_delegate, mock_local_agent_node,
+        mock_occupancy, port_is_free,
+    ):
+        """Regression for #412: the dialog used to be render-transient — it
+        lived only inside ``_handle_start``'s click branch, with no
+        ``session_state`` flag recording that a confirmation was pending. A
+        rerun from *anywhere else* on the card (e.g. the unrelated "Refresh
+        logs" button on a sibling card, simulated here via a bare
+        ``at.run()``) would silently drop the dialog before the operator
+        could click Confirm, dead-ending the flow. The fix arms a
+        ``(node, port, model)``-keyed flag on entry and gates the dialog's
+        render on it, so it survives any number of reruns until an explicit
+        Cancel or Confirm.
+        """
+        card_state.running[PORT] = MagicMock(config_name="occupant-model")
+        mock_occupancy.running[PORT] = MagicMock(config_name="occupant-model")
+
+        at = _card(tab_harness, card_state, mock_aggregator, "local", model_dict)
+        _set_port(at)
+        _click_and_run(at, f"toggle_start_local_{MODEL}")
+
+        assert at.session_state[_eviction_flag_key("local", PORT, MODEL)] is True
+        assert at.button(key=f"evict_confirm_local_{PORT}_{MODEL}") is not None
+
+        # An unrelated rerun (no button click) must not erase the pending
+        # confirmation — this is exactly what the old render-transient
+        # dialog got wrong.
+        at.run()
+
+        assert not at.exception
+        assert at.session_state[_eviction_flag_key("local", PORT, MODEL)] is True
+        assert at.button(key=f"evict_confirm_local_{PORT}_{MODEL}") is not None
+        assert at.button(key=f"evict_cancel_local_{PORT}_{MODEL}") is not None
+        mock_ops.swap.assert_not_called()
+
+        _click_and_run(at, f"evict_confirm_local_{PORT}_{MODEL}")
+
+        assert not at.exception
+        mock_ops.swap.assert_called_once_with(MODEL, PORT, caller="ui")
+        assert at.session_state[_eviction_flag_key("local", PORT, MODEL)] is False
+
     def test_eviction_confirm_with_no_agent_dispatches_ops_swap(
         self, tab_harness, card_state, mock_ops, mock_should_delegate,
         mock_local_agent_node,
     ):
         at = tab_harness(
-            _render_eviction_dialog, card_state, "local", PORT, MODEL, ""
+            _render_eviction_dialog, card_state, "local", PORT, MODEL,
+            _eviction_flag_key("local", PORT, MODEL),
         )
         _click_and_run(at, f"evict_confirm_local_{PORT}_{MODEL}")
 
@@ -603,7 +648,8 @@ class TestEvictionConfirmGate:
 
         with forbid_direct_http():
             at = tab_harness(
-                _render_eviction_dialog, card_state, "local", PORT, MODEL, ""
+                _render_eviction_dialog, card_state, "local", PORT, MODEL,
+            _eviction_flag_key("local", PORT, MODEL),
             )
             _click_and_run(at, f"evict_confirm_local_{PORT}_{MODEL}")
 
@@ -616,7 +662,8 @@ class TestEvictionConfirmGate:
         mock_local_agent_node,
     ):
         at = tab_harness(
-            _render_eviction_dialog, card_state, "local", PORT, MODEL, ""
+            _render_eviction_dialog, card_state, "local", PORT, MODEL,
+            _eviction_flag_key("local", PORT, MODEL),
         )
         _click_and_run(at, f"evict_cancel_local_{PORT}_{MODEL}")
 
@@ -647,7 +694,8 @@ class TestEvictionConfirmGate:
         )
 
         at = tab_harness(
-            _render_eviction_dialog, card_state, "local", PORT, MODEL, ""
+            _render_eviction_dialog, card_state, "local", PORT, MODEL,
+            _eviction_flag_key("local", PORT, MODEL),
         )
         _click_and_run(at, f"evict_confirm_local_{PORT}_{MODEL}")
 
@@ -662,7 +710,8 @@ class TestEvictionConfirmGate:
         mock_local_agent_node.swap_server.return_value = None
 
         at = tab_harness(
-            _render_eviction_dialog, card_state, "local", PORT, MODEL, ""
+            _render_eviction_dialog, card_state, "local", PORT, MODEL,
+            _eviction_flag_key("local", PORT, MODEL),
         )
         _click_and_run(at, f"evict_confirm_local_{PORT}_{MODEL}")
 
