@@ -38,12 +38,22 @@
 #   sudo ./scripts/systemd/install.sh --system      # system: install+enable+start
 #   sudo ./scripts/systemd/install.sh --system --no-start
 #   sudo ./scripts/systemd/install.sh --system --uninstall
+#
+# Post-start verification (issue #420): a restart is only declared a success
+# once the agent's auth-exempt GET /health answers 200 — `is-active` alone
+# only proves the unit didn't crash within a fixed sleep, not that the HTTP
+# server bound its port (same defect class as #308, #400/#413). Poll
+# bounds/interval are tunable via READINESS_TIMEOUT_SECS /
+# READINESS_POLL_INTERVAL (see scripts/systemd/lib-readiness.sh).
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 VENV_BIN="$PROJECT_DIR/.venv/bin"
+
+# shellcheck source=scripts/systemd/lib-readiness.sh
+. "$SCRIPT_DIR/lib-readiness.sh"
 
 UNIT_NAME="llauncher-agent.service"
 # Root oneshot that guarantees the agent venv (system mode only; ADR-023/#227).
@@ -370,13 +380,32 @@ say "Enabled $UNIT_NAME"
 if [ "$START_AFTER_INSTALL" -eq 1 ]; then
     "${SYSTEMCTL[@]}" restart "$UNIT_NAME"
     sleep 1
-    if "${SYSTEMCTL[@]}" is-active --quiet "$UNIT_NAME"; then
-        say "Service is active."
-    else
+    if ! "${SYSTEMCTL[@]}" is-active --quiet "$UNIT_NAME"; then
         err "Service failed to start. Last 20 log lines:"
         "${JOURNALCTL[@]}" -u "$UNIT_NAME" -n 20 --no-pager || true
         exit 1
     fi
+    say "Unit is active — polling for a live /health readback..."
+
+    # Derive host:port from the SAME live agent.env this installer manages
+    # (ENV_FILE, resolved above per $MODE), not a re-guessed default. A
+    # 0.0.0.0 (or empty) bind host means "listens on all interfaces" — poll
+    # loopback in that case, since 0.0.0.0 is not itself a connectable
+    # address. Defaults mirror llauncher/agent/config.py::AgentConfig.
+    # Strip surrounding single/double quotes (trailing sed) so a hand-edited
+    # quoted value (e.g. LLAUNCHER_AGENT_HOST='"0.0.0.0"') still hits the
+    # loopback fallback below rather than being polled verbatim.
+    HEALTH_HOST="$(grep -E '^LLAUNCHER_AGENT_HOST=' "$ENV_FILE" | tail -n1 | cut -d= -f2- | tr -d '[:space:]' | sed 's/^["'"'"']//;s/["'"'"']$//' || true)"
+    HEALTH_PORT="$(grep -E '^LLAUNCHER_AGENT_PORT=' "$ENV_FILE" | tail -n1 | cut -d= -f2- | tr -d '[:space:]' | sed 's/^["'"'"']//;s/["'"'"']$//' || true)"
+    if [ -z "$HEALTH_HOST" ] || [ "$HEALTH_HOST" = "0.0.0.0" ]; then
+        HEALTH_HOST="127.0.0.1"
+    fi
+    [ -n "$HEALTH_PORT" ] || HEALTH_PORT="8765"
+
+    if ! verify_http_readiness "http://${HEALTH_HOST}:${HEALTH_PORT}/health" JOURNALCTL "$UNIT_NAME"; then
+        exit 1
+    fi
+    say "Service is active and serving (/health confirmed)."
 fi
 
 if [ "$MODE" = "system" ]; then

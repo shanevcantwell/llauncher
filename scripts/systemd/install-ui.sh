@@ -19,6 +19,17 @@
 #
 # Idempotent: safe to re-run after a `git pull` to pick up unit changes.
 #
+# Post-start verification (issue #421): `enable --now` alone only asks
+# systemd to start the unit — it says nothing about whether Streamlit ever
+# bound its port. After start, this installer polls the UI's own
+# GET /_stcore/health (Streamlit's built-in readiness route — 200 once the
+# runtime is ready to accept browser connections, 503 otherwise; stable
+# across the streamlit>=1.30.0 range this repo pins) at the port resolved
+# the same way llauncher.ui.launch does (LLAUNCHER_UI_PORT, default 8501).
+# Poll bounds/interval are tunable via READINESS_TIMEOUT_SECS /
+# READINESS_POLL_INTERVAL (see scripts/systemd/lib-readiness.sh, shared
+# with install.sh's #420 fix — not duplicated).
+#
 # Usage:
 #   ./scripts/systemd/install-ui.sh             # render + enable + start
 #   ./scripts/systemd/install-ui.sh --uninstall # disable + remove unit
@@ -32,12 +43,16 @@ UI_BIN="/usr/local/bin/llauncher-ui"
 UNIT_NAME="llauncher-ui.service"
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 UNIT_PATH="$UNIT_DIR/$UNIT_NAME"
+JOURNALCTL=(journalctl --user)
 
 # Colors
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
 say()  { echo -e "${GREEN}✓${NC} $1"; }
 info() { echo -e "${YELLOW}ℹ${NC} $1"; }
 err()  { echo -e "${RED}✗${NC} $1" >&2; }
+
+# shellcheck source=scripts/systemd/lib-readiness.sh
+. "$SCRIPT_DIR/lib-readiness.sh"
 
 # --- Argument parsing --------------------------------------------------
 DO_UNINSTALL=0
@@ -124,7 +139,26 @@ say "Rendered unit to $UNIT_PATH"
 # --- Activate ----------------------------------------------------------
 systemctl --user daemon-reload
 systemctl --user enable --now "$UNIT_NAME"
-say "Enabled and started $UNIT_NAME"
+say "Enabled — polling for a live readback before declaring success..."
+
+if ! systemctl --user is-active --quiet "$UNIT_NAME"; then
+    err "$UNIT_NAME failed to start. Last 20 log lines:"
+    "${JOURNALCTL[@]}" -u "$UNIT_NAME" -n 20 --no-pager || true
+    exit 1
+fi
+
+# Same port resolution as llauncher.ui.launch::resolve_ui_port (defaults to
+# Streamlit's 8501; LLAUNCHER_UI_PORT overrides). The unit template sets no
+# LLAUNCHER_UI_HOST/PORT of its own (llauncher-ui.service.user.in), so this
+# reads the same env this shell is running in — the value the operator would
+# have to export before invoking this installer for a non-default port to
+# take effect at all.
+UI_PORT="${LLAUNCHER_UI_PORT:-8501}"
+
+if ! verify_http_readiness "http://127.0.0.1:${UI_PORT}/_stcore/health" JOURNALCTL "$UNIT_NAME"; then
+    exit 1
+fi
+say "$UNIT_NAME is active and serving (/_stcore/health confirmed on port $UI_PORT)."
 
 cat <<EOF
 
