@@ -195,18 +195,43 @@ def _render_eviction_dialog_if_armed(
 ) -> None:
     """Render the eviction dialog if a pending confirmation is armed.
 
-    Reads the ``(node_name, *, model_name)`` family of flags set by
-    ``_handle_start`` — the port is part of the flag's own key, so this
-    scans ``state.running`` for the port this model is contending for
-    rather than requiring the caller to already know it, mirroring how the
-    render pass has no other channel back to the port that triggered the
-    original click.
+    Gates on the ``evicting_{node_name}_{port}_{model_name}`` flag set by
+    ``_handle_start`` **directly** — mirroring how the sibling
+    ``_render_delete_confirm`` gates on its own ``deleting_*`` flag — rather
+    than scanning ``state.running``. Scanning the live occupancy meant a flag
+    whose port had since freed was silently skipped (the flag leaked) and, on
+    a later rerun where that port was re-occupied, could resurrect the dialog
+    against a *different* occupant. The port lives in the flag key itself, so
+    it is recovered from the armed flag, not from the caller.
+
+    For a still-occupied port the occupant name is re-read live from
+    ``state.running`` inside ``_render_eviction_dialog`` (thin-client
+    discipline). When the flag's port is no longer occupied, the pending
+    eviction is moot — the port already freed — so the flag is cleared rather
+    than silently skipped, and no dialog renders.
     """
-    for port in state.running:
-        flag_key = _eviction_flag_key(node_name, port, model_name)
-        if st.session_state.get(flag_key):
-            _render_eviction_dialog(state, node_name, port, model_name, flag_key)
-            return
+    prefix = f"evicting_{node_name}_"
+    suffix = f"_{model_name}"
+    for flag_key, armed in list(st.session_state.items()):
+        if not armed:
+            continue
+        if not (flag_key.startswith(prefix) and flag_key.endswith(suffix)):
+            continue
+        middle = flag_key[len(prefix):len(flag_key) - len(suffix)]
+        try:
+            port = int(middle)
+        except ValueError:
+            continue
+        if flag_key != _eviction_flag_key(node_name, port, model_name):
+            continue
+        if port not in state.running:
+            # Port freed while the confirmation sat pending — the eviction is
+            # moot. Clear the leaked flag so it can never resurrect the dialog
+            # against a later occupant of the same port.
+            st.session_state[flag_key] = False
+            continue
+        _render_eviction_dialog(state, node_name, port, model_name, flag_key)
+        return
 
 
 def _render_eviction_dialog(

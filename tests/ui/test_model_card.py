@@ -626,6 +626,49 @@ class TestEvictionConfirmGate:
         mock_ops.swap.assert_called_once_with(MODEL, PORT, caller="ui")
         assert at.session_state[_eviction_flag_key("local", PORT, MODEL)] is False
 
+    def test_eviction_dialog_clears_when_its_port_frees_while_pending(
+        self, tab_harness, card_state, mock_aggregator, model_dict,
+        mock_ops, mock_should_delegate, mock_local_agent_node,
+        mock_occupancy, port_is_free,
+    ):
+        """Regression for the #412 review: a pending eviction whose port frees
+        before Confirm/Cancel must go away deterministically, not leak.
+
+        The old ``_render_eviction_dialog_if_armed`` scanned ``state.running``
+        for a matching flag, so once the contended port left occupancy the
+        flag was silently skipped — never cleared — and could resurrect the
+        dialog against a *different* later occupant of the same port. The fix
+        gates on the flag directly and clears it when its port is no longer
+        occupied. Here we arm the dialog, drop the port out of occupancy, run
+        an unrelated rerun, and assert the dialog is gone AND the flag is
+        cleared (not merely skipped).
+        """
+        card_state.running[PORT] = MagicMock(config_name="occupant-model")
+        mock_occupancy.running[PORT] = MagicMock(config_name="occupant-model")
+
+        at = _card(tab_harness, card_state, mock_aggregator, "local", model_dict)
+        _set_port(at)
+        _click_and_run(at, f"toggle_start_local_{MODEL}")
+
+        assert at.session_state[_eviction_flag_key("local", PORT, MODEL)] is True
+        assert at.button(key=f"evict_confirm_local_{PORT}_{MODEL}") is not None
+
+        # The occupant stops (port freed) between arming and the operator's
+        # click — the pending eviction is now moot.
+        del card_state.running[PORT]
+
+        at.run()  # unrelated rerun
+
+        assert not at.exception
+        # Dialog is gone: neither affordance renders.
+        keys = {b.key for b in at.button}
+        assert f"evict_confirm_local_{PORT}_{MODEL}" not in keys
+        assert f"evict_cancel_local_{PORT}_{MODEL}" not in keys
+        # And the flag is cleared, so it cannot resurrect against a later
+        # occupant of the same port.
+        assert at.session_state[_eviction_flag_key("local", PORT, MODEL)] is False
+        mock_ops.swap.assert_not_called()
+
     def test_eviction_confirm_with_no_agent_dispatches_ops_swap(
         self, tab_harness, card_state, mock_ops, mock_should_delegate,
         mock_local_agent_node,
@@ -649,7 +692,7 @@ class TestEvictionConfirmGate:
         with forbid_direct_http():
             at = tab_harness(
                 _render_eviction_dialog, card_state, "local", PORT, MODEL,
-            _eviction_flag_key("local", PORT, MODEL),
+                _eviction_flag_key("local", PORT, MODEL),
             )
             _click_and_run(at, f"evict_confirm_local_{PORT}_{MODEL}")
 
