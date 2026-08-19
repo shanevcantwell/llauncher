@@ -8,10 +8,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ONE-MINT: pyproject.toml's [project].version is the sole authority for the
-# release version (docs/ARCHITECTURE.md rule 4). Derive from installed package
-# metadata rather than re-declaring a literal here, which drifts (#425). The
-# PackageNotFoundError fallback covers running from source without an install
-# (e.g. `pip install -e .` not yet run, or a raw checkout on PYTHONPATH).
+# release version (ecosystem ground-physics constitution: ONE-MINT /
+# IDENTITY⊥ENVELOPE — source every canonical name from its one authority, never
+# re-declare it). Derive from installed package metadata rather than re-declaring
+# a literal here, which drifts (#425). The PackageNotFoundError fallback covers
+# running from source without an install (e.g. `pip install -e .` not yet run,
+# or a raw checkout on PYTHONPATH).
 try:
     __version__ = version("llauncher")
 except PackageNotFoundError:

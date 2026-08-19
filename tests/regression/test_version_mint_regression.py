@@ -1,7 +1,9 @@
 """Regression tests for issue #425 — two version mints disagreeing.
 
 ``pyproject.toml``'s ``[project].version`` is the sole authority for the
-release version (ONE-MINT, ``docs/ARCHITECTURE.md`` rule 4). Before this fix,
+release version (ONE-MINT / IDENTITY⊥ENVELOPE, ecosystem ground-physics
+constitution — source every canonical name from its one authority, never
+re-declare it). Before this fix,
 ``llauncher/__init__.py`` re-declared the version as a hardcoded literal that
 had already drifted from the pyproject-minted value (0.4.0a0 vs 0.4.1a0), and
 all three wire-facing consumers (``__main__.py`` ``--version``,
@@ -13,11 +15,20 @@ This file pins two invariants:
 1. ``llauncher.__version__`` is *derived* from installed package metadata
    (``importlib.metadata.version("llauncher")``), matching the acceptance
    criterion verbatim, so it can never re-drift from the pyproject mint.
-2. No second version literal exists anywhere under ``llauncher/`` — the
-   enforcement surface for "the next hardcoded literal". This is a
-   source-level grep pin (same pattern as
+2. No re-declared version-literal *assignment* exists anywhere under
+   ``llauncher/`` — the enforcement surface for "the next hardcoded
+   literal". This is a source-level grep pin (same pattern as
    ``tests/regression/test_html_escape_regression.py`` for control C11),
    since there is no CI grep-gate yet.
+
+Enforcement-surface scope (honest bound): the grep pin
+(``_VERSION_LITERAL_RE``) matches a ``__version__`` / ``version``
+assignment whose RHS is a string literal beginning ``\\d+\\.\\d+`` — the
+exact shape of the #425 regression (``__version__ = "0.4.0a0"``). It does
+*not* catch a version smuggled behind computation or concat
+(``"0." + "4.1a0"``) or a non-``digit.digit`` prefix (``"v0.4.1"``);
+closing those would need an AST/semantic gate, deferred as out of scope
+for this regression pin.
 """
 
 from __future__ import annotations
@@ -52,6 +63,14 @@ class TestVersionSingleMint:
         PYTHONPATH — the state of this dev worktree), llauncher.__version__
         falls back to a sentinel rather than silently re-declaring a second
         literal; PackageNotFoundError is the expected shape in that case.
+
+        Coverage caveat (honest bound): this test is green in *both* branches,
+        so which branch runs depends on the environment. In an uninstalled
+        worktree only the sentinel branch executes — the real equality
+        assertion (``__version__ == metadata_version``, the issue's verbatim
+        acceptance criterion) is exercised only where ``pip install -e .`` (or
+        a wheel install) has run. A gate in an installed environment is what
+        confirms the non-fallback path.
         """
         try:
             metadata_version = version("llauncher")
