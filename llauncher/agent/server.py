@@ -471,10 +471,11 @@ async def _log_unhandled_exception(request: Request, exc: Exception) -> JSONResp
     Logs at ERROR with ``exc_info`` (full traceback via ``logger.exception``)
     plus the route path, method, and path/query params — safe to log since
     verb routes carry only model names and ports, never secrets or prompt
-    text. The response body mirrors ``ops`` verb results' structured-error
-    shape (``success``/``action``/``message``) so a caller sees the same
-    envelope regardless of whether the 500 came from a route's own
-    try/except or from here.
+    text. The response body is a top-level ``success``/``action``/``message``
+    object. Note this is *not* the same envelope a route's own error path
+    emits: those raise ``HTTPException(detail=payload)``, which FastAPI
+    serializes as ``{"detail": {...}}`` (nested), whereas this catch-all's
+    fields sit at the top level.
     """
     logger.exception(
         "Unhandled exception in %s %s (path_params=%s, query_params=%s)",
@@ -512,9 +513,11 @@ def _build_app(auth_token: str | None) -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Catch-all exception logging (issue #404): must be registered before
-    # any middleware is added so it sees exceptions from every route,
-    # including ones raised inside the middleware-wrapped stack below.
+    # Catch-all exception logging (issue #404). Registration order relative to
+    # the middleware below is irrelevant: Starlette reads exception_handlers and
+    # user_middleware together at build_middleware_stack time and always routes
+    # the Exception/500 handler into ServerErrorMiddleware, the outermost layer,
+    # so this sees exceptions from every route regardless of add order.
     app.add_exception_handler(Exception, _log_unhandled_exception)
 
     if auth_active:
