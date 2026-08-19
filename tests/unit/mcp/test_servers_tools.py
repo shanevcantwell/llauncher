@@ -307,15 +307,19 @@ class TestGetServerLogs:
 
     @pytest.mark.asyncio
     async def test_custom_lines_passed_through(self, mock_state):
-        """The 'lines' argument is forwarded to stream_logs."""
+        """The 'lines' argument is forwarded to stream_logs's ``lines``
+        keyword specifically (issue #369): a positional call like
+        ``stream_logs(pid, lines)`` silently lands ``lines`` in
+        ``stream_logs``'s ``model_name`` slot instead, so this asserts
+        the keyword binding rather than call position.
+        """
         with patch(
             "llauncher.mcp_server.tools.servers.stream_logs",
             return_value=[],
         ) as mock_stream:
             await get_server_logs(mock_state, {"port": 8080, "lines": 500})
 
-        mock_stream.assert_called_once()
-        assert mock_stream.call_args[0][1] == 500
+        mock_stream.assert_called_once_with(pid=mock_state.running[8080].pid, lines=500)
 
     @pytest.mark.asyncio
     async def test_calls_refresh_each_invocation(self, mock_state):
@@ -369,6 +373,17 @@ class TestGetTools:
         tool = next(t for t in get_tools() if t.name == "stop_server")
         required = set(tool.inputSchema["required"])
         assert required == {"port"}
+
+    def test_stop_server_description_matches_async_contract(self):
+        """Issue #369: the delegated path (the production path) returns
+        action='stopping' on a live process — an accepted, asynchronous
+        termination (issue #140) — not a synchronous action='stopped'.
+        The description must document the real contract, not a
+        misleading synchronous-completion promise.
+        """
+        tool = next(t for t in get_tools() if t.name == "stop_server")
+        assert "action='stopping'" in tool.description
+        assert "action='stopped'" not in tool.description
 
 
 # ─────────────────────── delegation gate (#200) ───────────────────────
