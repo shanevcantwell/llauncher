@@ -106,11 +106,15 @@ def _launch_and_await_ready(
     try:
         lf.write_lockfile(port, config.name, popen.pid)
     except FileExistsError:
+        # Routed through stop_server_by_pid (issue #415) rather than a raw
+        # popen.terminate() so this teardown also invalidates the
+        # process-scan cache (issue #414) — the same intrinsic guarantee
+        # the readiness-timeout rollback below already gets.
         try:
-            popen.terminate()
-        except OSError:
-            # Process already exited between the race and our cleanup
-            # (ESRCH), or we lack permission to signal it. Race outcome
+            proc.stop_server_by_pid(popen.pid)
+        except psutil.AccessDenied:
+            # Process already exited between the race and our cleanup,
+            # or we lack permission to signal it. Race outcome
             # is already decided; log and proceed to the error return.
             logger.exception("Failed to terminate raced-launch process %s", popen.pid)
         return False, popen.pid, [], "lockfile race: another writer claimed the port"
