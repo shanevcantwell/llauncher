@@ -78,7 +78,11 @@ def test_start_on_empty_port(
     run_dir: Path, audit_path: Path, sample_config: ModelConfig, mock_popen: MagicMock
 ) -> None:
     with patch("llauncher.operations.ConfigStore.get_model", return_value=sample_config), \
-         patch("llauncher.operations.proc.start_server", return_value=mock_popen):
+         patch("llauncher.operations.proc.start_server", return_value=mock_popen), \
+         patch(
+             "llauncher.operations.proc.wait_for_server_ready",
+             return_value=(True, ["loading", "listening"]),
+         ):
         result = ops.start("mistral-7b", 8081, caller="test")
 
     assert result.success is True
@@ -169,7 +173,11 @@ def test_start_reconciles_stale_lockfile(
     lf.write_lockfile(8081, "old-model", 2**31 - 1, run_dir=run_dir)
 
     with patch("llauncher.operations.ConfigStore.get_model", return_value=sample_config), \
-         patch("llauncher.operations.proc.start_server", return_value=mock_popen):
+         patch("llauncher.operations.proc.start_server", return_value=mock_popen), \
+         patch(
+             "llauncher.operations.proc.wait_for_server_ready",
+             return_value=(True, ["loading", "listening"]),
+         ):
         result = ops.start("mistral-7b", 8081, caller="test")
 
     assert result.success is True
@@ -186,6 +194,133 @@ def test_start_reconciles_stale_lockfile(
     actions = [e.action for e in entries]
     assert AuditAction.OBSERVED_STOPPED in actions
     assert AuditAction.STARTED in actions
+
+
+def test_start_waits_for_readiness_before_reporting_success(
+    run_dir: Path, audit_path: Path, sample_config: ModelConfig, mock_popen: MagicMock
+) -> None:
+    """Issue #400: ``start`` must poll readiness (not just Popen success)
+    before claiming ``success=True``. Reuses the same
+    ``proc.wait_for_server_ready`` helper ``swap`` uses, keyed to this
+    model's own log file.
+    """
+    with patch("llauncher.operations.ConfigStore.get_model", return_value=sample_config), \
+         patch("llauncher.operations.proc.start_server", return_value=mock_popen), \
+         patch(
+             "llauncher.operations.proc.wait_for_server_ready",
+             return_value=(True, ["loading model", "listening on port 8081"]),
+         ) as wait_ready:
+        result = ops.start("mistral-7b", 8081, caller="test")
+
+    assert result.success is True
+    assert result.action == "started"
+    assert result.startup_logs == ["loading model", "listening on port 8081"]
+    # The readiness poll was actually invoked, keyed to this model's log.
+    wait_ready.assert_called_once()
+    _, kwargs = wait_ready.call_args
+    assert kwargs["model_name"] == "mistral-7b"
+
+    # Lockfile committed since readiness succeeded.
+    written = lf.read_lockfile(8081, run_dir=run_dir)
+    assert written is not None
+    assert written.model == "mistral-7b"
+
+    entries = al.read_entries(path=audit_path)
+    assert len(entries) == 1
+    assert entries[0].action == AuditAction.STARTED
+    assert entries[0].result == AuditResult.SUCCESS
+
+
+def test_start_reports_failure_when_process_dies_before_ready(
+    run_dir: Path, audit_path: Path, sample_config: ModelConfig, mock_popen: MagicMock
+) -> None:
+    """Issue #400: a process that spawns and dies immediately (bad argv,
+    missing runtime lib, unreadable GGUF, OOM, ...) must not be reported
+    as a successful start. No lockfile may survive, and the captured
+    stderr tail must be on the result for the caller to see.
+    """
+    crash_logs = [
+        "error: invalid argument: --ctk",
+        "error: unrecognized cache-type flag",
+    ]
+    with patch("llauncher.operations.ConfigStore.get_model", return_value=sample_config), \
+         patch("llauncher.operations.proc.start_server", return_value=mock_popen), \
+         patch(
+             "llauncher.operations.proc.wait_for_server_ready",
+             return_value=(False, crash_logs),
+         ), \
+         patch("llauncher.operations.proc.stop_server_by_pid") as stop_by_pid:
+        result = ops.start("mistral-7b", 8081, caller="test")
+
+    assert result.success is False
+    assert result.action == "error"
+    assert result.startup_logs == crash_logs
+    assert "never became ready" in result.message.lower() or "ready" in result.message.lower()
+
+    # Cleanup: the dead/dying process is signalled and no lockfile survives.
+    stop_by_pid.assert_called_once_with(mock_popen.pid)
+    assert lf.read_lockfile(8081, run_dir=run_dir) is None
+
+    # Audit entry reflects the failure, not a false SUCCESS.
+    entries = al.read_entries(path=audit_path)
+    assert len(entries) == 1
+    assert entries[0].action == AuditAction.STARTED
+    assert entries[0].result == AuditResult.ERROR
+
+
+def test_start_readiness_failure_caps_startup_logs(
+    run_dir: Path, audit_path: Path, sample_config: ModelConfig, mock_popen: MagicMock
+) -> None:
+    """Startup logs on the failure path are capped, mirroring swap's
+    ``STARTUP_LOG_TAIL_MAX`` tail-capping behavior (issue #400)."""
+    from llauncher.operations.preflight import STARTUP_LOG_TAIL_MAX
+
+    huge_logs = [f"line {i}" for i in range(STARTUP_LOG_TAIL_MAX + 25)]
+    with patch("llauncher.operations.ConfigStore.get_model", return_value=sample_config), \
+         patch("llauncher.operations.proc.start_server", return_value=mock_popen), \
+         patch(
+             "llauncher.operations.proc.wait_for_server_ready",
+             return_value=(False, huge_logs),
+         ), \
+         patch("llauncher.operations.proc.stop_server_by_pid"):
+        result = ops.start("mistral-7b", 8081, caller="test")
+
+    assert result.success is False
+    assert len(result.startup_logs) == STARTUP_LOG_TAIL_MAX
+    assert result.startup_logs == huge_logs[-STARTUP_LOG_TAIL_MAX:]
+
+
+def test_start_readiness_failure_terminate_accessdenied_does_not_mask_error(
+    run_dir: Path, audit_path: Path, sample_config: ModelConfig, mock_popen: MagicMock, caplog
+) -> None:
+    """``psutil.AccessDenied`` from the cleanup terminate is logged, not
+    swallowed -- mirrors the equivalent guard on ``swap``'s readiness-
+    failure cleanup path."""
+    import logging
+
+    import psutil
+
+    with patch("llauncher.operations.ConfigStore.get_model", return_value=sample_config), \
+         patch("llauncher.operations.proc.start_server", return_value=mock_popen), \
+         patch(
+             "llauncher.operations.proc.wait_for_server_ready",
+             return_value=(False, ["dying"]),
+         ), \
+         patch(
+             "llauncher.operations.proc.stop_server_by_pid",
+             side_effect=psutil.AccessDenied(pid=mock_popen.pid, name="llama-server"),
+         ):
+        with caplog.at_level(logging.ERROR, logger="llauncher.operations.start"):
+            result = ops.start("mistral-7b", 8081, caller="test")
+
+    assert result.success is False
+    assert result.action == "error"
+    assert lf.read_lockfile(8081, run_dir=run_dir) is None
+    assert any("Failed to terminate non-ready" in r.message for r in caplog.records)
+    assert any(
+        isinstance(r.exc_info, tuple) and r.exc_info[0] is psutil.AccessDenied
+        for r in caplog.records
+    )
 
 
 def test_start_errors_when_model_not_in_config(
@@ -312,6 +447,9 @@ def test_start_skips_preflight_when_check_is_none(
     ), patch(
         "llauncher.operations.proc.start_server",
         return_value=fake_popen,
+    ), patch(
+        "llauncher.operations.proc.wait_for_server_ready",
+        return_value=(True, ["loading", "listening"]),
     ):
         result = ops.start(
             "mistral-7b",
@@ -1786,6 +1924,10 @@ def test_start_cancel_post_commit_completes_with_advisory(
 
     with patch("llauncher.operations.ConfigStore.get_model", return_value=sample_config), \
          patch("llauncher.operations.proc.start_server", return_value=mock_popen), \
+         patch(
+             "llauncher.operations.proc.wait_for_server_ready",
+             return_value=(True, ["loading", "listening"]),
+         ), \
          patch("llauncher.operations.start.mk.is_cancelled", side_effect=is_cancelled_side):
         result = ops.start("mistral-7b", 8081, caller="test", model_health_check=None)
 

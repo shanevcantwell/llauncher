@@ -38,6 +38,24 @@ logger = logging.getLogger(__name__)
 PreflightCheck = Callable[[ModelConfig], "tuple[bool, str]"]
 
 
+# Cap on how many startup-log lines a verb attaches to its result on failure,
+# preserving ADR-002's prior shape (referenced in ADR-011 open question 2).
+# Lives here rather than in ``swap.py`` so both ``start`` and ``swap`` import
+# it from a neutral source rather than one verb reaching into the other.
+STARTUP_LOG_TAIL_MAX = 100
+
+# Default readiness-poll timeout in seconds (ADR-011 open question 1). Shared
+# home for the same reason as ``STARTUP_LOG_TAIL_MAX`` above.
+DEFAULT_READINESS_TIMEOUT_S = 120
+
+
+def _tail_logs(logs: list[str]) -> list[str]:
+    """Cap startup logs to the last ``STARTUP_LOG_TAIL_MAX`` lines."""
+    if len(logs) <= STARTUP_LOG_TAIL_MAX:
+        return list(logs)
+    return list(logs[-STARTUP_LOG_TAIL_MAX:])
+
+
 def run_preflight_check(
     check: PreflightCheck | None,
     config: ModelConfig,

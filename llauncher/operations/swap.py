@@ -16,7 +16,9 @@ from llauncher.core.audit_log import AuditAction, AuditResult
 from llauncher.core.config import ConfigStore
 from llauncher.models.config import ModelConfig
 from llauncher.operations.preflight import (
+    DEFAULT_READINESS_TIMEOUT_S,
     PreflightCheck,
+    _tail_logs,
     default_model_health_check,
     default_vram_check,
     run_preflight_check,
@@ -24,13 +26,10 @@ from llauncher.operations.preflight import (
 
 logger = logging.getLogger(__name__)
 
-
-# Cap on how many startup-log lines we attach to a SwapResult on failure,
-# preserving ADR-002's prior shape (referenced in ADR-011 open question 2).
-STARTUP_LOG_TAIL_MAX = 100
-
-# Default readiness-poll timeout in seconds (ADR-011 open question 1).
-DEFAULT_READINESS_TIMEOUT_S = 120
+# ``STARTUP_LOG_TAIL_MAX``, ``DEFAULT_READINESS_TIMEOUT_S`` and ``_tail_logs``
+# now live in :mod:`llauncher.operations.preflight` (the neutral shared-helper
+# home) so both ``start`` and ``swap`` import them from there rather than one
+# verb reaching into the other.
 
 
 @dataclass(frozen=True)
@@ -73,13 +72,6 @@ class SwapResult:
 
     def to_dict(self) -> dict:
         return asdict(self)
-
-
-def _tail_logs(logs: list[str]) -> list[str]:
-    """Cap startup logs to the last ``STARTUP_LOG_TAIL_MAX`` lines."""
-    if len(logs) <= STARTUP_LOG_TAIL_MAX:
-        return list(logs)
-    return list(logs[-STARTUP_LOG_TAIL_MAX:])
 
 
 def _launch_and_await_ready(

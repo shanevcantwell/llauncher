@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+import psutil
 
 from llauncher.core import audit_log as al
 from llauncher.core import lockfile as lf
@@ -13,7 +15,9 @@ from llauncher.core import process as proc
 from llauncher.core.audit_log import AuditAction, AuditResult
 from llauncher.core.config import ConfigStore
 from llauncher.operations.preflight import (
+    DEFAULT_READINESS_TIMEOUT_S,
     PreflightCheck,
+    _tail_logs,
     default_model_health_check,
     run_preflight_check,
 )
@@ -41,6 +45,7 @@ class StartResult:
     cancel_ignored_post_commit: bool = False
     ctx_size: int | None = None
     parallel: int | None = None
+    startup_logs: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -53,6 +58,7 @@ def start(
     caller: str = "unknown",
     server_bin: Path | None = None,
     model_health_check: PreflightCheck | None = default_model_health_check,
+    readiness_timeout: int = DEFAULT_READINESS_TIMEOUT_S,
 ) -> StartResult:
     """Start ``model_name`` on ``port`` per ADR-010 verb semantics.
 
@@ -62,6 +68,16 @@ def start(
     - Stale lockfile (claimed pid is dead) → cleaned up, then start.
     - Pre-flight model-file check fails → ``action="rejected_preflight"`` with no state mutation.
     - Model not found in config / launch failure → ``action="error"``.
+    - Process spawns but never becomes ready (crashes, bad argv, OOM, ...) →
+      ``action="error"`` with no lockfile left behind and ``startup_logs``
+      carrying a bounded tail of the server's own captured stderr (#400).
+
+    After the process is spawned and the lockfile is written, this polls
+    :func:`llauncher.core.process.wait_for_server_ready` (the same helper
+    :func:`llauncher.operations.swap.swap` uses) before declaring success.
+    A server that spawns and dies immediately previously left a lockfile
+    claiming a live process and reported ``success=True``; the readiness
+    poll now catches that and tears the lockfile back down.
 
     The ``model_health_check`` seam mirrors :func:`llauncher.operations.swap.swap`'s
     pattern. Defaults to :func:`llauncher.operations.preflight.default_model_health_check`,
@@ -290,6 +306,47 @@ def start(
                 message="Lockfile race during start; retry.",
             )
 
+        # Readiness poll (issue #400): a process that spawns and dies
+        # immediately (bad argv, missing runtime lib, unreadable GGUF, OOM)
+        # must not be reported as a successful start. Same helper
+        # ``swap`` uses, reading this model's exact log file so a stale
+        # same-port log from a prior occupant can't shadow the result.
+        ready, startup_logs = proc.wait_for_server_ready(
+            port,
+            timeout=readiness_timeout,
+            model_name=model_name,
+        )
+        if not ready:
+            try:
+                proc.stop_server_by_pid(popen.pid)
+            except psutil.AccessDenied:
+                logger.exception(
+                    "Failed to terminate non-ready process %s", popen.pid
+                )
+            lf.remove_lockfile(port)
+            tail = _tail_logs(startup_logs)
+            al.record(
+                AuditAction.STARTED,
+                AuditResult.ERROR,
+                caller=caller,
+                port=port,
+                model=model_name,
+                pid=popen.pid,
+                message="readiness timeout: process did not become ready",
+            )
+            return StartResult(
+                success=False,
+                action="error",
+                port=port,
+                model=model_name,
+                pid=popen.pid,
+                message=(
+                    f"{model_name} spawned on port {port} but never became "
+                    "ready; see startup_logs."
+                ),
+                startup_logs=tail,
+            )
+
         # Post-commit cancel detection: per ADR-014, a cancel that arrives
         # between spawn-success/lockfile-write and this check is a no-op.
         # We surface it via the advisory flag rather than tearing down.
@@ -318,6 +375,7 @@ def start(
             cancel_ignored_post_commit=cancel_ignored,
             ctx_size=config.ctx_size,
             parallel=config.parallel,
+            startup_logs=_tail_logs(startup_logs),
         )
     finally:
         mk.release_marker(port)
