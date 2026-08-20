@@ -115,12 +115,21 @@ DENIED_EXTRA_ARG_FLAGS: frozenset[str] = frozenset({
 #
 # Scope note (issue #156 / ADR-024): this catches each flag in the *exact
 # spelling* ``build_command`` emits. It deliberately does **not** resolve
-# llama-server short/long aliases — e.g. ``ctx_size`` is emitted as ``-c``, so
-# a literal ``-c`` in ``extra_args`` is caught but the long alias
-# ``--ctx-size`` is not. Alias-complete, table-driven config→argv rendering is
-# the job of the ADR-024 render matrix (``auto:draft``), not this narrow
-# correctness fix. What this fix guarantees is that the silent first-wins loss
-# is gone for every flag llauncher actually puts on the command line.
+# llama-server short/long aliases in general — e.g. ``ctx_size`` is emitted
+# as ``-c``, so a literal ``-c`` in ``extra_args`` is caught but the long
+# alias ``--ctx-size`` is not. Alias-complete, table-driven config→argv
+# rendering is the job of the ADR-024 render matrix (``auto:draft``), not
+# this narrow correctness fix. What this fix guarantees is that the silent
+# first-wins loss is gone for every flag llauncher actually puts on the
+# command line.
+#
+# Issue #399: ``-ctk``/``-ctv`` are registered alongside their long forms
+# (``--cache-type-k``/``--cache-type-v``) as a targeted exception to the
+# "exact spelling only" scope above — not a reopening of general alias
+# resolution. This map already tracks flag *identity*, not argv rendering;
+# leaving a known same-flag short alias unlisted let the guard it exists to
+# provide be evaded by spelling alone. Other flags' short forms remain out of
+# scope per the note above pending the ADR-024 render matrix.
 MANAGED_NATIVE_FLAG_TO_FIELD: dict[str, str] = {
     "--mmproj": "mmproj_path",
     "--n-gpu-layers": "n_gpu_layers",
@@ -132,7 +141,9 @@ MANAGED_NATIVE_FLAG_TO_FIELD: dict[str, str] = {
     "--flash-attn": "flash_attn",
     "--no-mmap": "no_mmap",
     "--cache-type-k": "cache_type_k",
+    "-ctk": "cache_type_k",
     "--cache-type-v": "cache_type_v",
+    "-ctv": "cache_type_v",
     "--n-cpu-moe": "n_cpu_moe",
     "--parallel": "parallel",
     "--temp": "temperature",
