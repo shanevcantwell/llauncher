@@ -76,8 +76,16 @@ def get_tools() -> list[Tool]:
             description=(
                 "Stop whatever is running on this port. Idempotent: "
                 "returns success with action='already_empty' if nothing "
-                "was there. Returns action='stopped' on a successful "
-                "termination."
+                "was there. On a live process there are two terminal "
+                "actions depending on the path: when the verb is "
+                "delegated to the local agent (the async production "
+                "path, issue #140/#200) it returns action='stopping' — "
+                "the termination is accepted and runs asynchronously, so "
+                "the process may still be shutting down when this call "
+                "returns; when handled in-process (non-delegated) it "
+                "runs synchronously and returns action='stopped' once "
+                "the process is gone. Either way, poll server_status to "
+                "confirm the port is actually empty."
             ),
             inputSchema={
                 "type": "object",
@@ -435,7 +443,7 @@ async def get_server_logs(state: LauncherState, args: dict) -> dict:
         return {"error": f"No server running on port {port}"}
 
     pid = state.running[port].pid
-    log_lines = stream_logs(pid, lines)
+    log_lines = stream_logs(pid=pid, lines=lines)
 
     return {
         "port": port,
