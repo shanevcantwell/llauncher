@@ -129,11 +129,16 @@ def _build_running_map(
     aggregator: RemoteAggregator,
     target: str,
 ) -> dict[tuple[str, str], RemoteServerInfo]:
-    """Index running servers by ``(node_name, config_name)`` for ``target``."""
+    """Index running servers by ``(node_name, config_name)`` for ``target``.
+
+    Reads ``state.running`` as populated by the render's own earlier
+    ``render_model_registry`` → ``state.refresh()`` call (#370) — that
+    refresh is moments old in the same script run, so re-refreshing here
+    would repeat the same full-system psutil scan for no new information.
+    """
     running_map: dict[tuple[str, str], RemoteServerInfo] = {}
 
     if target == LOCAL_NODE:
-        state.refresh()
         for _, server in state.running.items():
             info = RemoteServerInfo(
                 node_name=LOCAL_NODE,
