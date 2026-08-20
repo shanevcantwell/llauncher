@@ -185,6 +185,29 @@ if (-not (Test-Path $VenvExe)) {
     Die "Did not find $VenvExe.  Run 'scripts\run.bat install' first."
 }
 
+# --- Interpreter floor (issue #334) ------------------------------------
+# pyproject.toml declares `requires-python = ">=3.11"`, but this installer
+# only checked that the venv EXISTED, not that it was built on a floor-
+# clearing interpreter -- a <3.11 venv installed silently and failed later
+# at import time (trust-and-degrade instead of fail-loud; PARSE-AT-THE-DOOR
+# applied to prerequisites). Check the venv's own python.exe before wiring
+# the service to it.
+$RequiredMajor = 3
+$RequiredMinor = 11
+$pyVersionOutput = & $VenvPython -c "import sys; print('%d.%d' % sys.version_info[:2])"
+if ($LASTEXITCODE -ne 0 -or -not $pyVersionOutput) {
+    Die "Could not determine the $VenvPython interpreter version."
+}
+$pyVersionParts = $pyVersionOutput.Trim().Split('.')
+$foundMajor = [int]$pyVersionParts[0]
+$foundMinor = [int]$pyVersionParts[1]
+if ($foundMajor -lt $RequiredMajor -or ($foundMajor -eq $RequiredMajor -and $foundMinor -lt $RequiredMinor)) {
+    Die @"
+$VenvPython is $($pyVersionOutput.Trim()), but llauncher requires >=$RequiredMajor.$RequiredMinor (pyproject.toml requires-python).
+Delete .venv, install a Python >=$RequiredMajor.$RequiredMinor interpreter, and re-run 'scripts\run.bat install'.
+"@
+}
+
 # --- Env file (token + config) ----------------------------------------
 if (-not (Test-Path $EnvDir))  { New-Item -ItemType Directory -Path $EnvDir  | Out-Null }
 if (-not (Test-Path $LogDir))  { New-Item -ItemType Directory -Path $LogDir  | Out-Null }
@@ -207,29 +230,44 @@ if (Test-Path $TokenFile) {
 }
 
 if (-not (Test-Path $EnvFile)) {
+    # Seed ONLY the template's live KEY=VALUE lines (issue #382) -- not its
+    # ~5KB of Unicode box-drawing comment banners. Copying the whole
+    # template byte-mangled those banners into a BOM+mojibake-corrupted
+    # agent.env; the token line itself stayed clean ASCII so the corruption
+    # went unnoticed until byte-inspected. Reuses the same
+    # blank/`#`-comment filter already used below to build NSSM's
+    # AppEnvironmentExtra from the live file, so the two "what counts as a
+    # real config line" definitions can't drift apart -- and trims each line
+    # before emission, mirroring that loop's `$trim` byte-for-byte so a future
+    # template key line with leading/trailing whitespace seeds identically to
+    # how NSSM would later read it.
+    $templateKeyLines = @(Get-Content $EnvExample | ForEach-Object { $_.Trim() } | Where-Object {
+        $_ -and -not $_.StartsWith('#')
+    })
     if ($migratedMirrorToken) {
-        Info "Seeding $EnvFile from the template using the live token found in the stale agent.token mirror..."
+        Info "Seeding $EnvFile from the template's required keys using the live token found in the stale agent.token mirror..."
         # IMPORTANT: write WITHOUT a UTF-8 BOM -- Windows PowerShell 5.1's
         # `Set-Content -Encoding utf8` prepends EF BB BF, which would
         # corrupt the first key name (issue #127).
-        $seedLines = @((Get-Content $EnvExample) `
+        $seedLines = @($templateKeyLines `
             -replace 'replace-me-with-a-random-token', $migratedMirrorToken)
         [System.IO.File]::WriteAllLines(
             $EnvFile, $seedLines, (New-Object System.Text.UTF8Encoding($false)))
         Say "Wrote $EnvFile, carrying forward the token from $TokenFile (not overwritten with a fresh one)."
     } else {
-        Info "Seeding $EnvFile from the template (one-time; see agent.env.example header)..."
+        Info "Seeding $EnvFile from the template's required keys (one-time; see agent.env.example header)..."
         $token = & $VenvPython -c "import secrets; print(secrets.token_urlsafe(32))"
         # IMPORTANT: write WITHOUT a UTF-8 BOM -- Windows PowerShell 5.1's
         # `Set-Content -Encoding utf8` prepends EF BB BF, which would
         # corrupt the first key name (issue #127).
-        $seedLines = @((Get-Content $EnvExample) `
+        $seedLines = @($templateKeyLines `
             -replace 'replace-me-with-a-random-token', $token.Trim())
         [System.IO.File]::WriteAllLines(
             $EnvFile, $seedLines, (New-Object System.Text.UTF8Encoding($false)))
         Say "Wrote $EnvFile with a generated 32-byte token."
     }
     Info "Edit it to set LLAUNCHER_AGENT_NODE_NAME / HOST / PORT as needed."
+    Info "  Full documentation for every key lives in ${EnvExample}."
 } else {
     # Loud on skip (issue #284): edits to the template are never read again
     # after this first-install seed -- agent.env is the only file either

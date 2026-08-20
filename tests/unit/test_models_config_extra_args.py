@@ -314,6 +314,69 @@ class TestManagedNativeFlagCollision:
                 name="m", model_path=model_file, extra_args=f"{flag} 4"
             )
 
+    # ---- issue #399: -ctk/-ctv short aliases must not evade the guard -----
+
+    @pytest.mark.parametrize(
+        "flag,field",
+        [("-ctk", "cache_type_k"), ("-ctv", "cache_type_v")],
+    )
+    def test_short_alias_is_registered(self, flag: str, field: str) -> None:
+        """``-ctk``/``-ctv`` are the same flag to llama-server as
+
+        ``--cache-type-k``/``--cache-type-v`` (per ``llama-server --help``),
+        so they must map to the same owning field as their long forms.
+        """
+        assert flag in MANAGED_NATIVE_FLAG_TO_FIELD
+        assert MANAGED_NATIVE_FLAG_TO_FIELD[flag] == field
+
+    @pytest.mark.parametrize("flag", ["-ctk", "-ctv"])
+    def test_construction_rejects_short_alias(
+        self, model_file: str, flag: str
+    ) -> None:
+        """Reproduces issue #399: registering ``-ctk``/``-ctv`` in
+
+        ``extra_args`` must be rejected exactly like the long form, not
+        silently accepted as passthrough that shadows the typed field.
+        """
+        with pytest.raises(ValueError, match="issue #156"):
+            ModelConfig(
+                name="m", model_path=model_file, extra_args=f"{flag} q8_0"
+            )
+
+    def test_short_alias_error_names_the_owning_field(
+        self, model_file: str
+    ) -> None:
+        with pytest.raises(ValueError, match="cache_type_k"):
+            ModelConfig(
+                name="m", model_path=model_file, extra_args="-ctk q8_0"
+            )
+
+    def test_load_warns_but_tolerates_short_alias_collision(self) -> None:
+        """Load-path tolerance (warn, don't raise) applies to the short
+
+        alias the same as the long form — the collision class is the same,
+        only the spelling differs.
+        """
+        with pytest.warns(UserWarning, match="issue #156"):
+            cfg = ModelConfig.from_dict_unvalidated({
+                "name": "m",
+                "model_path": "/fake/does-not-matter.gguf",
+                "cache_type_k": "q8_0",
+                "extra_args": "-ctk q8_0 -ctv q8_0",
+            })
+        assert cfg.extra_args == "-ctk q8_0 -ctv q8_0"
+
+    def test_short_alias_equals_form_rejected(self, model_file: str) -> None:
+        """Equals form (``-ctk=q8_0``) must be caught identically to the
+
+        bare form, matching the existing equals-form coverage for other
+        managed flags.
+        """
+        with pytest.raises(ValueError, match="issue #156"):
+            ModelConfig(
+                name="m", model_path=model_file, extra_args="-ctk=q8_0"
+            )
+
     # ---- load path: warn but tolerate ------------------------------------
 
     def test_load_warns_but_tolerates_collision(self) -> None:

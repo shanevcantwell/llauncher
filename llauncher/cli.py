@@ -2,7 +2,7 @@
 
 Provides a Typer-based command-line interface with subcommand groups:
 - model: list, info, remove
-- server: start, stop, status
+- server: start, stop, swap, status
 - node: add, list, remove, status
 - config: path, validate
 
@@ -291,6 +291,48 @@ def stop_server(
     console.print(_color(message, "stopped"))
 
 
+@server_app.command("swap")
+def swap_server(
+    name: str = typer.Argument(..., help="Name of the model to swap in"),
+    port: int = typer.Option(
+        ...,
+        "--port",
+        "-p",
+        help="Port whose occupant to replace (required; ADR-010).",
+    ),
+    caller: str = typer.Option("cli", hidden=True),
+) -> None:
+    """Replace whatever is running on ``port`` with ``name``.
+
+    Per ADR-010 the caller supplies the port, mirroring ``start``/``stop``.
+    Performs the ADR-011 5-phase swap (pre-flight, marker, stop, start,
+    readiness) with rollback to the previous model on failure — same
+    delegation gate as ``start``/``stop``: a healthy local agent gets the
+    swap over HTTP, else it runs in-process.
+    """
+    from llauncher import operations
+    from llauncher.core import delegation
+    from llauncher.remote.node import local_agent_node
+
+    # Delegation gate (#200/#203): mirror ``start``/``stop`` — delegate to
+    # the local agent over HTTP when one is reachable (sole-spawner intent,
+    # #194), else swap in-process (dev/standalone).
+    if delegation.should_delegate():
+        success, message = _delegated_outcome(
+            local_agent_node().swap_server(name, port), "swap", port
+        )
+    else:
+        result = operations.swap(name, port, caller=caller)
+        success, message = result.success, result.message
+        if result.action == "rolled_back" and result.previous_model:
+            message = f"{message} (rolled back to {result.previous_model})"
+
+    if not success:
+        console.print(f"[red]✗ {message}[/red]")
+        raise typer.Exit(code=1)
+    console.print(_color(message, "running"))
+
+
 @server_app.command("cancel")
 def cancel_server(
     port: int = typer.Argument(..., help="Port of the in-flight op to cancel"),
@@ -555,3 +597,59 @@ def validate_config(
 
 
 app.add_typer(config_app)
+
+# ---------------------------------------------------------------------------
+# audit command (issue #338)
+# ---------------------------------------------------------------------------
+
+
+@app.command("audit")
+def audit(
+    limit: int = typer.Option(200, "--limit", "-l", help="Bound the tail read (default: 200)."),
+    action: Optional[str] = typer.Option(
+        None, "--action", help="Filter to entries with this exact action value (e.g. 'started')."
+    ),
+    result: Optional[str] = typer.Option(
+        None, "--result", help="Filter to entries with this exact result value (e.g. 'success')."
+    ),
+    as_json: bool = typer.Option(False, "--json", "-j", help="Output in JSON format"),
+) -> None:
+    """Read recent audit-log entries (ADR-008, issue #64).
+
+    Mirrors the agent's ``GET /audit`` contract exactly
+    (``agent/routing.py::get_audit``): a bounded tail read via
+    :func:`llauncher.core.audit_log.read_entries`, followed by in-memory
+    ``action``/``result`` enum-value filtering. The audit log is
+    process-global (not port-scoped).
+    """
+    from llauncher.core import audit_log
+
+    entries = audit_log.read_entries(limit=int(limit))
+    if action:
+        entries = [e for e in entries if e.action.value == action]
+    if result:
+        entries = [e for e in entries if e.result.value == result]
+
+    if as_json:
+        _json_output([e.to_dict() for e in entries])
+        return
+
+    if not entries:
+        console.print("[yellow]No audit entries found.[/yellow]")
+        return
+
+    headers = ["TIMESTAMP", "ACTION", "RESULT", "CALLER", "PORT", "MODEL", "MESSAGE"]
+    rows: list[list] = []
+    for e in entries:
+        rows.append(
+            [
+                e.timestamp,
+                e.action.value,
+                e.result.value,
+                e.caller,
+                str(e.port) if e.port is not None else "-",
+                e.model or "-",
+                e.message,
+            ]
+        )
+    _print_table(headers, rows, title="Audit Log")

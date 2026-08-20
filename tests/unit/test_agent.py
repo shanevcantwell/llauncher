@@ -344,6 +344,94 @@ class TestStartServerEndpoint:
         ), "logger.exception must have fired with a captured traceback"
 
 
+class TestUnhandledExceptionLogging:
+    """Issue #404: any unhandled exception, on any route, must log a full
+    traceback at ERROR *and* return a structured 500 body — not Starlette's
+    bare, undiagnosable 500.
+
+    ``/start`` already got a route-local try/except for this in #308; these
+    tests exercise the global catch-all (:func:`llauncher.agent.server
+    ._log_unhandled_exception`) that covers every *other* route, using
+    ``/swap`` — which has no route-local wrapper — as the representative
+    case.
+    """
+
+    def test_unhandled_exception_on_swap_logs_traceback_and_returns_500(
+        self, monkeypatch, caplog
+    ):
+        import logging
+
+        from llauncher.agent.server import create_app_unauthenticated
+
+        def raising_swap(model, port, caller="agent"):
+            raise OSError("disk full")
+
+        monkeypatch.setattr("llauncher.agent.routing.ops.swap", raising_swap)
+
+        # ``raise_server_exceptions=False``: the catch-all handler under
+        # test already converts the exception into a normal 500 response
+        # (verified below) — Starlette's default TestClient re-raises the
+        # original exception into the test regardless, purely because it
+        # propagated through the exception-handling layer, which would
+        # mask the very behavior this test exists to confirm.
+        client = TestClient(
+            create_app_unauthenticated(), raise_server_exceptions=False
+        )
+
+        with caplog.at_level(logging.ERROR, logger="llauncher.agent.server"):
+            response = client.post("/swap/8081", json={"model": "test-model"})
+
+        assert response.status_code == 500
+        body = response.json()
+        assert body["success"] is False
+        assert body["action"] == "error"
+        assert body["message"], "structured body must carry a non-empty message"
+
+        matching = [
+            record
+            for record in caplog.records
+            if record.levelname == "ERROR" and record.exc_info is not None
+        ]
+        assert matching, "logger.exception must have fired with a captured traceback"
+        assert isinstance(matching[0].exc_info[1], OSError)
+        # Route + params logged (issue #404: "include the route and the
+        # request parameters where safe").
+        assert "/swap/8081" in matching[0].getMessage()
+
+    def test_handled_http_exception_does_not_hit_the_catchall_handler(
+        self, client, monkeypatch, caplog
+    ):
+        """A route's own structured ``HTTPException`` (e.g. ops.swap
+        returning ``action="failed"``) must NOT be re-logged by the
+        catch-all — FastAPI dispatches ``HTTPException`` to its own
+        default handler, never to an ``Exception``-registered one.
+        """
+        import logging
+
+        from llauncher import operations as ops
+
+        monkeypatch.setattr(
+            "llauncher.agent.routing.ops.swap",
+            lambda model, port, caller="agent": ops.SwapResult(
+                success=False,
+                action="failed",
+                port_state="occupied",
+                port=port,
+                model=model,
+                message="boom",
+            ),
+        )
+
+        with caplog.at_level(logging.ERROR, logger="llauncher.agent.server"):
+            response = client.post("/swap/8081", json={"model": "test-model"})
+
+        assert response.status_code == 500
+        assert response.json()["detail"]["action"] == "failed"
+        assert not any(
+            record.name == "llauncher.agent.server" for record in caplog.records
+        ), "a handled HTTPException must not be logged by the catch-all handler"
+
+
 class TestStopServerEndpoint:
     """Tests for the port-keyed /stop/{port} endpoint."""
 

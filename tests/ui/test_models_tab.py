@@ -326,8 +326,12 @@ class TestModelCardLoop:
         assert (resolved.node_name, resolved.config_name, resolved.port, resolved.pid) == (
             "local", "beta", PORT, PID
         )
-        # The lookup consumed a *fresh* process scan, not a stale snapshot.
-        mock_state.refresh.assert_called_once_with()
+        # The lookup reads the *same* scan the earlier registry-table render
+        # already took (#370) — it must not trigger its own redundant
+        # ``state.refresh()``. (``render_model_registry`` is mocked here, so
+        # any call surfacing on ``mock_state.refresh`` would have to come
+        # from ``_build_running_map`` itself.)
+        mock_state.refresh.assert_not_called()
 
     def test_remote_target_cards_come_from_the_aggregator_not_local_state(
         self, tab_harness, mock_state, mock_registry, mock_aggregator,

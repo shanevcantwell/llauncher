@@ -2183,9 +2183,11 @@ def test_swap_cancel_during_readiness_rolls_back_as_cancelled(
         return cancel_calls["n"] >= 2
 
     # Simulate wait_for_server_ready honoring cancel_check. Accepts
-    # model_name (added in #145) so the mock matches the real signature.
+    # model_name (added in #145) and process (added in #368) so the mock
+    # matches the real signature.
     def fake_wait(
-        port, timeout=120, check_interval=1.0, cancel_check=None, model_name=None
+        port, timeout=120, check_interval=1.0, cancel_check=None,
+        model_name=None, process=None,
     ):
         if cancel_check is not None and cancel_check():
             return False, ["cancelled by caller"]

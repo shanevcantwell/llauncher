@@ -28,6 +28,7 @@ reads from the mocked ``RemoteAggregator`` facade only — never local state.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -285,6 +286,79 @@ class TestModelRegistrySizeFormatting:
         assert not at.exception
         df = at.dataframe[0].value
         assert list(df["size"]) == [expected]
+
+
+class TestModelRegistryLastModifiedFormatting:
+    """The rendered ``last_modified`` column tolerates non-datetime values.
+
+    Regression coverage for #347: a str-typed ``last_modified`` (or any
+    value without ``.strftime``) must render as a display string instead of
+    raising ``AttributeError`` — https://github.com/shanevcantwell/llauncher/issues/347.
+    """
+
+    def test_datetime_last_modified_renders_formatted_timestamp(
+        self, tab_harness, mock_state, mock_aggregator
+    ):
+        mock_state.models = {"test-model": _make_model()}
+        when = datetime(2026, 1, 2, 3, 4, tzinfo=timezone.utc)
+        health = ModelHealthResult(valid=True, exists=True, readable=True, last_modified=when)
+
+        with patch("llauncher.core.model_health.check_model_health", return_value=health):
+            at = tab_harness(
+                render_model_registry, mock_state, None, mock_aggregator, "local"
+            )
+
+        assert not at.exception
+        df = at.dataframe[0].value
+        assert list(df["last_modified"]) == ["2026-01-02 03:04"]
+
+    def test_str_typed_last_modified_does_not_raise_and_renders_as_is(
+        self, tab_harness, mock_state, mock_aggregator
+    ):
+        """A str-typed ``last_modified`` must not hit ``.strftime`` (#347)."""
+        mock_state.models = {"test-model": _make_model()}
+        healthy = ModelHealthResult(valid=True, exists=True, readable=True)
+
+        # Bypass ModelHealthResult's datetime typing: model_dump() is what
+        # the tab actually reads from, so patch it directly to return a
+        # str-typed last_modified — reproducing any producer that has
+        # already serialized the timestamp to a string.
+        with patch(
+            "llauncher.core.model_health.check_model_health", return_value=healthy
+        ), patch.object(
+            ModelHealthResult,
+            "model_dump",
+            return_value={
+                "valid": True,
+                "exists": True,
+                "readable": True,
+                "reason": None,
+                "size_bytes": None,
+                "last_modified": "2026-01-02T03:04:00+00:00",
+            },
+        ):
+            at = tab_harness(
+                render_model_registry, mock_state, None, mock_aggregator, "local"
+            )
+
+        assert not at.exception
+        df = at.dataframe[0].value
+        assert list(df["last_modified"]) == ["2026-01-02T03:04:00+00:00"]
+
+    def test_none_last_modified_renders_em_dash(
+        self, tab_harness, mock_state, mock_aggregator
+    ):
+        mock_state.models = {"test-model": _make_model()}
+        health = ModelHealthResult(valid=True, exists=True, readable=True, last_modified=None)
+
+        with patch("llauncher.core.model_health.check_model_health", return_value=health):
+            at = tab_harness(
+                render_model_registry, mock_state, None, mock_aggregator, "local"
+            )
+
+        assert not at.exception
+        df = at.dataframe[0].value
+        assert list(df["last_modified"]) == ["—"]
 
 
 class TestModelRegistryLocalTargetRefresh:
