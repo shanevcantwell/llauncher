@@ -24,12 +24,14 @@ class TestListTools:
         with patch("llauncher.mcp_server.server.models_tools.get_tools", return_value=["model1", "model2"]):
             with patch("llauncher.mcp_server.server.servers_tools.get_tools", return_value=["server1", "server2", "server3", "server4"]):
                 with patch("llauncher.mcp_server.server.config_tools.get_tools", return_value=["config1", "config2", "config3", "config4"]):
-                    tools = await list_tools_handler()
+                    with patch("llauncher.mcp_server.server.audit_tools.get_tools", return_value=["audit1"]):
+                        tools = await list_tools_handler()
 
-                    # 2 models + 4 servers + 4 config = 10 total
-                    assert len(tools) == 10
-                    assert "model1" in tools
-                    assert "server1" in tools
+                        # 2 models + 4 servers + 4 config + 1 audit = 11 total
+                        assert len(tools) == 11
+                        assert "model1" in tools
+                        assert "server1" in tools
+                        assert "audit1" in tools
 
 
 class TestCallTool:
@@ -251,6 +253,24 @@ class TestInterfaceCloseout:
                 result = await _dispatch_tool("cancel_server", {"port": 8080})
                 assert result == "cancel_server_result"
                 # Stateless verb must not touch the lazy LauncherState singleton.
+                mock_get.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_dispatch_tool_read_audit(self):
+        """Dispatch to read_audit (issue #338) — stateless read, bypasses the singleton.
+
+        Mirrors ``test_dispatch_tool_cancel_server``: ``read_audit`` reads
+        local disk directly (like ``server_metrics``/``server_slots``), so
+        it must be reached before ``get_mcp_state`` and never touch the
+        lazy ``LauncherState`` singleton.
+        """
+        with patch("llauncher.mcp_server.server.get_mcp_state") as mock_get:
+            with patch(
+                "llauncher.mcp_server.server.audit_tools.read_audit",
+                return_value="read_audit_result",
+            ):
+                result = await _dispatch_tool("read_audit", {})
+                assert result == "read_audit_result"
                 mock_get.assert_not_called()
 
     @pytest.mark.asyncio

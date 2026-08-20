@@ -1026,6 +1026,68 @@ class TestWaitForServerReady:
                         assert is_ready is False
                         assert logs == []
 
+    def test_wait_for_server_ready_dead_process_fast_fails(self):
+        """#368: a process that has already exited short-circuits the poll.
+
+        Without a liveness check the loop would burn the entire
+        ``timeout`` ceiling polling a port/log a dead process can never
+        produce. With ``process`` wired in, the very first tick sees
+        ``poll()`` return a non-None exit code and returns immediately —
+        proven here by a ``timeout`` far longer than the wall time the
+        test tolerates, with ``time.sleep`` intentionally left real so a
+        regression (falling through to the full poll loop) would make
+        this test time out rather than silently pass.
+        """
+        from llauncher.core.process import wait_for_server_ready
+
+        dead_process = MagicMock()
+        dead_process.poll.return_value = 1  # exited, nonzero rc
+
+        def mock_socket(*args, **kwargs):
+            mock_sock = MagicMock()
+            mock_sock.connect_ex.return_value = 1  # port never opens
+            mock_sock.settimeout = MagicMock()
+            mock_sock.close = MagicMock()
+            return mock_sock
+
+        with patch("llauncher.core.process.find_server_by_port", return_value=None):
+            with patch("socket.socket", side_effect=mock_socket):
+                is_ready, logs = wait_for_server_ready(
+                    8080, timeout=60, check_interval=0.05, process=dead_process
+                )
+
+        assert is_ready is False
+        assert logs == []
+        dead_process.poll.assert_called()
+
+    def test_wait_for_server_ready_live_process_still_polls_normally(self):
+        """A live ``process`` (``poll()`` returns None) doesn't short-circuit."""
+        from llauncher.core.process import wait_for_server_ready
+
+        live_process = MagicMock()
+        live_process.poll.return_value = None  # still running
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+
+        def mock_socket(*args, **kwargs):
+            mock_sock = MagicMock()
+            mock_sock.connect_ex.return_value = 0  # port open
+            mock_sock.settimeout = MagicMock()
+            mock_sock.close = MagicMock()
+            return mock_sock
+
+        with patch("llauncher.core.process.find_server_by_port", return_value=mock_proc):
+            with patch("llauncher.core.process.stream_logs", return_value=["server started and listening"]):
+                with patch("socket.socket", side_effect=mock_socket):
+                    with patch("time.sleep"):  # Skip actual sleep
+                        is_ready, logs = wait_for_server_ready(
+                            8080, timeout=2, check_interval=0.1, process=live_process
+                        )
+
+        assert is_ready is True
+        assert logs == ["server started and listening"]
+
 
 class TestStopServerExceptions:
     """Tests for stop_server exception handling."""

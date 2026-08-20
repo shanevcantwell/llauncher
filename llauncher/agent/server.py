@@ -23,7 +23,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from starlette.responses import JSONResponse
 
 from llauncher import __version__
 from llauncher import operations as ops
@@ -454,6 +455,46 @@ def create_app_unauthenticated() -> FastAPI:
     return _build_app(auth_token=None)
 
 
+async def _log_unhandled_exception(request: Request, exc: Exception) -> JSONResponse:
+    """Log the full traceback for any exception FastAPI itself didn't handle.
+
+    Issue #404: an unhandled exception in a route becomes a bare 500 via
+    Starlette's ``ServerErrorMiddleware`` — no traceback, no detail, in any
+    log. Registering this as the app's catch-all ``Exception`` handler
+    (FastAPI dispatches by most-specific exception type, so ``HTTPException``
+    — the structured-error path every verb route already uses — is handled
+    by FastAPI's own default handler and never reaches here, see
+    ``routing.py``'s ``_start_status_code`` et al.) runs it *before*
+    ``ServerErrorMiddleware`` ever sees the exception, so this is the last
+    point in the app that has the real traceback.
+
+    Logs at ERROR with ``exc_info`` (full traceback via ``logger.exception``)
+    plus the route path, method, and path/query params — safe to log since
+    verb routes carry only model names and ports, never secrets or prompt
+    text. The response body is a top-level ``success``/``action``/``message``
+    object. Note this is *not* the same envelope a route's own error path
+    emits: those raise ``HTTPException(detail=payload)``, which FastAPI
+    serializes as ``{"detail": {...}}`` (nested), whereas this catch-all's
+    fields sit at the top level.
+    """
+    logger.exception(
+        "Unhandled exception in %s %s (path_params=%s, query_params=%s)",
+        request.method,
+        request.url.path,
+        dict(request.path_params),
+        dict(request.query_params),
+        exc_info=exc,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "action": "error",
+            "message": "Unhandled exception; see agent logs.",
+        },
+    )
+
+
 def _build_app(auth_token: str | None) -> FastAPI:
     """Internal shared builder. See ``create_app`` / ``create_app_unauthenticated``."""
     auth_active = auth_token is not None
@@ -471,6 +512,13 @@ def _build_app(auth_token: str | None) -> FastAPI:
         redoc_url=redoc_url,
         lifespan=lifespan,
     )
+
+    # Catch-all exception logging (issue #404). Registration order relative to
+    # the middleware below is irrelevant: Starlette reads exception_handlers and
+    # user_middleware together at build_middleware_stack time and always routes
+    # the Exception/500 handler into ServerErrorMiddleware, the outermost layer,
+    # so this sees exceptions from every route regardless of add order.
+    app.add_exception_handler(Exception, _log_unhandled_exception)
 
     if auth_active:
         # Add authentication middleware when API key is configured

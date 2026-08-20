@@ -9,6 +9,7 @@ from mcp import Tool
 from mcp.types import TextContent
 
 from llauncher.state import LauncherState
+from llauncher.mcp_server.tools import audit as audit_tools
 from llauncher.mcp_server.tools import models as models_tools
 from llauncher.mcp_server.tools import servers as servers_tools
 from llauncher.mcp_server.tools import config as config_tools
@@ -45,6 +46,7 @@ async def list_tools_handler() -> list[Tool]:
     tools.extend(models_tools.get_tools())
     tools.extend(servers_tools.get_tools())
     tools.extend(config_tools.get_tools())
+    tools.extend(audit_tools.get_tools())
     return tools
 
 
@@ -87,6 +89,8 @@ async def _dispatch_tool(name: str, arguments: dict) -> dict:
         return await servers_tools.server_metrics(arguments)
     elif name == "server_slots":
         return await servers_tools.server_slots(arguments)
+    elif name == "read_audit":
+        return await audit_tools.read_audit(arguments)
 
     # ── Stateless config tools ──────────────────────────────────────
     if name == "validate_config":

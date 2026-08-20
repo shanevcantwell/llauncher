@@ -281,13 +281,17 @@ def start(
         except FileExistsError:
             # Race: another writer beat us between reconcile and write. Tear
             # down the process we just started and report the conflict.
+            # Routed through stop_server_by_pid (issue #415) rather than a
+            # raw popen.terminate() so this teardown also invalidates the
+            # process-scan cache (issue #414) — the same intrinsic guarantee
+            # the readiness-timeout rollback below already gets.
             try:
-                popen.terminate()
-            except OSError:
-                # Process already exited between the race and our cleanup
-                # (ESRCH), or we lack permission to signal it. Logging the
-                # exception preserves the traceback; the race outcome is
-                # already determined and we proceed to the error record.
+                proc.stop_server_by_pid(popen.pid)
+            except psutil.AccessDenied:
+                # Process already exited between the race and our cleanup,
+                # or we lack permission to signal it. Logging the exception
+                # preserves the traceback; the race outcome is already
+                # determined and we proceed to the error record.
                 logger.exception("Failed to terminate raced-launch process %s", popen.pid)
             al.record(
                 AuditAction.STARTED,
@@ -311,10 +315,14 @@ def start(
         # must not be reported as a successful start. Same helper
         # ``swap`` uses, reading this model's exact log file so a stale
         # same-port log from a prior occupant can't shadow the result.
+        # ``process=popen`` (#368) fast-fails the poll the instant the
+        # child exits instead of burning the full ``readiness_timeout``
+        # ceiling on a port/log that a dead process will never produce.
         ready, startup_logs = proc.wait_for_server_ready(
             port,
             timeout=readiness_timeout,
             model_name=model_name,
+            process=popen,
         )
         if not ready:
             try:

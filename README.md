@@ -56,6 +56,22 @@ python -m venv .venv
 pip install -e .
 ```
 
+**Set `LLAMA_SERVER_PATH` before your first model load.** The code default
+(`~/.local/bin/llama-server`) does not exist on Windows, so an unset
+`LLAMA_SERVER_PATH` fails the very first `/start` with `Server binary not
+found: C:\Users\...\.local\bin\llama-server`. Point it at your actual
+`llama-server.exe`:
+
+- **Dev / `run.bat` usage:** set `LLAMA_SERVER_PATH` in the project-root
+  `.env` (template: `.env.example`), e.g.
+  `LLAMA_SERVER_PATH=C:\path\to\llama-server.exe`.
+- **Service install (`scripts\windows\install.ps1`):** set it in
+  `%USERPROFILE%\.llauncher\agent.env` (template:
+  `scripts/windows/agent.env.example`) — required whenever the service runs
+  under NSSM's default LocalSystem account, since that account's home does
+  not resolve to your own profile. `install.ps1` prints a reminder on every
+  run if this is still unset.
+
 ## Quick Start
 
 Use the runner scripts for easiest setup:
@@ -381,6 +397,23 @@ pytest
 # or with coverage
 pytest --cov=llauncher --cov-report=term-missing
 ```
+
+**Running from a git worktree:** the dev `.venv` is a shared editable
+install, so its `.pth` entry always resolves `import llauncher` to
+whichever checkout it was last `pip install -e`'d from (normally the main
+checkout) — a worktree invocation whose collection order lets that `.pth`
+win reads coverage against the *main checkout's* files, not the worktree's
+(#361). `[tool.coverage.paths]` in `pyproject.toml` reconciles the report,
+but the sanctioned invocation is still to pin the import explicitly:
+
+```bash
+PYTHONPATH="$(pwd)" pytest --cov=llauncher --cov-report=term-missing
+```
+
+Never repoint the shared venv's `.pth` at a worktree to work around
+this — that `.venv` also backs the live `llauncher-agent` systemd
+service, and a crash mid-window leaves the live service importing
+worktree code. Restore-after-use is not a substitute for not mutating it.
 
 Test files are in `tests/`:
 - `tests/unit/`: Unit tests for models, config, and process

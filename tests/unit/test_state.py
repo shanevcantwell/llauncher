@@ -7,6 +7,7 @@ from pathlib import Path
 
 from llauncher.state import LauncherState
 from llauncher.models.config import ModelConfig, RunningServer
+from llauncher.core.process import invalidate_process_scan_cache
 
 
 class TestStartWithEviction:
@@ -99,6 +100,49 @@ class TestStartWithEviction:
         assert evict_entries[0].result == "success"
         start_entries = [e for e in mock_state.audit if e.action == "start"]
         assert len(start_entries) == 1
+
+    def test_eviction_readiness_poll_passes_live_process_handle(self, mock_state):
+        """Regression (#368): evict_and_swap must hand the live ``Popen`` to
+        ``wait_for_server_ready`` as ``process=`` so a child that dies on
+        launch fast-fails instead of burning the full readiness ceiling.
+
+        This asserts the *wiring* through the call site — the ``state.py``
+        gap that the process-level unit tests could not see (a diff that
+        re-dropped ``process=`` there would pass every other test green).
+        """
+        mock_state.models = {
+            "new_model": self.make_model("new_model", 8080),
+        }
+        mock_state.running = {
+            8080: RunningServer(
+                pid=1234,
+                port=8080,
+                config_name="old_model",
+                start_time=datetime.now(),
+            )
+        }
+
+        with patch("llauncher.state.process_start_server") as mock_start, \
+             patch("llauncher.state.process_stop_server", return_value=True), \
+             patch("llauncher.state.wait_for_server_ready",
+                   return_value=(True, [])) as mock_ready, \
+             patch.object(mock_state, "refresh_running_servers"):
+
+            mock_process = MagicMock()
+            mock_process.pid = 5678
+            mock_start.return_value = mock_process
+
+            success, message = mock_state.start_with_eviction(
+                model_name="new_model",
+                port=8080,
+                caller="test",
+            )
+
+        assert success is True, f"Expected success, got: {message}"
+        # The readiness poll must receive the exact live handle returned by
+        # process_start_server — not None. Without it the poll cannot fast-fail
+        # on a dead child and re-plateaus to the full timeout (#368).
+        assert mock_ready.call_args.kwargs.get("process") is mock_process
 
     def test_start_with_eviction_model_not_found(self, mock_state):
         """Test eviction when model does not exist."""
@@ -611,6 +655,95 @@ class TestProcessScanCacheIntegration:
 
         assert 9321 in state.running
         assert state.running[9321].config_name == "test_model"
+
+    def test_refresh_running_servers_sources_identity_from_alias_not_path(
+        self, mock_config_store, tmp_path
+    ):
+        """Issue #423: two ModelConfigs sharing one gguf must not collide.
+
+        ``_find_model_by_path`` picks an arbitrary sibling when two configs
+        share a ``model_path`` (dict-iteration order). The launched
+        ``--alias`` is the canonical identity (ONE-MINT /
+        IDENTITY⊥ENVELOPE, ``process.build_command``) and must win over any
+        path-based reverse lookup, regardless of dict ordering.
+        """
+        shared_path = tmp_path / "shared.gguf"
+        shared_path.write_text("mock")
+
+        with patch("psutil.process_iter", return_value=[]):
+            state = LauncherState()
+
+        # Two sibling configs pointing at the same gguf, differing only in
+        # config (e.g. pooled vs nonpooled). Insertion order intentionally
+        # puts the *other* sibling first so a naive path lookup would
+        # return the wrong name.
+        state.models = {
+            "embeddinggemma-300M-F32-nonpooled": ModelConfig.from_dict_unvalidated({
+                "name": "embeddinggemma-300M-F32-nonpooled",
+                "model_path": str(shared_path),
+                "n_gpu_layers": 255,
+                "ctx_size": 4096,
+            }),
+            "embeddinggemma-300M-F32-pooled": ModelConfig.from_dict_unvalidated({
+                "name": "embeddinggemma-300M-F32-pooled",
+                "model_path": str(shared_path),
+                "n_gpu_layers": 255,
+                "ctx_size": 4096,
+            }),
+        }
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 5150
+        mock_proc.name.return_value = "llama-server"
+        mock_proc.cmdline.return_value = [
+            "llama-server",
+            "--port", "8082",
+            "-m", str(shared_path),
+            "--alias", "embeddinggemma-300M-F32-pooled",
+        ]
+
+        invalidate_process_scan_cache()
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            state.refresh_running_servers()
+
+        assert 8082 in state.running
+        assert state.running[8082].config_name == "embeddinggemma-300M-F32-pooled"
+
+    def test_refresh_running_servers_falls_back_to_path_when_no_alias(
+        self, mock_config_store, tmp_path
+    ):
+        """A foreign/orphan llama-server (no ``--alias``, not launched by
+        llauncher) still resolves via the path-based lookup rather than
+        reporting ``unknown`` whenever the path is unambiguous.
+        """
+        model_path = tmp_path / "solo.gguf"
+        model_path.write_text("mock")
+
+        with patch("psutil.process_iter", return_value=[]):
+            state = LauncherState()
+
+        state.models = {
+            "solo_model": ModelConfig.from_dict_unvalidated({
+                "name": "solo_model",
+                "model_path": str(model_path),
+                "n_gpu_layers": 255,
+                "ctx_size": 4096,
+            })
+        }
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 6161
+        mock_proc.name.return_value = "llama-server"
+        mock_proc.cmdline.return_value = [
+            "llama-server", "--port", "9999", "-m", str(model_path),
+        ]
+
+        invalidate_process_scan_cache()
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            state.refresh_running_servers()
+
+        assert 9999 in state.running
+        assert state.running[9999].config_name == "solo_model"
 
 
 class TestUptimeFormatting:

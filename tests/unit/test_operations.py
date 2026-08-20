@@ -1745,15 +1745,22 @@ def test_delete_model_result_to_dict_envelope() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_start_lockfile_race_terminate_oserror_does_not_mask_error(
+def test_start_lockfile_race_terminate_accessdenied_does_not_mask_error(
     run_dir: Path, audit_path: Path, sample_config: ModelConfig, caplog
 ) -> None:
-    """OSError from ``popen.terminate`` during a lockfile race is logged, not swallowed silently."""
+    """AccessDenied from the rollback teardown during a lockfile race is
+    logged, not swallowed silently.
+
+    Issue #415: the lockfile-race rollback now routes through
+    ``stop_server_by_pid`` (which raises ``psutil.AccessDenied``, not
+    ``OSError``, on a signal failure) instead of a raw ``popen.terminate()``.
+    """
     import logging
+
+    import psutil
 
     racing_popen = MagicMock()
     racing_popen.pid = 88888
-    racing_popen.terminate.side_effect = OSError("process already exited (ESRCH)")
 
     with patch(
         "llauncher.operations.start.ConfigStore.get_model", return_value=sample_config
@@ -1761,6 +1768,10 @@ def test_start_lockfile_race_terminate_oserror_does_not_mask_error(
          patch(
              "llauncher.operations.start.lf.write_lockfile",
              side_effect=FileExistsError("raced"),
+         ), \
+         patch(
+             "llauncher.operations.start.proc.stop_server_by_pid",
+             side_effect=psutil.AccessDenied(pid=88888, name="llama-server"),
          ):
         with caplog.at_level(logging.ERROR, logger="llauncher.operations.start"):
             result = ops.start("mistral-7b", 8081, caller="test", model_health_check=None)
@@ -1771,9 +1782,76 @@ def test_start_lockfile_race_terminate_oserror_does_not_mask_error(
     # The previously-swallowed exception is now visible in the log record.
     assert any("Failed to terminate" in r.message for r in caplog.records)
     assert any(
-        isinstance(r.exc_info, tuple) and r.exc_info[0] is OSError
+        isinstance(r.exc_info, tuple) and r.exc_info[0] is psutil.AccessDenied
         for r in caplog.records
     )
+
+
+def test_start_lockfile_race_routes_through_stop_server_by_pid(
+    run_dir: Path, audit_path: Path, sample_config: ModelConfig
+) -> None:
+    """Issue #415: the lockfile-race rollback tears the process down via
+    ``stop_server_by_pid`` (the cache-invalidating primitive from #414),
+    not a raw ``popen.terminate()`` that bypasses invalidation.
+    """
+    racing_popen = MagicMock()
+    racing_popen.pid = 88888
+
+    with patch(
+        "llauncher.operations.start.ConfigStore.get_model", return_value=sample_config
+    ), patch("llauncher.operations.start.proc.start_server", return_value=racing_popen), \
+         patch(
+             "llauncher.operations.start.lf.write_lockfile",
+             side_effect=FileExistsError("raced"),
+         ), \
+         patch(
+             "llauncher.operations.start.proc.stop_server_by_pid",
+             return_value=True,
+         ) as mock_stop:
+        result = ops.start("mistral-7b", 8081, caller="test", model_health_check=None)
+
+    assert result.success is False
+    mock_stop.assert_called_once_with(88888)
+    # The raw Popen handle must NOT be terminated directly — that's the
+    # bypass path this fix closes.
+    racing_popen.terminate.assert_not_called()
+
+
+def test_start_lockfile_race_invalidates_process_scan_cache(
+    run_dir: Path, audit_path: Path, sample_config: ModelConfig
+) -> None:
+    """Issue #415: the raced-launch teardown purges the process-scan cache,
+    end to end through the real ``stop_server_by_pid`` primitive — not just
+    "was it called," but "does invalidation actually happen."
+    """
+    from llauncher.core.process import find_all_llama_servers, invalidate_process_scan_cache
+
+    invalidate_process_scan_cache()
+
+    mock_proc = MagicMock()
+    mock_proc.children.return_value = []
+    racing_popen = MagicMock()
+    racing_popen.pid = 88888
+
+    with patch(
+        "llauncher.operations.start.ConfigStore.get_model", return_value=sample_config
+    ), patch("llauncher.operations.start.proc.start_server", return_value=racing_popen), \
+         patch(
+             "llauncher.operations.start.lf.write_lockfile",
+             side_effect=FileExistsError("raced"),
+         ), \
+         patch("psutil.Process", return_value=mock_proc), \
+         patch("psutil.process_iter", return_value=[]) as mock_iter:
+        # Warm the scan cache before the race/rollback.
+        find_all_llama_servers()
+        assert mock_iter.call_count == 1
+
+        ops.start("mistral-7b", 8081, caller="test", model_health_check=None)
+
+        # A scan right after the rollback must not be served from the
+        # pre-rollback cached result.
+        find_all_llama_servers()
+        assert mock_iter.call_count == 2
 
 
 def test_swap_readiness_timeout_terminate_accessdenied_does_not_mask_rollback(
@@ -1824,13 +1902,16 @@ def test_swap_readiness_timeout_terminate_accessdenied_does_not_mask_rollback(
 def test_swap_terminate_unexpected_exception_now_propagates(
     run_dir: Path, marker_run_dir: Path, audit_path: Path
 ) -> None:
-    """Non-OSError, non-AccessDenied exceptions are NOT swallowed by the cleanup path.
+    """Non-AccessDenied exceptions are NOT swallowed by the cleanup path.
 
     Regression guard: the prior bare ``except Exception:`` would have
-    hidden a ``RuntimeError`` from ``popen.terminate()``. With scoped
+    hidden a ``RuntimeError`` from the rollback teardown. With scoped
     catches, an unexpected exception now surfaces — which is the
     correct behavior, so a programmer mistake at the cleanup boundary
     is visible.
+
+    Issue #415: the teardown is now ``stop_server_by_pid`` rather than a raw
+    ``popen.terminate()``, so the unexpected exception is raised from there.
     """
     import os
 
@@ -1838,7 +1919,6 @@ def test_swap_terminate_unexpected_exception_now_propagates(
 
     racing_popen = MagicMock()
     racing_popen.pid = 88888
-    racing_popen.terminate.side_effect = RuntimeError("programmer-mistake-style failure")
 
     with patch(
         "llauncher.operations.ConfigStore.get_model",
@@ -1848,9 +1928,119 @@ def test_swap_terminate_unexpected_exception_now_propagates(
          patch(
              "llauncher.operations.swap.lf.write_lockfile",
              side_effect=FileExistsError("raced"),
+         ), \
+         patch(
+             "llauncher.operations.proc.stop_server_by_pid",
+             side_effect=RuntimeError("programmer-mistake-style failure"),
          ):
         with pytest.raises(RuntimeError, match="programmer-mistake-style"):
             ops.swap("new-model", 8081, caller="test", **_NO_PREFLIGHT)
+
+
+def test_swap_lockfile_race_routes_through_stop_server_by_pid(
+    run_dir: Path, marker_run_dir: Path, audit_path: Path
+) -> None:
+    """Issue #415: the lockfile-race rollback in swap's launch helper tears
+    the process down via ``stop_server_by_pid`` (the cache-invalidating
+    primitive from #414), not a raw ``popen.terminate()`` that bypasses
+    invalidation.
+    """
+    import os
+
+    lf.write_lockfile(8081, "old", os.getpid(), run_dir=run_dir)
+
+    racing_popen = MagicMock()
+    racing_popen.pid = 88888
+
+    # Race only the new-model launch (phase 4); let the rollback launch's
+    # own lockfile write succeed so this test isolates the single race path
+    # under test rather than also racing the rollback's re-launch.
+    write_lockfile_calls = {"n": 0}
+
+    def write_lockfile_side_effect(*args, **kwargs):
+        write_lockfile_calls["n"] += 1
+        if write_lockfile_calls["n"] == 1:
+            raise FileExistsError("raced")
+        return None
+
+    with patch(
+        "llauncher.operations.ConfigStore.get_model",
+        side_effect=_config_lookup(_make_config("old"), _make_config("new-model")),
+    ), patch("llauncher.operations.proc.stop_server_by_port", return_value=True), \
+         patch("llauncher.operations.proc.start_server", return_value=racing_popen), \
+         patch(
+             "llauncher.operations.swap.lf.write_lockfile",
+             side_effect=write_lockfile_side_effect,
+         ), \
+         patch(
+             "llauncher.operations.proc.wait_for_server_ready",
+             return_value=(True, ["ready"]),
+         ), \
+         patch(
+             "llauncher.operations.proc.stop_server_by_pid",
+             return_value=True,
+         ) as mock_stop:
+        result = ops.swap("new-model", 8081, caller="test", **_NO_PREFLIGHT)
+
+    assert result.success is False
+    mock_stop.assert_called_once_with(88888)
+    racing_popen.terminate.assert_not_called()
+
+
+def test_swap_lockfile_race_invalidates_process_scan_cache(
+    run_dir: Path, marker_run_dir: Path, audit_path: Path
+) -> None:
+    """Issue #415: the raced-launch teardown in swap purges the process-scan
+    cache, end to end through the real ``stop_server_by_pid`` primitive.
+    """
+    import os
+
+    from llauncher.core.process import find_all_llama_servers, invalidate_process_scan_cache
+
+    invalidate_process_scan_cache()
+
+    lf.write_lockfile(8081, "old", os.getpid(), run_dir=run_dir)
+
+    racing_popen = MagicMock()
+    racing_popen.pid = 88888
+    mock_proc = MagicMock()
+    mock_proc.children.return_value = []
+
+    # Race only the new-model launch (phase 4); let the rollback launch's
+    # own lockfile write succeed so the rollback doesn't also race.
+    write_lockfile_calls = {"n": 0}
+
+    def write_lockfile_side_effect(*args, **kwargs):
+        write_lockfile_calls["n"] += 1
+        if write_lockfile_calls["n"] == 1:
+            raise FileExistsError("raced")
+        return None
+
+    with patch(
+        "llauncher.operations.ConfigStore.get_model",
+        side_effect=_config_lookup(_make_config("old"), _make_config("new-model")),
+    ), patch("llauncher.operations.proc.stop_server_by_port", return_value=True), \
+         patch("llauncher.operations.proc.start_server", return_value=racing_popen), \
+         patch(
+             "llauncher.operations.swap.lf.write_lockfile",
+             side_effect=write_lockfile_side_effect,
+         ), \
+         patch(
+             "llauncher.operations.proc.wait_for_server_ready",
+             return_value=(True, ["ready"]),
+         ), \
+         patch("psutil.Process", return_value=mock_proc), \
+         patch("psutil.process_iter", return_value=[]) as mock_iter:
+        # Warm the scan cache before the race/rollback.
+        find_all_llama_servers()
+        assert mock_iter.call_count == 1
+
+        ops.swap("new-model", 8081, caller="test", **_NO_PREFLIGHT)
+
+        # A scan right after the rollback must not be served from the
+        # pre-rollback cached result.
+        find_all_llama_servers()
+        assert mock_iter.call_count == 2
 
 
 # ---------------------------------------------------------------------------
@@ -1993,9 +2183,11 @@ def test_swap_cancel_during_readiness_rolls_back_as_cancelled(
         return cancel_calls["n"] >= 2
 
     # Simulate wait_for_server_ready honoring cancel_check. Accepts
-    # model_name (added in #145) so the mock matches the real signature.
+    # model_name (added in #145) and process (added in #368) so the mock
+    # matches the real signature.
     def fake_wait(
-        port, timeout=120, check_interval=1.0, cancel_check=None, model_name=None
+        port, timeout=120, check_interval=1.0, cancel_check=None,
+        model_name=None, process=None,
     ):
         if cancel_check is not None and cancel_check():
             return False, ["cancelled by caller"]
@@ -2125,18 +2317,21 @@ def test_swap_same_model_in_flight_marker_rejects(
     )
 
 
-def test_launch_and_await_ready_lockfile_race_terminate_oserror(caplog) -> None:
-    """Lockfile race during launch + terminate raises OSError → logged, race returned.
+def test_launch_and_await_ready_lockfile_race_terminate_accessdenied(caplog) -> None:
+    """Lockfile race during launch + teardown raises AccessDenied → logged, race returned.
 
-    Covers the OSError cleanup branch in ``_launch_and_await_ready``: the new
+    Covers the cleanup-failure branch in ``_launch_and_await_ready``: the new
     model's atomic lockfile write loses a race, so we tear down the process we
-    just spawned — but ``terminate`` raises ``OSError`` because the process
-    already exited (ESRCH). The exception is logged (not swallowed silently,
-    per issue #61) and the race tuple is returned. Parallels the start-side
-    ``test_start_lockfile_race_terminate_oserror_does_not_mask_error``.
+    just spawned via ``stop_server_by_pid`` (issue #415) — but the teardown
+    raises ``psutil.AccessDenied``. The exception is logged (not swallowed
+    silently, per issue #61) and the race tuple is returned. Parallels the
+    start-side
+    ``test_start_lockfile_race_terminate_accessdenied_does_not_mask_error``.
     """
     import importlib
     import logging
+
+    import psutil
 
     # ``operations.swap`` the attribute is the verb function (the package
     # re-exports it), so reach the module via importlib — same gotcha the
@@ -2145,7 +2340,6 @@ def test_launch_and_await_ready_lockfile_race_terminate_oserror(caplog) -> None:
 
     racing_popen = MagicMock()
     racing_popen.pid = 88888
-    racing_popen.terminate.side_effect = OSError("process already exited (ESRCH)")
     cfg = _make_config("new-model")
 
     with patch(
@@ -2153,6 +2347,9 @@ def test_launch_and_await_ready_lockfile_race_terminate_oserror(caplog) -> None:
     ), patch(
         "llauncher.operations.swap.lf.write_lockfile",
         side_effect=FileExistsError("raced"),
+    ), patch(
+        "llauncher.operations.swap.proc.stop_server_by_pid",
+        side_effect=psutil.AccessDenied(pid=88888, name="llama-server"),
     ):
         with caplog.at_level(logging.ERROR, logger="llauncher.operations.swap"):
             ready, pid, logs, err = swap_mod._launch_and_await_ready(
@@ -2165,6 +2362,6 @@ def test_launch_and_await_ready_lockfile_race_terminate_oserror(caplog) -> None:
     assert "lockfile race" in err
     assert any("Failed to terminate raced-launch" in r.message for r in caplog.records)
     assert any(
-        isinstance(r.exc_info, tuple) and r.exc_info[0] is OSError
+        isinstance(r.exc_info, tuple) and r.exc_info[0] is psutil.AccessDenied
         for r in caplog.records
     )
