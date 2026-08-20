@@ -2,7 +2,7 @@
 
 Provides a Typer-based command-line interface with subcommand groups:
 - model: list, info, remove
-- server: start, stop, status
+- server: start, stop, swap, status
 - node: add, list, remove, status
 - config: path, validate
 
@@ -289,6 +289,48 @@ def stop_server(
         console.print(f"[red]✗ {message}[/red]")
         raise typer.Exit(code=1)
     console.print(_color(message, "stopped"))
+
+
+@server_app.command("swap")
+def swap_server(
+    name: str = typer.Argument(..., help="Name of the model to swap in"),
+    port: int = typer.Option(
+        ...,
+        "--port",
+        "-p",
+        help="Port whose occupant to replace (required; ADR-010).",
+    ),
+    caller: str = typer.Option("cli", hidden=True),
+) -> None:
+    """Replace whatever is running on ``port`` with ``name``.
+
+    Per ADR-010 the caller supplies the port, mirroring ``start``/``stop``.
+    Performs the ADR-011 5-phase swap (pre-flight, marker, stop, start,
+    readiness) with rollback to the previous model on failure — same
+    delegation gate as ``start``/``stop``: a healthy local agent gets the
+    swap over HTTP, else it runs in-process.
+    """
+    from llauncher import operations
+    from llauncher.core import delegation
+    from llauncher.remote.node import local_agent_node
+
+    # Delegation gate (#200/#203): mirror ``start``/``stop`` — delegate to
+    # the local agent over HTTP when one is reachable (sole-spawner intent,
+    # #194), else swap in-process (dev/standalone).
+    if delegation.should_delegate():
+        success, message = _delegated_outcome(
+            local_agent_node().swap_server(name, port), "swap", port
+        )
+    else:
+        result = operations.swap(name, port, caller=caller)
+        success, message = result.success, result.message
+        if result.action == "rolled_back" and result.previous_model:
+            message = f"{message} (rolled back to {result.previous_model})"
+
+    if not success:
+        console.print(f"[red]✗ {message}[/red]")
+        raise typer.Exit(code=1)
+    console.print(_color(message, "running"))
 
 
 @server_app.command("cancel")
