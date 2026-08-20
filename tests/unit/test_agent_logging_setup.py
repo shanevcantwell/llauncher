@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import logging
 
+import pytest
+
 import llauncher.agent.server as agent_server
 
 
@@ -157,6 +159,38 @@ class TestBuildUvicornLogConfig:
     root logger's FileHandler was never the problem, uvicorn's
     ``propagate: False`` loggers bypassing it was.
     """
+
+    @pytest.fixture(autouse=True)
+    def _reset_uvicorn_logger_state(self):
+        """Reset uvicorn's process-global logger state both before and
+        after every test in this class (issue #409).
+
+        ``logging.getLogger(name)`` returns the same process-global
+        ``Logger`` object for the life of the interpreter, so any prior
+        test-suite member that dictConfigs or otherwise mutates the
+        ``uvicorn`` / ``uvicorn.access`` / ``uvicorn.error`` loggers
+        leaves that mutation live for whatever runs next — verified
+        culprit here is Streamlit's ``streamlit.logger.init_uvicorn_logs``
+        (triggered by any AppTest-harness UI test earlier in the suite),
+        which unconditionally sets ``uvicorn.error.propagate = False``
+        with no teardown of its own. ``test_access_and_error_records_...``
+        depends on ``uvicorn.error`` propagating into ``uvicorn`` to reach
+        the injected FileHandler, so a leaked ``propagate = False`` from
+        *before* this test starts made it fail only when the full suite
+        (including UI tests) ran first — passing in isolation, per the
+        issue's provenance section.
+
+        The pre-existing ``finally: _reset_uvicorn_loggers()`` at the end
+        of ``test_access_and_error_records_...`` only cleaned up *after*
+        that one test, defending later tests from this class's own
+        dictConfig calls — it did nothing to protect this class's tests
+        from a leak arriving from *outside* it. Resetting on entry too
+        closes that gap without depending on suite order or other files'
+        cleanup discipline.
+        """
+        _reset_uvicorn_loggers()
+        yield
+        _reset_uvicorn_loggers()
 
     def test_returned_config_is_not_the_module_level_template(self, tmp_path):
         """Must be a fresh dict per call, not the shared module constant —

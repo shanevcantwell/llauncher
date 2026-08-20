@@ -32,6 +32,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/systemd/venv_manifest.sh
 . "$SCRIPT_DIR/venv_manifest.sh"
+# shellcheck source=scripts/systemd/check_python_floor.sh
+. "$SCRIPT_DIR/check_python_floor.sh"
 
 REPO_URL="https://github.com/shanevcantwell/llauncher.git"
 REF="${REF:-main}"
@@ -52,6 +54,13 @@ fi
 
 command -v python3 >/dev/null || { echo "FATAL: python3 not found"; exit 1; }
 command -v git     >/dev/null || { echo "FATAL: git not found (needed for the git+https install)"; exit 1; }
+
+# Interpreter floor (issue #334): pyproject.toml declares
+# `requires-python = ">=3.11"`, but a bare `command -v python3` above only
+# proves SOME python3 exists, not that it clears the floor. A <3.11
+# interpreter would build the venv below, then fail later at import time
+# (trust-and-degrade instead of fail-loud). Check before `python3 -m venv`.
+check_python_floor python3 3 11
 
 echo "==> dedicated venv at $VENV (own Python; independent of any dev .venv; not on PATH)"
 mkdir -p "$PREFIX"

@@ -69,11 +69,15 @@ def render_model_registry(state, registry=None, aggregator=None, target="local")
                 status = f"❓ unknown ({dump.get('reason')})"
 
         size_str = _format_size(dump.get("size_bytes")) if dump.get("size_bytes") is not None else "—"
-        last_mod = (
-            dump["last_modified"].strftime("%Y-%m-%d %H:%M")
-            if isinstance(dump.get("last_modified"), str) or hasattr(dump.get("last_modified"), "strftime")
-            else ("—")
-        )
+        raw_last_modified = dump.get("last_modified")
+        if hasattr(raw_last_modified, "strftime"):
+            last_mod = raw_last_modified.strftime("%Y-%m-%d %H:%M")
+        elif isinstance(raw_last_modified, str):
+            # Defensive: a str-typed timestamp (e.g. from a pre-serialized
+            # payload) is displayed as-is rather than crashing on .strftime.
+            last_mod = raw_last_modified
+        else:
+            last_mod = "—"
 
         rows.append({
             "node": target,
