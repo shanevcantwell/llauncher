@@ -61,6 +61,11 @@ def _restore_settings():
         pytest.param("8081, -1, 8082", id="negative"),
         pytest.param("8081, 0, 8082", id="zero"),
         pytest.param("8081, 65536, 8082", id="above-range"),
+        # ``str.isdigit()`` is True for these but ``int()`` rejects them;
+        # without an ``isascii()`` gate they'd raise a bare, UNnamed
+        # ValueError from ``int(token)`` instead of the named branch.
+        pytest.param("8081, ², 8082", id="superscript-two"),
+        pytest.param("8081, ٥, 8082", id="arabic-indic-five"),
     ],
 )
 def test_malformed_entry_raises_at_load(monkeypatch, raw):

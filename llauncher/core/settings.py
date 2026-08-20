@@ -84,7 +84,13 @@ def _parse_blacklisted_ports(raw: str) -> list[int]:
         token = entry.strip()
         if not token:
             continue
-        if not token.isdigit() or not (1 <= int(token) <= 65535):
+        # ``str.isdigit()`` is True for non-ASCII digits (e.g. '²',
+        # Arabic-Indic '٥'), but ``int()`` rejects some of those with a
+        # bare ValueError that names neither the env var nor the entry.
+        # Gate on ``isascii()`` first so every invalid token routes
+        # through the named-ValueError branch below (issue #450 contract:
+        # named-entry errors).
+        if not (token.isascii() and token.isdigit()) or not (1 <= int(token) <= 65535):
             raise ValueError(
                 f"Invalid BLACKLISTED_PORTS entry {entry!r}: must be an "
                 f"integer in 1-65535 (env var BLACKLISTED_PORTS={raw!r})"
