@@ -16,10 +16,10 @@
 
 | Category | Files | Tests |
 |----------|-------|-------|
-| Unit | 96 | 1476 |
+| Unit | 97 | 1487 |
 | Integration | 14 | 94 |
-| Other | 20 | 200 |
-| **Total** | **130** | **1770** |
+| Other | 21 | 210 |
+| **Total** | **132** | **1791** |
 
 ## Tests carrying special markers
 
@@ -940,7 +940,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_e2e_config_path_reflects_state_dir_flag`**
   - *``config path`` (the CONFIG_PATH consumer) also honors the flag.*
 
-#### `tests/unit/test_config.py` (15 tests)
+#### `tests/unit/test_config.py` (16 tests)
 
 - **`test_config_store_add_and_get`**
   - *Test adding and retrieving a model from ConfigStore.*
@@ -972,6 +972,8 @@ ad-hoc markers used in the suite without declaration.
   - *Update rejected for name mismatch must not write an audit entry.*
 - **`test_caller_defaults_to_unknown`**
   - *Callers that don't pass a caller= are recorded as 'unknown'.*
+- **`test_save_raising_before_replace_leaves_old_config_file_intact`**
+  - *A crash between writing the ``.tmp`` file and the atomic rename must*
 
 #### `tests/unit/test_core_runtime_coverage.py` (20 tests)
 
@@ -1528,7 +1530,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_cache_type_invalid_value`**
   - *Test invalid cache_type raises error.*
 
-#### `tests/unit/test_models_config_extended.py` (18 tests)
+#### `tests/unit/test_models_config_extended.py` (20 tests)
 
 - **`test_missing_path_raises`**
   - *Validator raises on a missing path via the normal constructor.*
@@ -1554,6 +1556,8 @@ ad-hoc markers used in the suite without declaration.
 - **`test_validate_stop_default_ok`**
 - **`test_to_dict_keys`**
 - **`test_to_dict_keys`**
+- **`test_bool_is_not_overridden`**
+- **`test_populated_instance_is_truthy`**
 
 #### `tests/unit/test_models_config_extra_args.py` (37 tests)
 
@@ -2457,7 +2461,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_get_all_servers_empty_nodes`**
   - *Test getting servers when no nodes are configured.*
 
-#### `tests/unit/test_render_op_result.py` (16 tests)
+#### `tests/unit/test_render_op_result.py` (18 tests)
 
 - **`test_success_actions`**
 - **`test_info_actions`**
@@ -2485,6 +2489,9 @@ ad-hoc markers used in the suite without declaration.
   - *Adding a new ``OpResultSeverity`` member must update the icon table.*
 - **`test_icons_are_distinct`**
   - *Each severity gets a visually distinct icon — no copy-paste collisions.*
+- **`test_actionless_envelope_falls_back_to_no_action_message`**
+- **`test_render_op_result_with_actionless_empty_message_envelope`**
+  - *The full renderer surfaces the no-action fallback as its toast.*
 
 #### `tests/unit/test_run_sh_install_honesty.py` (6 tests)
 
@@ -2829,6 +2836,21 @@ ad-hoc markers used in the suite without declaration.
   - *The new guidance must not flip these into live assignments — a*
 - **`test_llama_server_path_documented_on_both_platform_templates`**
   - *Windows and systemd templates stay in parity on this variable.*
+
+#### `tests/unit/test_windows_llama_server_path_doc.py` (6 tests)
+
+- **`test_readme_windows_section_mentions_llama_server_path`**
+  - *The Windows Notes section (read before Quick Start) must name*
+- **`test_readme_names_both_config_channels`**
+  - *The callout must point at both the dev (.env) and service*
+- **`test_install_ps1_warns_when_llama_server_path_unset`**
+  - *install.ps1 must check the live agent.env for an active*
+- **`test_install_ps1_reminder_checks_live_env_file`**
+  - *The check must read the live $EnvFile (not the .example template)*
+- **`test_install_ps1_reminder_does_not_gate_install`**
+  - *This is an informational reminder only -- it must not `Die` (abort*
+- **`test_install_ps1_reminder_does_not_flip_template_to_active`**
+  - *Guard against accidentally solving 'prompt/set it' by writing an*
 
 ### Integration (`tests/integration/`)
 
@@ -3191,6 +3213,11 @@ ad-hoc markers used in the suite without declaration.
 - **`test_routing_health_reports_shared_version`**
 - **`test_server_app_reports_shared_version`**
 
+#### `tests/ui/test_app_shell.py` (2 tests)
+
+- **`test_agent_down_shows_banner_and_stops_before_sidebar_and_tabs`**
+- **`test_refresh_all_click_dispatches_and_toast_survives_rerun`**
+
 #### `tests/ui/test_audit_tab.py` (16 tests)
 
 - **`test_local_empty_log_renders_info_banner_not_dataframe`**
@@ -3235,7 +3262,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_remote_target_renders_servers_and_models_from_aggregator`**
 - **`test_remote_target_with_no_data_shows_empty_state`**
 
-#### `tests/ui/test_forms.py` (15 tests)
+#### `tests/ui/test_forms.py` (18 tests)
 
 - **`test_valid_submission_calls_config_store_add_model`**
 - **`test_valid_submission_shows_success_and_updates_state`**
@@ -3250,10 +3277,13 @@ ad-hoc markers used in the suite without declaration.
 - **`test_missing_model_path_shows_error_and_skips_config_store`**
 - **`test_edit_of_unpersisted_model_calls_add_model_not_update_model`**
 - **`test_cancel_clears_editing_flag_without_saving`**
+- **`test_model_name_not_in_state_models_shows_error_and_renders_no_form`**
+- **`test_config_absent_when_handler_rechecks_shows_error`**
+- **`test_update_model_raises_shows_error_not_exception`**
 - **`test_mlock_and_temperature_pass_through_to_config`**
 - **`test_extra_args_and_reverse_prompt_pass_through_to_config`**
 
-#### `tests/ui/test_model_card.py` (45 tests)
+#### `tests/ui/test_model_card.py` (50 tests)
 
 - **`test_start_with_no_agent_dispatches_in_process_ops_start`**
 - **`test_start_with_agent_present_delegates_over_http`**
@@ -3302,6 +3332,15 @@ ad-hoc markers used in the suite without declaration.
 - **`test_managed_collision_keeps_start_enabled_for_the_eviction_handoff`**
 - **`test_unmanaged_collision_still_dispatches_the_verb_for_backend_rejection`**
 - **`test_free_port_enables_start`**
+- **`test_armed_flag_round_trips_through_the_key_parser`**
+  - *Arming the real flag key and rendering must recover the same*
+- **`test_freed_port_clears_the_flag_for_every_adversarial_name`**
+  - *Companion branch: when the parsed-out port is no longer occupied,*
+- **`test_non_integer_middle_segment_is_skipped_not_raised`**
+  - *The ``except ValueError: continue`` branch (~lines 223-224): a*
+- **`test_recheck_rejects_a_middle_segment_that_parses_but_mismatches`**
+  - *The post-parse re-verify (~line 225-226): a middle segment that*
+- **`test_config_vanished_between_render_and_click_toasts_and_returns`**
 
 #### `tests/ui/test_model_registry_tab.py` (15 tests)
 
