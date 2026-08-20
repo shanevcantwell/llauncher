@@ -20,6 +20,7 @@ import pytest
 from llauncher.ui.utils import (
     OpResultSeverity,
     _SEVERITY_ICONS,
+    _default_message_for,
     classify_action,
     render_op_result,
 )
@@ -295,3 +296,33 @@ class TestSeverityIconCoverage:
         assert len(icons) == len(set(icons)), (
             f"Duplicate icons in _SEVERITY_ICONS: {icons}"
         )
+
+
+class TestDefaultMessageForActionlessEnvelope:
+    """Phase 2b (test-coverage-plan.md) pin: 2026-08-20 review finding.
+
+    ``_default_message_for`` has two branches: an ``action`` present (falls
+    back to ``"{verb_label}: {action}"``, already pinned by
+    ``TestRenderOpResultDefaults.test_empty_message_falls_back_to_action_string``
+    above) and ``action`` falsy/``None`` (a defensive branch guarding a
+    handcrafted envelope — e.g. a future MCP tool that mirrors the
+    ``operations/`` result shape but forgets to populate ``action``). This
+    pins the *actionless* branch directly, both at the unit level and
+    through the full ``render_op_result`` renderer.
+    """
+
+    @pytest.mark.parametrize("action", [None, ""])
+    def test_actionless_envelope_falls_back_to_no_action_message(self, action) -> None:
+        assert _default_message_for(action, "Start") == "Start returned no action"
+
+    def test_render_op_result_with_actionless_empty_message_envelope(self) -> None:
+        """The full renderer surfaces the no-action fallback as its toast."""
+        with patch("llauncher.ui.utils.st") as mock_st:
+            severity = render_op_result(
+                _FakeResult(success=False, action=None, message=""),
+                verb_label="Swap",
+            )
+
+        assert severity is OpResultSeverity.ERROR  # unrecognized action -> ERROR
+        toast_text = mock_st.toast.call_args[0][0]
+        assert toast_text == "Swap returned no action"
