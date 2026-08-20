@@ -56,6 +56,22 @@ python -m venv .venv
 pip install -e .
 ```
 
+**Set `LLAMA_SERVER_PATH` before your first model load.** The code default
+(`~/.local/bin/llama-server`) does not exist on Windows, so an unset
+`LLAMA_SERVER_PATH` fails the very first `/start` with `Server binary not
+found: C:\Users\...\.local\bin\llama-server`. Point it at your actual
+`llama-server.exe`:
+
+- **Dev / `run.bat` usage:** set `LLAMA_SERVER_PATH` in the project-root
+  `.env` (template: `.env.example`), e.g.
+  `LLAMA_SERVER_PATH=C:\path\to\llama-server.exe`.
+- **Service install (`scripts\windows\install.ps1`):** set it in
+  `%USERPROFILE%\.llauncher\agent.env` (template:
+  `scripts/windows/agent.env.example`) — required whenever the service runs
+  under NSSM's default LocalSystem account, since that account's home does
+  not resolve to your own profile. `install.ps1` prints a reminder on every
+  run if this is still unset.
+
 ## Quick Start
 
 Use the runner scripts for easiest setup:
