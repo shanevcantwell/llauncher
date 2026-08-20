@@ -7,6 +7,7 @@ from pathlib import Path
 
 from llauncher.state import LauncherState
 from llauncher.models.config import ModelConfig, RunningServer
+from llauncher.core.process import invalidate_process_scan_cache
 
 
 class TestStartWithEviction:
@@ -654,6 +655,95 @@ class TestProcessScanCacheIntegration:
 
         assert 9321 in state.running
         assert state.running[9321].config_name == "test_model"
+
+    def test_refresh_running_servers_sources_identity_from_alias_not_path(
+        self, mock_config_store, tmp_path
+    ):
+        """Issue #423: two ModelConfigs sharing one gguf must not collide.
+
+        ``_find_model_by_path`` picks an arbitrary sibling when two configs
+        share a ``model_path`` (dict-iteration order). The launched
+        ``--alias`` is the canonical identity (ONE-MINT /
+        IDENTITY⊥ENVELOPE, ``process.build_command``) and must win over any
+        path-based reverse lookup, regardless of dict ordering.
+        """
+        shared_path = tmp_path / "shared.gguf"
+        shared_path.write_text("mock")
+
+        with patch("psutil.process_iter", return_value=[]):
+            state = LauncherState()
+
+        # Two sibling configs pointing at the same gguf, differing only in
+        # config (e.g. pooled vs nonpooled). Insertion order intentionally
+        # puts the *other* sibling first so a naive path lookup would
+        # return the wrong name.
+        state.models = {
+            "embeddinggemma-300M-F32-nonpooled": ModelConfig.from_dict_unvalidated({
+                "name": "embeddinggemma-300M-F32-nonpooled",
+                "model_path": str(shared_path),
+                "n_gpu_layers": 255,
+                "ctx_size": 4096,
+            }),
+            "embeddinggemma-300M-F32-pooled": ModelConfig.from_dict_unvalidated({
+                "name": "embeddinggemma-300M-F32-pooled",
+                "model_path": str(shared_path),
+                "n_gpu_layers": 255,
+                "ctx_size": 4096,
+            }),
+        }
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 5150
+        mock_proc.name.return_value = "llama-server"
+        mock_proc.cmdline.return_value = [
+            "llama-server",
+            "--port", "8082",
+            "-m", str(shared_path),
+            "--alias", "embeddinggemma-300M-F32-pooled",
+        ]
+
+        invalidate_process_scan_cache()
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            state.refresh_running_servers()
+
+        assert 8082 in state.running
+        assert state.running[8082].config_name == "embeddinggemma-300M-F32-pooled"
+
+    def test_refresh_running_servers_falls_back_to_path_when_no_alias(
+        self, mock_config_store, tmp_path
+    ):
+        """A foreign/orphan llama-server (no ``--alias``, not launched by
+        llauncher) still resolves via the path-based lookup rather than
+        reporting ``unknown`` whenever the path is unambiguous.
+        """
+        model_path = tmp_path / "solo.gguf"
+        model_path.write_text("mock")
+
+        with patch("psutil.process_iter", return_value=[]):
+            state = LauncherState()
+
+        state.models = {
+            "solo_model": ModelConfig.from_dict_unvalidated({
+                "name": "solo_model",
+                "model_path": str(model_path),
+                "n_gpu_layers": 255,
+                "ctx_size": 4096,
+            })
+        }
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 6161
+        mock_proc.name.return_value = "llama-server"
+        mock_proc.cmdline.return_value = [
+            "llama-server", "--port", "9999", "-m", str(model_path),
+        ]
+
+        invalidate_process_scan_cache()
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            state.refresh_running_servers()
+
+        assert 9999 in state.running
+        assert state.running[9999].config_name == "solo_model"
 
 
 class TestUptimeFormatting:

@@ -509,6 +509,143 @@ def test_delegated_outcome_none_seam():
 
 
 # ---------------------------------------------------------------------------
+# server swap (#337 — parity with start/stop; ADR-010/ADR-011 envelope)
+# ---------------------------------------------------------------------------
+
+
+def test_swap_without_port_errors(mock_config_store):
+    """Omitting --port must fail at arg-parse time, mirroring ``start`` (ADR-010)."""
+    _dir, _path = mock_config_store
+
+    with patch("llauncher.operations.swap") as mock_swap:
+        result = runner.invoke(app, ["server", "swap", "test-model"])
+
+    assert result.exit_code != 0
+    mock_swap.assert_not_called()
+
+
+def test_swap_with_explicit_port(mock_config_store):
+    """Swapping a model with --port should call operations.swap with that port."""
+    _dir, _path = mock_config_store
+
+    with patch("llauncher.operations.swap") as mock_swap:
+        from llauncher.operations import SwapResult
+
+        mock_swap.return_value = SwapResult(
+            success=True,
+            action="swapped",
+            port_state="serving",
+            port=9999,
+            model="test-model",
+            previous_model="old-model",
+            pid=42,
+            message="Swapped to test-model on port 9999",
+        )
+
+        result = runner.invoke(app, ["server", "swap", "test-model", "--port", "9999"])
+        assert result.exit_code == 0
+        mock_swap.assert_called_once_with("test-model", 9999, caller="cli")
+        assert "Swapped to test-model" in result.stdout
+
+
+def test_swap_rejected_empty_port(mock_config_store):
+    """Swap on an empty port is rejected per ADR-010 (use start instead)."""
+    _dir, _path = mock_config_store
+
+    with patch("llauncher.operations.swap") as mock_swap:
+        from llauncher.operations import SwapResult
+
+        mock_swap.return_value = SwapResult(
+            success=False,
+            action="rejected_empty",
+            port_state="unavailable",
+            port=9999,
+            message="Port 9999 is empty; use start to launch a new server",
+        )
+
+        result = runner.invoke(app, ["server", "swap", "test-model", "--port", "9999"])
+        assert result.exit_code == 1
+        assert "empty" in result.stdout.lower()
+
+
+def test_swap_rolled_back_surfaces_previous_model(mock_config_store):
+    """A rolled-back swap renders both the message and the restored model (ADR-011)."""
+    _dir, _path = mock_config_store
+
+    with patch("llauncher.operations.swap") as mock_swap:
+        from llauncher.operations import SwapResult
+
+        mock_swap.return_value = SwapResult(
+            success=False,
+            action="rolled_back",
+            port_state="restored",
+            port=9999,
+            model="old-model",
+            previous_model="old-model",
+            message="new model failed readiness",
+        )
+
+        result = runner.invoke(app, ["server", "swap", "test-model", "--port", "9999"])
+        assert result.exit_code == 1
+        assert "new model failed readiness" in result.stdout
+        assert "rolled back to old-model" in result.stdout
+
+
+class TestCliSwapDelegation:
+    def test_swap_delegates_over_http_when_agent_present(self, mock_config_store):
+        node = MagicMock()
+        node.swap_server.return_value = {
+            "success": True,
+            "action": "swapped",
+            "port": 8080,
+            "message": "Swapped to m on port 8080",
+        }
+        with patch("llauncher.operations.swap") as mock_ops_swap, _cli_delegate(node):
+            result = runner.invoke(app, ["server", "swap", "m", "--port", "8080"])
+
+        assert result.exit_code == 0
+        node.swap_server.assert_called_once_with("m", 8080)
+        mock_ops_swap.assert_not_called()
+
+    def test_swap_in_process_when_no_agent(self, mock_config_store):
+        from llauncher.operations import SwapResult
+
+        result_obj = SwapResult(
+            success=True, action="swapped", port_state="serving", port=8080,
+            model="m", message="Swapped to m on port 8080",
+        )
+        with patch(
+            "llauncher.operations.swap", return_value=result_obj
+        ) as mock_ops_swap, _cli_delegate(MagicMock(), enabled=False) as factory:
+            result = runner.invoke(app, ["server", "swap", "m", "--port", "8080"])
+
+        assert result.exit_code == 0
+        mock_ops_swap.assert_called_once_with("m", 8080, caller="cli")
+        factory.assert_not_called()
+
+    def test_swap_delegated_failure_exits_nonzero(self, mock_config_store):
+        node = MagicMock()
+        node.swap_server.return_value = {
+            "success": False, "error": "agent refused", "port": 8080,
+        }
+        with patch("llauncher.operations.swap"), _cli_delegate(node):
+            result = runner.invoke(app, ["server", "swap", "m", "--port", "8080"])
+
+        assert result.exit_code == 1
+        assert "agent refused" in result.stdout
+
+    def test_swap_delegated_none_result_is_safe(self, mock_config_store):
+        """A ``None`` delegated body must surface as an error, not raise."""
+        node = MagicMock()
+        node.swap_server.return_value = None
+        with patch("llauncher.operations.swap"), _cli_delegate(node):
+            result = runner.invoke(app, ["server", "swap", "m", "--port", "8080"])
+
+        assert result.exit_code == 1
+        assert "empty response" in result.stdout.lower()
+
+
+# ---------------------------------------------------------------------------
 # node subcommands
 # ---------------------------------------------------------------------------
 
