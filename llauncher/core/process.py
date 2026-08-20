@@ -730,6 +730,7 @@ def wait_for_server_ready(
     check_interval: float = 1.0,
     cancel_check=None,
     model_name: str | None = None,
+    process: subprocess.Popen | None = None,
 ) -> tuple[bool, list[str]]:
     """Wait for a llama-server to become ready to accept requests.
 
@@ -754,6 +755,16 @@ def wait_for_server_ready(
             "listening" line — making a perfectly healthy new server look
             like it never came up and timing the swap out. Callers that
             don't name a model fall back to the legacy port-based lookup.
+        process: Optional handle to the ``subprocess.Popen`` this call is
+            waiting on. When given, each poll tick checks
+            ``process.poll()`` first and fast-fails as soon as the child
+            has exited — a process that crashed on launch (missing
+            runtime lib, bad argv, no binary on this platform) would
+            otherwise burn the *entire* ``timeout`` ceiling polling a
+            port and log file that can never appear (#368). Callers that
+            don't hold a live handle (e.g. waiting on an
+            already-running, externally-launched server) simply omit it
+            and get the previous poll-until-timeout behavior.
 
     Returns:
         Tuple of (is_ready, recent_log_lines).
@@ -785,6 +796,13 @@ def wait_for_server_ready(
     while time.time() - start_time < timeout:
         # ADR-014: check cancel at the natural poll cadence — no new threads.
         if cancel_check is not None and cancel_check():
+            last_logs = _attempt_logs(50) or last_logs
+            return False, last_logs
+
+        # #368: a process that has already exited will never bind the
+        # port or write a "listening" line — polling it out to the full
+        # timeout is pure burn. Fast-fail the instant the child is gone.
+        if process is not None and process.poll() is not None:
             last_logs = _attempt_logs(50) or last_logs
             return False, last_logs
 

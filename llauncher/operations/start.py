@@ -311,10 +311,14 @@ def start(
         # must not be reported as a successful start. Same helper
         # ``swap`` uses, reading this model's exact log file so a stale
         # same-port log from a prior occupant can't shadow the result.
+        # ``process=popen`` (#368) fast-fails the poll the instant the
+        # child exits instead of burning the full ``readiness_timeout``
+        # ceiling on a port/log that a dead process will never produce.
         ready, startup_logs = proc.wait_for_server_ready(
             port,
             timeout=readiness_timeout,
             model_name=model_name,
+            process=popen,
         )
         if not ready:
             try:

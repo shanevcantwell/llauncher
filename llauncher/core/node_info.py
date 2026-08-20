@@ -26,8 +26,13 @@ def get_node_name() -> str:
 
     Sourced from ``LLAUNCHER_AGENT_NODE_NAME`` (the agent's bind-time
     identity, see ``agent.config``), falling back to the OS hostname.
+
+    Uses a falsy-or fallback rather than ``os.getenv``'s default argument:
+    the default argument only fires when the variable is *absent*, but a
+    present-and-empty value (e.g. an installer-written ``VAR=`` env block
+    entry) must fall back too (#367).
     """
-    return os.getenv("LLAUNCHER_AGENT_NODE_NAME", socket.gethostname())
+    return os.getenv("LLAUNCHER_AGENT_NODE_NAME") or socket.gethostname()
 
 
 def get_node_info() -> dict:

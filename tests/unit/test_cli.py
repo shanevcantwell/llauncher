@@ -509,6 +509,143 @@ def test_delegated_outcome_none_seam():
 
 
 # ---------------------------------------------------------------------------
+# server swap (#337 — parity with start/stop; ADR-010/ADR-011 envelope)
+# ---------------------------------------------------------------------------
+
+
+def test_swap_without_port_errors(mock_config_store):
+    """Omitting --port must fail at arg-parse time, mirroring ``start`` (ADR-010)."""
+    _dir, _path = mock_config_store
+
+    with patch("llauncher.operations.swap") as mock_swap:
+        result = runner.invoke(app, ["server", "swap", "test-model"])
+
+    assert result.exit_code != 0
+    mock_swap.assert_not_called()
+
+
+def test_swap_with_explicit_port(mock_config_store):
+    """Swapping a model with --port should call operations.swap with that port."""
+    _dir, _path = mock_config_store
+
+    with patch("llauncher.operations.swap") as mock_swap:
+        from llauncher.operations import SwapResult
+
+        mock_swap.return_value = SwapResult(
+            success=True,
+            action="swapped",
+            port_state="serving",
+            port=9999,
+            model="test-model",
+            previous_model="old-model",
+            pid=42,
+            message="Swapped to test-model on port 9999",
+        )
+
+        result = runner.invoke(app, ["server", "swap", "test-model", "--port", "9999"])
+        assert result.exit_code == 0
+        mock_swap.assert_called_once_with("test-model", 9999, caller="cli")
+        assert "Swapped to test-model" in result.stdout
+
+
+def test_swap_rejected_empty_port(mock_config_store):
+    """Swap on an empty port is rejected per ADR-010 (use start instead)."""
+    _dir, _path = mock_config_store
+
+    with patch("llauncher.operations.swap") as mock_swap:
+        from llauncher.operations import SwapResult
+
+        mock_swap.return_value = SwapResult(
+            success=False,
+            action="rejected_empty",
+            port_state="unavailable",
+            port=9999,
+            message="Port 9999 is empty; use start to launch a new server",
+        )
+
+        result = runner.invoke(app, ["server", "swap", "test-model", "--port", "9999"])
+        assert result.exit_code == 1
+        assert "empty" in result.stdout.lower()
+
+
+def test_swap_rolled_back_surfaces_previous_model(mock_config_store):
+    """A rolled-back swap renders both the message and the restored model (ADR-011)."""
+    _dir, _path = mock_config_store
+
+    with patch("llauncher.operations.swap") as mock_swap:
+        from llauncher.operations import SwapResult
+
+        mock_swap.return_value = SwapResult(
+            success=False,
+            action="rolled_back",
+            port_state="restored",
+            port=9999,
+            model="old-model",
+            previous_model="old-model",
+            message="new model failed readiness",
+        )
+
+        result = runner.invoke(app, ["server", "swap", "test-model", "--port", "9999"])
+        assert result.exit_code == 1
+        assert "new model failed readiness" in result.stdout
+        assert "rolled back to old-model" in result.stdout
+
+
+class TestCliSwapDelegation:
+    def test_swap_delegates_over_http_when_agent_present(self, mock_config_store):
+        node = MagicMock()
+        node.swap_server.return_value = {
+            "success": True,
+            "action": "swapped",
+            "port": 8080,
+            "message": "Swapped to m on port 8080",
+        }
+        with patch("llauncher.operations.swap") as mock_ops_swap, _cli_delegate(node):
+            result = runner.invoke(app, ["server", "swap", "m", "--port", "8080"])
+
+        assert result.exit_code == 0
+        node.swap_server.assert_called_once_with("m", 8080)
+        mock_ops_swap.assert_not_called()
+
+    def test_swap_in_process_when_no_agent(self, mock_config_store):
+        from llauncher.operations import SwapResult
+
+        result_obj = SwapResult(
+            success=True, action="swapped", port_state="serving", port=8080,
+            model="m", message="Swapped to m on port 8080",
+        )
+        with patch(
+            "llauncher.operations.swap", return_value=result_obj
+        ) as mock_ops_swap, _cli_delegate(MagicMock(), enabled=False) as factory:
+            result = runner.invoke(app, ["server", "swap", "m", "--port", "8080"])
+
+        assert result.exit_code == 0
+        mock_ops_swap.assert_called_once_with("m", 8080, caller="cli")
+        factory.assert_not_called()
+
+    def test_swap_delegated_failure_exits_nonzero(self, mock_config_store):
+        node = MagicMock()
+        node.swap_server.return_value = {
+            "success": False, "error": "agent refused", "port": 8080,
+        }
+        with patch("llauncher.operations.swap"), _cli_delegate(node):
+            result = runner.invoke(app, ["server", "swap", "m", "--port", "8080"])
+
+        assert result.exit_code == 1
+        assert "agent refused" in result.stdout
+
+    def test_swap_delegated_none_result_is_safe(self, mock_config_store):
+        """A ``None`` delegated body must surface as an error, not raise."""
+        node = MagicMock()
+        node.swap_server.return_value = None
+        with patch("llauncher.operations.swap"), _cli_delegate(node):
+            result = runner.invoke(app, ["server", "swap", "m", "--port", "8080"])
+
+        assert result.exit_code == 1
+        assert "empty response" in result.stdout.lower()
+
+
+# ---------------------------------------------------------------------------
 # node subcommands
 # ---------------------------------------------------------------------------
 
@@ -897,3 +1034,147 @@ def test_config_validate_schema_exception(mock_config_store):
     assert result.exit_code == 1
     assert "validation failed" in result.stdout.lower()
     assert "schema boom" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# audit command (issue #338)
+# ---------------------------------------------------------------------------
+#
+# Mirrors ``TestAuditEndpoint`` in ``tests/unit/test_agent.py`` — same
+# ``LAUNCHER_AUDIT_PATH`` monkeypatch, same filter/limit semantics, since
+# both surfaces wrap ``core.audit_log.read_entries`` identically.
+
+
+def test_audit_empty_prints_notice(tmp_path, monkeypatch):
+    """Empty/missing audit log prints the empty-state notice, exit 0."""
+    audit_path = tmp_path / "audit.jsonl"
+    monkeypatch.setattr("llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path)
+
+    result = runner.invoke(app, ["audit"])
+    assert result.exit_code == 0
+    assert "no audit entries" in result.stdout.lower()
+
+
+def test_audit_empty_json_returns_empty_list(tmp_path, monkeypatch):
+    """``--json`` with no entries prints an empty JSON array."""
+    audit_path = tmp_path / "audit.jsonl"
+    monkeypatch.setattr("llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path)
+
+    result = runner.invoke(app, ["audit", "--json"])
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == []
+
+
+def test_audit_json_returns_serialized_entries(tmp_path, monkeypatch):
+    """Populated audit log serializes to a list of JSON-safe entry dicts."""
+    from llauncher.core import audit_log
+
+    audit_path = tmp_path / "audit.jsonl"
+    monkeypatch.setattr("llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path)
+
+    audit_log.record(
+        audit_log.AuditAction.STARTED,
+        audit_log.AuditResult.SUCCESS,
+        caller="test",
+        port=8080,
+        model="m",
+        message="started m",
+    )
+    audit_log.record(
+        audit_log.AuditAction.STOPPED,
+        audit_log.AuditResult.SUCCESS,
+        caller="test",
+        port=8080,
+        model="m",
+        message="stopped m",
+    )
+
+    result = runner.invoke(app, ["audit", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert len(data) == 2
+    assert data[0]["action"] == "started"
+    assert data[0]["result"] == "success"
+    assert data[1]["action"] == "stopped"
+    assert data[0]["message"] == "started m"
+    assert data[1]["message"] == "stopped m"
+
+
+def test_audit_table_renders_entries(tmp_path, monkeypatch):
+    """Default (non-JSON) rendering prints a table with the entry fields."""
+    from llauncher.core import audit_log
+
+    audit_path = tmp_path / "audit.jsonl"
+    monkeypatch.setattr("llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path)
+
+    audit_log.record(
+        audit_log.AuditAction.STARTED,
+        audit_log.AuditResult.SUCCESS,
+        caller="cli",
+        port=8080,
+        model="m",
+        message="started m",
+    )
+
+    result = runner.invoke(app, ["audit"])
+    assert result.exit_code == 0
+    assert "started" in result.stdout
+    assert "success" in result.stdout
+    assert "8080" in result.stdout
+
+
+def test_audit_action_filter(tmp_path, monkeypatch):
+    """``--action`` narrows the result to entries with that action."""
+    from llauncher.core import audit_log
+
+    audit_path = tmp_path / "audit.jsonl"
+    monkeypatch.setattr("llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path)
+
+    audit_log.record(audit_log.AuditAction.STARTED, audit_log.AuditResult.SUCCESS, caller="t")
+    audit_log.record(audit_log.AuditAction.STOPPED, audit_log.AuditResult.SUCCESS, caller="t")
+
+    result = runner.invoke(app, ["audit", "--action", "stopped", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert len(data) == 1
+    assert data[0]["action"] == "stopped"
+
+
+def test_audit_result_filter(tmp_path, monkeypatch):
+    """``--result`` narrows the result to entries with that result."""
+    from llauncher.core import audit_log
+
+    audit_path = tmp_path / "audit.jsonl"
+    monkeypatch.setattr("llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path)
+
+    audit_log.record(audit_log.AuditAction.STARTED, audit_log.AuditResult.SUCCESS, caller="t")
+    audit_log.record(audit_log.AuditAction.STARTED, audit_log.AuditResult.ERROR, caller="t")
+
+    result = runner.invoke(app, ["audit", "--result", "error", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert len(data) == 1
+    assert data[0]["result"] == "error"
+
+
+def test_audit_limit_bounds_tail(tmp_path, monkeypatch):
+    """``--limit`` caps the number of entries returned to the newest N."""
+    from llauncher.core import audit_log
+
+    audit_path = tmp_path / "audit.jsonl"
+    monkeypatch.setattr("llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path)
+
+    for i in range(5):
+        audit_log.record(
+            audit_log.AuditAction.STARTED,
+            audit_log.AuditResult.SUCCESS,
+            caller="t",
+            message=f"entry-{i}",
+        )
+
+    result = runner.invoke(app, ["audit", "--limit", "2", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert len(data) == 2
+    assert data[0]["message"] == "entry-3"
+    assert data[1]["message"] == "entry-4"

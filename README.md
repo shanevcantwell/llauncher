@@ -398,6 +398,23 @@ pytest
 pytest --cov=llauncher --cov-report=term-missing
 ```
 
+**Running from a git worktree:** the dev `.venv` is a shared editable
+install, so its `.pth` entry always resolves `import llauncher` to
+whichever checkout it was last `pip install -e`'d from (normally the main
+checkout) — a worktree invocation whose collection order lets that `.pth`
+win reads coverage against the *main checkout's* files, not the worktree's
+(#361). `[tool.coverage.paths]` in `pyproject.toml` reconciles the report,
+but the sanctioned invocation is still to pin the import explicitly:
+
+```bash
+PYTHONPATH="$(pwd)" pytest --cov=llauncher --cov-report=term-missing
+```
+
+Never repoint the shared venv's `.pth` at a worktree to work around
+this — that `.venv` also backs the live `llauncher-agent` systemd
+service, and a crash mid-window leaves the live service importing
+worktree code. Restore-after-use is not a substitute for not mutating it.
+
 Test files are in `tests/`:
 - `tests/unit/`: Unit tests for models, config, and process
 - `tests/integration/`: Integration tests for state management

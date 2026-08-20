@@ -102,16 +102,26 @@ class LauncherState:
                 # Extract port from command line
                 port = None
                 model_path = None
+                alias = None
 
                 for i, arg in enumerate(cmdline):
                     if arg == "--port" and i + 1 < len(cmdline):
                         port = int(cmdline[i + 1])
                     elif arg == "-m" and i + 1 < len(cmdline):
                         model_path = cmdline[i + 1]
+                    elif arg == "--alias" and i + 1 < len(cmdline):
+                        alias = cmdline[i + 1]
 
                 if port:
-                    # Find matching model config
-                    config_name = self._find_model_by_path(model_path)
+                    # Issue #423 (ONE-MINT / IDENTITY⊥ENVELOPE): the launched
+                    # ``--alias`` IS the canonical config name (see
+                    # process.build_command), so it is the identity source
+                    # of truth. A path→config reverse lookup is ambiguous
+                    # whenever two configs share one gguf and picks an
+                    # arbitrary sibling. Only fall back to the path lookup
+                    # for processes llauncher didn't launch (no ``--alias``
+                    # in their cmdline, e.g. a foreign/orphan llama-server).
+                    config_name = alias or self._find_model_by_path(model_path)
 
                     current_running[port] = RunningServer(
                         pid=proc.pid,
@@ -525,7 +535,9 @@ class LauncherState:
         # ── Phase 4: Readiness poll ─────────────────────────────────────
 
         try:
-            ready, _logs = wait_for_server_ready(port, timeout=readiness_timeout)
+            ready, _logs = wait_for_server_ready(
+                port, timeout=readiness_timeout, process=process
+            )
             if not ready:
                 # Terminate new process
                 stop_server_by_pid(new_pid)
