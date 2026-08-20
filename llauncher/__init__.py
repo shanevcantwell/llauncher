@@ -1,11 +1,24 @@
 """Llauncher - MCP-first launcher for llama.cpp llama-server instances."""
 
+from importlib.metadata import PackageNotFoundError, version
+
 from dotenv import load_dotenv
 
 # Load .env file from project root at package import time
 load_dotenv()
 
-__version__ = "0.4.0a0"
+# ONE-MINT: pyproject.toml's [project].version is the sole authority for the
+# release version (ecosystem ground-physics constitution: ONE-MINT /
+# IDENTITY⊥ENVELOPE — source every canonical name from its one authority, never
+# re-declare it). Derive from installed package metadata rather than re-declaring
+# a literal here, which drifts (#425). The PackageNotFoundError fallback covers
+# running from source without an install (e.g. `pip install -e .` not yet run,
+# or a raw checkout on PYTHONPATH).
+try:
+    __version__ = version("llauncher")
+except PackageNotFoundError:
+    __version__ = "0.0.0+unknown"
+
 __all__ = ["LauncherState"]
 
 
