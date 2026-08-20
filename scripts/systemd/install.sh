@@ -54,6 +54,8 @@ VENV_BIN="$PROJECT_DIR/.venv/bin"
 
 # shellcheck source=scripts/systemd/lib-readiness.sh
 . "$SCRIPT_DIR/lib-readiness.sh"
+# shellcheck source=scripts/systemd/check_python_floor.sh
+. "$SCRIPT_DIR/check_python_floor.sh"
 
 UNIT_NAME="llauncher-agent.service"
 # Root oneshot that guarantees the agent venv (system mode only; ADR-023/#227).
@@ -149,6 +151,15 @@ uninstall() {
 }
 
 [ "$DO_UNINSTALL" -eq 1 ] && uninstall
+
+# --- Interpreter floor (issue #334) -------------------------------------
+# pyproject.toml declares `requires-python = ">=3.11"`. Neither venv this
+# installer depends on (dev-tree .venv in --system mode, /opt/llauncher/venv
+# in --user mode) is built by this script — but a <3.11 interpreter on PATH
+# would still be silently fed into whichever recompose ritual (run.sh setup
+# / install-cli.sh) the preflight below points the operator at, failing much
+# later at import time. Fail loud here, before naming that ritual.
+check_python_floor python3 3 11
 
 # --- Preflight ---------------------------------------------------------
 # #357 ratified Option A (issue #360): the --user agent unit's ExecStart no

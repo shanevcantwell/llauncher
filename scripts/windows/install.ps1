@@ -185,6 +185,29 @@ if (-not (Test-Path $VenvExe)) {
     Die "Did not find $VenvExe.  Run 'scripts\run.bat install' first."
 }
 
+# --- Interpreter floor (issue #334) ------------------------------------
+# pyproject.toml declares `requires-python = ">=3.11"`, but this installer
+# only checked that the venv EXISTED, not that it was built on a floor-
+# clearing interpreter -- a <3.11 venv installed silently and failed later
+# at import time (trust-and-degrade instead of fail-loud; PARSE-AT-THE-DOOR
+# applied to prerequisites). Check the venv's own python.exe before wiring
+# the service to it.
+$RequiredMajor = 3
+$RequiredMinor = 11
+$pyVersionOutput = & $VenvPython -c "import sys; print('%d.%d' % sys.version_info[:2])"
+if ($LASTEXITCODE -ne 0 -or -not $pyVersionOutput) {
+    Die "Could not determine the $VenvPython interpreter version."
+}
+$pyVersionParts = $pyVersionOutput.Trim().Split('.')
+$foundMajor = [int]$pyVersionParts[0]
+$foundMinor = [int]$pyVersionParts[1]
+if ($foundMajor -lt $RequiredMajor -or ($foundMajor -eq $RequiredMajor -and $foundMinor -lt $RequiredMinor)) {
+    Die @"
+$VenvPython is $($pyVersionOutput.Trim()), but llauncher requires >=$RequiredMajor.$RequiredMinor (pyproject.toml requires-python).
+Delete .venv, install a Python >=$RequiredMajor.$RequiredMinor interpreter, and re-run 'scripts\run.bat install'.
+"@
+}
+
 # --- Env file (token + config) ----------------------------------------
 if (-not (Test-Path $EnvDir))  { New-Item -ItemType Directory -Path $EnvDir  | Out-Null }
 if (-not (Test-Path $LogDir))  { New-Item -ItemType Directory -Path $LogDir  | Out-Null }
