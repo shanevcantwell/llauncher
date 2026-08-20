@@ -1034,3 +1034,147 @@ def test_config_validate_schema_exception(mock_config_store):
     assert result.exit_code == 1
     assert "validation failed" in result.stdout.lower()
     assert "schema boom" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# audit command (issue #338)
+# ---------------------------------------------------------------------------
+#
+# Mirrors ``TestAuditEndpoint`` in ``tests/unit/test_agent.py`` — same
+# ``LAUNCHER_AUDIT_PATH`` monkeypatch, same filter/limit semantics, since
+# both surfaces wrap ``core.audit_log.read_entries`` identically.
+
+
+def test_audit_empty_prints_notice(tmp_path, monkeypatch):
+    """Empty/missing audit log prints the empty-state notice, exit 0."""
+    audit_path = tmp_path / "audit.jsonl"
+    monkeypatch.setattr("llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path)
+
+    result = runner.invoke(app, ["audit"])
+    assert result.exit_code == 0
+    assert "no audit entries" in result.stdout.lower()
+
+
+def test_audit_empty_json_returns_empty_list(tmp_path, monkeypatch):
+    """``--json`` with no entries prints an empty JSON array."""
+    audit_path = tmp_path / "audit.jsonl"
+    monkeypatch.setattr("llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path)
+
+    result = runner.invoke(app, ["audit", "--json"])
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == []
+
+
+def test_audit_json_returns_serialized_entries(tmp_path, monkeypatch):
+    """Populated audit log serializes to a list of JSON-safe entry dicts."""
+    from llauncher.core import audit_log
+
+    audit_path = tmp_path / "audit.jsonl"
+    monkeypatch.setattr("llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path)
+
+    audit_log.record(
+        audit_log.AuditAction.STARTED,
+        audit_log.AuditResult.SUCCESS,
+        caller="test",
+        port=8080,
+        model="m",
+        message="started m",
+    )
+    audit_log.record(
+        audit_log.AuditAction.STOPPED,
+        audit_log.AuditResult.SUCCESS,
+        caller="test",
+        port=8080,
+        model="m",
+        message="stopped m",
+    )
+
+    result = runner.invoke(app, ["audit", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert len(data) == 2
+    assert data[0]["action"] == "started"
+    assert data[0]["result"] == "success"
+    assert data[1]["action"] == "stopped"
+    assert data[0]["message"] == "started m"
+    assert data[1]["message"] == "stopped m"
+
+
+def test_audit_table_renders_entries(tmp_path, monkeypatch):
+    """Default (non-JSON) rendering prints a table with the entry fields."""
+    from llauncher.core import audit_log
+
+    audit_path = tmp_path / "audit.jsonl"
+    monkeypatch.setattr("llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path)
+
+    audit_log.record(
+        audit_log.AuditAction.STARTED,
+        audit_log.AuditResult.SUCCESS,
+        caller="cli",
+        port=8080,
+        model="m",
+        message="started m",
+    )
+
+    result = runner.invoke(app, ["audit"])
+    assert result.exit_code == 0
+    assert "started" in result.stdout
+    assert "success" in result.stdout
+    assert "8080" in result.stdout
+
+
+def test_audit_action_filter(tmp_path, monkeypatch):
+    """``--action`` narrows the result to entries with that action."""
+    from llauncher.core import audit_log
+
+    audit_path = tmp_path / "audit.jsonl"
+    monkeypatch.setattr("llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path)
+
+    audit_log.record(audit_log.AuditAction.STARTED, audit_log.AuditResult.SUCCESS, caller="t")
+    audit_log.record(audit_log.AuditAction.STOPPED, audit_log.AuditResult.SUCCESS, caller="t")
+
+    result = runner.invoke(app, ["audit", "--action", "stopped", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert len(data) == 1
+    assert data[0]["action"] == "stopped"
+
+
+def test_audit_result_filter(tmp_path, monkeypatch):
+    """``--result`` narrows the result to entries with that result."""
+    from llauncher.core import audit_log
+
+    audit_path = tmp_path / "audit.jsonl"
+    monkeypatch.setattr("llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path)
+
+    audit_log.record(audit_log.AuditAction.STARTED, audit_log.AuditResult.SUCCESS, caller="t")
+    audit_log.record(audit_log.AuditAction.STARTED, audit_log.AuditResult.ERROR, caller="t")
+
+    result = runner.invoke(app, ["audit", "--result", "error", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert len(data) == 1
+    assert data[0]["result"] == "error"
+
+
+def test_audit_limit_bounds_tail(tmp_path, monkeypatch):
+    """``--limit`` caps the number of entries returned to the newest N."""
+    from llauncher.core import audit_log
+
+    audit_path = tmp_path / "audit.jsonl"
+    monkeypatch.setattr("llauncher.core.audit_log.LAUNCHER_AUDIT_PATH", audit_path)
+
+    for i in range(5):
+        audit_log.record(
+            audit_log.AuditAction.STARTED,
+            audit_log.AuditResult.SUCCESS,
+            caller="t",
+            message=f"entry-{i}",
+        )
+
+    result = runner.invoke(app, ["audit", "--limit", "2", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert len(data) == 2
+    assert data[0]["message"] == "entry-3"
+    assert data[1]["message"] == "entry-4"
