@@ -41,7 +41,9 @@ import pytest
 from llauncher.remote.node import RemoteServerInfo
 from llauncher.ui.tabs.model_card import (
     _eviction_flag_key,
+    _handle_start,
     _render_eviction_dialog,
+    _render_eviction_dialog_if_armed,
     render_model_card,
 )
 
@@ -987,3 +989,181 @@ class TestPortPickerThroughCard:
 
         assert not at.exception
         assert not at.button(key=f"toggle_start_local_{MODEL}").disabled
+
+
+# ---------------------------------------------------------------------------
+# Phase 2b (test-coverage-plan.md) — pin-the-12: each test below converts an
+# executed verification from the 2026-08-20 correctness review into a
+# regression, docstring-cited to the branch and finding it pins.
+# ---------------------------------------------------------------------------
+class TestEvictionKeyRoundTrip:
+    """Pins ``_render_eviction_dialog_if_armed``'s flag-key round-trip
+    (#412) against adversarial ``node_name`` / ``model_name`` values.
+
+    2026-08-20 review finding: the parser recovers ``port`` by stripping a
+    literal ``evicting_{node_name}_`` prefix and a literal ``_{model_name}``
+    suffix off the raw session-state key, then ``int()``-ing what's left
+    (``model_card.py`` lines ~213-226). Verified correct-as-written by the
+    review's 200k-case fuzz; this is the sustainable parametrized form of
+    that fuzz, porting its adversarial classes: node/model names containing
+    underscores and embedded digits that could otherwise be mistaken for
+    the port segment (``gpu_2``, ``qwen3_8b``) or collide with another
+    node/model's key under naive splitting.
+    """
+
+    @pytest.mark.parametrize(
+        ("node_name", "model_name", "port"),
+        [
+            ("local", "test-model", 8123),
+            ("gpu_2", "test-model", 8123),
+            ("local", "qwen3_8b", 8123),
+            ("gpu_2", "qwen3_8b", 8123),
+            ("node_1_2", "model_3_4", 9999),
+            ("gpu_2", "gpu_2", 8123),  # node/model name collision
+            ("a_b_c", "d_e_f", 1),
+            ("local", "model_evicting_local_8123_model", 8123),
+        ],
+        ids=lambda v: str(v),
+    )
+    def test_armed_flag_round_trips_through_the_key_parser(
+        self, tab_harness, mock_state, mock_aggregator,
+        mock_ops, mock_should_delegate, mock_local_agent_node,
+        node_name, model_name, port,
+    ):
+        """Arming the real flag key and rendering must recover the same
+        ``port`` the flag was armed with, for every adversarial name pair.
+        """
+        mock_state.running = {port: MagicMock(config_name="occupant")}
+        flag_key = _eviction_flag_key(node_name, port, model_name)
+
+        at = tab_harness(
+            _render_eviction_dialog_if_armed, mock_state, node_name, model_name,
+            run=False,
+        )
+        at.session_state[flag_key] = True
+        at.run()
+
+        assert not at.exception
+        # The dialog rendered against the *same* port the flag was armed
+        # with — the round-trip recovered the right value, not a truncated
+        # or mis-split one.
+        assert at.button(key=f"evict_confirm_{node_name}_{port}_{model_name}") is not None
+        assert at.session_state[flag_key] is True
+
+    def test_freed_port_clears_the_flag_for_every_adversarial_name(
+        self, tab_harness, mock_state, mock_aggregator,
+    ):
+        """Companion branch: when the parsed-out port is no longer occupied,
+        the flag must clear (not merely be skipped) regardless of how gnarly
+        the node/model names are — otherwise a later occupant of the same
+        port could resurrect a stale dialog (#412 review finding).
+        """
+        node_name, model_name, port = "gpu_2", "qwen3_8b", 8123
+        mock_state.running = {}  # port not occupied
+        flag_key = _eviction_flag_key(node_name, port, model_name)
+
+        at = tab_harness(
+            _render_eviction_dialog_if_armed, mock_state, node_name, model_name,
+            run=False,
+        )
+        at.session_state[flag_key] = True
+        at.run()
+
+        assert not at.exception
+        assert at.session_state[flag_key] is False
+        keys = {b.key for b in at.button}
+        assert f"evict_confirm_{node_name}_{port}_{model_name}" not in keys
+
+    def test_non_integer_middle_segment_is_skipped_not_raised(
+        self, tab_harness, mock_state, mock_aggregator,
+    ):
+        """The ``except ValueError: continue`` branch (~lines 223-224): a
+        stray session-state key that matches the ``evicting_{node}_..._{model}``
+        shape but whose middle segment isn't a port at all (e.g. a foreign
+        flag from an unrelated feature that happens to share the node/model
+        substrings) must be skipped silently, never raise.
+        """
+        node_name, model_name = "local", "test-model"
+        # "not-a-port" is neither a valid int nor a real occupied port —
+        # exercises the int() conversion failure directly.
+        bogus_key = f"evicting_{node_name}_not-a-port_{model_name}"
+
+        at = tab_harness(
+            _render_eviction_dialog_if_armed, mock_state, node_name, model_name,
+            run=False,
+        )
+        at.session_state[bogus_key] = True
+        at.run()
+
+        assert not at.exception
+        # Skipped, not resurrected as a dialog and not cleared either — the
+        # ValueError branch's ``continue`` leaves the bogus flag exactly as
+        # it found it.
+        assert at.session_state[bogus_key] is True
+        assert at.button == []
+
+    def test_recheck_rejects_a_middle_segment_that_parses_but_mismatches(
+        self, tab_harness, mock_state, mock_aggregator,
+    ):
+        """The post-parse re-verify (~line 225-226): a middle segment that
+        *does* parse as an int must still be rejected if reconstructing the
+        canonical flag key from it doesn't reproduce the original raw key.
+
+        Concrete collision: a flag armed for model ``"8_model"`` at port
+        8123 (raw key ``evicting_local_8123_8_model``) is being scanned
+        during a render for the *unrelated*, shorter model ``"model"``. The
+        naive prefix/suffix strip (prefix ``evicting_local_``, suffix
+        ``_model``) still matches — the raw key legitimately ends with
+        ``_model`` — and the leftover middle ``"8123_8"`` even parses
+        cleanly as the integer ``81238``. Only the recheck
+        (``flag_key != _eviction_flag_key(node_name, port, model_name)``)
+        catches that this is a false positive and skips it, rather than
+        arming a dialog against the wrong occupant/model pairing.
+        """
+        node_name, queried_model = "local", "model"
+        armed_model = "8_model"
+        armed_port = 8123
+        armed_key = _eviction_flag_key(node_name, armed_port, armed_model)
+        assert armed_key == "evicting_local_8123_8_model"
+
+        mock_state.running = {81238: MagicMock(config_name="occupant")}
+
+        at = tab_harness(
+            _render_eviction_dialog_if_armed, mock_state, node_name, queried_model,
+            run=False,
+        )
+        at.session_state[armed_key] = True
+        at.run()
+
+        assert not at.exception
+        # Not matched against the queried (node_name, "model") — no dialog
+        # rendered, and no confirm button for the mis-parsed port 81238.
+        assert at.button == []
+        # The genuinely-armed flag (for "8_model") is left untouched — it
+        # belongs to a different card's render pass, not this one's.
+        assert at.session_state[armed_key] is True
+
+
+class TestHandleStartMissingConfig:
+    """Pins ``_handle_start``'s local-node missing-config guard
+    (``model_card.py`` ~559-561): a config vanished between the card
+    rendering (which already gated the button via ``_render_start_button``)
+    and the click landing must toast and return, never raise or dispatch.
+    """
+
+    def test_config_vanished_between_render_and_click_toasts_and_returns(
+        self, tab_harness, mock_state, mock_aggregator,
+        mock_ops, mock_should_delegate, mock_local_agent_node,
+    ):
+        mock_state.models = {}  # config is gone by the time the click lands
+        mock_state.running = {}
+
+        at = tab_harness(
+            _handle_start, mock_state, mock_aggregator, "local", MODEL, PORT,
+        )
+
+        assert not at.exception
+        toast_bodies = [t.body for t in at.toast]
+        assert any("Model config not found" in b and MODEL in b for b in toast_bodies)
+        mock_ops.start.assert_not_called()
+        mock_local_agent_node.start_server.assert_not_called()

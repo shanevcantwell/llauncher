@@ -23,7 +23,11 @@ from __future__ import annotations
 
 import pytest
 
-from llauncher.ui.tabs.forms import render_add_model, render_edit_model
+from llauncher.ui.tabs.forms import (
+    _process_edit_model,
+    render_add_model,
+    render_edit_model,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +342,107 @@ class TestEditModelCancel:
         mock_config_store.update_model.assert_not_called()
         assert "editing_existing-model" not in at.session_state
         assert mock_state.models["existing-model"] is existing_config
+
+
+# ---------------------------------------------------------------------------
+# Phase 2b (test-coverage-plan.md) pin: 2026-08-20 review finding — the two
+# "vanished model" guards (``render_edit_model`` lines ~241-243 and
+# ``_process_edit_model`` lines ~427-430) and the save-exception catch-all
+# (``_process_edit_model`` line ~469). Both guards independently re-read
+# ``state.models.get(model_name)``, at render time and again at submit time,
+# because the model can vanish (deleted from another tab/session) in the
+# window between the two.
+# ---------------------------------------------------------------------------
+class TestEditModelVanishedAtRender:
+    """``render_edit_model(state, model_name)`` called with a name not in
+    ``state.models`` — the render-time guard (~lines 241-243).
+    """
+
+    def test_model_name_not_in_state_models_shows_error_and_renders_no_form(
+        self, tab_harness, mock_state, mock_config_store
+    ):
+        # state.models is empty — the caller passed a name that no longer
+        # resolves, e.g. a stale "Edit" button from a pre-delete render.
+        at = tab_harness(render_edit_model, mock_state, "ghost-model")
+
+        assert not at.exception
+        assert any("'ghost-model' not found" in e.value for e in at.error)
+        # No form rendered at all — not even the disabled/blank shell.
+        assert not at.subheader
+        assert not at.text_input
+        mock_config_store.update_model.assert_not_called()
+        mock_config_store.add_model.assert_not_called()
+
+
+class TestEditModelVanishedAtSubmit:
+    """The model vanishes from ``state.models`` *during* the submit handler's
+    own execution — the re-check inside ``_process_edit_model`` itself
+    (~lines 427-430), distinct from ``render_edit_model``'s render-time guard
+    above (~lines 241-243).
+
+    ``render_edit_model`` re-reads ``state.models.get(model_name)`` on every
+    script rerun, including the one the Save click lands on — so a model
+    deleted *between* reruns is caught by the outer render-time guard before
+    ``_process_edit_model`` is ever called, making its own 427-430 guard
+    unreachable via the full-form flow. To pin 427-430 specifically, this
+    drives ``_process_edit_model`` directly (the private submit handler,
+    same idiom the eviction-dialog tests above use for
+    ``_render_eviction_dialog``) with a ``state.models`` that is already
+    empty when the handler's own re-check executes.
+    """
+
+    def test_config_absent_when_handler_rechecks_shows_error(
+        self, tab_harness, mock_state, mock_config_store, model_path
+    ):
+        mock_state.models = {}  # absent at the handler's own re-check
+
+        at = tab_harness(
+            _process_edit_model,
+            mock_state,
+            "existing-model",  # model_name
+            model_path,        # model_path
+            None,               # mmproj_path
+            255, 131072, 0, "on", False,  # n_gpu_layers .. no_mmap
+            1, False, True,     # parallel, mlock, metrics
+            0, 0, 0.0, 0, 0.0, 0.0, 0.0,  # n_cpu_moe .. repeat_penalty
+            "",                 # reverse_prompt
+            "",                 # extra_args
+        )
+
+        assert not at.exception
+        assert any("'existing-model' not found" in e.value for e in at.error)
+        mock_config_store.update_model.assert_not_called()
+        mock_config_store.add_model.assert_not_called()
+
+
+class TestEditModelConfigStoreFailureShowsErrorNotException:
+    """A ``ConfigStore.update_model``/``add_model`` failure during save
+    surfaces as ``st.error``, never an uncaught exception — the edit form's
+    error boundary (~line 469), mirroring the add-form's equivalent pin in
+    ``TestAddModelConfigStoreFailureShowsErrorNotException`` above.
+    """
+
+    def test_update_model_raises_shows_error_not_exception(
+        self, tab_harness, mock_state, mock_config_store, existing_config
+    ):
+        mock_state.models["existing-model"] = existing_config
+        mock_config_store.load.return_value = {"existing-model": existing_config}
+        mock_config_store.update_model.side_effect = OSError("disk full")
+
+        at = tab_harness(
+            render_edit_model, mock_state, "existing-model", run=False
+        )
+        at.session_state["editing_existing-model"] = True
+        at.run()
+
+        _button_by_label(at, "Save Changes").click()
+        at.run()
+
+        assert not at.exception
+        assert any("Error saving model" in e.value for e in at.error)
+        # The stale config was not swapped in on a failed save.
+        assert mock_state.models["existing-model"] is existing_config
+        assert "editing_existing-model" in at.session_state
 
 
 # ---------------------------------------------------------------------------
