@@ -123,6 +123,10 @@ def _launch_and_await_ready(
         # order returns — a stale stopped-occupant log would otherwise
         # shadow the new server's "listening" line (issue #145).
         model_name=config.name,
+        # #368: fast-fail the poll as soon as the launched child exits,
+        # instead of burning the full ``readiness_timeout`` ceiling on a
+        # port/log a dead process can never produce.
+        process=popen,
     )
     if not ready:
         # Distinguish cancel from genuine timeout (ADR-014).
