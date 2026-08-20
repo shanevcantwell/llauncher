@@ -16,10 +16,10 @@
 
 | Category | Files | Tests |
 |----------|-------|-------|
-| Unit | 93 | 1443 |
+| Unit | 96 | 1476 |
 | Integration | 14 | 94 |
-| Other | 19 | 197 |
-| **Total** | **126** | **1734** |
+| Other | 20 | 200 |
+| **Total** | **130** | **1770** |
 
 ## Tests carrying special markers
 
@@ -38,6 +38,23 @@ ad-hoc markers used in the suite without declaration.
 ## Detailed listing
 
 ### Unit (`tests/unit/`)
+
+#### `tests/unit/mcp/test_audit_tools.py` (7 tests)
+
+- **`test_get_tools_declares_read_audit`**
+  - *``get_tools`` advertises exactly the ``read_audit`` tool, all-optional args.*
+- **`test_empty_returns_empty_list`**
+  - *Empty/missing audit log returns an empty entries list.*
+- **`test_returns_serialized_entries`**
+  - *Populated audit log returns a list of JSON-safe entry dicts.*
+- **`test_action_filter`**
+  - *``action`` narrows the result to entries with that action.*
+- **`test_result_filter`**
+  - *``result`` narrows the result to entries with that result.*
+- **`test_limit_bounds_tail`**
+  - *``limit`` caps the number of entries returned to the newest N.*
+- **`test_default_limit_is_200`**
+  - *Omitted ``limit`` defaults to 200, matching the agent's ``GET /audit``.*
 
 #### `tests/unit/mcp/test_config_tools.py` (23 tests)
 
@@ -164,7 +181,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_two_dispatch_calls_separate_refreshes_reflect_changes`**
   - *Two sequential dispatch→read calls both get fresh data via their own refresh. (#34-E)*
 
-#### `tests/unit/mcp/test_server.py` (20 tests)
+#### `tests/unit/mcp/test_server.py` (21 tests)
 
 - **`test_list_tools_returns_all_tools`**
   - *list_tools returns all tools from all modules.*
@@ -204,6 +221,8 @@ ad-hoc markers used in the suite without declaration.
   - *Test the if __name__ == '__main__' block.*
 - **`test_dispatch_tool_cancel_server`**
   - *Dispatch to cancel_server — stateless verb, bypasses the singleton.*
+- **`test_dispatch_tool_read_audit`**
+  - *Dispatch to read_audit (issue #338) — stateless read, bypasses the singleton.*
 - **`test_main_async_registered_handlers_invoke_dispatch`**
   - *The decorated ``list_tools``/``call_tool`` callbacks delegate to the handlers.*
 
@@ -288,7 +307,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_returns_slots_disabled_envelope_verbatim`**
   - *No HTTP-status mapping at the MCP layer — the tool call returns*
 
-#### `tests/unit/test_agent.py` (85 tests)
+#### `tests/unit/test_agent.py` (87 tests)
 
 - **`test_health_returns_200`**
   - *Test that health endpoint returns 200.*
@@ -324,6 +343,9 @@ ad-hoc markers used in the suite without declaration.
   - *Unknown model surfaces ops.start's ``error`` action as 500.*
 - **`test_start_server_unhandled_exception_returns_structured_500`**
   - *Issue #308: an unhandled exception from ``ops.start`` (not a*
+- **`test_unhandled_exception_on_swap_logs_traceback_and_returns_500`**
+- **`test_handled_http_exception_does_not_hit_the_catchall_handler`**
+  - *A route's own structured ``HTTPException`` (e.g. ops.swap*
 - **`test_stop_empty_port_is_idempotent_200`**
   - *Idempotent stop: 200 with ``already_empty`` action.*
 - **`test_stop_live_port_responds_while_termination_pending`**
@@ -780,7 +802,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_install_cli_sh_calls_the_floor_check_before_venv_creation`**
   - *The floor check must run BEFORE `python3 -m venv`, never after —*
 
-#### `tests/unit/test_cli.py` (56 tests)
+#### `tests/unit/test_cli.py` (63 tests)
 
 - **`test_help_shows_all_command_groups`**
   - *CLI help should display all four subcommand groups.*
@@ -884,6 +906,20 @@ ad-hoc markers used in the suite without declaration.
   - *``node status`` with no registered nodes prints the empty notice (cli.py:435-436).*
 - **`test_config_validate_schema_exception`**
   - *``config validate`` reports a schema failure on the exception path.*
+- **`test_audit_empty_prints_notice`**
+  - *Empty/missing audit log prints the empty-state notice, exit 0.*
+- **`test_audit_empty_json_returns_empty_list`**
+  - *``--json`` with no entries prints an empty JSON array.*
+- **`test_audit_json_returns_serialized_entries`**
+  - *Populated audit log serializes to a list of JSON-safe entry dicts.*
+- **`test_audit_table_renders_entries`**
+  - *Default (non-JSON) rendering prints a table with the entry fields.*
+- **`test_audit_action_filter`**
+  - *``--action`` narrows the result to entries with that action.*
+- **`test_audit_result_filter`**
+  - *``--result`` narrows the result to entries with that result.*
+- **`test_audit_limit_bounds_tail`**
+  - *``--limit`` caps the number of entries returned to the newest N.*
 
 #### `tests/unit/test_cli_state_dir.py` (8 tests)
 
@@ -1193,6 +1229,19 @@ ad-hoc markers used in the suite without declaration.
   - *Issue #298: two legacy same-key lines with NO pre-existing canonical*
 - **`test_legacy_only_migrates_without_dropping`**
 - **`test_no_legacy_keys_is_noop`**
+
+#### `tests/unit/test_install_ps1_minimal_env_seed.py` (5 tests)
+
+- **`test_seed_no_longer_copies_get_content_env_example_directly`**
+  - *The two known seed call sites must no longer pass the raw*
+- **`test_seed_filters_template_to_key_lines_before_writing`**
+  - *A dedicated filtered-lines variable (comment/blank stripped) must*
+- **`test_filtered_template_lines_contain_only_required_keys`**
+  - *Byte-inspection of the real template run through the same filter*
+- **`test_filtered_template_lines_are_pure_ascii`**
+  - *The minimal seed content the installer would write must be pure*
+- **`test_filtered_template_lines_have_no_bom`**
+  - *Byte-level check: the template file itself carries no BOM, and the*
 
 #### `tests/unit/test_install_ps1_no_bom_env_writes.py` (2 tests)
 
@@ -1583,6 +1632,15 @@ ad-hoc markers used in the suite without declaration.
 - **`test_target_string_is_required`**
   - *The dashboard's old ``selected_node=None`` branch is gone.*
 
+#### `tests/unit/test_node_info.py` (4 tests)
+
+- **`test_get_node_name_absent_env_falls_back_to_hostname`**
+- **`test_get_node_name_empty_env_falls_back_to_hostname`**
+  - *Present-but-empty must not defeat the hostname fallback (#367).*
+- **`test_get_node_name_set_env_is_honored`**
+- **`test_get_node_info_empty_env_reports_hostname_as_node_name`**
+  - *The full payload (served over /node-info) must reflect the fallback too.*
+
 #### `tests/unit/test_node_selector.py` (11 tests)
 
 - **`test_empty_registry_returns_local_only`**
@@ -1615,7 +1673,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_api_key_help_names_both_platform_commands`**
   - *First-contact help tells you what the field wants, per platform.*
 
-#### `tests/unit/test_operations.py` (68 tests)
+#### `tests/unit/test_operations.py` (72 tests)
 
 - **`test_start_on_empty_port`**
 - **`test_start_idempotent_when_same_model_running`**
@@ -1703,12 +1761,20 @@ ad-hoc markers used in the suite without declaration.
 - **`test_delete_model_ignores_lockfiles_for_other_models`**
   - *A live lockfile for an unrelated model does not block the delete.*
 - **`test_delete_model_result_to_dict_envelope`**
-- **`test_start_lockfile_race_terminate_oserror_does_not_mask_error`**
-  - *OSError from ``popen.terminate`` during a lockfile race is logged, not swallowed silently.*
+- **`test_start_lockfile_race_terminate_accessdenied_does_not_mask_error`**
+  - *AccessDenied from the rollback teardown during a lockfile race is*
+- **`test_start_lockfile_race_routes_through_stop_server_by_pid`**
+  - *Issue #415: the lockfile-race rollback tears the process down via*
+- **`test_start_lockfile_race_invalidates_process_scan_cache`**
+  - *Issue #415: the raced-launch teardown purges the process-scan cache,*
 - **`test_swap_readiness_timeout_terminate_accessdenied_does_not_mask_rollback`**
   - *psutil.AccessDenied from cleanup terminate is logged; rollback still completes.*
 - **`test_swap_terminate_unexpected_exception_now_propagates`**
-  - *Non-OSError, non-AccessDenied exceptions are NOT swallowed by the cleanup path.*
+  - *Non-AccessDenied exceptions are NOT swallowed by the cleanup path.*
+- **`test_swap_lockfile_race_routes_through_stop_server_by_pid`**
+  - *Issue #415: the lockfile-race rollback in swap's launch helper tears*
+- **`test_swap_lockfile_race_invalidates_process_scan_cache`**
+  - *Issue #415: the raced-launch teardown in swap purges the process-scan*
 - **`test_start_cancel_before_preflight_returns_cancelled`**
   - *A cancel detected at the pre-flight checkpoint yields no state change.*
 - **`test_start_rejected_in_progress_when_marker_present`**
@@ -1725,8 +1791,8 @@ ad-hoc markers used in the suite without declaration.
   - *Cancel at the *post-preflight* checkpoint (ADR-014) yields no state change.*
 - **`test_swap_same_model_in_flight_marker_rejects`**
   - *Same-model swap while a marker is already held → ``rejected_in_progress``.*
-- **`test_launch_and_await_ready_lockfile_race_terminate_oserror`**
-  - *Lockfile race during launch + terminate raises OSError → logged, race returned.*
+- **`test_launch_and_await_ready_lockfile_race_terminate_accessdenied`**
+  - *Lockfile race during launch + teardown raises AccessDenied → logged, race returned.*
 
 #### `tests/unit/test_orphan.py` (24 tests)
 
@@ -1858,7 +1924,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_default_vram_check_mixed_none_and_real_value_uses_real_value`**
   - *#241: the genuine-capacity path is unchanged when at least one device*
 
-#### `tests/unit/test_process.py` (81 tests)
+#### `tests/unit/test_process.py` (83 tests)
 
 - **`test_preferred_port_available`**
   - *Preferred port available - returns immediately.*
@@ -1992,6 +2058,10 @@ ad-hoc markers used in the suite without declaration.
   - *Port never opens within timeout.*
 - **`test_wait_for_server_ready_os_error`**
   - *OSError during socket connection is handled gracefully.*
+- **`test_wait_for_server_ready_dead_process_fast_fails`**
+  - *#368: a process that has already exited short-circuits the poll.*
+- **`test_wait_for_server_ready_live_process_still_polls_normally`**
+  - *A live ``process`` (``poll()`` returns None) doesn't short-circuit.*
 - **`test_stop_by_pid_no_such_process_during_children`**
   - *NoSuchProcess during children termination is handled.*
 - **`test_find_all_servers_zombie_process`**
@@ -2506,10 +2576,12 @@ ad-hoc markers used in the suite without declaration.
 - **`test_nonexistent_path_passes_through_unchanged`**
   - *A nonexistent path resolves to itself (failure deferred to use).*
 
-#### `tests/unit/test_state.py` (30 tests)
+#### `tests/unit/test_state.py` (31 tests)
 
 - **`test_start_with_eviction_successful`**
   - *Test successful eviction and start (compat wrapper).*
+- **`test_eviction_readiness_poll_passes_live_process_handle`**
+  - *Regression (#368): evict_and_swap must hand the live ``Popen`` to*
 - **`test_start_with_eviction_model_not_found`**
   - *Test eviction when model does not exist.*
 - **`test_start_with_eviction_port_not_occupied`**
@@ -2977,6 +3049,15 @@ ad-hoc markers used in the suite without declaration.
   - *Only one model can be edited at a time.*
 
 ### Other
+
+#### `tests/architecture/test_coverage_worktree_paths.py` (3 tests)
+
+- **`test_coverage_paths_mapping_present`**
+  - *``[tool.coverage.paths] source`` must alias the worktree patterns.*
+- **`test_coverage_run_records_relative_files`**
+  - *``relative_files`` must be on so recorded paths aren't checkout-absolute.*
+- **`test_worktree_style_alias_resolves_onto_canonical_source_root`**
+  - *Behavioral proof: coverage.py's own path-alias machinery accepts the mapping.*
 
 #### `tests/architecture/test_dispatch_seam_parity.py` (5 tests)
 
