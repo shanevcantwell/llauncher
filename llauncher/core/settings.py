@@ -71,15 +71,35 @@ SCRIPTS_PATH = Path(os.getenv(
 # ``DEFAULT_PORT`` env var or ``.env``.
 DEFAULT_PORT = int(os.getenv("DEFAULT_PORT", "8081"))
 
-# Blacklisted ports (comma-separated)
-_BLACKLISTED_PORTS_RAW = os.getenv("BLACKLISTED_PORTS", "")
-if _BLACKLISTED_PORTS_RAW:
-    BLACKLISTED_PORTS = [
-        int(p.strip()) for p in _BLACKLISTED_PORTS_RAW.split(",")
-        if p.strip().isdigit()
-    ]
-else:
-    BLACKLISTED_PORTS = []
+# Blacklisted ports (comma-separated). PARSE-AT-THE-DOOR (issue #450): any
+# entry that is not an integer in the valid TCP port range 1-65535 raises
+# ValueError at load, naming the offending entry and the env var. Previously
+# this trust-and-degraded -- a typo'd entry (e.g. '8O81', letter O) or an
+# out-of-range value (e.g. '-1', '65536') was silently dropped, which on a
+# security-adjacent control means a malformed entry silently UN-blacklists a
+# port. No warn-and-continue, no dual-shape.
+def _parse_blacklisted_ports(raw: str) -> list[int]:
+    ports = []
+    for entry in raw.split(","):
+        token = entry.strip()
+        if not token:
+            continue
+        # ``str.isdigit()`` is True for non-ASCII digits (e.g. '²',
+        # Arabic-Indic '٥'), but ``int()`` rejects some of those with a
+        # bare ValueError that names neither the env var nor the entry.
+        # Gate on ``isascii()`` first so every invalid token routes
+        # through the named-ValueError branch below (issue #450 contract:
+        # named-entry errors).
+        if not (token.isascii() and token.isdigit()) or not (1 <= int(token) <= 65535):
+            raise ValueError(
+                f"Invalid BLACKLISTED_PORTS entry {entry!r}: must be an "
+                f"integer in 1-65535 (env var BLACKLISTED_PORTS={raw!r})"
+            )
+        ports.append(int(token))
+    return ports
+
+
+BLACKLISTED_PORTS = _parse_blacklisted_ports(os.getenv("BLACKLISTED_PORTS", ""))
 
 # Log level
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

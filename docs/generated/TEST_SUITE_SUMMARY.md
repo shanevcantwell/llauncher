@@ -16,10 +16,10 @@
 
 | Category | Files | Tests |
 |----------|-------|-------|
-| Unit | 95 | 1471 |
+| Unit | 96 | 1476 |
 | Integration | 14 | 94 |
 | Other | 20 | 200 |
-| **Total** | **129** | **1765** |
+| **Total** | **130** | **1770** |
 
 ## Tests carrying special markers
 
@@ -2549,6 +2549,19 @@ ad-hoc markers used in the suite without declaration.
   - *``node_identity`` resolves via ``core.node_info.get_node_name`` — the*
 - **`test_to_int_passthrough_none`**
 - **`test_to_int_converts_float`**
+
+#### `tests/unit/test_settings_blacklisted_ports.py` (5 tests)
+
+- **`test_malformed_entry_raises_at_load`**
+  - *Any entry that is not an int in 1-65535 raises ValueError at load.*
+- **`test_empty_var_defaults_to_empty_list`**
+  - *An unset/empty BLACKLISTED_PORTS defaults to [].*
+- **`test_whitespace_padded_valid_entry_parses`**
+  - *A valid entry padded with whitespace is stripped and parsed.*
+- **`test_valid_list_parses_in_order`**
+  - *A well-formed comma-separated list parses to ints, in order.*
+- **`test_boundary_ports_are_valid`**
+  - *Port range boundaries 1 and 65535 are valid (inclusive range).*
 
 #### `tests/unit/test_settings_import_safety.py` (5 tests)
 
