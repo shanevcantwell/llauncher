@@ -199,3 +199,48 @@ def test_caller_defaults_to_unknown(
     ConfigStore.add_model(sample_model_config)
     entries = _read_audit(tmp_config_dir)
     assert entries[0]["caller"] == "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Phase 2b (test-coverage-plan.md) pin: 2026-08-20 review finding —
+# ``ConfigStore.save``'s atomicity claim (write-to-``.tmp``-then-``replace``,
+# ``core/config.py`` lines 66-70) behind the ``forms.py:469`` catch-all. The
+# review verified that a raise injected *before* ``Path.replace`` leaves the
+# original ``config.json`` byte-for-byte intact — this converts that manual
+# verification into a regression pinned to the exact injection point.
+# ---------------------------------------------------------------------------
+
+
+def test_save_raising_before_replace_leaves_old_config_file_intact(
+    mock_config_store, sample_model_config, tmp_config_dir
+):
+    """A crash between writing the ``.tmp`` file and the atomic rename must
+    not corrupt or touch the previously-persisted ``config.json``.
+
+    Seeds a real on-disk config via a first successful ``add_model``, reads
+    its exact bytes, then injects a raise at ``Path.replace`` (the atomicity
+    seam ``save()`` relies on) for a second ``add_model`` call. The original
+    file's bytes must be unchanged after the raise propagates — the ``.tmp``
+    file may be left behind, but the door ``config.json`` itself is never
+    touched until ``replace()`` actually succeeds.
+    """
+    ConfigStore.add_model(sample_model_config, caller="ui")
+    config_path = tmp_config_dir / "config.json"
+    assert config_path.exists()
+    original_bytes = config_path.read_bytes()
+
+    second_config = sample_model_config.model_copy(update={"name": "second-model"})
+
+    with patch(
+        "pathlib.Path.replace",
+        side_effect=OSError("simulated crash mid-write"),
+    ):
+        with pytest.raises(OSError, match="simulated crash mid-write"):
+            ConfigStore.add_model(second_config, caller="ui")
+
+    # The original file is byte-for-byte intact — the raise happened after
+    # the ``.tmp`` write but before the rename ever touched the real path.
+    assert config_path.read_bytes() == original_bytes
+    # And a read-back confirms only the first model survived.
+    reloaded = ConfigStore.load()
+    assert list(reloaded) == [sample_model_config.name]

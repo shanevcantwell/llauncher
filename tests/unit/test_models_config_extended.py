@@ -250,3 +250,29 @@ class TestAuditEntryToDict:
         assert d["action"] == "start"
         assert d["result"] == "success"
         assert d["message"] == "ok"
+
+
+class TestModelConfigTruthiness:
+    """Phase 2b (test-coverage-plan.md) pin: 2026-08-20 review finding.
+
+    Several call sites (``ui/tabs/forms.py`` ~242-243/429-430,
+    ``ui/tabs/model_card.py`` ~140-150/559-561) branch on
+    ``if not config:`` / ``if config is None:`` to detect a vanished model,
+    relying on the assumption that any *constructed* ``ModelConfig``
+    instance is truthy regardless of its field values — i.e. that pydantic's
+    ``BaseModel`` carries no custom ``__bool__``/``__len__`` that could make
+    a populated instance evaluate falsy. This pins that assumption directly:
+    if anyone ever adds a ``__bool__`` to ``ModelConfig`` (e.g. "falsy when
+    incomplete"), those call sites' guards silently start treating a *real*
+    config as vanished, and this test goes red first.
+    """
+
+    def test_bool_is_not_overridden(self) -> None:
+        assert "__bool__" not in ModelConfig.__dict__
+
+    def test_populated_instance_is_truthy(self, tmp_path: Path) -> None:
+        model_file = tmp_path / "model.gguf"
+        model_file.write_bytes(b"x")
+        config = ModelConfig(name="m", model_path=str(model_file))
+        assert bool(config) is True
+        assert config  # the exact idiom the guarded call sites rely on
