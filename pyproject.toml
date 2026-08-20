@@ -14,7 +14,7 @@ dependencies = [
     "httpx>=0.26.0",
     "typer>=0.9.0",
     "rich>=13.0.0",
-    "streamlit>=1.30.0",
+    "streamlit>=1.58.0",
 ]
 
 [project.optional-dependencies]
