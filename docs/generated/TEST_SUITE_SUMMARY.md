@@ -17,9 +17,9 @@
 | Category | Files | Tests |
 |----------|-------|-------|
 | Unit | 97 | 1487 |
-| Integration | 14 | 94 |
+| Integration | 13 | 84 |
 | Other | 21 | 210 |
-| **Total** | **132** | **1791** |
+| **Total** | **131** | **1781** |
 
 ## Tests carrying special markers
 
@@ -3046,29 +3046,6 @@ ad-hoc markers used in the suite without declaration.
   - *Test that swap fails gracefully for invalid model.*
 - **`test_swap_empty_port`** `@integration` `@live`
   - *Test starting a model on an empty port.*
-
-#### `tests/integration/test_ui.py` (10 tests)
-
-- **`test_dashboard_no_models`**
-  - *Dashboard with no running servers shows info message.*
-- **`test_dashboard_multiple_models`**
-  - *Dashboard with multiple models has correct state.*
-- **`test_start_server_workflow`**
-  - *Start button calls can_start then start_server.*
-- **`test_stop_server_workflow`**
-  - *Stop button calls stop_server.*
-- **`test_add_model_complete_workflow`**
-  - *Complete add model workflow from form to ConfigStore.*
-- **`test_add_model_with_validation_error`**
-  - *Add model with invalid config shows error.*
-- **`test_log_retrieval_integration`**
-  - *Log viewer retrieves logs correctly.*
-- **`test_log_retrieval_no_logs`**
-  - *Log viewer returns empty when no logs found.*
-- **`test_session_state_edit_transitions`**
-  - *Edit button sets session state flag.*
-- **`test_session_state_multiple_models`**
-  - *Only one model can be edited at a time.*
 
 ### Other
 
