@@ -55,9 +55,10 @@ trust-and-degrade on an unrecognized one (`PARSE-AT-THE-DOOR`).
   `auto:draft` — agent produces the artifact (ADR, design, schema); operator
   ratifies before implementation begins.
   `user:gate` — operator hands or hardware required.
-- **Gates before any merge:** full pytest; non-UI coverage ≥93%
-  (`--cov-fail-under=93`); coverage profile maximized over changed paths;
-  dispatched code review.
+- **Gates before any merge:** full pytest; coverage at or above the floor
+  configured in `pytest.ini` (`--cov-fail-under`, currently combined UI +
+  non-UI — see that file for the live number, not this doc); coverage
+  profile maximized over changed paths; dispatched code review.
 - **Merge mechanics + ground close:** merges land via `gh pr merge --squash --delete-branch`
   (deletes remote + local head, returns the checkout to `main`). A session that touched the
   repo ends with the shared checkout clean on `main` and its scratch worktrees removed or
