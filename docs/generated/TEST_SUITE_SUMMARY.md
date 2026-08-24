@@ -16,10 +16,10 @@
 
 | Category | Files | Tests |
 |----------|-------|-------|
-| Unit | 98 | 1516 |
+| Unit | 99 | 1526 |
 | Integration | 13 | 84 |
 | Other | 21 | 210 |
-| **Total** | **132** | **1810** |
+| **Total** | **133** | **1820** |
 
 ## Tests carrying special markers
 
@@ -984,6 +984,21 @@ ad-hoc markers used in the suite without declaration.
   - *Callers that don't pass a caller= are recorded as 'unknown'.*
 - **`test_save_raising_before_replace_leaves_old_config_file_intact`**
   - *A crash between writing the ``.tmp`` file and the atomic rename must*
+
+#### `tests/unit/test_conftest_fake_managed_pid.py` (8 tests)
+
+- **`test_registered_pid_returns_stub_with_registered_fields`**
+- **`test_alias_defaults_to_model_name`**
+  - *ONE-MINT: the launched alias is the ``ModelConfig.name`` (#423).*
+- **`test_cmdline_unreadable_is_threaded_into_the_stub`**
+  - *F5(a): Phase 2's #208 case — present but argv unreadable.*
+- **`test_cmdline_unreadable_defaults_false`**
+- **`test_expect_port_mismatch_returns_none_and_warns`**
+- **`test_matching_expect_port_does_not_warn`**
+- **`test_unregistered_dead_pid_hits_real_verify_pid`**
+  - *The real body's ``NoSuchProcess`` arm answers, so the answer is None.*
+- **`test_unregistered_live_pid_is_attributed_by_real_verify_pid`**
+  - *Fall-through populates fields from argv, which only real code does.*
 
 #### `tests/unit/test_core_runtime_coverage.py` (20 tests)
 
@@ -1965,7 +1980,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_default_vram_check_mixed_none_and_real_value_uses_real_value`**
   - *#241: the genuine-capacity path is unchanged when at least one device*
 
-#### `tests/unit/test_process.py` (94 tests)
+#### `tests/unit/test_process.py` (96 tests)
 
 - **`test_preferred_port_available`**
   - *Preferred port available - returns immediately.*
@@ -2152,6 +2167,10 @@ ad-hoc markers used in the suite without declaration.
   - *``expect_port=None`` (the discovery-less case) skips the port gate.*
 - **`test_create_time_access_denied_falls_back_to_none`**
   - *A late ``AccessDenied`` on ``create_time()`` degrades gracefully.*
+- **`test_create_time_access_denied_still_yields_info`**
+  - *``AccessDenied`` mid-walk degrades to ``create_time=None``.*
+- **`test_create_time_zombie_still_yields_info`**
+  - *A mid-walk ``ZombieProcess`` is the same degrade, not a drop.*
 
 #### `tests/unit/test_process_log_resolution.py` (16 tests)
 

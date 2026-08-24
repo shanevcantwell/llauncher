@@ -1586,3 +1586,54 @@ class TestVerifyPid:
 
         assert info is not None
         assert info.create_time is None
+
+
+class TestDiscoverAllCreateTimeGuard:
+    """Issue #466 Phase 1: ``discover_all``'s late ``create_time()`` guard.
+
+    Mirrors ``TestVerifyPid::test_create_time_access_denied_falls_back_to_none``
+    for the process-table walk: a process that exits (or becomes unreadable)
+    between the argv read and the ``create_time()`` read must still be
+    reported with ``create_time=None`` rather than silently dropped from
+    the orphan roster.
+    """
+
+    def test_create_time_access_denied_still_yields_info(self):
+        """``AccessDenied`` mid-walk degrades to ``create_time=None``."""
+        p = MagicMock()
+        p.pid = 4242
+        p.name.return_value = "llama-server"
+        p.cmdline.return_value = [
+            "llama-server", "--port", "8081", "--alias", "my-model",
+            "-m", "/models/a.gguf",
+        ]
+        p.create_time.side_effect = psutil.AccessDenied(pid=4242)
+
+        with patch("psutil.process_iter", return_value=[p]):
+            discovered = discover_all()
+
+        assert discovered == [
+            ServerProcessInfo(
+                pid=4242,
+                port=8081,
+                alias="my-model",
+                model_path="/models/a.gguf",
+                create_time=None,
+                cmdline_unreadable=False,
+            )
+        ]
+
+    def test_create_time_zombie_still_yields_info(self):
+        """A mid-walk ``ZombieProcess`` is the same degrade, not a drop."""
+        p = MagicMock()
+        p.pid = 99
+        p.name.return_value = "llama-server"
+        p.cmdline.return_value = ["llama-server", "--port", "8082"]
+        p.create_time.side_effect = psutil.ZombieProcess(pid=99)
+
+        with patch("psutil.process_iter", return_value=[p]):
+            discovered = discover_all()
+
+        assert len(discovered) == 1
+        assert discovered[0].pid == 99
+        assert discovered[0].create_time is None

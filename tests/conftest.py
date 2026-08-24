@@ -576,8 +576,14 @@ def fake_managed_pid(monkeypatch):
 
     Returns a callable
     ``register(port, model, pid, *, run_dir=None, alias=None,
-    model_path=None, create_time=None) -> Lockfile``. Pids never passed to
-    ``register`` fall through to the real ``verify_pid``.
+    model_path=None, create_time=None, cmdline_unreadable=False) -> Lockfile``.
+    Pids never passed to ``register`` fall through to the real ``verify_pid``.
+
+    ``cmdline_unreadable=True`` expresses Phase 2's #208 case — a
+    cross-uid pid that is present but whose argv this uid cannot read, so
+    it must stay in the roster as unknown-alive rather than being dropped.
+    On an ``expect_port`` mismatch the stub returns ``None`` *and* emits
+    the same WARNING the real ``verify_pid`` does (ADR-008).
     """
     from llauncher.core import lockfile as lf
     from llauncher.core import process as proc_mod
@@ -589,6 +595,15 @@ def fake_managed_pid(monkeypatch):
         if pid in stubs:
             info = stubs[pid]
             if expect_port is not None and info.port != expect_port:
+                # Mirror the real verify_pid's ADR-008 refusal log so a
+                # test asserting on the warning behaves the same against
+                # the stub as against the real process table.
+                proc_mod.logger.warning(
+                    "verify_pid: pid %s argv port %s does not match expected "
+                    "port %s — refusing to treat this as the claimed server "
+                    "(ADR-008)",
+                    pid, info.port, expect_port,
+                )
                 return None
             return info
         return real_verify_pid(pid, expect_port=expect_port)
@@ -604,6 +619,7 @@ def fake_managed_pid(monkeypatch):
         alias: str | None = None,
         model_path: str | None = None,
         create_time: float | None = None,
+        cmdline_unreadable: bool = False,
     ) -> lf.Lockfile:
         lock = lf.write_lockfile(port, model, pid, run_dir=run_dir)
         stubs[pid] = proc_mod.ServerProcessInfo(
@@ -612,7 +628,7 @@ def fake_managed_pid(monkeypatch):
             alias=alias if alias is not None else model,
             model_path=model_path,
             create_time=create_time,
-            cmdline_unreadable=False,
+            cmdline_unreadable=cmdline_unreadable,
         )
         return lock
 

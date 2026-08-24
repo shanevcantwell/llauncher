@@ -24,10 +24,12 @@ A future revision will add an `adopt` verb that writes a lockfile for a discover
 A new function in `llauncher.core.process`:
 
 ```python
-def find_all_llama_servers_annotated() -> list[tuple[psutil.Process, int | None, bool]]
+def discover_all() -> list[ServerProcessInfo]
 ```
 
-Returns each live `llama-server` paired with the port extracted from `--port` in its argv (or `None` if no `--port`) and a `cmdline_unreadable: bool` flag for processes whose `cmdline()` raised `psutil.AccessDenied`. The port-extraction idiom mirrors `state.py:refresh_running_servers` so the two scans agree.
+*Amended 2026-08-24 (#466 Phase 1, PR #470): this function was named `find_all_llama_servers_annotated()` and returned `list[tuple[psutil.Process, int | None, bool]]`; it is now `discover_all()` returning `list[ServerProcessInfo]` — a frozen dataclass carrying `pid`, `port`, `alias`, `model_path`, `create_time`, `cmdline_unreadable`. No behavioral change to this ADR's decision; the annotation is simply named rather than positional.*
+
+Returns each live `llama-server` annotated with the port extracted from `--port` in its argv (or `None` if no `--port`) and a `cmdline_unreadable: bool` flag for processes whose `cmdline()` raised `psutil.AccessDenied`. The port-extraction idiom mirrors `state.py:refresh_running_servers` so the two scans agree.
 
 The original `find_all_llama_servers()` is **not modified**. Its callers (the v1 state path, footer cache) keep their existing behavior. Per the project's "annotated companion, not in-place edit" convention, the new scan is a sibling.
 
