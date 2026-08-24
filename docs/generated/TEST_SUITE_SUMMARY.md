@@ -16,10 +16,10 @@
 
 | Category | Files | Tests |
 |----------|-------|-------|
-| Unit | 97 | 1492 |
+| Unit | 98 | 1505 |
 | Integration | 13 | 84 |
 | Other | 21 | 210 |
-| **Total** | **131** | **1786** |
+| **Total** | **132** | **1799** |
 
 ## Tests carrying special markers
 
@@ -1321,6 +1321,33 @@ ad-hoc markers used in the suite without declaration.
 - **`test_file_permissions_preserved`**
   - *The in-place rewrite preserves the env file's mode (0640 group-read*
 
+#### `tests/unit/test_isolation_fixtures.py` (12 tests)
+
+- **`test_isolate_state_dir_redirects_config_and_audit`**
+  - *With the autouse fixture active (it always is, in this suite), the*
+- **`test_isolate_state_dir_add_model_does_not_touch_real_ledger`**
+  - *The exact incident anchor, generalized: calling ConfigStore.add_model*
+- **`test_forbid_real_state_writes_constants_track_settings_default`**
+  - *The guard's own real-path constants must resolve to the same*
+- **`test_forbid_real_state_writes_line_count_probe_detects_append`**
+  - *Unit-test the guard's audit-line-count primitive directly, against a*
+- **`test_forbid_real_state_writes_signature_scan_flags_fixture_names_only`**
+  - *Unit-test the guard's signature-matching logic (issue #463*
+- **`test_forbid_real_state_writes_config_signature_scan_ignores_real_additions`**
+  - *The config-content check (Rider 2, option (a) applied to the*
+- **`test_forbid_live_ports_blocks_connect_to_each_forbidden_port`**
+  - *Every port in the forbidden set raises on a real connect attempt.*
+- **`test_forbid_live_ports_blocks_connect_ex_to_each_forbidden_port`**
+  - *``connect_ex`` (the non-raising variant callers sometimes probe*
+- **`test_forbid_live_ports_allows_ephemeral_port_roundtrip`**
+  - *A real bind-to-0 + connect on a NON-forbidden ephemeral port must*
+- **`test_forbid_live_ports_forbidden_set_matches_documented_ports`**
+  - *Pin the exact forbidden-port set the #151 coupling comment names,*
+- **`test_forbid_live_ports_bypasses_under_llauncher_live_env`**
+  - *``_forbid_live_ports``'s own error message tells a test author to*
+- **`test_live_marker_is_declared_and_skipped_by_default`**
+  - *``live`` must be a registered marker (pytest.ini) — and, absent*
+
 #### `tests/unit/test_lockfile.py` (23 tests)
 
 - **`test_write_creates_file_and_returns_lockfile`**
@@ -2160,7 +2187,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_empty_run_dir_is_noop`**
   - *No lockfiles → empty result, no audit entries.*
 
-#### `tests/unit/test_registry_extended.py` (28 tests)
+#### `tests/unit/test_registry_extended.py` (29 tests)
 
 - **`test_is_local_agent_ready_with_existing_online_node`**
   - *Test when local node exists and is online.*
@@ -2212,6 +2239,8 @@ ad-hoc markers used in the suite without declaration.
   - *The ``local`` entry's token belongs in ``agent.env``, NOT*
 - **`test_remove_node_drops_token_entry`**
   - *``remove_node`` triggers _save → _save_node_tokens full-*
+- **`test_removing_last_token_rewrites_sidecar_to_empty_object`**
+  - *The last remote-with-a-token removed → sidecar already exists*
 - **`test_missing_tokens_file_leaves_api_keys_none`**
   - *nodes.json says has_api_key=True but the sidecar is missing*
 - **`test_corrupt_tokens_file_does_not_break_load`**

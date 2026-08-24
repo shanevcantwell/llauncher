@@ -693,6 +693,36 @@ class TestRemoteNodeTokenPersistence:
         assert "remote-f" not in payload
         assert payload.get("remote-g") == "tok-G"
 
+    def test_removing_last_token_rewrites_sidecar_to_empty_object(
+        self, tmp_path, monkeypatch
+    ):
+        """The last remote-with-a-token removed → sidecar already exists
+        on disk → ``_save_node_tokens`` rewrites it to ``"{}"`` rather than
+        leaving the stale token content behind (registry.py's ``if not
+        data: ... if NODE_TOKENS_FILE.exists(): write_text("{}")`` branch).
+
+        Discovered uncovered during issue #463's isolation work (a
+        pre-existing gap in this test module, unrelated to #463's own
+        state-dir bug — surfaced only because a stale REAL host
+        ``node_tokens.json`` had been accidentally providing this branch's
+        coverage via a leak this same issue's fixture now closes).
+        """
+        _, tokens_file = self._patch_paths(monkeypatch, tmp_path)
+
+        reg = NodeRegistry()
+        reg._nodes.clear()
+        reg.add_node("remote-only", "192.168.1.60", 8765, api_key="tok-only")
+        assert tokens_file.exists()
+        assert json.loads(tokens_file.read_text()) == {"remote-only": "tok-only"}
+
+        ok, _ = reg.remove_node("remote-only")
+        assert ok
+
+        # File must still exist, but rewritten to an empty object -- not
+        # left with the stale "remote-only" token still on disk.
+        assert tokens_file.exists()
+        assert json.loads(tokens_file.read_text()) == {}
+
     def test_missing_tokens_file_leaves_api_keys_none(self, tmp_path, monkeypatch):
         """nodes.json says has_api_key=True but the sidecar is missing
         → load succeeds, that remote's api_key is None. No synthesis
