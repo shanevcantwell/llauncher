@@ -2,9 +2,8 @@
 
 An *orphan* is a live ``llama-server`` process that llauncher did not
 launch (or whose claim it has since lost). Concretely, a process found
-by :func:`llauncher.core.process.find_all_llama_servers_annotated` whose
-``(port, pid)`` does not match a live, parseable lockfile in
-``LAUNCHER_RUN_DIR``.
+by :func:`llauncher.core.process.discover_all` whose ``(port, pid)`` does
+not match a live, parseable lockfile in ``LAUNCHER_RUN_DIR``.
 
 ADR-015 deliberately scopes M1 of this work to **annotation and listing
 only** — there is no ``adopt`` verb in this module. A future revision
@@ -67,11 +66,14 @@ def list_orphans(*, caller: str = "reconcile") -> list[OrphanInfo]:
     del caller  # currently unused; reserved for future audit hook
     orphans: list[OrphanInfo] = []
 
-    for process, port, unreadable in proc.find_all_llama_servers_annotated():
+    for info in proc.discover_all():
         try:
-            pid = int(process.pid)
-        except (TypeError, ValueError):  # pragma: no cover - defensive: psutil.Process.pid is always an int, so this coercion guard is effectively unreachable; kept to fail safe rather than crash a reconcile scan on a hypothetically non-numeric pid.
+            pid = int(info.pid)
+        except (TypeError, ValueError):  # pragma: no cover - defensive: ServerProcessInfo.pid is always an int, so this coercion guard is effectively unreachable; kept to fail safe rather than crash a reconcile scan on a hypothetically non-numeric pid.
             continue
+
+        port = info.port
+        unreadable = info.cmdline_unreadable
 
         if unreadable or port is None:
             # No way to match against a lockfile — surface as orphan

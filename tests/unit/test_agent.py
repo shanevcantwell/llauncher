@@ -290,7 +290,7 @@ class TestStatusScanDedup309:
     """Issue #309: cold-path process-table scan-count dedup.
 
     Spies on the two full-scan primitives (``find_all_llama_servers`` /
-    ``find_all_llama_servers_annotated``) and pins the number of times each
+    ``discover_all``) and pins the number of times each
     is invoked, rather than asserting on wall time (unreliable across
     platforms/CI). Diagnosed ground: the cold ``GET /status`` path used to
     pay 5 scans **on the state-refresh path** — construction's own refresh
@@ -306,6 +306,11 @@ class TestStatusScanDedup309:
     (``_map_processes``) — a separate by-name import, and explicitly
     ``#309`` part-2 scope. The spies stub that site out (so the tests never
     pay a real scan there) but deliberately do not pin its count.
+
+    ``discover_all`` is the #466 Phase 1 rename of
+    ``find_all_llama_servers_annotated`` — same call site
+    (``llauncher.operations.orphan``'s ``proc.discover_all()``), same
+    module-attribute reach, new name.
     """
 
     @staticmethod
@@ -317,10 +322,10 @@ class TestStatusScanDedup309:
         ``llauncher.state`` itself — patching
         ``llauncher.core.process.find_all_llama_servers`` would not reach
         that call site. ``list_orphans()`` (called by
-        ``LauncherState.refresh_orphans``) reaches
-        ``find_all_llama_servers_annotated`` via a module-attribute
-        reference (``llauncher.operations.orphan``'s ``proc.<name>``), so
-        patching it on ``llauncher.core.process`` does reach that call.
+        ``LauncherState.refresh_orphans``) reaches ``discover_all`` via a
+        module-attribute reference (``llauncher.operations.orphan``'s
+        ``proc.<name>``), so patching it on ``llauncher.core.process``
+        does reach that call.
 
         ``llauncher.core.gpu`` holds its own by-name import of
         ``find_all_llama_servers`` (``GPUHealthCollector._map_processes``),
@@ -340,7 +345,7 @@ class TestStatusScanDedup309:
             counts["servers"] += 1
             return []
 
-        def _fake_find_all_llama_servers_annotated():
+        def _fake_discover_all():
             counts["annotated"] += 1
             return []
 
@@ -349,9 +354,7 @@ class TestStatusScanDedup309:
             return []
 
         monkeypatch.setattr(state_mod, "find_all_llama_servers", _fake_find_all_llama_servers)
-        monkeypatch.setattr(
-            process_mod, "find_all_llama_servers_annotated", _fake_find_all_llama_servers_annotated
-        )
+        monkeypatch.setattr(process_mod, "discover_all", _fake_discover_all)
         monkeypatch.setattr(gpu_mod, "find_all_llama_servers", _fake_gpu_find_all_llama_servers)
         return counts
 

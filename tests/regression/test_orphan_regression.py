@@ -52,6 +52,7 @@ from llauncher import operations as ops
 from llauncher.core import audit_log as al
 from llauncher.core import lockfile as lf
 from llauncher.core.audit_log import AuditAction, AuditResult
+from llauncher.core.process import ServerProcessInfo
 from llauncher.operations.orphan import OrphanInfo
 
 
@@ -78,10 +79,17 @@ def audit_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return target
 
 
-def _fake_proc(pid: int) -> MagicMock:
-    m = MagicMock()
-    m.pid = pid
-    return m
+def _fake_info(
+    pid: int, port: int | None, *, cmdline_unreadable: bool = False
+) -> ServerProcessInfo:
+    return ServerProcessInfo(
+        pid=pid,
+        port=port,
+        alias=None,
+        model_path=None,
+        create_time=None,
+        cmdline_unreadable=cmdline_unreadable,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -110,25 +118,25 @@ def test_list_orphans_never_kills_or_claims(
     silently adopt — adoption is deferred to a future ADR).
     """
     if setup == "no_lockfile":
-        annotated = [(_fake_proc(9001), 8081, False)]
+        discovered = [_fake_info(9001, 8081)]
         is_alive = True
     elif setup == "stale_lockfile":
         lf.write_lockfile(8082, "old", 7777, run_dir=run_dir)
-        annotated = [(_fake_proc(9002), 8082, False)]
+        discovered = [_fake_info(9002, 8082)]
         is_alive = False
     elif setup == "pid_mismatch":
         lf.write_lockfile(8083, "old", 6666, run_dir=run_dir)
-        annotated = [(_fake_proc(9003), 8083, False)]
+        discovered = [_fake_info(9003, 8083)]
         is_alive = True
     elif setup == "unreadable_cmdline":
-        annotated = [(_fake_proc(9004), None, True)]
+        discovered = [_fake_info(9004, None, cmdline_unreadable=True)]
         is_alive = True
     else:  # pragma: no cover - guarded by parametrize
         pytest.fail(f"unknown setup {setup!r}")
 
     with patch(
-        "llauncher.operations.orphan.proc.find_all_llama_servers_annotated",
-        return_value=annotated,
+        "llauncher.operations.orphan.proc.discover_all",
+        return_value=discovered,
     ), patch(
         "llauncher.operations.orphan.lf.is_pid_alive", return_value=is_alive
     ), patch(

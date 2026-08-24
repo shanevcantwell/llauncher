@@ -16,10 +16,10 @@
 
 | Category | Files | Tests |
 |----------|-------|-------|
-| Unit | 98 | 1505 |
+| Unit | 98 | 1516 |
 | Integration | 13 | 84 |
 | Other | 21 | 210 |
-| **Total** | **132** | **1799** |
+| **Total** | **132** | **1810** |
 
 ## Tests carrying special markers
 
@@ -1965,7 +1965,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_default_vram_check_mixed_none_and_real_value_uses_real_value`**
   - *#241: the genuine-capacity path is unchanged when at least one device*
 
-#### `tests/unit/test_process.py` (83 tests)
+#### `tests/unit/test_process.py` (94 tests)
 
 - **`test_preferred_port_available`**
   - *Preferred port available - returns immediately.*
@@ -2132,6 +2132,26 @@ ad-hoc markers used in the suite without declaration.
 - **`test_rotates_when_existing_log_exceeds_max_bytes`**
   - *An oversized log triggers rotation before the new run appends.*
 - **`test_every_emitted_flag_is_registered`**
+- **`test_dead_pid_returns_none`**
+- **`test_zombie_status_returns_none`**
+- **`test_zombie_process_exception_at_construction_returns_none`**
+  - *``psutil.ZombieProcess`` subclasses ``NoSuchProcess`` — same branch.*
+- **`test_no_such_process_race_on_cmdline_returns_none`**
+  - *A process that vanishes between liveness check and cmdline read.*
+- **`test_access_denied_on_construction_yields_unreadable_info`**
+  - *#208: present-but-inaccessible must not be dropped as ``None``.*
+- **`test_access_denied_on_cmdline_yields_unreadable_info`**
+  - *#208: liveness readable, argv is not — still unknown-alive.*
+- **`test_live_non_llama_process_returns_none`**
+  - *PID-reuse defense: alive + readable but not a llama-server.*
+- **`test_expect_port_mismatch_returns_none_and_warns`**
+  - *ADR-008: argv port disagrees with the lockfile's claim → refuse.*
+- **`test_live_llama_server_returns_full_info`**
+  - *The good case: alias/port/model_path/create_time populated.*
+- **`test_live_llama_server_no_expect_port_still_verifies`**
+  - *``expect_port=None`` (the discovery-less case) skips the port gate.*
+- **`test_create_time_access_denied_falls_back_to_none`**
+  - *A late ``AccessDenied`` on ``create_time()`` degrades gracefully.*
 
 #### `tests/unit/test_process_log_resolution.py` (16 tests)
 
