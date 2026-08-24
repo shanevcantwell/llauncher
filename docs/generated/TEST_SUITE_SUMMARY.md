@@ -16,10 +16,10 @@
 
 | Category | Files | Tests |
 |----------|-------|-------|
-| Unit | 97 | 1487 |
+| Unit | 97 | 1492 |
 | Integration | 13 | 84 |
 | Other | 21 | 210 |
-| **Total** | **131** | **1781** |
+| **Total** | **131** | **1786** |
 
 ## Tests carrying special markers
 
@@ -307,7 +307,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_returns_slots_disabled_envelope_verbatim`**
   - *No HTTP-status mapping at the MCP layer — the tool call returns*
 
-#### `tests/unit/test_agent.py` (87 tests)
+#### `tests/unit/test_agent.py` (92 tests)
 
 - **`test_health_returns_200`**
   - *Test that health endpoint returns 200.*
@@ -337,6 +337,16 @@ ad-hoc markers used in the suite without declaration.
   - *Test that models returns a list.*
 - **`test_models_returns_correct_structure`**
   - *Test that models return correct structure.*
+- **`test_get_state_first_call_does_not_double_refresh`**
+  - *``routing.get_state()``'s first call refreshes exactly once.*
+- **`test_status_cold_path_reuses_construction_scan`**
+  - *A first-ever ``GET /status`` pays at most the deduped scan count.*
+- **`test_status_warm_path_still_refreshes_running_servers`**
+  - *A second ``GET /status`` (state already built) still re-scans*
+- **`test_models_cold_path_reuses_construction_scan`**
+  - *A first-ever ``GET /models`` does not re-run a full ``refresh()``*
+- **`test_models_warm_path_still_refreshes`**
+  - *A second ``GET /models`` (state already built) still runs a full*
 - **`test_start_missing_body_returns_422`**
   - *Posting without a body fails FastAPI validation.*
 - **`test_start_nonexistent_model_returns_500`**
