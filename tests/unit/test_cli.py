@@ -40,7 +40,25 @@ def sample_model_config():
 
 @pytest.fixture
 def mock_config_store(tmp_path):
-    """Mock ConfigStore with temporary path."""
+    """Mock ConfigStore with temporary path.
+
+    Module-local (shadows the ``tests/conftest.py`` fixture of the same
+    name) because callers here destructure and assert against the returned
+    ``(config_dir, config_path)`` tuple directly — that's still this
+    fixture's job and it stays.
+
+    Issue #463: this fixture historically had NO ``LAUNCHER_AUDIT_PATH``
+    patch, so ``ConfigStore.add_model``/``remove_model`` calls under it
+    wrote real audit lines to the operator's ``~/.llauncher/audit.jsonl``
+    (the incident's exact anchor — see ``test_model_remove_happy_path``,
+    ``test_model_remove_without_yes_aborts_on_no``,
+    ``test_config_validate_valid`` below). That gap is now closed
+    structurally by the autouse ``_isolate_state_dir`` fixture in
+    ``tests/conftest.py`` (one seam, one owner) — do NOT add a redundant
+    audit-path patch here; the autouse fixture is the single enforcement
+    surface and ``tests/conftest.py::_forbid_real_state_writes`` fails any
+    test by name if that surface is ever bypassed.
+    """
     config_dir = tmp_path / ".llauncher"
     config_path = config_dir / "config.json"
 
