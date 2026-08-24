@@ -340,7 +340,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_get_state_first_call_does_not_double_refresh`**
   - *``routing.get_state()``'s first call refreshes exactly once.*
 - **`test_status_cold_path_reuses_construction_scan`**
-  - *A first-ever ``GET /status`` pays at most the deduped scan count.*
+  - *A first-ever ``GET /status`` pays the deduped state-refresh scans.*
 - **`test_status_warm_path_still_refreshes_running_servers`**
   - *A second ``GET /status`` (state already built) still re-scans*
 - **`test_models_cold_path_reuses_construction_scan`**

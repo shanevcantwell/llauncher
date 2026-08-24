@@ -293,11 +293,19 @@ class TestStatusScanDedup309:
     ``find_all_llama_servers_annotated``) and pins the number of times each
     is invoked, rather than asserting on wall time (unreliable across
     platforms/CI). Diagnosed ground: the cold ``GET /status`` path used to
-    pay 5 scans — construction's own refresh (2), an immediately redundant
-    second ``_state.refresh()`` in ``routing.get_state()`` (2 more), and the
-    handler's own unconditional ``refresh_running_servers()`` (1). The fix
-    removes the redundant second refresh and skips the handler's own re-scan
-    on the one request where construction just paid for it.
+    pay 5 scans **on the state-refresh path** — construction's own refresh
+    (2), an immediately redundant second ``_state.refresh()`` in
+    ``routing.get_state()`` (2 more), and the handler's own unconditional
+    ``refresh_running_servers()`` (1). The fix removes the redundant second
+    refresh and skips the handler's own re-scan on the one request where
+    construction just paid for it.
+
+    Scope note: these counts cover the **state-refresh path only**. On a
+    real GPU host ``GET /status`` also reaches ``find_all_llama_servers``
+    a further time through ``core/gpu.py``'s ``GPUHealthCollector``
+    (``_map_processes``) — a separate by-name import, and explicitly
+    ``#309`` part-2 scope. The spies stub that site out (so the tests never
+    pay a real scan there) but deliberately do not pin its count.
     """
 
     @staticmethod
@@ -313,11 +321,20 @@ class TestStatusScanDedup309:
         ``find_all_llama_servers_annotated`` via a module-attribute
         reference (``llauncher.operations.orphan``'s ``proc.<name>``), so
         patching it on ``llauncher.core.process`` does reach that call.
+
+        ``llauncher.core.gpu`` holds its own by-name import of
+        ``find_all_llama_servers`` (``GPUHealthCollector._map_processes``),
+        a third scan site on real GPU hosts. It is stubbed here — with its
+        own counter, ``counts["gpu"]`` — so the tests never pay a real
+        scan through it, and so it can never be mistaken for one of the
+        state-refresh counts. Reducing *that* site is #309 part-2 scope,
+        so no test pins its count.
         """
+        import llauncher.core.gpu as gpu_mod
         import llauncher.core.process as process_mod
         import llauncher.state as state_mod
 
-        counts = {"servers": 0, "annotated": 0}
+        counts = {"servers": 0, "annotated": 0, "gpu": 0}
 
         def _fake_find_all_llama_servers():
             counts["servers"] += 1
@@ -327,10 +344,15 @@ class TestStatusScanDedup309:
             counts["annotated"] += 1
             return []
 
+        def _fake_gpu_find_all_llama_servers():
+            counts["gpu"] += 1
+            return []
+
         monkeypatch.setattr(state_mod, "find_all_llama_servers", _fake_find_all_llama_servers)
         monkeypatch.setattr(
             process_mod, "find_all_llama_servers_annotated", _fake_find_all_llama_servers_annotated
         )
+        monkeypatch.setattr(gpu_mod, "find_all_llama_servers", _fake_gpu_find_all_llama_servers)
         return counts
 
     def test_get_state_first_call_does_not_double_refresh(self, client, monkeypatch):
@@ -352,13 +374,14 @@ class TestStatusScanDedup309:
         assert counts["annotated"] == 1, "construction should scan orphans exactly once"
 
     def test_status_cold_path_reuses_construction_scan(self, client, monkeypatch):
-        """A first-ever ``GET /status`` pays at most the deduped scan count.
+        """A first-ever ``GET /status`` pays the deduped state-refresh scans.
 
-        Construction (inside ``get_state()``) already performs one
-        running-server scan and one orphan scan; the handler must not
-        immediately re-scan running servers on top of that within the same
-        request. Acceptance per #309: cold-path scan count <= 3 (down from
-        5); this fix lands the minimum, 2.
+        Construction already performs one running-server scan and one orphan
+        scan; the handler must not immediately re-scan running servers on top
+        of that within the same request. Acceptance per #309: cold-path
+        state-refresh scan count <= 3 (down from 5); this fix lands the
+        minimum, 2. (The ``core/gpu.py`` scan site is stubbed and unpinned —
+        #309 part 2; see the class docstring.)
         """
         from llauncher.agent import routing
 
@@ -368,8 +391,6 @@ class TestStatusScanDedup309:
         response = client.get("/status")
 
         assert response.status_code == 200
-        total = counts["servers"] + counts["annotated"]
-        assert total <= 3, f"cold /status should pay at most 3 scans, paid {total}"
         assert counts["servers"] == 1
         assert counts["annotated"] == 1
 
