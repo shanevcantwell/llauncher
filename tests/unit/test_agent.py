@@ -286,6 +286,169 @@ class TestModelsEndpoint:
             assert "np" not in model  # Removed per #235 (dead, mislabeled duplicate of `parallel`)
 
 
+class TestStatusScanDedup309:
+    """Issue #309: cold-path process-table scan-count dedup.
+
+    Spies on the two full-scan primitives (``find_all_llama_servers`` /
+    ``find_all_llama_servers_annotated``) and pins the number of times each
+    is invoked, rather than asserting on wall time (unreliable across
+    platforms/CI). Diagnosed ground: the cold ``GET /status`` path used to
+    pay 5 scans **on the state-refresh path** — construction's own refresh
+    (2), an immediately redundant second ``_state.refresh()`` in
+    ``routing.get_state()`` (2 more), and the handler's own unconditional
+    ``refresh_running_servers()`` (1). The fix removes the redundant second
+    refresh and skips the handler's own re-scan on the one request where
+    construction just paid for it.
+
+    Scope note: these counts cover the **state-refresh path only**. On a
+    real GPU host ``GET /status`` also reaches ``find_all_llama_servers``
+    a further time through ``core/gpu.py``'s ``GPUHealthCollector``
+    (``_map_processes``) — a separate by-name import, and explicitly
+    ``#309`` part-2 scope. The spies stub that site out (so the tests never
+    pay a real scan there) but deliberately do not pin its count.
+    """
+
+    @staticmethod
+    def _install_scan_spies(monkeypatch):
+        """Patch both scan primitives with counting stubs.
+
+        ``llauncher.state`` imports ``find_all_llama_servers`` by name (a
+        bound reference at import time), so it must be patched on
+        ``llauncher.state`` itself — patching
+        ``llauncher.core.process.find_all_llama_servers`` would not reach
+        that call site. ``list_orphans()`` (called by
+        ``LauncherState.refresh_orphans``) reaches
+        ``find_all_llama_servers_annotated`` via a module-attribute
+        reference (``llauncher.operations.orphan``'s ``proc.<name>``), so
+        patching it on ``llauncher.core.process`` does reach that call.
+
+        ``llauncher.core.gpu`` holds its own by-name import of
+        ``find_all_llama_servers`` (``GPUHealthCollector._map_processes``),
+        a third scan site on real GPU hosts. It is stubbed here — with its
+        own counter, ``counts["gpu"]`` — so the tests never pay a real
+        scan through it, and so it can never be mistaken for one of the
+        state-refresh counts. Reducing *that* site is #309 part-2 scope,
+        so no test pins its count.
+        """
+        import llauncher.core.gpu as gpu_mod
+        import llauncher.core.process as process_mod
+        import llauncher.state as state_mod
+
+        counts = {"servers": 0, "annotated": 0, "gpu": 0}
+
+        def _fake_find_all_llama_servers():
+            counts["servers"] += 1
+            return []
+
+        def _fake_find_all_llama_servers_annotated():
+            counts["annotated"] += 1
+            return []
+
+        def _fake_gpu_find_all_llama_servers():
+            counts["gpu"] += 1
+            return []
+
+        monkeypatch.setattr(state_mod, "find_all_llama_servers", _fake_find_all_llama_servers)
+        monkeypatch.setattr(
+            process_mod, "find_all_llama_servers_annotated", _fake_find_all_llama_servers_annotated
+        )
+        monkeypatch.setattr(gpu_mod, "find_all_llama_servers", _fake_gpu_find_all_llama_servers)
+        return counts
+
+    def test_get_state_first_call_does_not_double_refresh(self, client, monkeypatch):
+        """``routing.get_state()``'s first call refreshes exactly once.
+
+        Before the fix, ``get_state()`` constructed ``LauncherState()``
+        (whose ``__post_init__`` refreshes once) and then immediately
+        called ``_state.refresh()`` again — a second, fully redundant pair
+        of full process-table scans right after construction's own.
+        """
+        from llauncher.agent import routing
+
+        counts = self._install_scan_spies(monkeypatch)
+        routing._state = None
+
+        routing.get_state()
+
+        assert counts["servers"] == 1, "construction should scan running servers exactly once"
+        assert counts["annotated"] == 1, "construction should scan orphans exactly once"
+
+    def test_status_cold_path_reuses_construction_scan(self, client, monkeypatch):
+        """A first-ever ``GET /status`` pays the deduped state-refresh scans.
+
+        Construction already performs one running-server scan and one orphan
+        scan; the handler must not immediately re-scan running servers on top
+        of that within the same request. Acceptance per #309: cold-path
+        state-refresh scan count <= 3 (down from 5); this fix lands the
+        minimum, 2. (The ``core/gpu.py`` scan site is stubbed and unpinned —
+        #309 part 2; see the class docstring.)
+        """
+        from llauncher.agent import routing
+
+        counts = self._install_scan_spies(monkeypatch)
+        routing._state = None
+
+        response = client.get("/status")
+
+        assert response.status_code == 200
+        assert counts["servers"] == 1
+        assert counts["annotated"] == 1
+
+    def test_status_warm_path_still_refreshes_running_servers(self, client, monkeypatch):
+        """A second ``GET /status`` (state already built) still re-scans
+        running servers exactly as before — warm-path semantics (bounded
+        by the existing process-scan TTL cache) are unchanged by the fix.
+        """
+        from llauncher.agent import routing
+
+        counts = self._install_scan_spies(monkeypatch)
+        routing._state = None
+
+        client.get("/status")  # first call: constructs + skips the redundant re-scan
+        counts["servers"] = 0
+        counts["annotated"] = 0
+
+        response = client.get("/status")
+
+        assert response.status_code == 200
+        assert counts["servers"] == 1, "warm path must still refresh running servers"
+        assert counts["annotated"] == 0, "warm /status does not touch orphans"
+
+    def test_models_cold_path_reuses_construction_scan(self, client, monkeypatch):
+        """A first-ever ``GET /models`` does not re-run a full ``refresh()``
+        on top of construction's own — mirrors the ``/status`` dedup.
+        """
+        from llauncher.agent import routing
+
+        counts = self._install_scan_spies(monkeypatch)
+        routing._state = None
+
+        response = client.get("/models")
+
+        assert response.status_code == 200
+        assert counts["servers"] == 1
+        assert counts["annotated"] == 1
+
+    def test_models_warm_path_still_refreshes(self, client, monkeypatch):
+        """A second ``GET /models`` (state already built) still runs a full
+        ``refresh()`` exactly as before — warm-path semantics unchanged.
+        """
+        from llauncher.agent import routing
+
+        counts = self._install_scan_spies(monkeypatch)
+        routing._state = None
+
+        client.get("/models")  # first call: constructs + skips the redundant refresh
+        counts["servers"] = 0
+        counts["annotated"] = 0
+
+        response = client.get("/models")
+
+        assert response.status_code == 200
+        assert counts["servers"] == 1
+        assert counts["annotated"] == 1
+
+
 class TestStartServerEndpoint:
     """Tests for the port-keyed /start/{port} endpoint (ADR-010)."""
 

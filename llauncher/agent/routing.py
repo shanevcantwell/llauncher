@@ -9,6 +9,7 @@ and op results into HTTP status codes.
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Response
@@ -26,14 +27,54 @@ router = APIRouter()
 # LauncherState; they call the v2 ops directly (ADR-008).
 _state: LauncherState | None = None
 
+# Serializes the single construction site below. FastAPI runs these sync
+# handlers on a threadpool, so two cold requests can race; the lock makes
+# "did *this* call construct the state?" a fact derived from the
+# construction itself rather than from a separate, racy read of ``_state``.
+_state_lock = threading.Lock()
+
+
+def _get_state_and_freshness() -> tuple[LauncherState, bool]:
+    """Get or create the global state, reporting whether *this call* built it.
+
+    The boolean is ``True`` only for the call that actually constructed the
+    state — it is returned from inside the construction's critical section,
+    never inferred from a separate read of ``_state``, so a thread can never
+    observe ``None``, lose the race to another thread's construction, and
+    then act on a stale "I built it" flag (issue #309 review).
+
+    Read handlers that would otherwise unconditionally re-invoke a refresh
+    immediately after getting the state use this to skip that redundant
+    within-request re-scan on the one call where the state was just built
+    (``LauncherState.__post_init__`` already calls
+    :meth:`LauncherState.refresh`) — every other call refreshes exactly as
+    before, so warm-path staleness semantics (bounded by the existing
+    process-scan TTL cache) are unchanged.
+
+    A second cold request blocks on the lock until the first finishes
+    constructing; that is deliberate, and strictly better than the
+    double-construction race the unlocked check-then-set allowed.
+    """
+    global _state
+    with _state_lock:
+        if _state is None:
+            _state = LauncherState()
+            return _state, True
+        return _state, False
+
 
 def get_state() -> LauncherState:
-    """Get or create the global LauncherState instance."""
-    global _state
-    if _state is None:
-        _state = LauncherState()
-        _state.refresh()
-    return _state
+    """Get or create the global LauncherState instance.
+
+    Thin wrapper over :func:`_get_state_and_freshness` — that function owns
+    the one and only construction site. ``LauncherState.__post_init__``
+    already refreshes on construction; a second, immediate ``refresh()``
+    here used to redundantly re-pay every process-table scan a moment after
+    construction just paid for them (issue #309: 2 extra full ``psutil``
+    scans on the cold path, ~12s on this Windows box). Removed.
+    """
+    state, _ = _get_state_and_freshness()
+    return state
 
 
 def get_node_name() -> str:
@@ -156,8 +197,13 @@ def get_status() -> dict:
     # cheap, so running it on every status poll is safe.
     ops.reconcile_stale_lockfiles(caller="status")
 
-    state = get_state()
-    state.refresh_running_servers()
+    # Issue #309: skip the re-scan when get_state() just constructed (and
+    # therefore already fully refreshed, including running servers) the
+    # state within this same request. Every subsequent request finds the
+    # state already built and refreshes as before.
+    state, just_constructed = _get_state_and_freshness()
+    if not just_constructed:
+        state.refresh_running_servers()
 
     running_servers = [
         {
@@ -279,8 +325,12 @@ def get_server_slots(port: int) -> dict:
 @router.get("/models")
 def list_models() -> list[dict]:
     """List all configured models on this node."""
-    state = get_state()
-    state.refresh()
+    # Issue #309: skip the re-refresh when get_state() just constructed
+    # (and therefore already fully refreshed) the state within this same
+    # request; see the matching comment on GET /status.
+    state, just_constructed = _get_state_and_freshness()
+    if not just_constructed:
+        state.refresh()
 
     models = []
     for name, config in state.models.items():
