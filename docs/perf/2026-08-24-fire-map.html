@@ -1,0 +1,326 @@
+<title>llauncher Fire Map</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@600;700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  --paper:#FAF7F3; --ink:#241F1C; --muted:#6B615B; --line:#E4DDD4; --panel:#F1EBE3;
+  --burn:#A8321F; --smolder:#C08A00; --contained:#2E6FA3; --out:#2E8540;
+  --burn-soft:#F4E2DC; --smolder-soft:#F2E8D2; --contained-soft:#DFE9F1; --out-soft:#DEEDE2;
+  --bar-track:#ECE5DB;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#1B1714; --ink:#EAE3DC; --muted:#A69C93; --line:#3A332D; --panel:#241F1A;
+    --burn:#B23A1C; --smolder:#BE8800; --contained:#4E9BD6; --out:#45A55E;
+    --burn-soft:#3A241D; --smolder-soft:#352B16; --contained-soft:#1F2C38; --out-soft:#1E2F23;
+    --bar-track:#2A241E;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#1B1714; --ink:#EAE3DC; --muted:#A69C93; --line:#3A332D; --panel:#241F1A;
+  --burn:#B23A1C; --smolder:#BE8800; --contained:#4E9BD6; --out:#45A55E;
+  --burn-soft:#3A241D; --smolder-soft:#352B16; --contained-soft:#1F2C38; --out-soft:#1E2F23;
+  --bar-track:#2A241E;
+}
+*{box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font-family:"Source Sans 3",system-ui,Segoe UI,Arial,sans-serif;
+  font-size:16px;line-height:1.55;margin:0;padding:0}
+.wrap{max-width:1020px;margin:0 auto;padding:40px 28px 72px}
+h1,h2{font-family:"Saira Condensed","Arial Narrow",Impact,sans-serif;line-height:1.05;text-wrap:balance;margin:0}
+h1{font-size:52px;font-weight:700;letter-spacing:.5px;text-transform:uppercase}
+h2{font-size:26px;font-weight:600;letter-spacing:.6px;text-transform:uppercase;margin:0 0 4px}
+.mono,code{font-family:"IBM Plex Mono",Consolas,monospace}
+code{font-size:.86em;background:var(--panel);padding:1px 5px;border-radius:3px}
+.eyebrow{font-family:"IBM Plex Mono",Consolas,monospace;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.head{display:flex;flex-direction:column;gap:8px;border-bottom:3px solid var(--ink);padding-bottom:18px}
+.headmeta{display:flex;flex-wrap:wrap;gap:8px 22px;color:var(--muted);font-size:13px}
+.headmeta span{font-family:"IBM Plex Mono",Consolas,monospace}
+section{margin-top:44px}
+.sechead{display:flex;align-items:baseline;gap:14px;border-bottom:1px solid var(--line);padding-bottom:8px;margin-bottom:16px}
+.sechead .eyebrow{white-space:nowrap}
+.lede{max-width:64ch;color:var(--ink);margin:0 0 14px}
+.small{font-size:13.5px;color:var(--muted)}
+/* hero */
+.hero{display:grid;grid-template-columns:auto 1fr;gap:28px;align-items:center;margin-top:30px}
+.heronum{font-family:"Saira Condensed",sans-serif;font-weight:700;font-size:96px;line-height:.9;color:var(--burn);
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.heronum small{font-size:36px;letter-spacing:1px}
+.herotext{max-width:52ch}
+.herotext strong{font-weight:600}
+@media (max-width:700px){.hero{grid-template-columns:1fr}.heronum{font-size:64px}h1{font-size:38px}}
+/* chips */
+.chip{display:inline-flex;align-items:center;gap:6px;font-family:"IBM Plex Mono",Consolas,monospace;font-size:11px;
+  letter-spacing:.08em;text-transform:uppercase;padding:2px 8px;border-radius:3px;white-space:nowrap}
+.chip::before{content:"";width:8px;height:8px;border-radius:2px;background:currentColor}
+.chip.burn{color:var(--burn);background:var(--burn-soft)}
+.chip.smolder{color:var(--smolder);background:var(--smolder-soft)}
+.chip.contained{color:var(--contained);background:var(--contained-soft)}
+.chip.out{color:var(--out);background:var(--out-soft)}
+/* flame graph (canonical flame orientation per Gregg: root at bottom, flames grow up;
+   nested nodes, width = time share of parent) */
+.fnode{display:flex;flex-direction:column-reverse;gap:2px;min-width:0;justify-content:flex-start}
+.fkids{display:flex;gap:2px;min-width:0;align-items:flex-end}
+.fbar{height:30px;border-radius:3px;padding:0 8px;display:flex;align-items:center;overflow:hidden;
+  font-family:"IBM Plex Mono",Consolas,monospace;font-size:11.5px;white-space:nowrap;
+  min-width:3px;cursor:default}
+.fbar span{overflow:hidden;text-overflow:ellipsis}
+.fbar.root{background:var(--ink);color:var(--paper)}
+.fbar.cheap{background:var(--bar-track);color:var(--muted)}
+.fbar.mid{background:var(--contained);color:#fff}
+.fbar.dup{background:var(--smolder);color:#1B1508}
+.fbar.hot{background:var(--burn);color:#fff}
+.fbar.ghost{background:repeating-linear-gradient(135deg,var(--out-soft) 0 7px,transparent 7px 12px);
+  border:1px dashed var(--out);color:var(--out);height:28px}
+.fbar:hover{outline:2px solid var(--ink);outline-offset:1px}
+.flamecap{font-size:12.5px;color:var(--muted);margin:16px 0 6px;font-family:"IBM Plex Mono",Consolas,monospace;
+  letter-spacing:.06em;text-transform:uppercase}
+@media (max-width:700px){.fbar{font-size:9.5px;padding:0 4px}}
+/* bars */
+.chart{display:flex;flex-direction:column;gap:2px;margin-top:10px}
+.brow{display:grid;grid-template-columns:210px 1fr 74px;gap:12px;align-items:center;padding:7px 6px;border-radius:4px}
+.brow:hover,.brow:focus-within{background:var(--panel)}
+.blabel{font-size:13.5px;line-height:1.25}
+.blabel .who{font-weight:600}
+.blabel .how{display:block;font-size:11.5px;color:var(--muted);font-family:"IBM Plex Mono",Consolas,monospace}
+.btrack{background:var(--bar-track);border-radius:4px;height:18px;position:relative;overflow:hidden}
+.bfill{position:absolute;inset:0 auto 0 0;border-radius:4px;min-width:3px}
+.bfill.burn{background:var(--burn)} .bfill.smolder{background:var(--smolder)}
+.bfill.contained{background:var(--contained)} .bfill.out{background:var(--out)}
+.bfill.est{background:repeating-linear-gradient(135deg,var(--out) 0 6px,transparent 6px 10px);border:1px solid var(--out)}
+.bval{font-family:"IBM Plex Mono",Consolas,monospace;font-size:13px;font-weight:600;text-align:right;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.axis{display:grid;grid-template-columns:210px 1fr 74px;gap:12px;color:var(--muted);font-size:11px;
+  font-family:"IBM Plex Mono",Consolas,monospace;margin-top:4px}
+.axis .ticks{display:flex;justify-content:space-between}
+.legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+/* timeline */
+.tl{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;align-items:end;margin-top:8px}
+.tcol{display:flex;flex-direction:column;gap:6px}
+.tbar{border-radius:4px 4px 0 0;width:100%;align-self:end}
+.tcol .n{font-family:"Saira Condensed",sans-serif;font-weight:700;font-size:26px;line-height:1;
+  font-variant-numeric:tabular-nums}
+.tcol .meta{font-size:11.5px;color:var(--muted);font-family:"IBM Plex Mono",Consolas,monospace;line-height:1.45}
+@media (max-width:700px){.tl{grid-template-columns:repeat(5,1fr);gap:6px}.tcol .meta{font-size:10px}}
+/* ledger */
+table{border-collapse:collapse;width:100%;font-size:14px}
+th{font-family:"IBM Plex Mono",Consolas,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted);text-align:left;padding:8px 10px;border-bottom:2px solid var(--ink)}
+td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+td.num{font-family:"IBM Plex Mono",Consolas,monospace;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tablewrap{overflow-x:auto}
+.strike{text-decoration:line-through;color:var(--muted)}
+.foot{margin-top:48px;border-top:1px solid var(--line);padding-top:14px;color:var(--muted);font-size:13px;max-width:78ch}
+.foot p{margin:6px 0}
+a{color:var(--contained)}
+:focus-visible{outline:2px solid var(--contained);outline-offset:2px}
+</style>
+
+<div class="wrap">
+  <header class="head">
+    <span class="eyebrow">Engineering burn report · Windows box "Shane-PC"</span>
+    <h1>llauncher Fire Map</h1>
+    <div class="headmeta">
+      <span>measured 2026-08-24</span><span>main @ 0b756b8</span><span>RTX 8000 · 24 GB</span>
+      <span>Defender RTP: ON</span><span>all numbers: this box, this day</span>
+    </div>
+  </header>
+
+  <div class="hero">
+    <div class="heronum">6.2<small>s</small> ×5</div>
+    <p class="herotext"><strong>One full process-table scan costs ~6 seconds on this box, and the cold status
+      path paid it five times.</strong> Every slow surface in the launcher — the 31-second status call, the
+      2-minute Edit screen, the 12-second CLI — is that single scan, multiplied. Nothing else burns:
+      the GPU query, DNS, and install staleness were all measured and cleared.</p>
+  </div>
+
+  <section>
+    <div class="sechead"><span class="eyebrow">01 · The fuel</span><h2>What a scan actually costs</h2></div>
+    <p class="lede">Enumerating all ~288 processes is free. Reading each one's <em>command line</em> is not —
+      on Windows that's an <code>OpenProcess</code> + PEB read per pid, each taxed by Defender real-time
+      protection.</p>
+    <div class="chart" role="img" aria-label="Scan primitive costs: enumeration 0.01 seconds; enumeration plus command lines 3.1 to 12.3 seconds depending on load">
+      <div class="brow"><div class="blabel"><span class="who">enumerate only</span><span class="how">psutil pids+names</span></div>
+        <div class="btrack"><div class="bfill out" style="width:.3%"></div></div><div class="bval">0.01 s</div></div>
+      <div class="brow"><div class="blabel"><span class="who">+ cmdline, quiescent</span><span class="how">10.8 ms × ~288 procs</span></div>
+        <div class="btrack"><div class="bfill smolder" style="width:25%"></div></div><div class="bval">3.1 s</div></div>
+      <div class="brow"><div class="blabel"><span class="who">+ cmdline, typical</span><span class="how">profiled, 3 runs</span></div>
+        <div class="btrack"><div class="bfill burn" style="width:50%"></div></div><div class="bval">6.2 s</div></div>
+      <div class="brow"><div class="blabel"><span class="who">+ cmdline, under load</span><span class="how">test suite running</span></div>
+        <div class="btrack"><div class="bfill burn" style="width:100%"></div></div><div class="bval">12.3 s</div></div>
+    </div>
+    <p class="small" style="margin-top:12px">Cleared suspects, measured: <span class="strike">nvidia-smi spawn</span> 0.06 s ·
+      <span class="strike">getaddrinfo DNS stall</span> ≤4 ms · <span class="strike">stale editable install</span> both installs at tip ·
+      <span class="strike">mapped-drive visibility</span> models on fixed NTFS. The per-scan cost is <em>elastic</em> —
+      it doubles exactly when the box is busy, which is when status reads matter most.</p>
+  </section>
+
+  <section>
+    <div class="sechead"><span class="eyebrow">02 · The flame graph</span><h2>Cold GET /status, frame by frame</h2></div>
+    <p class="lede">Canonical flame layout (Gregg): <strong>root at the bottom, stack depth grows upward,
+      and the top edge is what the CPU is actually doing</strong> — here, reading command lines. A frame is
+      the <em>sum</em> of the frames stacked on it; width is wall-clock on one shared scale (full width = 31.3 s).
+      One licensed deviation: a classic flame graph sorts the x-axis alphabetically to merge samples — this is a
+      single deterministic call, so x keeps real call order (Gregg's "flame chart" convention), left to right.
+      Hover any frame for exact cost and file:line.
+      <span style="color:var(--smolder);font-weight:600">Amber</span> = duplicated work;
+      <span style="color:var(--burn);font-weight:600">red</span> = the scan itself.</p>
+
+    <div class="flamecap">Before — main @ 5e26f4b · measured 31.3 s</div>
+    <div class="fnode" style="width:100%">
+      <div class="fbar root" title="agent/routing.py:get_status — 31.3 s measured. This base row is the TOTAL: the sum of everything stacked on it, not a step that runs first"><span>GET /status — 31.3 s total = Σ of everything above</span></div>
+      <div class="fkids">
+        <div class="fnode" style="flex-basis:.6%"><div class="fbar cheap" title="operations/reconcile.py — per-pid lockfile liveness, ~0.1 s"></div></div>
+        <div class="fnode" style="flex-basis:79.2%">
+          <div class="fbar mid" title="routing.py:get_state() — 24.8 s"><span>get_state() — 24.8 s</span></div>
+          <div class="fkids">
+            <div class="fnode" style="flex-basis:50%">
+              <div class="fbar mid" title="state.py:79 __post_init__ → refresh() — 12.4 s"><span>LauncherState() → refresh() — 12.4 s</span></div>
+              <div class="fkids">
+                <div class="fnode" style="flex-basis:50%">
+                  <div class="fbar hot" title="core/process.py:96 find_all_llama_servers — 6.18 s"><span>scan A · 6.2 s</span></div>
+                  <div class="fkids"><div class="fnode" style="flex-basis:100%">
+                    <div class="fbar hot" title="psutil cmdline reads: 10.8 ms × ~288 procs under Defender RTP — 6.17 s (enumeration itself: 0.01 s)"><span>cmdline × 288</span></div></div></div>
+                </div>
+                <div class="fnode" style="flex-basis:50%">
+                  <div class="fbar hot" title="core/process.py:575 find_all_llama_servers_annotated — 6.18 s"><span>scan B · 6.2 s</span></div>
+                  <div class="fkids"><div class="fnode" style="flex-basis:100%">
+                    <div class="fbar hot" title="psutil cmdline reads: 10.8 ms × ~288 procs — 6.17 s"><span>cmdline × 288</span></div></div></div>
+                </div>
+              </div>
+            </div>
+            <div class="fnode" style="flex-basis:50%">
+              <div class="fbar dup" title="routing.py:33-35 — second refresh() immediately after construction. Pure duplication; removed by #464"><span>refresh() again — redundant · 12.4 s</span></div>
+              <div class="fkids">
+                <div class="fnode" style="flex-basis:50%"><div class="fbar hot" title="scan A repeated — 6.18 s (3 s TTL already expired: the first refresh alone outlived it)"><span>scan A</span></div></div>
+                <div class="fnode" style="flex-basis:50%"><div class="fbar hot" title="scan B repeated — 6.18 s"><span>scan B</span></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="fnode" style="flex-basis:19.8%">
+          <div class="fbar dup" title="routing.py:160 — handler's own refresh_running_servers(), re-scanning what the request just scanned. #464 skips it on the construction request"><span>re-scan · 6.2 s</span></div>
+          <div class="fkids"><div class="fnode" style="flex-basis:100%"><div class="fbar hot" title="scan A once more — 6.18 s"><span>scan A</span></div></div></div>
+        </div>
+        <div class="fnode" style="flex-basis:.5%"><div class="fbar cheap" title="GPUHealthCollector: nvidia-smi ×2 — 0.15 s (plus a third table scan on GPU hosts, #309 part 2)"></div></div>
+      </div>
+    </div>
+
+    <div class="flamecap" style="margin-top:22px">After #464 — main @ 0b756b8 · ~12.6 s estimated, live measure pending agent restart</div>
+    <div class="fkids">
+      <div class="fnode" style="flex-basis:40.2%">
+        <div class="fbar root" title="Same handler, post-dedup: one locked construction, freshness passed to the handler"><span>GET /status — ~12.6 s</span></div>
+        <div class="fkids">
+          <div class="fnode" style="flex-basis:1.4%"><div class="fbar cheap" title="reconcile — ~0.1 s"></div></div>
+          <div class="fnode" style="flex-basis:97.4%">
+            <div class="fbar mid" title="_get_state_and_freshness(): construction under lock; flag derived from the construction itself"><span>LauncherState() → refresh() — 12.4 s</span></div>
+            <div class="fkids">
+              <div class="fnode" style="flex-basis:50%"><div class="fbar hot" title="scan A — 6.18 s"><span>scan A · 6.2 s</span></div></div>
+              <div class="fnode" style="flex-basis:50%"><div class="fbar hot" title="scan B — 6.18 s"><span>scan B · 6.2 s</span></div></div>
+            </div>
+          </div>
+          <div class="fnode" style="flex-basis:1.2%"><div class="fbar cheap" title="GPU — 0.15 s"></div></div>
+        </div>
+      </div>
+      <div class="fnode" style="flex-basis:59.8%">
+        <div class="fbar ghost" title="Three of five scans removed by PR #464: the redundant post-construction refresh (2 scans) and the handler re-scan (1)"><span>18.7 s extinguished — #464</span></div>
+      </div>
+    </div>
+    <p class="small" style="margin-top:14px">Part 2's target is the remaining red: managed-server liveness can come from
+      lockfiles (~10.8 ms × a handful of pids) instead of scan A, and the orphan walk (scan B) moves off the request
+      path to a background cadence — the whole graph collapses into the reconcile sliver.</p>
+  </section>
+
+  <section>
+    <div class="sechead"><span class="eyebrow">03 · The burns</span><h2>Cost of asking "what's running?"</h2></div>
+    <div class="chart" role="img" aria-label="Measured cost per surface, 0 to 31.3 seconds; details in the ledger table below">
+      <div class="brow"><div class="blabel"><span class="who">Agent /status · cold, pre-fix</span><span class="how">5 scans stacked</span></div>
+        <div class="btrack"><div class="bfill burn" style="width:100%"></div></div><div class="bval">31.3 s</div></div>
+      <div class="brow"><div class="blabel"><span class="who">MCP server_status · cold</span><span class="how">construct + refresh = 2×2 scans</span></div>
+        <div class="btrack"><div class="bfill burn" style="width:79%"></div></div><div class="bval">24.8 s</div></div>
+      <div class="brow"><div class="blabel"><span class="who">CLI server status · every call</span><span class="how">fresh process, 2 scans</span></div>
+        <div class="btrack"><div class="bfill burn" style="width:40%"></div></div><div class="bval">12.6 s</div></div>
+      <div class="brow"><div class="blabel"><span class="who">MCP server_status · every call</span><span class="how">per-call refresh, cache never hits</span></div>
+        <div class="btrack"><div class="bfill burn" style="width:39%"></div></div><div class="bval">12.3 s</div></div>
+      <div class="brow"><div class="blabel"><span class="who">Agent /status · cold, post-fix</span><span class="how">2 scans · estimate, restart pending</span></div>
+        <div class="btrack"><div class="bfill est" style="width:40%"></div></div><div class="bval">~12.4 s</div></div>
+      <div class="brow"><div class="blabel"><span class="who">CLI orphan list</span><span class="how">1 annotated scan — earns its cost</span></div>
+        <div class="btrack"><div class="bfill contained" style="width:20%"></div></div><div class="bval">6.4 s</div></div>
+      <div class="brow"><div class="blabel"><span class="who">Agent /status · semi-warm</span><span class="how">1 scan past TTL</span></div>
+        <div class="btrack"><div class="bfill smolder" style="width:20%"></div></div><div class="bval">6.3 s</div></div>
+      <div class="brow"><div class="blabel"><span class="who">Agent /status · warm</span><span class="how">inside 3 s TTL window</span></div>
+        <div class="btrack"><div class="bfill out" style="width:.3%"></div></div><div class="bval">0.07 s</div></div>
+    </div>
+    <div class="axis"><div></div><div class="ticks"><span>0</span><span>8</span><span>16</span><span>24</span><span>31.3 s</span></div><div></div></div>
+    <div class="legend">
+      <span class="chip burn">burning</span><span class="chip smolder">smoldering</span>
+      <span class="chip contained">contained</span><span class="chip out">extinguished</span>
+      <span class="small" style="align-self:center">· hatched = estimated, not yet measured live</span>
+    </div>
+    <p class="small" style="margin-top:10px">The UI's famous stalls are these same numbers compounded: a 2-minute Edit screen
+      is several cold hits stacked across two process-local caches that don't share state (#418).</p>
+  </section>
+
+  <section>
+    <div class="sechead"><span class="eyebrow">04 · How it caught</span><h2>Scans per cold status call, over time</h2></div>
+    <div class="tl" role="img" aria-label="Regression timeline: 1 scan April 5, 3 scans April 8, 5 scans May 17 through August, 5 with failed cache August 17, 2 scans August 24">
+      <div class="tcol"><div class="tbar" style="height:24px;background:var(--out)"></div><div class="n">1</div>
+        <div class="meta">Apr 05<br>initial · "ran just fine"</div></div>
+      <div class="tcol"><div class="tbar" style="height:72px;background:var(--smolder)"></div><div class="n">3</div>
+        <div class="meta">Apr 08 · ad37fdc<br>agent adds redundant refresh</div></div>
+      <div class="tcol"><div class="tbar" style="height:120px;background:var(--burn)"></div><div class="n">5</div>
+        <div class="meta">May 17 · e2dc024<br>orphan scan doubles refresh — <strong>the jump</strong></div></div>
+      <div class="tcol"><div class="tbar" style="height:120px;background:var(--burn)"></div><div class="n">5</div>
+        <div class="meta">Aug 17 · a6b8baa<br>3 s TTL cache — firebreak fails</div></div>
+      <div class="tcol"><div class="tbar" style="height:48px;background:var(--out)"></div><div class="n">2</div>
+        <div class="meta">Aug 24 · 0b756b8<br>PR #464 dedup, merged</div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sechead"><span class="eyebrow">05 · The ledger</span><h2>Every fire, dispositioned</h2></div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>State</th><th>Fire</th><th>Cost</th><th>Where it lives</th></tr></thead>
+      <tbody>
+        <tr><td><span class="chip out">extinguished</span></td>
+          <td>5-scan cold path: redundant post-construction refresh + per-request re-scan, now deduped behind a locked construction</td>
+          <td class="num">31.3 → ~12.4 s</td><td class="num">#309 p1 · PR #464 · 0b756b8</td></tr>
+        <tr><td><span class="chip out">extinguished</span></td>
+          <td>Phantom suspects: nvidia-smi spawn, DNS stall, install staleness — measured and falsified</td>
+          <td class="num">0.06 s / 4 ms / —</td><td class="num">#392 closed diagnosis, superseded</td></tr>
+        <tr><td><span class="chip burn">burning</span></td>
+          <td>MCP reads refresh per call by design — cache can never hold, warm ≡ cold</td>
+          <td class="num">12.3 s every call</td><td class="num">#309 p2 · mcp_server/server.py:74</td></tr>
+        <tr><td><span class="chip burn">burning</span></td>
+          <td>CLI pays full construction per invocation — no cross-process cache exists</td>
+          <td class="num">12.6 s every call</td><td class="num">#309 p2 · cli.py:370</td></tr>
+        <tr><td><span class="chip burn">burning</span></td>
+          <td>Status still scans the whole table when lockfiles already name the pids — scan belongs off the request path</td>
+          <td class="num">6.2 s per scan</td><td class="num">#309 p2, the structural fix</td></tr>
+        <tr><td><span class="chip smolder">smoldering</span></td>
+          <td>GPU collector: dead per-request cache + a third uncounted scan site</td>
+          <td class="num">+6.2 s on GPU hosts</td><td class="num">#309 p2 · core/gpu.py</td></tr>
+        <tr><td><span class="chip smolder">smoldering</span></td>
+          <td>Process-local caches: agent and UI each keep their own; invalidation doesn't cross</td>
+          <td class="num">stacked cold hits</td><td class="num">#418</td></tr>
+        <tr><td><span class="chip smolder">smoldering</span></td>
+          <td>128K context on Windows: prefill 600 vs 1200+ tok/s host-vs-Windows, ctx dominant — needs tuning, running 64K meanwhile</td>
+          <td class="num">~2× prefill tax</td><td class="num">#416</td></tr>
+        <tr><td><span class="chip contained">contained</span></td>
+          <td>Defender per-process tax — environmental constant, elastic under load; code must stop multiplying it, not fight it</td>
+          <td class="num">10.8 ms/proc</td><td class="num">host posture</td></tr>
+        <tr><td><span class="chip contained">contained</span></td>
+          <td>Orphan discovery legitimately needs the full walk — one scan, paid knowingly, off the hot path in part 2</td>
+          <td class="num">6.4 s</td><td class="num">ADR-015</td></tr>
+      </tbody>
+    </table></div>
+    <p class="small" style="margin-top:10px">Adjacent but not a performance fire: the LocalSystem state-dir split that
+      blanked the agent's config (availability, diagnosed same day — see #378's issue thread).</p>
+  </section>
+
+  <footer class="foot">
+    <p><strong>Method.</strong> Every number was measured on this box on 2026-08-24 — in-process profiling
+      (repo venv), authenticated wire calls, and a real stdio MCP session. Estimates are hatched and labeled.</p>
+    <p><strong>Correction on the record.</strong> An earlier reading reported CLI <code>server list</code> at 0.2 s
+      and called it a lockfile fast path — that verb doesn't exist; the timing was a usage error. The real verb,
+      <code>server status</code>, costs 12.6 s and is charted above. Corrected in full on #309.</p>
+  </footer>
+</div>
