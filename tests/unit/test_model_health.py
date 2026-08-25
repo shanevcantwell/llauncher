@@ -201,3 +201,65 @@ def test_cache_invalidation():
     # Invalidate specific entry.
     mh.invalidate_health_cache(model_path=str(path))
     assert mh._health_cache.get(str(path)) is None
+
+
+# ── Shard-resolution precondition (issue #475) ──────────────────
+#
+# ``ModelConfig.model_exists`` resolves the sharded ``-of-`` naming
+# pattern to a base ``.gguf`` file; ``check_model_health`` must resolve
+# identically via the shared ``resolve_shard_path`` helper in
+# ``models/config.py`` — otherwise a sharded-but-present model reports
+# healthy from ``ModelConfig`` construction but "not found" from the
+# health checker (or vice versa), and #468's "delete entries with
+# missing weights" rule would delete a genuinely good entry.
+
+
+def test_check_model_health_resolves_sharded_path(tmp_path):
+    """A sharded entry (base .gguf present, first-shard filename absent)
+    validates OK via ``check_model_health`` — matching ``ModelConfig``.
+
+    Base-path derivation mirrors ``resolve_shard_path``: everything from
+    ``-of-`` onward is dropped and replaced with ``.gguf`` — i.e.
+    ``big-model-00001-of-00003.gguf`` resolves against
+    ``big-model-00001.gguf``.
+    """
+    base = tmp_path / "big-model-00001.gguf"
+    base.write_bytes(b"x" * (1024 * 1024 + 1))
+
+    sharded_name = str(tmp_path / "big-model-00001-of-00003.gguf")
+
+    result = check_model_health(sharded_name)
+    assert result.valid is True, f"expected shard fallback to resolve; got {result.model_dump()}"
+    assert result.exists is True
+
+
+def test_check_model_health_resolves_sharded_path_matches_model_config(tmp_path):
+    """Regression guard: ``ModelConfig.model_exists`` and
+    ``check_model_health`` agree on a sharded path (both OK) and on a
+    genuinely missing non-sharded path (both fail)."""
+    from llauncher.models.config import ModelConfig
+
+    base = tmp_path / "shard-model-00001.gguf"
+    base.write_bytes(b"x" * (1024 * 1024 + 1))
+    sharded_name = str(tmp_path / "shard-model-00001-of-00003.gguf")
+
+    # ModelConfig construction succeeds (shard fallback resolves).
+    cfg = ModelConfig(name="shard-model", model_path=sharded_name)
+    assert cfg.model_path == sharded_name
+
+    # check_model_health agrees.
+    health = check_model_health(sharded_name)
+    assert health.valid is True
+
+    # A non-sharded, genuinely missing path fails from both call sites.
+    missing_path = str(tmp_path / "totally-missing.gguf")
+    try:
+        ModelConfig(name="missing-model", model_path=missing_path)
+        raised = False
+    except Exception:
+        raised = True
+    assert raised is True, "ModelConfig should reject a genuinely missing path"
+
+    missing_health = check_model_health(missing_path)
+    assert missing_health.valid is False
+    assert missing_health.exists is False

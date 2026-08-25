@@ -6,11 +6,11 @@ MCP is llauncher's canonical surface. The HTTP Agent (port 8765 by default) expo
 
 ## Overview
 
-llauncher exposes 13 MCP tools across three categories:
+llauncher exposes 14 MCP tools across three categories:
 
 | Category | Tools |
 |----------|-------|
-| **Model Discovery** | `list_models`, `get_model_config` |
+| **Model Discovery** | `list_models`, `get_model_config`, `validate_models` |
 | **Server Management** | `start_server`, `stop_server`, `swap_server`, `cancel_server`, `server_status`, `get_server_logs`, `list_orphans` |
 | **Configuration** | `add_model`, `delete_model`, `update_model_config`, `validate_config` |
 
@@ -189,6 +189,52 @@ Get the full configuration for a specific model.
 - Inspect detailed configuration before making changes
 - Debug model startup issues
 - Clone configurations for similar models
+
+---
+
+#### `validate_models`
+
+Read-only validation of configured model weights (issue #475, ADR-LLNCH-027). Checks file existence/readability/size and GGUF magic bytes (both gate the result); VRAM headroom and lockfile staleness are reported as advisory (never gate the result, and validation never reconciles a stale lockfile). Never starts a process, deletes a config entry, or writes an audit line — the read-only companion to `delete_model`.
+
+**Input:**
+```json
+{
+  "names": ["mistral-7b"],
+  "vram": true
+}
+```
+
+Both fields are optional: omit `names` to validate every configured model; `vram: false` skips the VRAM check entirely (no `nvidia-smi` shell-out), not merely from the gate. With `vram: true`, every model in one call shares a single GPU query — the shell-out is per call, never per model. The same suppression is available as `--no-vram` on `llauncher model validate` and as `?vram=false` on the HTTP endpoints.
+
+**Output:**
+```json
+{
+  "checked_at": "2026-08-25T12:00:00Z",
+  "ok": false,
+  "models": [
+    {
+      "name": "mistral-7b",
+      "model_path": "/models/mistral-7b.gguf",
+      "resolved_path": "/models/mistral-7b.gguf",
+      "exists": true,
+      "size_bytes": 4368439808,
+      "last_modified": "2026-08-01T09:00:00Z",
+      "running_port": null,
+      "verdicts": [
+        {"check": "weights", "ok": true, "reason": "", "advisory": false},
+        {"check": "gguf_magic", "ok": true, "reason": "", "advisory": false},
+        {"check": "vram", "ok": true, "reason": "", "advisory": true}
+      ],
+      "ok": true
+    }
+  ]
+}
+```
+
+**Use Cases:**
+- Sanity-check the registry after a filesystem change (moved/renamed weights)
+- Decide which config entries are candidates for `delete_model` (validate first, remove second — validation never auto-removes)
+- Pre-swap VRAM headroom check (advisory only)
 
 ---
 
@@ -933,5 +979,5 @@ The MCP tools map to these HTTP endpoints (all port-keyed per ADR-LLNCH-010; `ro
 | `get_server_logs` | `GET /logs/{port}` |
 | `list_orphans` | `GET /orphans` |
 | `delete_model` | `DELETE /models/{model_name}` |
+| `validate_models` | `GET /models/validate`, `GET /models/validate/{model_name}` (both accept `?vram=false`) |
 | (footer) | `GET /footer-context/{port}` |
-| (health probe) | `GET /models/health`, `GET /models/health/{model_name}` |

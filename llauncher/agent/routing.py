@@ -356,50 +356,47 @@ def list_models() -> list[dict]:
     return models
 
 
-# ── ADR-LLNCH-005: Model health endpoints ─────────────────────────────
+# ── Issue #475 / ADR-LLNCH-027: model validate endpoints ────────────────
+#
+# Replace (not alias) ADR-LLNCH-005's GET /models/health[/{name}] — no in-repo
+# consumer, and two endpoints serving overlapping shapes of one artifact is
+# the dual-shape the no-shims rule forbids (ADR-LLNCH-027 §2, Q1). Plain ``def``
+# (not ``async def``, matching the verb endpoints below): the underlying op
+# does blocking file stats.
+#
+# Deliberately NOT folded into GET /models (ADR-LLNCH-027 §2): that endpoint is
+# on the UI hot path (RemoteAggregator.get_all_models, called on every
+# Streamlit rerun per node) — validation stays an explicit, separately
+# cacheable call so it doesn't put N stat()/open() calls on every rerun.
 
 
-@router.get("/models/health")
-def models_health() -> list[dict]:
-    """Health status for *all* configured models (ADR-LLNCH-005)."""
-    from llauncher.core.model_health import check_model_health
+@router.get("/models/validate")
+def models_validate(vram: bool = True) -> dict:
+    """Validation report for *all* configured models (issue #475, ADR-LLNCH-027).
 
-    state = get_state()
-    state.refresh()
-
-    results = []
-    for name, config in state.models.items():
-        health = check_model_health(config.model_path)
-        results.append({
-            "name": name,
-            "model_path": config.model_path,
-            **health.model_dump(),
-        })
-
-    return results
+    ``?vram=false`` skips the advisory VRAM check entirely — no
+    ``nvidia-smi`` shell-out at all — for callers polling a large registry.
+    """
+    report = ops.validate_models(vram=vram)
+    return report.model_dump(mode="json")
 
 
-@router.get("/models/health/{model_name}")
-def model_health_detail(model_name: str) -> dict:
-    """Health status for a single model (ADR-LLNCH-005)."""
-    from llauncher.core.model_health import check_model_health
+@router.get("/models/validate/{model_name}")
+def model_validate_detail(model_name: str, vram: bool = True) -> dict:
+    """Validation report for a single model (issue #475, ADR-LLNCH-027).
 
-    state = get_state()
-    state.refresh()
+    ``?vram=false`` skips the advisory VRAM check (see
+    :func:`models_validate`).
+    """
+    from llauncher.core.config import ConfigStore
 
-    if model_name not in state.models:
+    if model_name not in ConfigStore.list_models():
         raise HTTPException(
             status_code=404, detail=f"Model '{model_name}' not found"
         )
 
-    config = state.models[model_name]
-    health = check_model_health(config.model_path)
-
-    return {
-        "name": model_name,
-        "model_path": config.model_path,
-        **health.model_dump(),
-    }
+    report = ops.validate_models(names=[model_name], vram=vram)
+    return report.model_dump(mode="json")
 
 
 # ───────────────────── Verb endpoints (ADR-LLNCH-010) ──────────────────

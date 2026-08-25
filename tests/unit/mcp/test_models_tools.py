@@ -162,11 +162,50 @@ class TestReadToolsRefreshRegression:
 class TestGetTools:
     """Tests for get_tools function."""
 
-    def test_get_tools_returns_two_tools(self):
-        """get_tools returns list_models and get_model_config."""
+    def test_get_tools_returns_three_tools(self):
+        """get_tools returns list_models, get_model_config, and validate_models."""
         tools = get_tools()
 
-        assert len(tools) == 2
+        assert len(tools) == 3
         tool_names = [t.name for t in tools]
         assert "list_models" in tool_names
         assert "get_model_config" in tool_names
+        assert "validate_models" in tool_names
+
+
+class TestValidateModelsTool:
+    """Tests for the validate_models MCP tool (issue #475, ADR-LLNCH-027)."""
+
+    @pytest.mark.asyncio
+    async def test_delegates_to_operations_validate_models(self):
+        from unittest.mock import patch
+        from llauncher.mcp_server.tools.models import validate_models
+        from llauncher.models.validation import ValidationReport
+        from datetime import datetime, timezone
+
+        report = ValidationReport(checked_at=datetime.now(timezone.utc), ok=True, models=[])
+
+        with patch(
+            "llauncher.operations.validate_models", return_value=report
+        ) as mocked:
+            result = await validate_models({"names": ["a-model"], "vram": False})
+
+        mocked.assert_called_once_with(names=["a-model"], vram=False)
+        assert result["ok"] is True
+        assert result["models"] == []
+
+    @pytest.mark.asyncio
+    async def test_defaults_names_none_vram_true(self):
+        from unittest.mock import patch
+        from llauncher.mcp_server.tools.models import validate_models
+        from llauncher.models.validation import ValidationReport
+        from datetime import datetime, timezone
+
+        report = ValidationReport(checked_at=datetime.now(timezone.utc), ok=True, models=[])
+
+        with patch(
+            "llauncher.operations.validate_models", return_value=report
+        ) as mocked:
+            await validate_models({})
+
+        mocked.assert_called_once_with(names=None, vram=True)

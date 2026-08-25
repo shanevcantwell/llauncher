@@ -109,7 +109,7 @@ def test_exempt_paths_match_documented_set():
         {"/health", "/docs", "/redoc", "/openapi.json"}
     )
     # Read endpoints that must NOT be exempt (the security-cohort posture).
-    for read_path in ("/status", "/models", "/models/health", "/node-info"):
+    for read_path in ("/status", "/models", "/models/validate", "/node-info"):
         assert read_path not in _AUTH_EXEMPT_PATHS
 
 

@@ -1,5 +1,6 @@
 """Streamlit UI for llauncher with multi-node support."""
 
+import json
 import os
 
 import streamlit as st
@@ -98,17 +99,50 @@ def show_agent_down_banner() -> None:
         )
 
 
+def show_config_error_banner(exc: Exception) -> None:
+    """Render a "config could not be loaded" banner.
+
+    Issue #476 (follow-up to #472): ``ConfigStore.load()`` fails loud per
+    PARSE-AT-THE-DOOR — an unreadable config raises ``OSError``, a corrupt
+    one raises ``json.JSONDecodeError``. The CLI and MCP surfaces are
+    acceptable fail-loud as-is, but in the browser an unhandled exception
+    renders as a raw Streamlit traceback. This banner is the UI-side
+    surfaced-error rendering, mirroring :func:`show_agent_down_banner`:
+    the exception's own message names the offending file, so the operator
+    sees the path to fix rather than a stack trace.
+
+    Caller is expected to render the page-level title (``st.title``)
+    *before* this and to ``st.stop()`` *after* it, so the rest of the
+    dashboard does not render against a broken config.
+    """
+    st.error(
+        "**Model config could not be loaded.**\n\n"
+        f"{exc}\n\n"
+        "Fix (or move aside) the file named above, then refresh this "
+        "page. llauncher does not silently treat a broken config as an "
+        "empty registry (PARSE-AT-THE-DOOR, issue #403).",
+        icon="🛑",
+    )
+
+
 def main():
     """Main entry point for the Streamlit app."""
-    # Get state and registry
-    state = get_state()
+    # Page chrome lives here, in the caller, regardless of whether the
+    # agent is up or the config loads — so an accidental refactor that
+    # drops ``st.stop()`` cannot produce a double-title rendering.
+    st.title("🚀 llauncher")
+
+    # Get state and registry. Building LauncherState reads config.json
+    # via ConfigStore.load(), which fails loud on an unreadable (OSError)
+    # or corrupt (json.JSONDecodeError) config — surface that as a banner
+    # instead of a raw traceback (#476).
+    try:
+        state = get_state()
+    except (OSError, json.JSONDecodeError) as exc:
+        show_config_error_banner(exc)
+        st.stop()
     registry = get_registry()
     aggregator = get_aggregator()
-
-    # Page chrome lives here, in the caller, regardless of whether the
-    # agent is up — so an accidental refactor that drops ``st.stop()``
-    # cannot produce a double-title rendering.
-    st.title("🚀 llauncher")
 
     # Check if agent is ready. M4 Slice 12 (issue #49) removed the
     # subprocess auto-spawn path; the UI now passively reports "down"
@@ -122,9 +156,14 @@ def main():
     with st.sidebar:
         st.header("Controls")
 
-        # Refresh button
+        # Refresh button. state.refresh() re-reads config.json, so the
+        # same fail-loud pair as the state build applies here (#476).
         if st.button("🔄 Refresh All", width='stretch'):
-            state.refresh()
+            try:
+                state.refresh()
+            except (OSError, json.JSONDecodeError) as exc:
+                show_config_error_banner(exc)
+                st.stop()
             registry.refresh_all()
             st.toast("Refreshed all nodes", icon="🔄")
             st.rerun()

@@ -124,22 +124,35 @@ def estimate_vram_mb(config: ModelConfig) -> int:
     return base_mb
 
 
-def default_model_health_check(config: ModelConfig) -> tuple[bool, str]:
+def default_model_health_check(
+    config: ModelConfig, *, force_refresh: bool = False
+) -> tuple[bool, str]:
     """Wrap :func:`llauncher.core.model_health.check_model_health` for swap pre-flight.
 
     Returns ``(True, "")`` when the model file passes existence,
     readability, and minimum-size checks; otherwise ``(False, reason)``
     with the underlying ``ModelHealthResult.reason`` string.
+
+    ``force_refresh`` bypasses the 60 s health cache — see
+    :func:`llauncher.core.model_health.check_model_health`.
     """
-    result = mh.check_model_health(config.model_path)
+    result = mh.check_model_health(config.model_path, force_refresh=force_refresh)
     if result.valid:
         return True, ""
     reason = result.reason or "model file invalid"
     return False, reason
 
 
-def default_vram_check(config: ModelConfig) -> tuple[bool, str]:
+def default_vram_check(
+    config: ModelConfig, *, collector: "gpu_mod.GPUHealthCollector | None" = None
+) -> tuple[bool, str]:
     """VRAM-headroom check for swap pre-flight.
+
+    ``collector`` lets a caller that runs this check over *many* configs in
+    one pass share a single :class:`~llauncher.core.gpu.GPUHealthCollector`
+    — its TTL cache is per-instance, so a fresh collector per call means a
+    fresh ``nvidia-smi`` subprocess per call. Use
+    :func:`make_vram_check` rather than passing this by hand.
 
     Strategy:
 
@@ -168,7 +181,8 @@ def default_vram_check(config: ModelConfig) -> tuple[bool, str]:
     - Otherwise fail with the required and best-available numbers in the
       reason string.
     """
-    collector = gpu_mod.GPUHealthCollector()
+    if collector is None:
+        collector = gpu_mod.GPUHealthCollector()
     health = collector.get_health()
 
     backends = health.get("backends") or []
@@ -215,3 +229,30 @@ def default_vram_check(config: ModelConfig) -> tuple[bool, str]:
         f"insufficient VRAM: need ~{required_mb} MiB, "
         f"best free device has {best_free} MiB"
     )
+
+
+def make_model_health_check(*, force_refresh: bool = False) -> PreflightCheck:
+    """Return a :data:`PreflightCheck` bound to a ``force_refresh`` choice."""
+
+    def _check(config: ModelConfig) -> tuple[bool, str]:
+        return default_model_health_check(config, force_refresh=force_refresh)
+
+    return _check
+
+
+def make_vram_check(
+    collector: "gpu_mod.GPUHealthCollector | None" = None,
+) -> PreflightCheck:
+    """Return a :data:`PreflightCheck` bound to **one** GPU collector.
+
+    Every check produced by a single call shares one collector, so a batch
+    validation shells out to ``nvidia-smi`` once (per 5 s TTL window) rather
+    than once per model — the N-shell-outs-per-rerun economics ADR-LLNCH-027 §2
+    refused to put on the UI hot path.
+    """
+    shared = collector if collector is not None else gpu_mod.GPUHealthCollector()
+
+    def _check(config: ModelConfig) -> tuple[bool, str]:
+        return default_vram_check(config, collector=shared)
+
+    return _check

@@ -50,7 +50,7 @@ Enforced by `AuthenticationMiddleware` (`llauncher/agent/middleware.py`).
 Everything else requires the token — **including read GETs**, because every
 read leaks something (running models, OS/IP/process info):
 
-- Reads: `/status`, `/models`, `/models/health`, `/logs/{port}`,
+- Reads: `/status`, `/models`, `/models/validate`, `/logs/{port}`,
   `/audit`, `/orphans`, `/node-info`, `/footer-context/{port}`
 - Mutations: `/start/{port}`, `/swap/{port}`, `/stop/{port}`,
   `/cancel/{port}`, `DELETE /models/{name}`

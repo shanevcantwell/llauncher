@@ -347,6 +347,42 @@ class RemoteNode:
             self.status = NodeStatus.OFFLINE
             return None
 
+    def get_model_validation(self, vram: bool = True) -> dict | None:
+        """Read-only validation report for all models on this node (#475, ADR-LLNCH-027).
+
+        Args:
+            vram: When ``False``, ask the node to skip the advisory VRAM
+                check (``?vram=false``) — no ``nvidia-smi`` shell-out on the
+                peer. The UI tab passes ``False``; it re-renders on every
+                widget interaction and never gates a badge on that verdict.
+
+        Returns:
+            A ``ValidationReport`` dict (``{checked_at, ok, models: [...]}``),
+            or ``None`` if unavailable. Mirrors :meth:`get_models`'s shape of
+            error handling — no auth/transport surprises for the UI tab.
+        """
+        if self._is_self_loop():
+            from llauncher import operations as ops
+
+            self.status = NodeStatus.ONLINE
+            self.last_seen = datetime.now()
+            return ops.validate_models(vram=vram).model_dump(mode="json")
+        try:
+            with self._get_client() as client:
+                response = client.get(
+                    f"{self.base_url}/models/validate",
+                    params={"vram": str(bool(vram)).lower()},
+                    headers=self._get_headers(),
+                )
+                if response.status_code == 200:
+                    self.status = NodeStatus.ONLINE
+                    self.last_seen = datetime.now()
+                    return response.json()
+                return None
+        except httpx.RequestError:
+            self.status = NodeStatus.OFFLINE
+            return None
+
     def start_server(self, model_name: str, port: int) -> dict | None:
         """Start ``model_name`` on ``port`` on this node (ADR-LLNCH-010).
 

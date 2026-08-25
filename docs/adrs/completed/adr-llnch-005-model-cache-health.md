@@ -42,7 +42,12 @@ def start_server(self, model_name, port, ...):
     # Continue with existing flow...
 ```
 
-**Layer 2 — Model Health API Endpoint:**
+**Layer 2 — Model Health API Endpoint (superseded 2026-08-25 by ADR-LLNCH-027):**
+`GET /models/health` and `GET /models/health/{name}` were removed on #475 —
+no in-repo consumer ever called them, and `GET /models/validate[/{name}]`
+(ADR-LLNCH-027) serves a superset shape. Layer 1 (the `check_model_health`
+mechanism itself) is unaffected and remains the basis for ADR-LLNCH-027's
+`weights` verdict.
 ```
 GET /models/health         → list all models + file status for each
 GET /models/health/<name>  → detailed health check for one model
