@@ -8,11 +8,14 @@ don't pass one are recorded as ``"unknown"``.
 """
 
 import json
+import logging
 
 from llauncher.core import audit_log as al
 from llauncher.core.audit_log import AuditAction, AuditResult
 from llauncher.core.settings import LAUNCHER_STATE_DIR
 from llauncher.models.config import ModelConfig
+
+logger = logging.getLogger(__name__)
 
 
 # Derived from the single LAUNCHER_STATE_DIR base (issue #196). With
@@ -20,6 +23,13 @@ from llauncher.models.config import ModelConfig
 # before.
 CONFIG_DIR = LAUNCHER_STATE_DIR
 CONFIG_PATH = CONFIG_DIR / "config.json"
+
+# Set once the resolved CONFIG_PATH has been logged at INFO for this
+# process (issue #403). Repeat loads (every ``/models`` poll, every CLI
+# subcommand, etc.) log at DEBUG instead so a process reading an
+# unexpected state dir is still self-diagnosing without spamming the log
+# at INFO/WARNING on every refresh cycle.
+_path_logged = False
 
 
 class ConfigStore:
@@ -29,10 +39,39 @@ class ConfigStore:
     def load(cls) -> dict[str, ModelConfig]:
         """Load configurations from disk.
 
+        PARSE-AT-THE-DOOR (issue #403): a missing config is a legitimate
+        first-run state and is tolerated -- but observably, via a logged
+        WARNING naming the resolved path. An *existing* config that
+        cannot be read or parsed is a configuration error, not an empty
+        registry: both ``OSError`` (permissions, I/O) and
+        ``json.JSONDecodeError`` (corrupt file) are raised, never
+        swallowed into ``{}``. Collapsing "no models," "unreadable
+        config," and "corrupt config" into the same HTTP-200-empty-list
+        response is exactly the defect this fix removes -- see the
+        live-observed incident in issue #403.
+
         Returns:
             Dictionary mapping model names to ModelConfig.
+
+        Raises:
+            OSError: The config file exists but could not be read
+                (permissions, I/O error, etc.).
+            json.JSONDecodeError: The config file exists but is not
+                valid JSON.
         """
+        global _path_logged
+        if _path_logged:
+            logger.debug("Loading config from %s", CONFIG_PATH)
+        else:
+            logger.info("Loading config from %s", CONFIG_PATH)
+            _path_logged = True
+
         if not CONFIG_PATH.exists():
+            logger.warning(
+                "No config file found at %s; treating as empty registry "
+                "(expected on first run).",
+                CONFIG_PATH,
+            )
             return {}
 
         try:
@@ -45,9 +84,14 @@ class ConfigStore:
                 name: ModelConfig.from_dict_unvalidated(cfg)
                 for name, cfg in data.items()
             }
-        except (json.JSONDecodeError, OSError) as e:
-            print(f"Error loading config: {e}")
-            return {}
+        except OSError as e:
+            logger.error("Cannot read config at %s: %s", CONFIG_PATH, e)
+            raise OSError(f"Cannot read config at {CONFIG_PATH}: {e}") from e
+        except json.JSONDecodeError as e:
+            logger.error("Corrupt config at %s: %s", CONFIG_PATH, e)
+            raise json.JSONDecodeError(
+                f"Corrupt config at {CONFIG_PATH}: {e.msg}", e.doc, e.pos
+            ) from e
 
     @classmethod
     def save(cls, models: dict[str, ModelConfig]) -> None:

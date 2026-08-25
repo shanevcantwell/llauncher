@@ -1,6 +1,8 @@
+import json
 import pytest
 from pathlib import Path
 from unittest.mock import patch
+from llauncher.core import config as config_mod
 from llauncher.core.config import ConfigStore
 from llauncher.models.config import ModelConfig
 
@@ -35,28 +37,63 @@ def test_config_store_list_models(mock_config_store, sample_model_config):
     assert sample_model_config.name in models
     assert config2.name in models
 
-def test_config_store_load_nonexistent(mock_config_store):
-    """Test loading when no config file exists."""
+def test_config_store_load_nonexistent(mock_config_store, caplog):
+    """Absent config is non-fatal: returns {} with a WARNING naming the path.
+
+    Issue #403: a missing config is a legitimate first-run state, but it
+    must be observable -- not silently indistinguishable from a corrupt
+    or unreadable one.
+    """
     # CONFIG_PATH is mocked to a non-existent file in tmp_config_dir
-    models = ConfigStore.load()
+    with caplog.at_level("WARNING", logger="llauncher.core.config"):
+        models = ConfigStore.load()
+
     assert models == {}
+    assert any(
+        "No config file found" in r.message and str(config_mod.CONFIG_PATH) in r.message
+        for r in caplog.records
+    )
 
 
-def test_config_store_load_corrupt_returns_empty(
-    mock_config_store, tmp_config_dir, capsys
-):
-    """A corrupt (non-JSON) config file recovers to an empty dict (lines 45-47).
+def test_config_store_load_corrupt_raises(mock_config_store, tmp_config_dir):
+    """A corrupt (non-JSON) config file fails loud (issue #403).
 
-    ``load()`` catches ``JSONDecodeError``/``OSError``, prints a diagnostic,
-    and returns ``{}`` so a damaged config never crashes a read path.
+    PARSE-AT-THE-DOOR: a config that exists but cannot be parsed must
+    never present as "no models" -- ``load()`` raises
+    ``json.JSONDecodeError`` rather than swallowing it into ``{}``.
     """
     tmp_config_dir.mkdir(parents=True, exist_ok=True)
     (tmp_config_dir / "config.json").write_text("{ this is not valid json")
 
-    models = ConfigStore.load()
+    with pytest.raises(json.JSONDecodeError):
+        ConfigStore.load()
 
-    assert models == {}
-    assert "Error loading config" in capsys.readouterr().out
+
+def test_config_store_load_unreadable_raises(mock_config_store, tmp_config_dir):
+    """An OSError while reading an existing config fails loud (issue #403).
+
+    Simulates a permissions/I-O failure on a config file that exists --
+    this must never collapse to an empty registry.
+    """
+    tmp_config_dir.mkdir(parents=True, exist_ok=True)
+    config_path = tmp_config_dir / "config.json"
+    config_path.write_text("{}")
+
+    with patch.object(Path, "read_text", side_effect=OSError("permission denied")):
+        with pytest.raises(OSError) as exc_info:
+            ConfigStore.load()
+    assert str(config_path) in str(exc_info.value)
+
+
+def test_config_store_load_valid_logs_path(mock_config_store, caplog, sample_model_config):
+    """A successful load logs the resolved CONFIG_PATH (issue #403)."""
+    ConfigStore.add_model(sample_model_config)
+
+    with caplog.at_level("DEBUG", logger="llauncher.core.config"):
+        models = ConfigStore.load()
+
+    assert sample_model_config.name in models
+    assert any("Loading config from" in r.message for r in caplog.records)
 
 
 def test_update_missing_model_raises_keyerror(
