@@ -18,8 +18,8 @@
 |----------|-------|-------|
 | Unit | 101 | 1589 |
 | Integration | 13 | 84 |
-| Other | 21 | 211 |
-| **Total** | **135** | **1884** |
+| Other | 21 | 213 |
+| **Total** | **135** | **1886** |
 
 ## Tests carrying special markers
 
@@ -3360,9 +3360,11 @@ ad-hoc markers used in the suite without declaration.
 - **`test_routing_health_reports_shared_version`**
 - **`test_server_app_reports_shared_version`**
 
-#### `tests/ui/test_app_shell.py` (2 tests)
+#### `tests/ui/test_app_shell.py` (4 tests)
 
 - **`test_agent_down_shows_banner_and_stops_before_sidebar_and_tabs`**
+- **`test_config_load_failure_shows_banner_not_traceback`**
+- **`test_refresh_click_on_corrupt_config_banners_and_stops`**
 - **`test_refresh_all_click_dispatches_and_toast_survives_rerun`**
 
 #### `tests/ui/test_audit_tab.py` (16 tests)
