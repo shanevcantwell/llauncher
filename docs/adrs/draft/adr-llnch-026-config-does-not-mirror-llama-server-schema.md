@@ -73,9 +73,15 @@ dropped field present on a persisted entry:
 1. **field would have caused `build_command` to emit its flag, and the flag
    is absent from `extra_args`** → append `<flag> <value>` (bare flag for a
    boolean field) to `extra_args`, drop the field, rewrite.
-2. **the flag is already present in `extra_args`** (either spelling, e.g.
-   `-ctk`/`--cache-type-k`) → drop the field, the `extra_args` occurrence
-   wins, rewrite.
+2. **the flag is already present in `extra_args`** (any spelling
+   llama-server accepts for that option, e.g. `-ctk`/`--cache-type-k`,
+   `-fa`/`--flash-attn`, `-tb`, `-ub`, `-t`, `-b`, `-ncmoe`) → drop the
+   field, the `extra_args` occurrence wins, rewrite. Registering every
+   alias is load-bearing, not cosmetic: llama-server resolves a repeated
+   option first-wins (#156) and treats long and short spellings as one
+   option, so an unregistered alias would leave both `-fa off` and a
+   materialized `--flash-attn on` in argv — self-contradictory, and its
+   effective value decided by append order.
 3. **field present but inert** (would not have caused emission — e.g.
    `None`/`False`/default with no matching flag) → drop the field
    (bookkeeping only), rewrite.
@@ -91,12 +97,50 @@ config on disk (verified by an argv-equivalence golden test). Conditionally
 would have caused emission (mirroring `build_command`'s exact prior
 conditional).
 
-**Unrecognized shape → fail loud.** A persisted entry carrying a key that
-is neither a current `ModelConfig` field, one of the 16 dropped fields, nor
-a legacy field `ModelConfig.from_dict_unvalidated` already silently drops
-(ADR-LLNCH-010 `default_port`/`port`/`host`, #235 `np`) fails `ConfigStore.load`
-with a `ValueError` naming the model and the unrecognized key(s) — the
-whole load is not tolerated into a degraded state.
+**Unrecognized shape → quarantine, not tolerance.** The ratified wording,
+kept verbatim because the constraint it answers is real: `ConfigStore.load`
+rehydrates the registry in one pass, which is exactly why #156 chose
+warn-and-continue — one `ValueError` bricks 60+ models. The answer is not a
+warning, and it is not failing the registry either. **A config whose shape
+does not migrate deterministically is not loaded.** It is recorded as a load
+error against that model name and surfaced in the registry's error list;
+sibling models still load. The model is unusable until fixed — loud, not
+degraded — and the blast radius stays one model. There is no path on which a
+config both fails to parse and starts a server.
+
+Quarantined shapes: a key that is neither a current `ModelConfig` field, one
+of the 16 dropped fields, nor a legacy field
+`ModelConfig.from_dict_unvalidated` already silently drops (ADR-LLNCH-010
+`default_port`/`port`/`host`, #235 `np`); a dropped field holding a
+non-renderable value (a null on one of the three unconditionally-emitted
+fields, whose pre-#477 `int`/`Literal` typing rejected null loudly — writing
+the literal token `None` into argv is not a migration); malformed
+`extra_args` quoting on an entry that still has dropped fields to place; and
+a body `ModelConfig` itself rejects.
+
+Mechanically: `_migrate_config_dict` raises `ModelConfigLoadError` (a
+`ValueError`), `ConfigStore.load_with_errors` catches it **per entry**,
+returns `(models, errors)`, and logs each quarantine at ERROR;
+`ConfigStore.load` is the thin wrapper for callers that only want the
+registry. `LauncherState.config_errors` carries the list, and the Model
+Registry tab renders one banner per quarantined entry — a model with no row
+in the table must not simply vanish from the operator's view. The one-shot
+rewrite is **skipped while any entry is quarantined**, because `save`
+serializes only the models that loaded and would otherwise delete the very
+entry the operator has to hand-fix.
+
+The file-level errors are unchanged and still fail the whole load: an
+unreadable (`OSError`) or non-JSON (`json.JSONDecodeError`) `config.json`
+has no registry to salvage (#403).
+
+**The read path is never stricter than the write path.** `extra_args` is
+tokenized *only* for an entry that still carries pre-#477 fields to place —
+never on a migrated entry, and never on one any post-#477 llauncher wrote.
+Since ratification point 1 removed all pydantic content validation from
+`extra_args`, the UI textarea accepts an unbalanced quote; re-parsing it on
+every load, forever, would let the app permanently brick its own registry
+with a string it had just accepted. A quoting error surfaces where the ADR
+says it does — at launch, in `build_command`, as `MalformedExtraArgsError`.
 
 ## Validator posture after
 
@@ -113,9 +157,16 @@ whole load is not tolerated into a degraded state.
   avoid, same as any other llama-server argv contradiction.
 - `DENIED_EXTRA_ARG_FLAGS` moves from `models/config.py` (a pydantic
   field-validator concern) to `core/process.py::build_command` — the
-  single, launch-time enforcement point. Raises `DeniedExtraArgError` (a
-  `ValueError`), caught by `operations/start.py` and `operations/swap.py`
-  alongside their existing launch-failure exceptions.
+  single, launch-time enforcement point. `docs/ARCHITECTURE.md` rule 5's
+  audited-conformance row is repointed at the new home in the same change,
+  since it cites this symbol as EMIT-CANONICAL's evidence.
+- `build_command` raises one exception family for every `extra_args`
+  defect: `ExtraArgsError(ValueError)`, with `DeniedExtraArgError` (an
+  owned flag) and `MalformedExtraArgsError` (unparseable quoting —
+  reachable precisely *because* pydantic no longer checks it) beneath it.
+  `operations/start.py` and `operations/swap.py` catch the **base class**
+  alongside their existing launch-failure exceptions, so neither subclass
+  can escape as a bare `ValueError` from `shlex.split`.
 - The drift-guard in `tests/unit/test_process.py` (every flag
   `build_command` emits is registered against `DENIED_EXTRA_ARG_FLAGS`)
   survives, stricter — the emitted native-flag set is now small and closed

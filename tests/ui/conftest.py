@@ -85,6 +85,10 @@ def mock_state():
     state = MagicMock(name="LauncherState")
     state.running = {}
     state.models = {}
+    # The registry's error list (ADR-026 / issue #477 quarantine): real
+    # LauncherState carries a dict, and tabs iterate it. Set explicitly so a
+    # tab's iteration is over the empty case, not MagicMock's default.
+    state.config_errors = {}
     return state
 
 

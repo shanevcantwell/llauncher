@@ -98,7 +98,7 @@ def _launch_and_await_ready(
     """
     try:
         popen = proc.start_server(config, port, server_bin=server_bin)
-    except (FileNotFoundError, OSError, proc.DeniedExtraArgError) as exc:
+    except (FileNotFoundError, OSError, proc.ExtraArgsError) as exc:
         return False, None, [], f"process launch failed: {exc}"
 
     # Claim the port via lockfile (atomic O_EXCL). A failure here means

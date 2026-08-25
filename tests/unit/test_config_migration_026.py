@@ -3,21 +3,42 @@
 ``ConfigStore.load`` migrates the 16 dropped llama-server mirror fields
 into ``extra_args`` at the door, once, per the ratified test plan (#477
 §6): field-set-flag-absent appends; both-present the ``extra_args``
-occurrence wins; neither drops the field with no rewrite; an
-argv-equivalence golden test; default materialization for the three
-unconditionally-emitted fields; idempotence; and an unrecognized-key
-fail-loud.
+occurrence wins (in *either* spelling); neither drops the field with no
+rewrite; default materialization for the three unconditionally-emitted
+fields; idempotence; a captured argv-equivalence golden; and per-model
+**quarantine** — an entry whose shape does not migrate deterministically
+is not loaded, is reported against its own name, and does not take its
+siblings down with it.
 """
 
 from __future__ import annotations
 
 import json
+import shlex
 import warnings
+from collections import Counter
+from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
-from llauncher.core.config import ConfigStore, _migrate_config_dict
-from llauncher.core.process import build_command
+from llauncher.core.config import (
+    _DROPPED_FIELD_FLAGS,
+    ConfigStore,
+    ModelConfigLoadError,
+    _migrate_config_dict,
+)
+from llauncher.core.process import (
+    MalformedExtraArgsError,
+    build_command,
+)
+from llauncher.models.config import ModelConfig
+
+GOLDEN_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "fixtures"
+    / "adr026_pre477_argv_golden.json"
+)
 
 
 def _write_config(tmp_config_dir, entries: dict) -> None:
@@ -48,6 +69,22 @@ def _base_entry(**overrides) -> dict:
         "repeat_penalty": None,
         "reverse_prompt": None,
         "mlock": False,
+        "metrics": True,
+        "slots": False,
+        "extra_args": "",
+    }
+    entry.update(overrides)
+    return entry
+
+
+def _migrated_entry(**overrides) -> dict:
+    """A post-#477 entry: no mirror fields at all."""
+    entry = {
+        "name": "m",
+        "model_path": "/fake/m.gguf",
+        "n_gpu_layers": 255,
+        "ctx_size": 4096,
+        "parallel": 1,
         "metrics": True,
         "slots": False,
         "extra_args": "",
@@ -116,32 +153,20 @@ class TestMigrateConfigDictUnit:
         assert "--ubatch-size 512" in data["extra_args"]
         assert "--flash-attn on" in data["extra_args"]
 
+    def test_legacy_extra_args_list_shape_is_normalized(self):
+        data, dirty = _migrate_config_dict(
+            "m", _migrated_entry(extra_args=["--embeddings", "--log-disable"])
+        )
+        assert dirty is True
+        assert data["extra_args"] == "--embeddings --log-disable"
+
     def test_already_migrated_entry_is_a_no_op(self):
-        entry = {
-            "name": "m",
-            "model_path": "/fake/m.gguf",
-            "n_gpu_layers": 255,
-            "ctx_size": 4096,
-            "parallel": 1,
-            "metrics": True,
-            "slots": False,
-            "extra_args": "--threads-batch 8 --ubatch-size 512 --flash-attn on",
-        }
+        entry = _migrated_entry(
+            extra_args="--threads-batch 8 --ubatch-size 512 --flash-attn on"
+        )
         data, dirty = _migrate_config_dict("m", entry)
         assert dirty is False
         assert data == entry
-
-    def test_malformed_extra_args_quoting_raises(self):
-        with pytest.raises(ValueError, match="not a valid shell token"):
-            _migrate_config_dict(
-                "m", _base_entry(extra_args='--foo "unbalanced')
-            )
-
-    def test_unrecognized_key_raises(self):
-        with pytest.raises(ValueError, match="unrecognized config key"):
-            _migrate_config_dict(
-                "m", _base_entry(totally_unknown_field=1)
-            )
 
     def test_legacy_silent_drop_fields_do_not_trip_unrecognized_check(self):
         # default_port / port / host / np are handled by
@@ -150,6 +175,211 @@ class TestMigrateConfigDictUnit:
             "m", _base_entry(default_port=8080, port=9090, host="0.0.0.0", np=4)
         )
         assert data["default_port"] == 8080  # untouched; dropped downstream
+
+
+class TestShortAliasesAreRegistered:
+    """Every spelling llama-server accepts for a dropped option counts as
+    "the flag is already present in extra_args".
+
+    Registering only ``-ctk``/``-ctv`` (as the first cut did) left ``-t``,
+    ``-tb``, ``-ub``, ``-b`` and ``-fa`` unrecognized, so migration
+    materialized the long spelling *alongside* the operator's short one --
+    an argv that contradicts itself, whose effective value under
+    llama-server's first-wins resolution (#156) depends on which token
+    migration happened to append first. For the three unconditionally
+    materialized fields that silently flipped runtime behaviour on upgrade,
+    which is exactly what Q2's materialization rule exists to prevent.
+    """
+
+    @pytest.mark.parametrize(
+        "field,value,short,long",
+        [
+            ("threads", 4, "-t 8", "--threads"),
+            ("threads_batch", 8, "-tb 16", "--threads-batch"),
+            ("ubatch_size", 512, "-ub 2048", "--ubatch-size"),
+            ("batch_size", 2048, "-b 4096", "--batch-size"),
+            ("flash_attn", "on", "-fa off", "--flash-attn"),
+            ("n_cpu_moe", 4, "-ncmoe 8", "--n-cpu-moe"),
+            ("cache_type_k", "q8_0", "-ctk f16", "--cache-type-k"),
+            ("cache_type_v", "q8_0", "-ctv f16", "--cache-type-v"),
+        ],
+    )
+    def test_short_alias_in_extra_args_suppresses_materialization(
+        self, field, value, short, long
+    ):
+        data, _ = _migrate_config_dict(
+            "m", _base_entry(**{field: value}, extra_args=short)
+        )
+        assert field not in data
+        assert short in data["extra_args"]
+        # The long spelling must NOT also be materialized: one option,
+        # one occurrence.
+        assert long not in data["extra_args"].split()
+
+    def test_every_dropped_field_lists_its_long_form_first(self):
+        """Migration *writes* ``flags[0]``; it must be the long spelling."""
+        for field, flags in _DROPPED_FIELD_FLAGS.items():
+            assert flags[0].startswith("--"), field
+            assert len(set(flags)) == len(flags), field
+
+
+class TestQuarantineNotTolerance:
+    """A shape that does not migrate deterministically fails *that model*.
+
+    Ratified on #477: "quarantine, not tolerance ... sibling models still
+    load ... the blast radius stays one model". ``LauncherState.refresh()``
+    is the only production caller of the loader, so a whole-registry
+    ``ValueError`` would take the UI, the agent and the CLI down over one
+    stray key in a 60-model file.
+    """
+
+    @pytest.mark.parametrize(
+        "entry,match",
+        [
+            (_base_entry(totally_unknown_field=1), "unrecognized config key"),
+            (
+                _base_entry(extra_args='--foo "unbalanced'),
+                "not a valid shell token",
+            ),
+            (_base_entry(ubatch_size=None), "is null"),
+            (_base_entry(flash_attn=None), "is null"),
+            (_base_entry(threads_batch=None), "is null"),
+            (_base_entry(temperature=[0.7]), "non-scalar"),
+        ],
+    )
+    def test_non_migratable_shapes_raise_model_config_load_error(
+        self, entry, match
+    ):
+        with pytest.raises(ModelConfigLoadError, match=match):
+            _migrate_config_dict("m", entry)
+
+    def test_load_error_is_a_value_error(self):
+        assert issubclass(ModelConfigLoadError, ValueError)
+
+    def test_sibling_models_still_load(self, mock_config_store, tmp_config_dir):
+        _write_config(
+            tmp_config_dir,
+            {
+                "good": _base_entry(name="good"),
+                "bad": {**_base_entry(name="bad"), "comment": "hand-added"},
+            },
+        )
+
+        models, errors = ConfigStore.load_with_errors()
+
+        assert set(models) == {"good"}
+        assert set(errors) == {"bad"}
+        assert "unrecognized config key" in errors["bad"]
+        assert "'comment'" in errors["bad"]
+
+    def test_plain_load_returns_the_healthy_siblings(
+        self, mock_config_store, tmp_config_dir
+    ):
+        """``load()`` is the wrapper every legacy caller uses -- it must not
+
+        raise a ValueError the #403 structured-error callers never expect.
+        """
+        _write_config(
+            tmp_config_dir,
+            {
+                "good": _base_entry(name="good"),
+                "bad": {**_base_entry(name="bad"), "comment": "x"},
+            },
+        )
+        assert set(ConfigStore.load()) == {"good"}
+
+    def test_quarantined_entry_is_not_erased_by_the_rewrite(
+        self, mock_config_store, tmp_config_dir
+    ):
+        """``save`` serializes only the models that loaded, so rewriting
+
+        while an entry is quarantined would delete the very entry the
+        operator has to hand-fix. The one-shot rewrite is skipped instead.
+        """
+        _write_config(
+            tmp_config_dir,
+            {
+                "good": _base_entry(name="good"),
+                "bad": {**_base_entry(name="bad"), "comment": "x"},
+            },
+        )
+        ConfigStore.load_with_errors()
+
+        on_disk = json.loads((tmp_config_dir / "config.json").read_text())
+        assert set(on_disk) == {"good", "bad"}
+        # Untouched: "good" still carries its pre-migration mirror fields.
+        assert on_disk["good"]["ubatch_size"] == 512
+
+    def test_a_body_pydantic_rejects_is_quarantined_too(
+        self, mock_config_store, tmp_config_dir
+    ):
+        _write_config(
+            tmp_config_dir,
+            {
+                "good": _base_entry(name="good"),
+                "bad": _base_entry(name="bad", ctx_size=-1),
+            },
+        )
+        models, errors = ConfigStore.load_with_errors()
+        assert set(models) == {"good"}
+        assert "bad" in errors
+
+    def test_quarantine_is_logged_at_error(
+        self, mock_config_store, tmp_config_dir, caplog
+    ):
+        _write_config(
+            tmp_config_dir,
+            {
+                "good": _base_entry(name="good"),
+                "bad": {**_base_entry(name="bad"), "comment": "x"},
+            },
+        )
+        with caplog.at_level("WARNING"):
+            models, errors = ConfigStore.load_with_errors()
+        assert set(models) == {"good"}
+        assert set(errors) == {"bad"}
+        assert "Quarantined model 'bad'" in caplog.text
+        assert "Skipping the ADR-026 config rewrite" in caplog.text
+
+
+class TestReadPathIsNoStricterThanWritePath:
+    """The app must not be able to brick its own registry.
+
+    ADR-026 removed all pydantic content validation from ``extra_args``, so
+    the UI's textarea (and the MCP/CLI write path) accepts any string --
+    unbalanced quotes included. If the loader re-parsed ``extra_args`` on
+    every load, forever, that saved string would make the registry
+    unloadable without hand-editing ``config.json`` outside the app.
+    Migration therefore tokenizes ``extra_args`` **only** while an entry
+    still carries pre-#477 fields that must be placed into it.
+    """
+
+    def test_migrated_entry_with_unbalanced_quotes_loads(
+        self, mock_config_store, tmp_config_dir
+    ):
+        _write_config(
+            tmp_config_dir,
+            {"a": _migrated_entry(name="a", extra_args='--chat-template "hello')},
+        )
+        models, errors = ConfigStore.load_with_errors()
+        assert errors == {}
+        assert models["a"].extra_args == '--chat-template "hello'
+
+    def test_round_trip_through_save_then_load(
+        self, mock_config_store, tmp_config_dir
+    ):
+        cfg = ModelConfig.from_dict_unvalidated(
+            _migrated_entry(name="a", extra_args='--chat-template "hello')
+        )
+        ConfigStore.save({"a": cfg})
+        assert ConfigStore.load()["a"].extra_args == '--chat-template "hello'
+
+    def test_the_quoting_error_surfaces_at_launch_as_extra_args_error(self):
+        cfg = ModelConfig.from_dict_unvalidated(
+            _migrated_entry(name="a", extra_args='--chat-template "hello')
+        )
+        with pytest.raises(MalformedExtraArgsError, match="not valid"):
+            build_command(cfg, port=8080)
 
 
 class TestConfigStoreLoadMigration:
@@ -184,14 +414,20 @@ class TestConfigStoreLoadMigration:
 
         assert first_bytes == second_bytes
 
-    def test_unrecognized_key_fails_the_whole_load(
+    def test_unwritable_state_dir_does_not_fail_the_load(
         self, mock_config_store, tmp_config_dir
     ):
-        _write_config(
-            tmp_config_dir, {"m": _base_entry(some_made_up_field=1)}
-        )
-        with pytest.raises(ValueError, match="unrecognized config key"):
-            ConfigStore.load()
+        """The migrated registry is correct in memory; only the one-shot
+
+        rewrite could not be persisted. Failing the load here would report
+        "Cannot read config" for a config that read perfectly.
+        """
+        _write_config(tmp_config_dir, {"m": _base_entry(cache_type_k="q4_0")})
+        with patch.object(
+            ConfigStore, "save", side_effect=OSError("read-only file system")
+        ):
+            models = ConfigStore.load()
+        assert "--cache-type-k q4_0" in models["m"].extra_args
 
     def test_load_emits_zero_warnings_under_error_filter(
         self, mock_config_store, tmp_config_dir
@@ -243,133 +479,155 @@ class TestConfigStoreLoadMigration:
         assert cfg.extra_args.count("--ubatch-size") == 1
 
 
-class TestArgvEquivalenceGolden:
-    """The migration's acceptance criterion (#477 §6): pre-migration and
+# ---------------------------------------------------------------------------
+# Argv-equivalence golden
+# ---------------------------------------------------------------------------
+# ``tests/fixtures/adr026_pre477_argv_golden.json`` is a *captured* golden,
+# not a reimplementation: each record's ``argv`` was produced by running the
+# real pre-#477 ``build_command`` (commit 3fdef15, the branch point of
+# #477) against that record's ``entry``. See
+# ``tests/fixtures/capture_adr026_golden.py`` for the capture harness --
+# re-run it against a checkout of 3fdef15 to regenerate.
 
-    post-migration argv are the same multiset of flag/value pairs, for a
-    corpus covering defaults-only, each dropped field set, both-present,
-    and the operator's live cache_type_k/v-in-extra_args shape.
+_ALIAS_TO_CANON = {
+    alias: flags[0]
+    for flags in _DROPPED_FIELD_FLAGS.values()
+    for alias in flags
+}
+_DROPPED_CANON = {flags[0] for flags in _DROPPED_FIELD_FLAGS.values()}
+
+GOLDEN = json.loads(GOLDEN_PATH.read_text(encoding="utf-8"))
+
+
+def _parse_argv(argv: list[str]) -> list[tuple[str, str | None]]:
+    """``argv[1:]`` as ordered ``(canonical_flag, value)`` pairs.
+
+    Short spellings are folded onto their long form (``-fa`` ->
+    ``--flash-attn``) because llama-server treats them as one option: an
+    equivalence check that did not fold them would call a spelling change
+    "equivalent" while the effective value flipped. A flag followed by a
+    non-flag token takes it as its value; otherwise it is a bare flag
+    (value ``None``). ``--flag=value`` is split on the ``=``.
+    """
+    pairs: list[tuple[str, str | None]] = []
+    i = 1
+    while i < len(argv):
+        token = argv[i]
+        head, sep, inline = token.partition("=")
+        canon = _ALIAS_TO_CANON.get(head, head)
+        if sep:
+            pairs.append((canon, inline))
+            i += 1
+        elif i + 1 < len(argv) and not argv[i + 1].startswith("-"):
+            pairs.append((canon, argv[i + 1]))
+            i += 2
+        else:
+            pairs.append((canon, None))
+            i += 1
+    return pairs
+
+
+def _effective(argv: list[str]) -> dict[str, str | None]:
+    """The value llama-server actually uses per option: first occurrence wins."""
+    effective: dict[str, str | None] = {}
+    for flag, value in _parse_argv(argv):
+        effective.setdefault(flag, value)
+    return effective
+
+
+def _expected_effective(record: dict) -> dict[str, str | None]:
+    """The post-migration effective argv the two ratified rules require.
+
+    Derived from the captured golden alone: split it into the part
+    ``build_command`` emitted from fields and the verbatim ``extra_args``
+    tail, then apply rule 1 (a field with no matching flag in
+    ``extra_args`` keeps its effective value) and rule 2 (a dropped-field
+    flag that *is* present in ``extra_args`` is won by the ``extra_args``
+    occurrence -- the #156 silent-drop fix, and the one place migration
+    deliberately changes the effective value).
+    """
+    argv = record["argv"]
+    extra_tokens = shlex.split(record["entry"].get("extra_args") or "")
+    field_part = argv[: len(argv) - len(extra_tokens)]
+
+    expected = _effective(field_part)
+    applied: set[str] = set()
+    for flag, value in _parse_argv(["<bin>"] + extra_tokens):
+        if flag in applied:
+            continue
+        applied.add(flag)
+        if flag in _DROPPED_CANON or flag not in expected:
+            expected[flag] = value
+    return expected
+
+
+class TestArgvEquivalenceGolden:
+    """The migration's acceptance criterion (#477 §6).
+
+    For every config in the captured corpus, the argv llauncher builds
+    *after* migration resolves to the same effective option set as the argv
+    the pre-#477 code built -- identical modulo flag order, which is all
+    llama-server's first-wins parser can observe. The single deliberate
+    exception is rule 2: where a dropped field and its flag were both
+    present, pre-#477 emitted a genuine duplicate and the *field* silently
+    won (#156); post-migration the operator's ``extra_args`` occurrence
+    wins, and that is what ``_expected_effective`` encodes.
     """
 
-    CORPUS = [
-        _base_entry(),
-        _base_entry(threads=4),
-        _base_entry(threads_batch=16),
-        _base_entry(ubatch_size=1024),
-        _base_entry(batch_size=2048),
-        _base_entry(flash_attn="auto"),
-        _base_entry(no_mmap=True),
-        _base_entry(cache_type_k="q4_0"),
-        _base_entry(cache_type_v="q4_0"),
-        _base_entry(n_cpu_moe=4),
-        _base_entry(temperature=0.7),
-        _base_entry(top_k=40),
-        _base_entry(top_p=0.9),
-        _base_entry(min_p=0.05),
-        _base_entry(repeat_penalty=1.1),
-        _base_entry(reverse_prompt="STOP"),
-        _base_entry(mlock=True),
-        _base_entry(
-            cache_type_k="q4_0",
-            cache_type_v="q4_0",
-            extra_args="-ctk q4_0 -ctv q4_0",
-        ),
-        _base_entry(
-            ubatch_size=512,
-            extra_args="--embeddings --log-disable --ubatch-size 2048 --batch-size 2048",
-        ),
-    ]
-
-    @pytest.mark.parametrize("entry", CORPUS)
-    def test_pre_and_post_migration_argv_match(self, entry):
-        from llauncher.models.config import ModelConfig
-
-        # "Pre-migration" argv: build_command as it existed before #477
-        # can't run any more (the fields are gone from ModelConfig), so we
-        # compute the equivalent expected multiset directly from the
-        # pre-migration semantics build_command used to implement, then
-        # compare against the real post-migration build_command output.
-        expected = _pre_477_argv_tail(entry)
-
-        migrated, _ = _migrate_config_dict("m", dict(entry))
+    @pytest.mark.parametrize(
+        "record", GOLDEN, ids=[r["id"] for r in GOLDEN]
+    )
+    def test_effective_argv_matches_the_captured_golden(self, record):
+        migrated, _ = _migrate_config_dict(record["id"], dict(record["entry"]))
         cfg = ModelConfig.from_dict_unvalidated(migrated)
-        cmd = build_command(cfg, port=8080)
+        cmd = build_command(
+            cfg, port=8080, host="127.0.0.1", server_bin=Path("llama-server")
+        )
 
-        # Compare as multisets of tokens following the owned-field prefix
-        # (model path / alias / n_gpu_layers / host+port / ctx / parallel /
-        # metrics / slots are unaffected by this migration and already
-        # covered by test_process.py; here we only care that every
-        # dropped-field-derived token survives, exactly once).
-        for token in expected:
-            assert cmd.count(token) >= 1, f"{token!r} missing from {cmd}"
+        assert _effective(cmd) == _expected_effective(record)
 
+    @pytest.mark.parametrize(
+        "record", GOLDEN, ids=[r["id"] for r in GOLDEN]
+    )
+    def test_no_dropped_option_is_emitted_twice(self, record):
+        """Migration must never leave two spellings of one option in argv.
 
-def _pre_477_argv_tail(entry: dict) -> list[str]:
-    """Reconstruct the flag/value tokens the pre-#477 ``build_command``
-    would have emitted for the 16 dropped fields, given ``entry`` (which
-    may also carry an ``extra_args`` string of its own -- pre-#477 those
-    tokens were appended last, verbatim, same as today)."""
-    tokens: list[str] = []
-    if entry.get("threads"):
-        tokens += ["--threads", str(entry["threads"])]
-    tokens += ["--threads-batch", str(entry.get("threads_batch", 8))]
-    tokens += ["--ubatch-size", str(entry.get("ubatch_size", 512))]
-    if entry.get("batch_size") is not None:
-        tokens += ["--batch-size", str(entry["batch_size"])]
-    tokens += ["--flash-attn", str(entry.get("flash_attn", "on"))]
-    if entry.get("no_mmap"):
-        tokens += ["--no-mmap"]
-    import shlex as _shlex
-    _extra_heads_for_aliases = {
-        t.split("=", 1)[0] for t in _shlex.split(entry.get("extra_args") or "")
-    }
-    if entry.get("cache_type_k"):
-        k_flag = "-ctk" if "-ctk" in _extra_heads_for_aliases else "--cache-type-k"
-        tokens += [k_flag, entry["cache_type_k"]]
-    if entry.get("cache_type_v"):
-        v_flag = "-ctv" if "-ctv" in _extra_heads_for_aliases else "--cache-type-v"
-        tokens += [v_flag, entry["cache_type_v"]]
-    if entry.get("n_cpu_moe"):
-        tokens += ["--n-cpu-moe", str(entry["n_cpu_moe"])]
-    if entry.get("temperature") is not None:
-        tokens += ["--temp", str(entry["temperature"])]
-    if entry.get("top_k") is not None:
-        tokens += ["--top-k", str(entry["top_k"])]
-    if entry.get("top_p") is not None:
-        tokens += ["--top-p", str(entry["top_p"])]
-    if entry.get("min_p") is not None:
-        tokens += ["--min-p", str(entry["min_p"])]
-    if entry.get("repeat_penalty") is not None:
-        tokens += ["--repeat-penalty", str(entry["repeat_penalty"])]
-    if entry.get("reverse_prompt"):
-        tokens += ["--reverse-prompt", entry["reverse_prompt"]]
-    if entry.get("mlock"):
-        tokens += ["--mlock"]
+        The ``>= 1``-per-token assertion this replaced could not see a
+        duplicate at all, which is how ``-fa off --flash-attn on`` shipped
+        green.
+        """
+        migrated, _ = _migrate_config_dict(record["id"], dict(record["entry"]))
+        cfg = ModelConfig.from_dict_unvalidated(migrated)
+        cmd = build_command(
+            cfg, port=8080, host="127.0.0.1", server_bin=Path("llama-server")
+        )
 
-    # A field's flag that's ALSO already in extra_args is only emitted
-    # once post-migration (extra_args wins) -- the pre-#477 behavior was a
-    # genuine *duplicate* (the bug #156/#477 exists to fix), so for the
-    # equivalence check we de-duplicate on the migrated side by expecting
-    # only the extra_args-sourced occurrence when both were present.
-    import shlex
+        counts = Counter(flag for flag, _ in _parse_argv(cmd))
+        duplicated = {
+            flag: n
+            for flag, n in counts.items()
+            if n > 1 and flag in _DROPPED_CANON
+        }
+        assert duplicated == {}
 
-    extra = entry.get("extra_args") or ""
-    extra_tokens = shlex.split(extra)
-    extra_heads = {t.split("=", 1)[0] for t in extra_tokens}
+    @pytest.mark.parametrize(
+        "record", GOLDEN, ids=[r["id"] for r in GOLDEN]
+    )
+    def test_minted_identity_prefix_is_byte_identical(self, record):
+        """EMIT-CANONICAL (ARCHITECTURE rule 5) is untouched by the drop."""
+        migrated, _ = _migrate_config_dict(record["id"], dict(record["entry"]))
+        cfg = ModelConfig.from_dict_unvalidated(migrated)
+        cmd = build_command(
+            cfg, port=8080, host="127.0.0.1", server_bin=Path("llama-server")
+        )
+        assert cmd[:5] == record["argv"][:5]
 
-    deduped: list[str] = list(extra_tokens)
-    i = 0
-    while i < len(tokens):
-        head = tokens[i]
-        if head.startswith("-") and head in extra_heads:
-            # Skip this field-derived flag (and its value token, if any)
-            # since extra_args already carries it post-migration.
-            if i + 1 < len(tokens) and not tokens[i + 1].startswith("-"):
-                i += 2
-            else:
-                i += 1
-            continue
-        deduped.append(head)
-        i += 1
-
-    return deduped
+    def test_golden_corpus_covers_every_dropped_field(self):
+        """A golden that silently stopped covering a field is not a golden."""
+        covered = set()
+        for record in GOLDEN:
+            for field in _DROPPED_FIELD_FLAGS:
+                value = record["entry"].get(field)
+                if value not in (None, False, "", 0):
+                    covered.add(field)
+        assert covered == set(_DROPPED_FIELD_FLAGS)

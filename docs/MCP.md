@@ -550,7 +550,10 @@ Add a new model configuration to the store.
 - `ctx_size`: Context size (default: 131072)
 - `parallel`: Parallel slot count (default: 1)
 - `metrics`: Enable Prometheus `/metrics` (default: true)
-- `slots`: Expose `/slots` monitoring endpoint (default: false)
+- *(`slots` — whether `/slots` is exposed — is llauncher-owned but **not**
+  agent-writable: `/slots` leaks per-slot prompt text, so the exposure
+  decision stays the operator's, in the UI (ADR-LLNCH-019). It appears in
+  read responses; it is not accepted here.)*
 - `extra_args`: Verbatim llama-server flags (ADR-026 / issue #477) — every
   other llama-server flag (`--flash-attn`, `--no-mmap`, `--cache-type-k`,
   sampling params, etc.) lives here, in the spelling from

@@ -43,7 +43,21 @@ _SCAN_KEY_ALL_SERVERS = "find_all_llama_servers"
 _SCAN_KEY_ALL_SERVERS_ANNOTATED = "find_all_llama_servers_annotated"
 
 
-class DeniedExtraArgError(ValueError):
+class ExtraArgsError(ValueError):
+    """``extra_args`` could not be turned into argv at launch time.
+
+    The one exception type callers catch for every ``extra_args`` defect
+    (ADR-026 / issue #477). ``extra_args`` carries llama-server flags
+    verbatim with no pydantic content validation, so *both* of its failure
+    modes — unparseable shell quoting and a llauncher-owned flag — first
+    become observable here, in :func:`build_command`, the single
+    enforcement point. ``operations.start`` / ``operations.swap`` catch
+    this base class alongside their other launch-failure exceptions, so
+    neither subclass can escape as a bare ``ValueError``.
+    """
+
+
+class DeniedExtraArgError(ExtraArgsError):
     """``extra_args`` carries a flag llauncher owns and enforces at launch.
 
     Raised by :func:`build_command` — the single enforcement point for
@@ -52,6 +66,20 @@ class DeniedExtraArgError(ValueError):
     alongside their other launch-failure exceptions and surface it as a
     clear, typed error rather than letting a malformed/hostile argv reach
     ``subprocess.Popen``.
+    """
+
+
+class MalformedExtraArgsError(ExtraArgsError):
+    """``extra_args`` is not valid shell-token text (unbalanced quoting).
+
+    ADR-026 removed all pydantic content validation from ``extra_args``,
+    so the UI/MCP/CLI write path accepts any string the operator types —
+    deliberately, since llama-server's own parser is the authority on its
+    flags. The consequence is that ``shlex.split`` can fail here, at
+    launch. Raising a typed error (rather than letting ``shlex``'s bare
+    ``ValueError`` out) keeps that failure inside the launch-error contract
+    ``operations.start``/``operations.swap`` already handle, instead of
+    escaping as an unhandled exception.
     """
 
 
@@ -246,7 +274,15 @@ def build_command(
     # at launch time, the single enforcement point. A denied flag raises
     # before any argv reaches subprocess.Popen.
     if config.extra_args:
-        extra_tokens = shlex.split(config.extra_args)
+        try:
+            extra_tokens = shlex.split(config.extra_args)
+        except ValueError as e:
+            raise MalformedExtraArgsError(
+                f"extra_args for model {config.name!r} is not valid "
+                f"shell-token text ({e}) — check the quoting. llauncher "
+                f"stores extra_args verbatim and parses it only here, at "
+                f"launch (ADR-026 / issue #477)."
+            ) from e
         _check_extra_args_deny_list(extra_tokens)
         cmd.extend(extra_tokens)
 

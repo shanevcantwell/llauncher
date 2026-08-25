@@ -124,12 +124,18 @@ class ModelConfig(BaseModel):
     supplied at call time per ADR-LLNCH-010.
     """
 
-    # ``validate_assignment``: the ``extra_args`` deny-list (C7) is also
-    # enforced on field assignment, not only at construction time. Without
-    # this, a caller that mutates ``cfg.extra_args`` after construction
-    # would silently bypass the deny-list (review of PR #101 / Issue #81).
-    # Production assignment surface today: ``mcp_server/tools/config.py``
-    # ``update_model_config``.
+    # ``validate_assignment``: field types/constraints are re-checked on
+    # assignment, not only at construction time, so a caller that mutates
+    # a field after construction cannot install a value the constructor
+    # would have rejected. Production assignment surface today:
+    # ``mcp_server/tools/config.py`` ``update_model_config``.
+    #
+    # Note this no longer has anything to do with ``extra_args``: the
+    # deny-list validator it originally existed for (PR #101 / issue #81)
+    # was deleted by ADR-026 / issue #477, which moved that check to
+    # ``core/process.py::build_command``. The setting is kept for the
+    # remaining typed fields (``n_gpu_layers``, ``ctx_size``, ``parallel``
+    # and friends carry ge/gt constraints worth enforcing on assignment).
     model_config = {"arbitrary_types_allowed": True, "validate_assignment": True}
 
     name: str
@@ -164,10 +170,18 @@ class ModelConfig(BaseModel):
     # verbatim, in the spelling the operator read out of
     # ``llama-server --help``. There is deliberately no pydantic content
     # validation here — no shell-quoting check, no managed-flag collision
-    # guard. The llauncher-owned deny-list is enforced exactly once, at
-    # launch time, by ``core/process.py::build_command`` (the single
-    # enforcement point; malformed shell quoting also surfaces there via
-    # ``shlex.split``, not at config-construction/load time).
+    # guard. Both are enforced exactly once, at launch time, by
+    # ``core/process.py::build_command`` (the single enforcement point):
+    # a llauncher-owned flag raises ``DeniedExtraArgError`` and
+    # unparseable quoting raises ``MalformedExtraArgsError``, both
+    # ``ExtraArgsError``.
+    #
+    # ``ConfigStore.load`` does NOT parse this field's content either: the
+    # ADR-026 migration tokenizes ``extra_args`` only for an entry that
+    # still carries pre-#477 mirror fields to place, and never again once
+    # that entry is migrated. So the read path is exactly as permissive as
+    # this write path — a quoting error the UI accepted fails at launch,
+    # it never becomes a config llauncher can no longer load.
     extra_args: str = ""
 
     @field_validator("model_path", mode="before")

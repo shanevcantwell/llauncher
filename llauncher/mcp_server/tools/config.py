@@ -28,7 +28,6 @@ def get_tools() -> list[Tool]:
                             "ctx_size": {"type": "integer"},
                             "parallel": {"type": "integer"},
                             "metrics": {"type": "boolean", "description": "Enable llama-server's Prometheus /metrics endpoint (--metrics). Defaults to true."},
-                            "slots": {"type": "boolean", "description": "Expose llama-server's /slots monitoring endpoint (--slots). Defaults to false (sensitive: leaks per-slot prompt text)."},
                             "extra_args": {"type": "string", "description": "Verbatim llama-server command-line flags (space-separated), in the spelling from `llama-server --help`. No content validation. Flags llauncher owns (--alias, -m/--model, --host/--port, --api-key, --metrics, --slots/--no-slots) are rejected at launch time, not here (ADR-026 / issue #477)."},
                         },
                     },
@@ -73,7 +72,6 @@ def get_tools() -> list[Tool]:
                             "ctx_size": {"type": "integer"},
                             "parallel": {"type": "integer"},
                             "metrics": {"type": "boolean", "description": "Enable llama-server's Prometheus /metrics endpoint (--metrics). Defaults to true."},
-                            "slots": {"type": "boolean", "description": "Expose llama-server's /slots monitoring endpoint (--slots). Defaults to false (sensitive: leaks per-slot prompt text)."},
                             "extra_args": {"type": "string", "description": "Verbatim llama-server command-line flags (space-separated, use quotes for args with spaces), in the spelling from `llama-server --help`. No content validation (ADR-026 / issue #477)."},
                         },
                         "required": ["name", "model_path"],
@@ -151,8 +149,11 @@ async def update_model_config(state: LauncherState, args: dict) -> dict:
             updated_config.parallel = updates["parallel"]
         if "metrics" in updates:
             updated_config.metrics = updates["metrics"]
-        if "slots" in updates:
-            updated_config.slots = updates["slots"]
+        # NOTE: ``slots`` is deliberately NOT agent-writable. It is an
+        # llauncher-owned field (ADR-026), but /slots leaks per-slot prompt
+        # text and llauncher's posture is that the exposure decision is the
+        # operator's (ADR-LLNCH-019). ADR-026 §5 shrinks this hand-maintained
+        # allow-list; it does not extend it. Edit ``slots`` in the UI.
         if "extra_args" in updates:
             updated_config.extra_args = updates["extra_args"]
 

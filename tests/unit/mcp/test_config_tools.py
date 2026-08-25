@@ -84,7 +84,7 @@ class TestUpdateModelConfig:
 
     @pytest.mark.asyncio
     async def test_update_model_config_sets_remaining_native_fields(self, mock_state):
-        """Cover the ctx_size / metrics / slots apply branches so the whole
+        """Cover the ctx_size / metrics apply branches so the whole
 
         update_model_config field-apply block is exercised (ADR-026 / #477:
         threads/flash_attn/no_mmap are gone — those fields no longer exist).
@@ -94,11 +94,7 @@ class TestUpdateModelConfig:
                 mock_state,
                 {
                     "name": "existing-model",
-                    "config": {
-                        "ctx_size": 8192,
-                        "metrics": False,
-                        "slots": True,
-                    },
+                    "config": {"ctx_size": 8192, "metrics": False},
                 },
             )
 
@@ -106,7 +102,26 @@ class TestUpdateModelConfig:
         updated = mock_state.models["existing-model"]
         assert updated.ctx_size == 8192
         assert updated.metrics is False
-        assert updated.slots is True
+
+    @pytest.mark.asyncio
+    async def test_slots_is_not_agent_writable(self, mock_state):
+        """``slots`` is llauncher-owned but NOT on the MCP write surface.
+
+        /slots leaks per-slot prompt text, so the exposure decision stays
+        the operator's (ADR-LLNCH-019); ADR-026 §5 shrinks this
+        hand-maintained allow-list rather than extending it. A ``slots`` key
+        in the update payload is ignored, not applied.
+        """
+        mock_state.models["existing-model"].slots = False
+
+        with patch("llauncher.core.config.ConfigStore"):
+            result = await update_model_config(
+                mock_state,
+                {"name": "existing-model", "config": {"slots": True}},
+            )
+
+        assert result["success"] is True
+        assert mock_state.models["existing-model"].slots is False
 
     @pytest.mark.asyncio
     async def test_update_model_config_extra_args_accepts_any_flag(self, mock_state):
@@ -429,10 +444,12 @@ class TestGetTools:
         """
         tools = {t.name: t for t in get_tools()}
         props = tools["update_model_config"].inputSchema["properties"]["config"]["properties"]
-        for field in ("n_gpu_layers", "ctx_size", "parallel", "metrics", "slots", "extra_args"):
+        for field in ("n_gpu_layers", "ctx_size", "parallel", "metrics", "extra_args"):
             assert field in props, field
         for field in ("batch_size", "ubatch_size", "threads_batch", "flash_attn", "no_mmap", "threads"):
             assert field not in props, field
+        # ``slots`` is owned but not agent-writable (ADR-LLNCH-019).
+        assert "slots" not in props
 
     def test_metrics_field_reachable_via_mcp_config_schema(self):
         """Issue #169: the ``metrics`` toggle must be discoverable via both

@@ -1,6 +1,7 @@
 """Tests for llauncher core process management."""
 
 import logging
+import importlib
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -27,6 +28,8 @@ from llauncher.core.process import (
     is_port_in_use,
     DENIED_EXTRA_ARG_FLAGS,
     DeniedExtraArgError,
+    ExtraArgsError,
+    MalformedExtraArgsError,
 )
 from llauncher.models.config import ModelConfig
 
@@ -1713,3 +1716,54 @@ class TestDiscoverAllCreateTimeGuard:
         assert len(discovered) == 1
         assert discovered[0].pid == 99
         assert discovered[0].create_time is None
+
+
+class TestBuildCommandMalformedExtraArgs:
+    """Unparseable ``extra_args`` quoting is a typed launch failure.
+
+    ADR-026 removed every pydantic check from ``extra_args``, so the UI
+    textarea, the MCP tool and the CLI all accept an unbalanced quote and
+    persist it. ``build_command`` is the first and only place it is
+    tokenized — ``shlex.split``'s bare ``ValueError`` there would escape
+    ``operations.start`` / ``operations.swap``, whose except-tuple catches
+    launch failures by type. Both ``extra_args`` failure modes therefore
+    share one base class, and the operations layer catches the base.
+    """
+
+    def test_unbalanced_quote_raises_malformed_extra_args_error(
+        self, minimal_config
+    ) -> None:
+        minimal_config.extra_args = '--chat-template "hello'
+        with pytest.raises(MalformedExtraArgsError) as excinfo:
+            build_command(minimal_config, port=8080)
+        assert "test-model" in str(excinfo.value)
+
+    def test_both_failure_modes_share_one_catchable_base(self) -> None:
+        assert issubclass(MalformedExtraArgsError, ExtraArgsError)
+        assert issubclass(DeniedExtraArgError, ExtraArgsError)
+        assert issubclass(ExtraArgsError, ValueError)
+
+    def test_operations_catch_the_base_class_not_a_subclass(self) -> None:
+        """A regression guard for the actual defect: catching only
+
+        ``DeniedExtraArgError`` let a malformed-quoting ``ValueError``
+        through, because a sibling subclass is not caught by its sibling.
+        """
+        assert not issubclass(MalformedExtraArgsError, DeniedExtraArgError)
+        for module in ("llauncher.operations.start", "llauncher.operations.swap"):
+            source = Path(
+                importlib.import_module(module).__file__
+            ).read_text(encoding="utf-8")
+            assert "proc.ExtraArgsError" in source, module
+            assert "proc.DeniedExtraArgError" not in source, module
+
+    def test_start_server_surfaces_it_before_popen(self, minimal_config) -> None:
+        """No argv reaches ``subprocess.Popen`` when extra_args cannot parse."""
+        minimal_config.extra_args = "--grammar-file 'unterminated"
+        mock_bin = MagicMock()
+        mock_bin.exists.return_value = True
+        with patch("llauncher.core.process.DEFAULT_SERVER_BINARY", mock_bin), \
+             patch("subprocess.Popen") as popen:
+            with pytest.raises(MalformedExtraArgsError):
+                start_server(minimal_config, 8080)
+        popen.assert_not_called()

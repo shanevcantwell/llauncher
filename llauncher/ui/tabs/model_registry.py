@@ -13,6 +13,11 @@ shape locally (``target == "local"``) and, for a remote node, through
 
 Validation here runs with ``vram=False``: the tab is on the rerun hot path
 and the VRAM verdict is advisory, so it never gates a badge (ADR-LLNCH-027 §2/§3).
+
+This tab is also where quarantined config entries surface: a model whose
+persisted shape did not migrate deterministically is not loaded at all
+(ADR-LLNCH-026 / issue #477), so it has no validation row — ``state.config_errors``
+is rendered above the table as an error banner per affected model.
 """
 
 from __future__ import annotations
@@ -26,9 +31,10 @@ def render_model_registry(state, registry=None, aggregator=None, target="local")
     """Render the Model Registry validation table for a single target.
 
     Args:
-        state: The local LauncherState (used only to trigger a refresh
-            before a local validate; validation itself reads ConfigStore
-            fresh, not ``state.models``).
+        state: The local LauncherState (used to trigger a refresh before
+            a local validate, and for ``config_errors`` — the quarantined
+            entries that have no validation row; validation itself reads
+            ConfigStore fresh, not ``state.models``).
         registry: NodeRegistry for remote nodes (optional, unused directly
             — validation for a remote target goes through ``aggregator``).
         aggregator: RemoteAggregator for multi-node state (optional).
@@ -47,6 +53,15 @@ def render_model_registry(state, registry=None, aggregator=None, target="local")
         # the hot path. Lockfile staleness (the other advisory) is free.
         report = ops.validate_models(vram=False)
         entries = [m.model_dump(mode="json") for m in report.models]
+
+        # The registry's error list (ADR-026 / issue #477, "quarantine,
+        # not tolerance"): entries whose persisted shape did not migrate
+        # deterministically are not loaded, so they cannot appear as a row
+        # below. Without this banner they would simply vanish from the
+        # operator's registry view — degraded, which is the one outcome
+        # the quarantine rule exists to prevent.
+        for name, reason in sorted(state.config_errors.items()):
+            st.error(f"⛔ **{name}** failed to load from config.json: {reason}")
     else:
         entries = []
         if aggregator is not None:
