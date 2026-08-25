@@ -11,7 +11,6 @@ Output uses Rich tables with color-coded status indicators and supports --json f
 
 import json
 import os
-import sys
 from pathlib import Path
 from typing import Optional
 
@@ -75,24 +74,100 @@ STATUS_COLOR = {
 }
 
 
-def _glyph(ok: bool) -> str:
-    """Return a status glyph, falling back to ASCII when stdout can't encode unicode.
+# Issue #471 (review follow-up): the crash this module guards against is *not*
+# specific to the check/cross glyphs the original traceback happened to show.
+# Any non-encodable character reaching the console raises
+# ``UnicodeEncodeError`` on a cp1252 terminal -- including U+2192, which
+# ``operations.swap`` embeds in its **success** message. Whitelisting glyphs
+# one at a time cannot close that hole, so the downgrade happens at the single
+# print boundary (``_emit``) instead: every character the console cannot
+# encode is transliterated there, whatever produced it.
+#
+# rich does not do this for us: ``Console(..., ascii_only)`` only substitutes
+# box-drawing and spinner glyphs (``rich/box.py::Box.substitute``), never
+# arbitrary text.
+_TRANSLITERATIONS = {
+    "→": "->",
+    "←": "<-",
+    "↔": "<->",
+    "✓": "OK",
+    "✔": "OK",
+    "✗": "X",
+    "✘": "X",
+    "‘": "'",
+    "’": "'",
+    "“": '"',
+    "”": '"',
+    "–": "-",
+    "—": "-",
+    "…": "...",
+    "•": "*",
+    "·": "*",
+}
 
-    Issue #471: on a cp1252 (or otherwise non-UTF-8) console, printing the
-    unicode check/cross glyphs raises ``UnicodeEncodeError`` from deep inside
-    rich's Windows console handling — *after* the underlying operation (e.g.
-    ``server start``) already succeeded, so the crash reads as a phantom
-    failure. Probe the actual stdout encoding and degrade to plain ASCII
-    rather than let that raise.
+
+def _ascii_safe(text: str) -> str:
+    """Return ``text`` with every character the console cannot encode replaced.
+
+    Known characters map through :data:`_TRANSLITERATIONS`; anything else
+    degrades to ``?``. Text the console *can* encode is returned untouched, so
+    a UTF-8 terminal still gets the real glyphs.
+
+    The encoding comes from ``console.encoding`` rather than
+    ``sys.stdout.encoding``: rich resolves the same value (including its
+    ``rich_proxied_file`` unwrap, ``rich/console.py``) and is the thing that
+    will actually do the writing, so asking it directly cannot drift from the
+    file rich ends up encoding to.
     """
-    unicode_glyph = "✓" if ok else "✗"
-    ascii_glyph = "OK" if ok else "X"
-    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    encoding = console.encoding or "utf-8"
     try:
-        unicode_glyph.encode(encoding)
-    except (UnicodeEncodeError, LookupError):
-        return ascii_glyph
-    return unicode_glyph
+        text.encode(encoding)
+    except LookupError:
+        # Unknown codec name -- nothing meaningful to check against.
+        return text
+    except UnicodeEncodeError:
+        pass
+    else:
+        return text
+
+    out: list[str] = []
+    for ch in text:
+        try:
+            ch.encode(encoding)
+        except UnicodeEncodeError:
+            out.append(_TRANSLITERATIONS.get(ch, "?"))
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def _emit(renderable, **kwargs) -> None:
+    """Print through the console, downgrading un-encodable text first.
+
+    The single output seam for this module: everything that reaches the
+    terminal goes through here, so no caller can reintroduce issue #471 by
+    printing a character the console cannot encode -- including text minted
+    in the operations layer and passed through verbatim.
+    """
+    if isinstance(renderable, Text):
+        safe = _ascii_safe(renderable.plain)
+        if safe != renderable.plain:
+            # Spans are dropped along with the original code points; the
+            # whole-Text style (all this module ever sets) is preserved.
+            renderable = Text(safe, style=renderable.style)
+    elif isinstance(renderable, str):
+        renderable = _ascii_safe(renderable)
+    console.print(renderable, **kwargs)
+
+
+def _glyph(ok: bool) -> str:
+    """Return a status glyph, ASCII-downgraded when the console can't encode it.
+
+    Thin wrapper over :func:`_ascii_safe` -- kept as a named helper because the
+    check/cross pair is the one glyph choice this module makes deliberately
+    rather than passing through from an operations-layer message.
+    """
+    return _ascii_safe("✓" if ok else "✗")
 
 
 def _color(text: str, status: str = "") -> Text:
@@ -112,9 +187,13 @@ def _color(text: str, status: str = "") -> Text:
 
 def _print_table(headers: list[str], rows: list[list], title: str | None = None) -> None:
     """Render tabular data as a Rich table and print to console."""
-    table = Table(title=title, show_header=True, header_style="bold cyan")
+    table = Table(
+        title=_ascii_safe(title) if title else title,
+        show_header=True,
+        header_style="bold cyan",
+    )
     for h in headers:
-        table.add_column(h, style="dim")
+        table.add_column(_ascii_safe(h), style="dim")
     for row in rows:
         # Apply colour where we recognise status keywords
         styled = []
@@ -127,14 +206,14 @@ def _print_table(headers: list[str], rows: list[list], title: str | None = None)
             elif s == "offline" or s == "error":
                 styled.append(_color(v, s))
             else:
-                styled.append(Text(str(v)))
+                styled.append(Text(_ascii_safe(str(v))))
         table.add_row(*styled)
-    console.print(table)
+    _emit(table)
 
 
 def _json_output(data) -> None:
     """Pretty-print data as JSON."""
-    console.print(json.dumps(data, indent=2, default=str))
+    _emit(json.dumps(data, indent=2, default=str))
 
 
 def _delegated_outcome(res: dict | None, verb: str, port: int) -> tuple[bool, str]:
@@ -193,7 +272,7 @@ def model_info(
     config = ConfigStore.get_model(name)
 
     if config is None:
-        console.print(f"[red]Model '{name}' not found.[/red]")
+        _emit(f"[red]Model '{name}' not found.[/red]")
         raise typer.Exit(code=1)
 
     if as_json:
@@ -225,15 +304,15 @@ def remove_model(
     if not yes and not typer.confirm(
         f"Remove model config {name!r}? This cannot be undone."
     ):
-        console.print("Aborted.")
+        _emit("Aborted.")
         raise typer.Exit(code=1)
 
     result = ops.delete_model(name, caller="cli")
 
     if not result.success:
-        console.print(f"[red]{_glyph(False)} {result.message}[/red]")
+        _emit(f"[red]{_glyph(False)} {result.message}[/red]")
         raise typer.Exit(code=1)
-    console.print(_color(result.message, "stopped"))
+    _emit(_color(result.message, "stopped"))
 
 
 app.add_typer(model_app)
@@ -280,9 +359,9 @@ def start_server(
         success, message = result.success, result.message
 
     if not success:
-        console.print(f"[red]{_glyph(False)} {message}[/red]")
+        _emit(f"[red]{_glyph(False)} {message}[/red]")
         raise typer.Exit(code=1)
-    console.print(_color(message, "running"))
+    _emit(_color(message, "running"))
 
 
 @server_app.command("stop")
@@ -307,9 +386,9 @@ def stop_server(
         success, message = result.success, result.message
 
     if not success:
-        console.print(f"[red]{_glyph(False)} {message}[/red]")
+        _emit(f"[red]{_glyph(False)} {message}[/red]")
         raise typer.Exit(code=1)
-    console.print(_color(message, "stopped"))
+    _emit(_color(message, "stopped"))
 
 
 @server_app.command("swap")
@@ -349,9 +428,9 @@ def swap_server(
             message = f"{message} (rolled back to {result.previous_model})"
 
     if not success:
-        console.print(f"[red]{_glyph(False)} {message}[/red]")
+        _emit(f"[red]{_glyph(False)} {message}[/red]")
         raise typer.Exit(code=1)
-    console.print(_color(message, "running"))
+    _emit(_color(message, "running"))
 
 
 @server_app.command("cancel")
@@ -376,9 +455,9 @@ def cancel_server(
         return
 
     if delivered:
-        console.print(_color(f"Cancel signal sent for port {port}.", "stopped"))
+        _emit(_color(f"Cancel signal sent for port {port}.", "stopped"))
     else:
-        console.print(f"[yellow]No in-flight op on port {port}; nothing to cancel.[/yellow]")
+        _emit(f"[yellow]No in-flight op on port {port}; nothing to cancel.[/yellow]")
 
 
 @server_app.command("status")
@@ -398,7 +477,7 @@ def server_status(
         return
 
     if not state.running:
-        console.print("[yellow]No servers running.[/yellow]")
+        _emit("[yellow]No servers running.[/yellow]")
         return
 
     headers = ["PORT", "MODEL", "PID", "UPTIME"]
@@ -447,7 +526,7 @@ def list_orphans_cmd(
         return
 
     if not orphans:
-        console.print("[green]No orphan llama-server processes found.[/green]")
+        _emit("[green]No orphan llama-server processes found.[/green]")
         return
 
     headers = ["PID", "PORT", "CMDLINE"]
@@ -483,9 +562,9 @@ def add_node(
     actual_port = port or 8765
     ok, msg = registry.add_node(name=name, host=host, port=actual_port, api_key=api_key)
     if not ok:
-        console.print(f"[red]{_glyph(False)} {msg}[/red]")
+        _emit(f"[red]{_glyph(False)} {msg}[/red]")
         raise typer.Exit(code=1)
-    console.print(_color(msg, "online"))
+    _emit(_color(msg, "online"))
 
 
 @node_app.command("list")
@@ -520,9 +599,9 @@ def remove_node(
     registry = NodeRegistry()
     ok, msg = registry.remove_node(name)
     if not ok:
-        console.print(f"[red]{_glyph(False)} {msg}[/red]")
+        _emit(f"[red]{_glyph(False)} {msg}[/red]")
         raise typer.Exit(code=1)
-    console.print(_color(msg, "stopped"))
+    _emit(_color(msg, "stopped"))
 
 
 @node_app.command("status")
@@ -567,7 +646,7 @@ def node_status(
         rows.append([node_name, node.host, str(node.port), status_val])
 
     if not rows:
-        console.print("[yellow]No nodes registered.[/yellow]")
+        _emit("[yellow]No nodes registered.[/yellow]")
         return
 
     _print_table(headers, rows, title="Node Status")
@@ -591,7 +670,7 @@ def config_path() -> None:
     # default width (80 cols, and no TTY under pytest) would otherwise insert a
     # mid-path newline once the path exceeds the console width, corrupting the
     # emitted value for both a narrow terminal and substring-checking callers (#256).
-    console.print(f"[green]{CONFIG_PATH}[/green]", soft_wrap=True)
+    _emit(f"[green]{CONFIG_PATH}[/green]", soft_wrap=True)
 
 
 @config_app.command("validate")
@@ -605,15 +684,15 @@ def validate_config(
     config = ConfigStore.get_model(name)
 
     if config is None:
-        console.print(f"[red]Model '{name}' not found.[/red]")
+        _emit(f"[red]Model '{name}' not found.[/red]")
         raise typer.Exit(code=1)
 
     # Basic field validation (re-instantiate to catch schema errors)
     try:
         validated = ModelConfig.model_validate(config.to_dict())  # type: ignore[arg-type]
-        console.print(f"[green]{_glyph(True)}[/green] Model '{name}' configuration is valid.")
+        _emit(f"[green]{_glyph(True)}[/green] Model '{name}' configuration is valid.")
     except Exception as e:
-        console.print(f"[red]{_glyph(False)} Validation failed for '{name}': {e}[/red]")
+        _emit(f"[red]{_glyph(False)} Validation failed for '{name}': {e}[/red]")
         raise typer.Exit(code=1)
 
 
@@ -656,7 +735,7 @@ def audit(
         return
 
     if not entries:
-        console.print("[yellow]No audit entries found.[/yellow]")
+        _emit("[yellow]No audit entries found.[/yellow]")
         return
 
     headers = ["TIMESTAMP", "ACTION", "RESULT", "CALLER", "PORT", "MODEL", "MESSAGE"]

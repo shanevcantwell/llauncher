@@ -1200,83 +1200,236 @@ def test_audit_limit_bounds_tail(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Issue #471: ASCII-safe status glyphs on consoles that can't encode ✓/✗
+# Issue #471: encoding-safe console output on consoles that can't encode unicode
 # ---------------------------------------------------------------------------
 #
-# On a cp1252 (or otherwise non-UTF-8) console, ``console.print`` of the
-# literal ✓/✗ glyphs raises ``UnicodeEncodeError`` deep inside rich's Windows
-# console handling — *after* the underlying operation (e.g. ``server start``)
-# already succeeded, so the crash reads as a phantom failure. ``cli._glyph``
-# probes the actual stdout encoding and degrades to plain ASCII rather than
-# let that raise.
+# On a cp1252 (or otherwise non-UTF-8) console, printing a character the
+# console cannot encode raises ``UnicodeEncodeError`` deep inside rich's
+# Windows console handling -- *after* the underlying operation (e.g. ``server
+# start``) already succeeded, so the crash reads as a phantom failure.
+#
+# Review follow-up on this PR: the original fix whitelisted only the two
+# glyphs the traceback happened to show, which left ``server swap``'s SUCCESS
+# message crashing on its U+2192. The guarantee now lives at a single print
+# boundary (``cli._emit`` / ``cli._ascii_safe``) so text minted anywhere --
+# operations layer included -- is downgraded before it reaches the terminal.
+#
+# ``CliRunner(charset="cp1252")`` is what makes these fail-pre-fix: click
+# builds ``sys.stdout`` with strict errors under it (only ``<stderr>`` gets
+# ``backslashreplace``), so an un-encodable character really does raise.
 
-def test_glyph_falls_back_to_ascii_on_cp1252_stdout(monkeypatch):
-    """``_glyph`` returns ASCII when stdout can't encode the unicode glyph."""
-    fake_stdout = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
-    monkeypatch.setattr("sys.stdout", fake_stdout)
+def test_glyph_falls_back_to_ascii_on_cp1252_console(monkeypatch):
+    """``_glyph`` returns ASCII when the console can't encode the glyph."""
+    monkeypatch.setattr(cli.console, "_file", io.TextIOWrapper(io.BytesIO(), encoding="cp1252"))
 
     assert cli._glyph(True) == "OK"
     assert cli._glyph(False) == "X"
 
 
-def test_glyph_uses_unicode_on_utf8_stdout(monkeypatch):
-    """``_glyph`` keeps the unicode glyph when stdout can encode it."""
-    fake_stdout = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
-    monkeypatch.setattr("sys.stdout", fake_stdout)
+def test_glyph_uses_unicode_on_utf8_console(monkeypatch):
+    """``_glyph`` keeps the unicode glyph when the console can encode it."""
+    monkeypatch.setattr(cli.console, "_file", io.TextIOWrapper(io.BytesIO(), encoding="utf-8"))
 
-    assert cli._glyph(True) == "✓"  # ✓
-    assert cli._glyph(False) == "✗"  # ✗
+    assert cli._glyph(True) == "✓"
+    assert cli._glyph(False) == "✗"
 
 
-def test_server_start_success_exits_zero_under_cp1252_stdout(mock_config_store):
-    """The ``server start`` success path must not raise or exit nonzero when
-    the console can't encode ✓/✗ (issue #471's exact regression: the launch
-    already succeeded, so this must never read as a phantom failure)."""
-    from llauncher.operations import StartResult
+def test_ascii_safe_transliterates_arrow_on_cp1252_console(monkeypatch):
+    """The seam downgrades *any* un-encodable character, not just check/cross.
+
+    U+2192 is the review blocker's exact character: ``operations.swap`` mints
+    it into its **success** message, so a glyph whitelist never sees it.
+    """
+    monkeypatch.setattr(cli.console, "_file", io.TextIOWrapper(io.BytesIO(), encoding="cp1252"))
+
+    assert cli._ascii_safe("Swapped a → b on port 9999") == "Swapped a -> b on port 9999"
+    # An un-mapped character still degrades rather than raising.
+    assert cli._ascii_safe("中") == "?"
+    # Characters cp1252 *can* encode survive untouched (em dash is 0x97 there).
+    assert cli._ascii_safe("a — b") == "a — b"
+
+
+def test_ascii_safe_is_identity_on_utf8_console(monkeypatch):
+    """A UTF-8 console keeps the real characters."""
+    monkeypatch.setattr(cli.console, "_file", io.TextIOWrapper(io.BytesIO(), encoding="utf-8"))
+
+    assert cli._ascii_safe("Swapped a → b") == "Swapped a → b"
+
+
+def test_ascii_safe_passes_through_unknown_codec(monkeypatch):
+    """An unrecognised codec name is not a reason to mangle output."""
+    class _Weird:
+        encoding = "not-a-real-codec"
+
+    monkeypatch.setattr(cli.console, "_file", _Weird())
+
+    assert cli._ascii_safe("Swapped a → b") == "Swapped a → b"
+
+
+def test_config_validate_success_exits_zero_under_cp1252_stdout(mock_config_store):
+    """A *success* path that actually prints a glyph must not crash on cp1252.
+
+    ``config validate``'s success line is ``[green]{_glyph(True)}[/green] ...``
+    (``cli.py``), so this is fail-pre-fix in a way the old ``server start``
+    success test was not: that path prints only the operation's message and
+    never emitted a glyph at all.
+    """
+    _dir, _path = mock_config_store
+
+    fake_model_path = str(_dir / "real_model.gguf")
+    _dir.mkdir(parents=True, exist_ok=True)
+    Path(fake_model_path).touch()
+
+    cfg = ModelConfig.from_dict_unvalidated({
+        "name": "valid-model",
+        "model_path": fake_model_path,
+    })
+    ConfigStore.add_model(cfg)
 
     cp1252_runner = CliRunner(charset="cp1252")
-
-    with patch("llauncher.operations.start") as mock_start:
-        mock_start.return_value = StartResult(
-            success=True,
-            action="started",
-            port=9999,
-            model="test-model",
-            pid=42,
-            message="Started test-model on port 9999",
-        )
-
-        result = cp1252_runner.invoke(
-            app, ["server", "start", "test-model", "--port", "9999"]
-        )
+    result = cp1252_runner.invoke(app, ["config", "validate", "valid-model"])
 
     assert result.exception is None
     assert result.exit_code == 0
+    assert "OK" in result.stdout
+    assert "valid" in result.stdout.lower()
+
+    Path(fake_model_path).unlink(missing_ok=True)
 
 
-def test_server_start_failure_still_reports_ascii_under_cp1252_stdout(mock_config_store):
-    """The failure path must degrade to ASCII, not crash, under cp1252."""
-    from llauncher.operations import StartResult
+def test_server_swap_success_exits_zero_under_cp1252_stdout(mock_config_store):
+    """``server swap``'s SUCCESS message carries U+2192 from the operations layer.
+
+    ``operations/swap.py`` mints ``f"Swapped {prev} -> {new} on port {port}"``
+    with a real U+2192, and ``cli.py`` prints it verbatim. cp1252 cannot encode
+    that code point and rich does not transliterate arbitrary text
+    (``ascii_only`` only substitutes box/spinner glyphs), so before the ``_emit``
+    seam this raised ``UnicodeEncodeError`` *after* the swap had already
+    succeeded -- the exact phantom failure #471 exists to kill.
+    """
+    from llauncher.operations import SwapResult
 
     cp1252_runner = CliRunner(charset="cp1252")
 
-    with patch("llauncher.operations.start") as mock_start:
-        mock_start.return_value = StartResult(
-            success=False,
-            action="error",
-            port=9999,
-            model="unknown-model",
-            message="Model not found: unknown-model",
-        )
+    with patch("llauncher.core.delegation.should_delegate", return_value=False):
+        with patch("llauncher.operations.swap") as mock_swap:
+            mock_swap.return_value = SwapResult(
+                success=True,
+                action="swapped",
+                port_state="serving",
+                port=9999,
+                model="new-model",
+                previous_model="old-model",
+                pid=42,
+                message="Swapped old-model → new-model on port 9999",
+            )
 
-        result = cp1252_runner.invoke(
-            app, ["server", "start", "unknown-model", "--port", "9999"]
-        )
+            result = cp1252_runner.invoke(
+                app, ["server", "swap", "new-model", "--port", "9999"]
+            )
 
-    # Exit(1) is the expected typer.Exit for a failed launch; the bug this
-    # guards against is an *unhandled* UnicodeEncodeError, not the deliberate
-    # nonzero exit.
     assert not isinstance(result.exception, UnicodeEncodeError)
-    assert result.exit_code == 1
-    assert "X" in result.stdout
-    assert "not found" in result.stdout.lower()
+    assert result.exception is None
+    assert result.exit_code == 0
+    assert "Swapped old-model -> new-model on port 9999" in result.stdout
+
+
+def test_server_swap_delegated_success_exits_zero_under_cp1252_stdout(mock_config_store):
+    """The delegated branch prints the agent's message verbatim too."""
+    cp1252_runner = CliRunner(charset="cp1252")
+
+    fake_node = MagicMock()
+    fake_node.swap_server.return_value = {
+        "success": True,
+        "message": "Swapped old-model → new-model on port 9999",
+    }
+
+    with patch("llauncher.core.delegation.should_delegate", return_value=True):
+        with patch("llauncher.remote.node.local_agent_node", return_value=fake_node):
+            result = cp1252_runner.invoke(
+                app, ["server", "swap", "new-model", "--port", "9999"]
+            )
+
+    assert not isinstance(result.exception, UnicodeEncodeError)
+    assert result.exit_code == 0
+    assert "->" in result.stdout
+
+
+def test_no_unguarded_non_ascii_string_literals_in_cli_module():
+    """Lock the seam in: no runtime string in ``cli.py`` may carry a raw glyph.
+
+    Two literals are legitimately non-ASCII and both are *inputs to the
+    downgrade*, never output: ``_TRANSLITERATIONS``' keys, and the check/cross
+    pair ``_glyph`` hands to ``_ascii_safe``. Anything else -- a 9th glyph site
+    added later, a message f-string with an arrow in it -- fails here, which is
+    what the review blocker on this PR would have tripped had the message been
+    minted in ``cli.py`` rather than in ``operations/swap.py``.
+
+    Docstrings are exempt: typer renders them as ``--help`` text through
+    click, not through ``_emit``, and they are outside this bug's boundary.
+    """
+    import ast
+
+    source = Path(cli.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    exempt: set[int] = set()
+
+    for node in ast.walk(tree):
+        # ``_TRANSLITERATIONS = {...}`` -- the map of what gets downgraded.
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "_TRANSLITERATIONS"
+            for t in node.targets
+        ):
+            exempt.update(map(id, ast.walk(node)))
+        # ``_ascii_safe("...")`` -- a literal explicitly routed through the seam.
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "_ascii_safe"
+        ):
+            for arg in node.args:
+                exempt.update(map(id, ast.walk(arg)))
+        # Docstrings.
+        if isinstance(
+            node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+        ):
+            doc = ast.get_docstring(node, clean=False)
+            if doc is not None:
+                exempt.add(id(node.body[0].value))
+
+    offenders = [
+        (node.lineno, node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in exempt
+        and not node.value.isascii()
+    ]
+
+    assert offenders == [], (
+        "non-ASCII string literals in llauncher/cli.py must route through "
+        f"_ascii_safe/_TRANSLITERATIONS: {offenders}"
+    )
+
+
+def test_operations_result_messages_route_through_the_emit_seam(monkeypatch):
+    """A generalisation of the blocker: operations-minted text is safe to print.
+
+    The result messages this CLI prints are produced elsewhere (``operations/``,
+    ``core/state``) and can contain any character. The guarantee is not that
+    those layers stay ASCII -- it is that ``_emit`` downgrades whatever they
+    hand over.
+    """
+    raw = io.BytesIO()
+    buf = io.TextIOWrapper(raw, encoding="cp1252", newline="")
+    monkeypatch.setattr(cli.console, "_file", buf)
+
+    cli._emit(cli._color("Swapped a → b on port 9999", "running"))
+    cli._emit("[green]plain → markup[/green]")
+    buf.flush()
+
+    out = raw.getvalue().decode("cp1252")
+    assert "Swapped a -> b on port 9999" in out
+    assert "plain -> markup" in out
+    assert "→" not in out
