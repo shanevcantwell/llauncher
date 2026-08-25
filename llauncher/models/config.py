@@ -6,8 +6,6 @@ field discriminates the backend inference engine; only ``llama_server``
 is implemented in M1, vLLM follows in M6.
 """
 
-import shlex
-import warnings
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime
@@ -31,25 +29,6 @@ _skip_path_validation_var: ContextVar[bool] = ContextVar(
     "llauncher_skip_path_validation", default=False
 )
 
-# Per-context flag marking "we are rehydrating a *persisted* config from disk"
-# (issue #156). It is set only inside :meth:`ModelConfig.from_dict_unvalidated`
-# — the single load entry point (``ConfigStore.load``). It exists so the
-# ``extra_args`` collision check can be **fail-loud on write but lenient-loud on
-# load**: a newly-authored config (add_model / update_model_config / direct
-# construction) that stuffs a llauncher-managed flag into ``extra_args`` is
-# *rejected*, while a config already on disk with such a flag is *warned* about
-# and still loaded. The asymmetry is required, not cosmetic: ``ConfigStore.load``
-# rehydrates every model in a single dict-comprehension that only catches
-# JSON/OS errors, so one ``ValueError`` mid-load would brick the operator's
-# *entire* registry (60+ models), not just the offending one. Warn-on-load keeps
-# the silent loss non-silent (the issue's core ask) without that blast radius;
-# the write-path reject stops new traps at the door. This is *not* a
-# backcompat dual-parse (PARSE-AT-THE-DOOR): one shape is parsed, the legacy
-# collision is surfaced loudly rather than trusted-and-degraded silently.
-_loading_persisted_config_var: ContextVar[bool] = ContextVar(
-    "llauncher_loading_persisted_config", default=False
-)
-
 
 @contextmanager
 def _skip_path_validation() -> Iterator[None]:
@@ -66,99 +45,22 @@ def _skip_path_validation() -> Iterator[None]:
         _skip_path_validation_var.reset(token)
 
 
-# Deny-list of llama-server flags llauncher manages at its own boundary
-# (Issue #81 / security-hardening-plan §3 C7). These flags must not appear
-# in :attr:`ModelConfig.extra_args` because:
+# NOTE (ADR-026, issue #477): the llauncher-owned extra_args deny-list
+# (``--alias``, ``-m``/``--model``, ``--host``/``--port``, ``--api-key``,
+# ``--metrics``, ``--slots``/``--no-slots``) used to be enforced here as a
+# pydantic field validator. Per the ADR-026 ratification it is now enforced
+# exactly once, at launch time, in ``core/process.py::build_command`` — not
+# as schema validation. ``ModelConfig.extra_args`` carries llama-server
+# flags verbatim with no pydantic validation of its contents; see
+# :data:`llauncher.core.process.DENIED_EXTRA_ARG_FLAGS`.
 #
-# * ``--api-key`` / ``--alias`` — security-sensitive identity that
-#   llauncher owns (#87/#10 landed; ``--alias`` is emitted by
-#   ``build_command`` from :attr:`ModelConfig.name` per issue #120 /
-#   EMIT-CANONICAL). A config slipping one of these in would silently
-#   override llauncher's minted identity — launcher-owned flags stay
-#   launcher-owned.
-# * ``-m`` / ``--model`` — set by ``build_command`` from
-#   :attr:`ModelConfig.model_path` (``core/process.py``). Duplication
-#   bypasses the path validator on ``model_path``.
-# * ``--host`` / ``--port`` — supplied at start time as runtime
-#   parameters (ADR-LLNCH-010). An override here defeats port allocation
-#   and the loopback-default binding (C2, PR #75).
-#
-# Kept intentionally small; the rest of llauncher's managed flags
-# (``--ctx-size``, sampling params, etc.) are merely "would conflict",
-# not "must be controlled at the boundary". Operators get a clearer
-# error from llama-server's argv parser for those.
-DENIED_EXTRA_ARG_FLAGS: frozenset[str] = frozenset({
-    "--api-key",
-    "--alias",
-    "-m",
-    "--model",
-    "--host",
-    "--port",
-})
-
-
-# Flags that ``core/process.py::build_command`` emits from structured
-# ``ModelConfig`` fields. Putting any of these in ``extra_args`` is the trap
-# documented in issue #156: ``build_command`` emits the native flag *before*
-# the ``extra_args`` tokens, and ``llama-server`` argument parsing is
-# first-wins, so the ``extra_args`` occurrence is **silently dropped** — the
-# config reads as updated while the runtime keeps the field value. (Observed
-# live: the resident ``embeddinggemma`` configs carried ``--ubatch-size 2048``
-# in ``extra_args`` while the native ``ubatch_size`` field was 512; effective
-# value was 512, the 2048 silently lost.)
-#
-# Each entry maps the **emitted spelling** to the field that owns it, so the
-# error/warning can point the operator at the right field. The mapping is the
-# single source of truth for the collision check and is drift-guarded against
-# ``build_command`` by ``tests/unit/test_process.py`` (every flag the builder
-# emits must appear here or in ``DENIED_EXTRA_ARG_FLAGS``).
-#
-# Scope note (issue #156 / ADR-LLNCH-024): this catches each flag in the *exact
-# spelling* ``build_command`` emits. It deliberately does **not** resolve
-# llama-server short/long aliases in general — e.g. ``ctx_size`` is emitted
-# as ``-c``, so a literal ``-c`` in ``extra_args`` is caught but the long
-# alias ``--ctx-size`` is not. Alias-complete, table-driven config→argv
-# rendering is the job of the ADR-LLNCH-024 render matrix (``auto:draft``), not
-# this narrow correctness fix. What this fix guarantees is that the silent
-# first-wins loss is gone for every flag llauncher actually puts on the
-# command line.
-#
-# Issue #399: ``-ctk``/``-ctv`` are registered alongside their long forms
-# (``--cache-type-k``/``--cache-type-v``) as a targeted exception to the
-# "exact spelling only" scope above — not a reopening of general alias
-# resolution. This map already tracks flag *identity*, not argv rendering;
-# leaving a known same-flag short alias unlisted let the guard it exists to
-# provide be evaded by spelling alone. Other flags' short forms remain out of
-# scope per the note above pending the ADR-LLNCH-024 render matrix.
-MANAGED_NATIVE_FLAG_TO_FIELD: dict[str, str] = {
-    "--mmproj": "mmproj_path",
-    "--n-gpu-layers": "n_gpu_layers",
-    "-c": "ctx_size",
-    "--threads": "threads",
-    "--threads-batch": "threads_batch",
-    "--ubatch-size": "ubatch_size",
-    "--batch-size": "batch_size",
-    "--flash-attn": "flash_attn",
-    "--no-mmap": "no_mmap",
-    "--cache-type-k": "cache_type_k",
-    "-ctk": "cache_type_k",
-    "--cache-type-v": "cache_type_v",
-    "-ctv": "cache_type_v",
-    "--n-cpu-moe": "n_cpu_moe",
-    "--parallel": "parallel",
-    "--temp": "temperature",
-    "--top-k": "top_k",
-    "--top-p": "top_p",
-    "--min-p": "min_p",
-    "--repeat-penalty": "repeat_penalty",
-    "--reverse-prompt": "reverse_prompt",
-    "--mlock": "mlock",
-    "--metrics": "metrics",
-    "--slots": "slots",
-    "--no-slots": "slots",
-}
-
-MANAGED_NATIVE_FLAGS: frozenset[str] = frozenset(MANAGED_NATIVE_FLAG_TO_FIELD)
+# Issue #399 (``-ctk``/``-ctv`` short-alias registration in the former
+# ``MANAGED_NATIVE_FLAG_TO_FIELD`` collision table) is moot as of this
+# commit: ``cache_type_k``/``cache_type_v`` are no longer structured
+# ``ModelConfig`` fields (dropped with the other 15 llama-server mirror
+# fields above), so there is no longer a native/extra_args collision for
+# that table to catch — the whole table and its alias-scope caveats are
+# gone with it.
 
 
 def resolve_shard_path(path_str: str) -> Path:
@@ -236,23 +138,7 @@ class ModelConfig(BaseModel):
     mmproj_path: str | None = None
     n_gpu_layers: int = Field(default=255, ge=0)
     ctx_size: int = Field(default=131072, gt=0)
-    threads: int | None = None
-    threads_batch: int = Field(default=8, gt=0)
-    ubatch_size: int = Field(default=512, gt=0)
-    batch_size: int | None = None
-    flash_attn: Literal["on", "off", "auto"] = "on"
-    no_mmap: bool = False
-    cache_type_k: Literal["f32", "f16", "bf16", "q8_0"] | None = None
-    cache_type_v: Literal["f32", "f16", "bf16", "q8_0"] | None = None
-    n_cpu_moe: int | None = Field(default=None, ge=0)
     parallel: int = Field(default=1, gt=0)
-    temperature: float | None = None
-    top_k: int | None = None
-    top_p: float | None = None
-    min_p: float | None = None
-    repeat_penalty: float | None = None
-    reverse_prompt: str | None = None
-    mlock: bool = False
     metrics: bool = Field(
         default=True,
         description=(
@@ -274,77 +160,15 @@ class ModelConfig(BaseModel):
             "issue #179 PM-2 de-risk)."
         ),
     )
+    # ADR-026 / issue #477: ``extra_args`` carries llama-server flags
+    # verbatim, in the spelling the operator read out of
+    # ``llama-server --help``. There is deliberately no pydantic content
+    # validation here — no shell-quoting check, no managed-flag collision
+    # guard. The llauncher-owned deny-list is enforced exactly once, at
+    # launch time, by ``core/process.py::build_command`` (the single
+    # enforcement point; malformed shell quoting also surfaces there via
+    # ``shlex.split``, not at config-construction/load time).
     extra_args: str = ""
-
-    @field_validator("extra_args", mode="before")
-    @classmethod
-    def extra_args_no_managed_flags(cls, v):
-        """Guard ``extra_args`` tokens that collide with llauncher-managed flags.
-
-        Mirrors the runtime ``shlex.split`` at
-        ``llauncher/core/process.py`` so the boundary check sees argv the
-        same way the launcher will. Both bare (``--api-key foo``) and
-        equals (``--api-key=foo``) forms are matched.
-
-        Two collision classes, two postures:
-
-        * :data:`DENIED_EXTRA_ARG_FLAGS` — security/runtime-owned flags
-          (security-hardening-plan §3 C7, Issue #81). **Always rejected**,
-          on every path including load — a config-on-disk must not be able to
-          override the minted identity or the loopback binding.
-        * :data:`MANAGED_NATIVE_FLAGS` — value-carrying flags that
-          ``build_command`` emits from structured fields. Putting one here is
-          the silent first-wins loss of issue #156. **Rejected on write**
-          (construction / assignment / ``from_dict``) so new configs can't lay
-          the trap; **warned but tolerated on load** (``from_dict_unvalidated``)
-          so a pre-existing collision is surfaced loudly without bricking the
-          whole-registry load (see :data:`_loading_persisted_config_var`).
-        """
-        if v is None or v == "":
-            return v
-        # Legacy ``list[str]`` shape is normalized to ``str`` in
-        # ``from_dict_unvalidated`` *before* validation runs, but defend
-        # in depth so the validator behaves sanely if called directly.
-        if isinstance(v, list):
-            tokens = [str(t) for t in v]
-        else:
-            try:
-                tokens = shlex.split(str(v))
-            except ValueError as e:
-                # Malformed shell-quoting (unbalanced quote, etc.) —
-                # surface as a validation error rather than letting
-                # subprocess construction blow up at start time.
-                raise ValueError(f"extra_args is not a valid shell token string: {e}")
-
-        loading = _loading_persisted_config_var.get()
-        for token in tokens:
-            # Match both bare flag and ``--flag=value`` form. We compare
-            # the head before ``=`` so ``--api-key=foo`` is rejected
-            # identically to ``--api-key foo``.
-            head = token.split("=", 1)[0]
-            if head in DENIED_EXTRA_ARG_FLAGS:
-                raise ValueError(
-                    f"extra_args contains llauncher-managed flag "
-                    f"{head!r} — set it via the dedicated ModelConfig "
-                    f"field or remove it. See security-hardening-plan §3 C7."
-                )
-            if head in MANAGED_NATIVE_FLAGS:
-                field = MANAGED_NATIVE_FLAG_TO_FIELD[head]
-                msg = (
-                    f"extra_args contains {head!r}, which llauncher manages via "
-                    f"the {field!r} config field. When that field is set "
-                    f"llauncher emits {head!r} itself, ahead of extra_args, and "
-                    f"llama-server argument parsing is first-wins — so a "
-                    f"duplicate here is silently dropped. Set the {field!r} "
-                    f"field instead. See issue #156."
-                )
-                if loading:
-                    # Pre-existing config on disk: surface loudly, keep loading.
-                    # Raising here would fail the whole-registry load.
-                    warnings.warn(msg, stacklevel=2)
-                else:
-                    raise ValueError(msg)
-        return v
 
     @field_validator("model_path", mode="before")
     @classmethod
@@ -371,6 +195,15 @@ class ModelConfig(BaseModel):
           ``parallel`` — never rendered by ``build_command``; live store
           audit confirmed every persisted value was already null).
         - Migrates ``extra_args`` from ``list[str]`` to ``str``.
+
+        The 16 llama-server-mirror fields dropped by ADR-026 / issue #477
+        (``cache_type_k``/``v``, ``threads``, ``threads_batch``,
+        ``ubatch_size``, ``batch_size``, ``n_cpu_moe``, ``flash_attn``,
+        ``no_mmap``, ``mlock``, ``temperature``, ``top_k``, ``top_p``,
+        ``min_p``, ``repeat_penalty``, ``reverse_prompt``) are migrated at
+        the door by ``ConfigStore.load`` (``core/config.py``) *before* this
+        method is called — not here. This method only handles the
+        legacy-field drops it always has.
         """
         data = data.copy()
         # Silent drop of port-related legacy fields per ADR-LLNCH-010.
@@ -381,17 +214,8 @@ class ModelConfig(BaseModel):
         # Migrate extra_args from list[str] to str (legacy v1 shape).
         if "extra_args" in data and isinstance(data["extra_args"], list):
             data["extra_args"] = " ".join(data["extra_args"])
-        # Mark load mode so the extra_args collision check warns-but-tolerates
-        # a pre-existing managed-flag collision instead of raising (issue #156;
-        # see :data:`_loading_persisted_config_var`). The DENIED_EXTRA_ARG_FLAGS
-        # security check still raises on this path — load tolerance applies only
-        # to the silent-loss class, never to identity/binding overrides.
-        loading_token = _loading_persisted_config_var.set(True)
-        try:
-            with _skip_path_validation():
-                return cls.model_validate(data)
-        finally:
-            _loading_persisted_config_var.reset(loading_token)
+        with _skip_path_validation():
+            return cls.model_validate(data)
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
