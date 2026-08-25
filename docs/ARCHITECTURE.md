@@ -53,10 +53,10 @@ REMOTE (client) remote/  (NodeRegistry · RemoteNode · RemoteAggregator)
 | `models → anything` | data types are the floor | keep them dependency-free |
 | `state`/`operations` → endpoint layers | orchestration must not know its callers | endpoints depend on orchestration, never the reverse |
 
-> Known regression: `remote/registry.py` imports `agent.auth.resolve_agent_token` (a
-> `remote → agent` edge) to source the local token. The fix is to hoist the token *read*
-> path into `core` and keep token *materialization* in `agent`. Tracked: #171 (audited in
-> the conformance ledger below).
+> Resolved: `remote/registry.py` previously imported `agent.auth.resolve_agent_token` (a
+> `remote → agent` edge) to source the local token. Fixed by hoisting the token *read*
+> path into `core.agent_token` and keeping token *materialization* in `agent.auth`
+> (#171, landed via #202/SP-1). Audited conforming in the conformance ledger below.
 
 ### Enforced UI boundary (ADR-LLNCH-025)
 
@@ -302,16 +302,17 @@ reverse.
 
 ## Current conformance (honest)
 
-The invariant above is the target. The code is **audited** below; it conforms on five
-rules and is in violation on two.
+The invariant above is the target. The code is **audited** below; it conforms on six
+rules and is in violation on one.
 
 ### Conforming (audited)
 
 | Rule | Evidence (`path:symbol`) | Note |
 |------|--------------------------|------|
+| 2 — `remote`/`agent` as network peers | `llauncher/remote/registry.py:144` — `from llauncher.core.agent_token import resolve_agent_token` inside `_resolve_local_token` | Previously imported from `agent.auth` (a `remote → agent` edge, #171). Fixed by hoisting the token *read* path into `core.agent_token`; `agent.auth` keeps token *materialization* and re-exports the surface. Landed via #202 (SP-1). |
 | 3 — stateless facade | `llauncher/state.py:LauncherState.refresh` | Rebuilds process table + config from disk per call; read-side MCP tools call `state.refresh()` per request (`mcp_server/tools/servers.py:server_status`, `:get_server_logs`). Only persistent fields are within-process orphan-dedup sets. |
 | 4 — ONE-MINT | `llauncher/models/config.py:ModelConfig.name` | Sole identity field; envelopes derive from it (`core/process.py:log_stem_for`, `:log_path_for`, the `--alias` emission). |
-| 5 — EMIT-CANONICAL | `llauncher/core/process.py:build_command` (`cmd.extend(["--alias", config.name])`) + `llauncher/core/process.py:DENIED_EXTRA_ARG_FLAGS` (`--alias` denied) | Canonical name emitted unconditionally; launcher-owned via deny-list. The deny-list moved out of `models/config.py` (a pydantic field validator) into `core/process.py` — the single launch-time enforcement point — with ADR-026 / issue #477. **See reconciliation note below.** |
+| 5 — EMIT-CANONICAL | `llauncher/core/process.py:build_command` (`cmd.extend(["--alias", config.name])`) + `llauncher/core/process.py:DENIED_EXTRA_ARG_FLAGS` (`--alias` denied) | Canonical name emitted unconditionally; launcher-owned via deny-list. The deny-list moved out of `models/config.py` (a pydantic field validator) into `core/process.py` — the single launch-time enforcement point — with ADR-LLNCH-026 / issue #477. **See reconciliation note below.** |
 | 6 — PARSE-AT-THE-DOOR | `llauncher/core/config.py:ConfigStore.load` (single parse); `llauncher/remote/registry.py:_load_node_tokens` (type-filters, does not dual-parse a legacy bare-string shape); `llauncher/core/audit_log.py:read_entries` (single enum coercion, corrupt lines skipped) | No dual-parse / trust-and-degrade observed. |
 | 7 — port at call site | `llauncher/operations/start.py:start(model_name, port, …)`, `operations/stop.py:stop(port, …)`, `operations/swap.py:swap(model_name, port, …)`; MCP schemas require `port` (`mcp_server/tools/servers.py`) | Port is always caller-supplied; `ModelConfig` carries none. |
 
@@ -319,8 +320,7 @@ rules and is in violation on two.
 
 | Violation | Why it breaks the invariant | Evidence (`path:symbol`) | Resolved by |
 |-----------|----------------------------|--------------------------|-------------|
-| **Models imports Core (upward edge).** `ModelConfig`'s blacklisted-ports default-factory sources its list from `core.settings`. | Breaks rule 1: `models/` is the floor and must be dependency-free relative to llauncher's own layers; importing `core` inverts the arrow. | `llauncher/models/config.py:17` — `from llauncher.core.settings import BLACKLISTED_PORTS` (consumed at `ChangeRules.blacklisted_ports`) | Invert the dependency: pass the blacklist in at construction/validation time, or hoist the constant to `models`/`util` so the edge points down. Tracked: #170. |
-| **`remote` imports `agent` (sideways/upward edge).** `remote/registry.py` imports `resolve_agent_token` from `agent.auth` to source the local node's token. | Breaks rule 2: client importing its server couples the two across the network-peer boundary they are supposed to share only over HTTP. | `llauncher/remote/registry.py:85` — `from llauncher.agent.auth import resolve_agent_token` | Hoist the token **read** path into `core`; keep token **materialization** in `agent.auth`. Known regression, also noted in the edit-time layer map above. Tracked: #171. |
+| **Models imports Core (upward edge).** `ModelConfig`'s blacklisted-ports default-factory sources its list from `core.settings`. | Breaks rule 1: `models/` is the floor and must be dependency-free relative to llauncher's own layers; importing `core` inverts the arrow. | `llauncher/models/config.py:20` — `from llauncher.core.settings import BLACKLISTED_PORTS as _ENV_BLACKLISTED_PORTS` (consumed at `ChangeRules.blacklisted_ports`, line 469) | Invert the dependency: pass the blacklist in at construction/validation time, or hoist the constant to `models`/`util` so the edge points down. Tracked: #170. |
 
 > **Reconciliation note (rule 5).** `EMIT-CANONICAL` conforms as of
 > `core/process.py:build_command`. However the project `CLAUDE.md` and the ecosystem
@@ -355,7 +355,7 @@ One row per invariant rule. Each violation paired with the contracted correct sh
 | ADR / decision | What it fixes | File / status |
 |----------------|--------------|---------------|
 | ADR-LLNCH-008: LauncherState stateless facade | Rules 1, 3 — the downward layer arrow and the stateless orchestration facade | `docs/adrs/accepted/adr-llnch-008-launcher-state-stateless-facade.md` — Accepted |
-| ADR-LLNCH-009: Symmetric hub-spoke topology | Rule 2 — `remote`/`agent` as network peers sharing only the HTTP wire | `docs/adrs/completed/adr-llnch-009-symmetric-hub-spoke-topology.md` — Completed |
+| ADR-LLNCH-009: Symmetric hub-spoke topology | Rule 2 — `remote`/`agent` as network peers sharing only the HTTP wire | `docs/adrs/superseded/adr-llnch-009-symmetric-hub-spoke-topology.md` — Superseded by ADR-LLNCH-018 |
 | ADR-LLNCH-010: Port ownership at call site | Rule 7 — port is a call-site argument; `ModelConfig` carries none | `docs/adrs/completed/adr-llnch-010-port-ownership-at-call-site.md` — Completed |
 | ADR-LLNCH-011: Swap semantics v2 | Rule 7 — the port-keyed `swap` and its preflight | `docs/adrs/completed/adr-llnch-011-swap-semantics-v2.md` — Completed |
 | ADR-LLNCH-016: Canonical self-swap | Rules 4–5 — canonical identity preserved across an agent's self-swap | `docs/adrs/completed/adr-llnch-016-canonical-self-swap.md` — Completed |

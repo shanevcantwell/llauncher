@@ -554,7 +554,7 @@ Add a new model configuration to the store.
   agent-writable: `/slots` leaks per-slot prompt text, so the exposure
   decision stays the operator's, in the UI (ADR-LLNCH-019). It appears in
   read responses; it is not accepted here.)*
-- `extra_args`: Verbatim llama-server flags (ADR-026 / issue #477) — every
+- `extra_args`: Verbatim llama-server flags (ADR-LLNCH-026 / issue #477) — every
   other llama-server flag (`--flash-attn`, `--no-mmap`, `--cache-type-k`,
   sampling params, etc.) lives here, in the spelling from
   `llama-server --help`. No content validation; llauncher-owned flags are
@@ -658,7 +658,7 @@ Update an existing model's configuration.
 - `ctx_size`: Modify context window size
 - `parallel`: Parallel slot count
 - `metrics` / `slots`: llauncher's own observability/exposure flags
-- `extra_args`: Verbatim llama-server flags (ADR-026 / issue #477); the
+- `extra_args`: Verbatim llama-server flags (ADR-LLNCH-026 / issue #477); the
   llauncher-owned deny-list is enforced at launch time, not here
 
 Per ADR-LLNCH-010, port is a call-site argument and is not persisted in `ModelConfig` — `default_port` is silently dropped if supplied here.

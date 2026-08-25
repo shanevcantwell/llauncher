@@ -6,7 +6,7 @@ An MCP-first launcher and management tool for llama.cpp `llama-server` instances
 
 ### Core (`llauncher/operations/`)
 The stateless service layer that every surface delegates to (ADR-LLNCH-008). Adding a verb here surfaces it across all four boundaries automatically.
-- **Verbs**: `start`, `stop`, `swap`, `cancel`, `delete_model`, `list_orphans`
+- **Verbs**: `start`, `stop`, `swap`, `cancel`, `delete_model`, `list_orphans`, `validate_models`
 - **Pre-flight seams**: model-health probe and VRAM estimation, attachable as optional callables on `swap()`
 - **ADR-LLNCH-010 port discipline**: every verb takes `port` as a required argument — no auto-allocation, no env-var fallback
 
@@ -14,7 +14,8 @@ The stateless service layer that every surface delegates to (ADR-LLNCH-008). Add
 Canonical surface for LLM agents and automation. Stdio transport; full read + mutate coverage of the core verbs.
 - **Discovery**: `list_models`, `get_model_config`
 - **Lifecycle**: `start_server`, `stop_server`, `swap_server`, `cancel_server`, `server_status`, `get_server_logs`, `list_orphans`
-- **Configuration CRUD**: `add_model`, `update_model_config`, `delete_model`, `validate_config`
+- **Configuration CRUD**: `add_model`, `update_model_config`, `delete_model`, `validate_config`, `validate_models`
+- **Telemetry & audit**: `server_metrics`, `server_slots` (ADR-LLNCH-019), `read_audit` (#64)
 
 ### HTTP Agent
 Same verbs over REST for multi-node setups (ADR-LLNCH-009 hub-spoke). Port-keyed routes (`/start/{port}`, `/swap/{port}`, `/stop/{port}`, `/cancel/{port}`, `/footer-context/{port}`) plus `/status`, `/models`, `/models/validate`. **Always** token-protected via an `X-Api-Key` header — including on loopback, where the token is auto-generated rather than operator-supplied (ADR-LLNCH-003). A non-loopback bind additionally *refuses to start* without a pre-existing token. Unlike the agent, the MCP server and local CLI are in-process and tokenless. See [`docs/auth.md`](docs/auth.md) for the full token/auth model.
@@ -23,7 +24,7 @@ Same verbs over REST for multi-node setups (ADR-LLNCH-009 hub-spoke). Port-keyed
 Web dashboard for human operators. Four tabs: Dashboard (read-only running view), Models (config CRUD + per-model start/stop/swap with explicit port picker), Nodes (peer registry), Audit (local audit-log tail).
 
 ### CLI (`llauncher`)
-Typer command-line surface, co-equal with MCP and UI. Subcommand groups: `model` (list, info), `server` (start, stop, cancel, status), `orphan` (list), `node` (add, list, remove, status), `config` (path, validate). Rich tables for human output and `--json` on every group for scripting.
+Typer command-line surface, co-equal with MCP and UI. Subcommand groups: `model` (list, info, remove, validate), `server` (start, stop, swap, cancel, status), `orphan` (list), `node` (add, list, remove, status), `config` (path, validate); plus a top-level `audit` command. Rich tables for human output and `--json` on every group for scripting.
 
 ### Configuration
 - **Config Persistence**: Store configurations in `~/.llauncher/config.json` (single source of truth)
@@ -169,8 +170,12 @@ Or configure in your MCP client (e.g., Claude Code):
 | `list_orphans` | List unmanaged `llama-server` processes on the local node (ADR-LLNCH-015) |
 | `update_model_config` | Update an existing model's configuration |
 | `validate_config` | Validate a configuration without applying it |
+| `validate_models` | Read-only weight-file validation (existence, GGUF magic, advisory VRAM/lockfile) (#475, ADR-LLNCH-027) |
 | `add_model` | Add a new model configuration to the store |
 | `delete_model` | Delete a model configuration (refuses if running; ADR-LLNCH-008 §4.1) |
+| `read_audit` | Read recent audit-log entries on this node (ADR-LLNCH-008, #64) |
+| `server_metrics` | Live inference telemetry for a running server — safe tier, no prompt text (ADR-LLNCH-019) |
+| `server_slots` | Per-slot detail including prompt text — sensitive tier, granted separately from `server_metrics` (ADR-LLNCH-019) |
 
 ### Streamlit UI
 
@@ -227,13 +232,17 @@ This is the mechanism for a non-login/non-interactive caller (an automation harn
 **Subcommand groups:**
 
 ```bash
-# Model configurations (read-only)
+# Model configurations
 llauncher model list
 llauncher model info mistral-7b
+llauncher model remove mistral-7b    # config-only; refuses while running (#276)
+llauncher model validate             # read-only weight-file check, all models (#475, ADR-LLNCH-027)
+llauncher model validate mistral-7b --no-vram
 
 # Server lifecycle — port is required on start (ADR-LLNCH-010)
 llauncher server start mistral-7b --port 8081
 llauncher server stop 8081
+llauncher server swap mistral-7b --port 8081   # ADR-LLNCH-011 5-phase swap with rollback
 llauncher server cancel 8081         # ADR-LLNCH-014: signals an in-flight start/swap
 llauncher server status --json
 
@@ -248,7 +257,10 @@ llauncher node remove my-server
 
 # Configuration store
 llauncher config path                # print path to config.json
-llauncher config validate mistral-7b
+llauncher config validate mistral-7b # schema-only round-trip, no filesystem touch
+
+# Audit log (ADR-LLNCH-008, #338)
+llauncher audit --limit 50 --action started --result success
 ```
 
 Each group also accepts `--help`. The runner scripts (`./run.sh agent`, `./run.sh ui`) remain the easiest way to launch the agent and dashboard; the CLI subcommands above act against an already-running stack.
@@ -276,7 +288,7 @@ Example config entry:
 }
 ```
 
-Per ADR-026 (issue #477), `ModelConfig` is not a mirror of llama-server's argument schema: `mmproj_path`, `n_gpu_layers`, `ctx_size`, `parallel`, `metrics`, and `slots` are the only fields llauncher acts on directly. Every other llama-server flag (`--threads`, `--flash-attn`, `--cache-type-k`/`-v`, sampling params, etc.) is a verbatim `extra_args` passthrough, in the spelling from `llama-server --help` — no pydantic content validation. The llauncher-owned deny-list (`--alias`, `-m`/`--model`, `--host`/`--port`, `--api-key`, `--metrics`, `--slots`/`--no-slots`) is enforced once, at launch time, in `core/process.py::build_command`.
+Per ADR-LLNCH-026 (issue #477), `ModelConfig` is not a mirror of llama-server's argument schema: `mmproj_path`, `n_gpu_layers`, `ctx_size`, `parallel`, `metrics`, and `slots` are the only fields llauncher acts on directly. Every other llama-server flag (`--threads`, `--flash-attn`, `--cache-type-k`/`-v`, sampling params, etc.) is a verbatim `extra_args` passthrough, in the spelling from `llama-server --help` — no pydantic content validation. The llauncher-owned deny-list (`--alias`, `-m`/`--model`, `--host`/`--port`, `--api-key`, `--metrics`, `--slots`/`--no-slots`) is enforced once, at launch time, in `core/process.py::build_command`.
 
 Per ADR-LLNCH-010, port is supplied at every call site (UI port picker, CLI `--port`, MCP `port` arg, HTTP `/start/{port}` route) and is **not** persisted in the config. Legacy `default_port` entries in `config.json` are silently dropped on load.
 
@@ -284,13 +296,20 @@ Per ADR-LLNCH-010, port is supplied at every call site (UI port picker, CLI `--p
 
 Per ADR-LLNCH-008, the lockfile directory and audit log are env-configurable so a container can mount host state as a volume — letting an in-container agent (e.g. `pi-coding-agent`) introspect the state of llauncher running on the host.
 
+> **Two env-var families are both current, not a typo.** This state-paths family below is
+> single-`L` (`LAUNCHER_*`); the agent-identity family under
+> [Multi-Node Management → Deployment](#deployment) (`LLAUNCHER_AGENT_HOST` etc.) is double-`L`.
+> The split is real — tracked open in [#151](https://github.com/shanevcantwell/llauncher/issues/151);
+> don't rename either family ahead of that issue landing.
+
 | Env var | Default | Holds |
 |---------|---------|-------|
 | `LAUNCHER_STATE_DIR` | `~/.llauncher` | Base for every derived path below |
 | `LAUNCHER_RUN_DIR` | `$LAUNCHER_STATE_DIR/run` | Per-server lockfiles (`{port}.lock`) and swap markers |
 | `LAUNCHER_AUDIT_PATH` | `$LAUNCHER_STATE_DIR/audit.jsonl` | Append-only JSON Lines audit log |
+| `LAUNCHER_LOG_DIR` | `~/.llauncher/logs` | Per-server log directory (append mode, ADR-LLNCH-013) |
 
-Precedence for each path is the explicit per-path var (`LAUNCHER_RUN_DIR` / `LAUNCHER_AUDIT_PATH`) > the `LAUNCHER_STATE_DIR`-derived default. With every var unset the paths are byte-identical to the legacy `~/.llauncher/*` layout, so setting them is opt-in.
+Precedence for each path is the explicit per-path var (`LAUNCHER_RUN_DIR` / `LAUNCHER_AUDIT_PATH` / `LAUNCHER_LOG_DIR`) > the `LAUNCHER_STATE_DIR`-derived default. With every var unset the paths are byte-identical to the legacy `~/.llauncher/*` layout, so setting them is opt-in.
 
 To let a container read the host's live llauncher state, mount the host paths in read-only and point the in-container env vars at the mount:
 
@@ -316,9 +335,10 @@ llauncher includes validation rules to prevent problematic actions:
 
 ## Versioning
 
-`vN` (`v1`, `v2`, `v3` …) denotes the architecture generation; `0.x`
-(`0.4.0a0` / `v0.4.0-alpha`) denotes the semver release. They are independent
-axes and do not map to each other — see [`docs/VERSIONING.md`](docs/VERSIONING.md).
+`vN` (`v1`, `v2`, `v3` …) denotes the architecture generation; `0.x` denotes
+the semver release (currently `0.4.1a0` / `v0.4.1-alpha` — read the live
+number from `pyproject.toml` or the latest git tag, not this doc). They are
+independent axes and do not map to each other — see [`docs/VERSIONING.md`](docs/VERSIONING.md).
 
 ## Project Structure
 

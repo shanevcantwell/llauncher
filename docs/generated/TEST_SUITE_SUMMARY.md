@@ -11,6 +11,12 @@
 > document is an inventory of *which* tests exist, not which
 > ones currently pass. See `pytest.ini` for the runtime
 > configuration and `--cov-fail-under` floor.
+>
+> **Counting method differs from `pytest`'s.** This script counts test
+> *functions* (one count per `def test_*`); `pytest --collect-only`
+> counts *collected items*, which expands each `@pytest.mark.parametrize`
+> case into its own item. The two totals will not match — a lower number
+> here than `pytest`'s collected-item count is expected, not drift.
 
 ## Overview by directory
 

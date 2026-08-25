@@ -6,6 +6,147 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 
 ## [Unreleased]
 
+## [0.5.0-alpha] — unreleased
+
+### Breaking
+
+- **`LAUNCHER_*` → `LLAUNCHER_*` env-var rename ([#151](https://github.com/shanevcantwell/llauncher/issues/151)) — tag-gated, entry finalized when it lands.**
+  This release's tag itself is gated on #151 landing (ProdM ratification,
+  [#484](https://github.com/shanevcantwell/llauncher/issues/484)); the remaining
+  single-`L` `settings.py` family (`LAUNCHER_STATE_DIR`/`RUN_DIR`/`AUDIT_PATH`/`LOG_DIR`)
+  and the UI host var move to the double-`L` `LLAUNCHER_*` name. Placeholder pending
+  the actual PR — do not release against this section until it is replaced with the
+  real migration notes.
+- **Agent env-var family renamed ([#138](https://github.com/shanevcantwell/llauncher/issues/138)).** The four service-facing agent
+  environment variables now carry the leading `L` from the project name
+  `llauncher`:
+
+  | Old                          | New                           |
+  | ---------------------------- | ----------------------------- |
+  | `LAUNCHER_AGENT_TOKEN`       | `LLAUNCHER_AGENT_TOKEN`       |
+  | `LAUNCHER_AGENT_HOST`        | `LLAUNCHER_AGENT_HOST`        |
+  | `LAUNCHER_AGENT_PORT`        | `LLAUNCHER_AGENT_PORT`        |
+  | `LAUNCHER_AGENT_NODE_NAME`   | `LLAUNCHER_AGENT_NODE_NAME`   |
+
+  No runtime fallback shim is provided (pre-v1). Existing systemd/NSSM
+  deployments will fail auth on next agent restart until operators
+  update the env file by hand.
+
+  **Operator migration:**
+
+  - **Linux / systemd** — edit `${XDG_CONFIG_HOME:-$HOME/.config}/llauncher/agent.env`
+    (typically `~/.config/llauncher/agent.env`; run `echo "${XDG_CONFIG_HOME:-$HOME/.config}/llauncher/agent.env"`
+    to confirm the path on hosts with a non-default `$XDG_CONFIG_HOME`):
+
+    ```sh
+    sed -i 's/^LAUNCHER_AGENT_/LLAUNCHER_AGENT_/' "${XDG_CONFIG_HOME:-$HOME/.config}/llauncher/agent.env"
+    sudo systemctl restart llauncher-agent
+    ```
+
+  - **Windows / NSSM** — edit `%USERPROFILE%\.llauncher\agent.env`:
+
+    ```powershell
+    (Get-Content $env:USERPROFILE\.llauncher\agent.env) `
+      -replace '^LAUNCHER_AGENT_', 'LLAUNCHER_AGENT_' `
+      | Set-Content $env:USERPROFILE\.llauncher\agent.env
+    nssm restart llauncher-agent
+    ```
+
+  Fresh `scripts/systemd/install.sh` and `scripts/windows/install.ps1`
+  runs write the new names. Existing `agent.env` files are **not**
+  auto-migrated.
+
+- **`ModelConfig` no longer mirrors llama-server's argument schema; 16
+  fields removed (#477, #483, ADR-LLNCH-026).** `cache_type_k`,
+  `cache_type_v`, `threads`, `threads_batch`, `ubatch_size`, `batch_size`,
+  `n_cpu_moe`, `flash_attn`, `no_mmap`, `mlock`, `temperature`, `top_k`, `top_p`, `min_p`,
+  `repeat_penalty`, `reverse_prompt` are gone; `extra_args` (still `str`)
+  now carries llama-server flags verbatim with no pydantic content
+  validation. `config.json` is migrated in place, once, on first load under
+  the new code (dropped fields fold into `extra_args`, deferring to any
+  existing occurrence there; the three fields `build_command` used to emit
+  unconditionally — `threads_batch`, `ubatch_size`, `flash_attn` — always
+  materialize their effective value so argv stays byte-identical). The
+  llauncher-owned deny-list (`--alias`, `-m`/`--model`, `--host`/`--port`,
+  `--api-key`, `--metrics`, `--slots`/`--no-slots`) moves to
+  `core/process.py::build_command` as the sole launch-time enforcement
+  point.
+- **`GET /models/health` and `GET /models/health/{name}` are removed,
+  replaced by `GET /models/validate` and `GET /models/validate/{name}`
+  (#475, #481).** No alias and no deprecation window — there was no in-repo
+  consumer, and two endpoints serving overlapping shapes of one artifact is
+  the dual-shape the no-shims rule forbids. ADR-LLNCH-005's endpoint section
+  is superseded. Any out-of-tree caller of `/models/health` must move to
+  `/models/validate`; the response carries per-model verdicts rather than a
+  single health field.
+- **Installer now enforces `requires-python >=3.11` at the door (#334,
+  #433).** An install attempt on an older interpreter fails loud instead of
+  proceeding into a partially-broken environment.
+- **The `agent.env` mirror file is retired — a single live env source is
+  read directly by both the agent and the UI processes (#284, #286).**
+  Deployments that depended on the second copy of `agent.env` lose it;
+  fresh `install.sh`/`install.ps1` runs write only the one file.
+- **Pre-#139 `LAUNCHER_AGENT_*` env keys are migrated at the door on next
+  install/restart, and a missing token now fails loud instead of silently
+  running unauthenticated (#282).** Consistent with this repo's
+  parse-at-the-door rule — no dual-shape env file is read going forward.
+
+### Highlights
+
+The span's majors at a glance, curated from `git log v0.4.1-alpha..HEAD`;
+full categorized detail in the Added/Changed/Fixed sections below.
+
+- **Test isolation:** full pytest could drive the *live* agent and the operator's real
+  `~/.llauncher`, stopping a running model mid-suite. Closed by scoping
+  `LAUNCHER_STATE_DIR` across the whole suite
+  ([#463](https://github.com/shanevcantwell/llauncher/issues/463),
+  [#469](https://github.com/shanevcantwell/llauncher/pull/469)).
+- **Process-verify performance:** cold `GET /status` deduplicated its redundant
+  process-table scans ([#309](https://github.com/shanevcantwell/llauncher/issues/309),
+  [#464](https://github.com/shanevcantwell/llauncher/pull/464)), and `verify_pid`/`discover_all`
+  moved to PID-first lookup instead of a full system scan — Phase 1 of
+  [#466](https://github.com/shanevcantwell/llauncher/issues/466)
+  ([#470](https://github.com/shanevcantwell/llauncher/pull/470)).
+- **Fail-loud config loading:** `ConfigStore.load()` now raises on an unreadable or
+  corrupt `config.json` instead of silently degrading
+  ([#403](https://github.com/shanevcantwell/llauncher/issues/403),
+  [#472](https://github.com/shanevcantwell/llauncher/pull/472)).
+- **Audit read parity:** audit-log reads are exposed via CLI (`llauncher audit`) and MCP
+  (`read_audit`), matching the agent's existing `GET /audit`
+  ([#338](https://github.com/shanevcantwell/llauncher/issues/338),
+  [#454](https://github.com/shanevcantwell/llauncher/pull/454)).
+- **ADR namespace migration:** all ADR handles renamed to the `ADR-LLNCH-*` namespace,
+  including #475's ADR born directly as `ADR-LLNCH-027`
+  ([#479](https://github.com/shanevcantwell/llauncher/pull/479)).
+- **cp1252-safe CLI output:** `server start` no longer crashes with `UnicodeEncodeError`
+  printing the ✓/✗ status glyph on a cp1252 console — the launch had already succeeded,
+  so the crash read as a phantom failure
+  ([#471](https://github.com/shanevcantwell/llauncher/issues/471),
+  [#478](https://github.com/shanevcantwell/llauncher/pull/478)).
+- **`model validate` verb:** a new read-only validation path (CLI, HTTP agent, MCP tool,
+  UI registry badge) reports missing/invalid model weights without attempting a start.
+  `GET /models/validate[/{name}]` replaces `GET /models/health[/{name}]` outright — no
+  alias, per this repo's no-dual-shape rule (see Breaking). Recorded as ADR-LLNCH-027
+  ([#475](https://github.com/shanevcantwell/llauncher/issues/475),
+  [#481](https://github.com/shanevcantwell/llauncher/pull/481)).
+- **`extra_args` verbatim passthrough:** `ModelConfig` drops all 16 llama-server mirror
+  fields (`cache_type_k`/`cache_type_v`, `flash_attn`, `batch_size`, …); `extra_args`
+  carries llama-server flags verbatim, and persisted configs are migrated once, in
+  place, at the door — migration-bearing, see Breaking for the full field list.
+  Recorded as ADR-LLNCH-026
+  ([#477](https://github.com/shanevcantwell/llauncher/issues/477),
+  [#483](https://github.com/shanevcantwell/llauncher/pull/483)).
+- **Config-error banner:** a corrupt/unreadable config now surfaces as a Streamlit
+  `st.error` banner instead of a raw traceback (follow-up to #472)
+  ([#476](https://github.com/shanevcantwell/llauncher/issues/476),
+  [#486](https://github.com/shanevcantwell/llauncher/pull/486)).
+- **Log wall-clock anchor:** per-model log banners gained a UTC wall-clock anchor line
+  (anchor half only — the issue stays open for the Windows log-sparsity half)
+  ([#405](https://github.com/shanevcantwell/llauncher/issues/405),
+  [#485](https://github.com/shanevcantwell/llauncher/pull/485)).
+- **llama.cpp build scripts:** added a recommended build recipe for Windows and Linux
+  ([#473](https://github.com/shanevcantwell/llauncher/pull/473)).
+
 ### Added
 
 - **`llauncher model validate` — one read-only validation verb reused across
@@ -184,82 +325,6 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
   successful launch (#471, #478).** The status glyph (`✓`/`✗`) degrades to
   ASCII (`OK`/`X`) when `sys.stdout.encoding` can't encode it; message text
   and exit codes are unchanged.
-
-### Breaking changes
-
-- **Agent env-var family renamed (#138).** The four service-facing agent
-  environment variables now carry the leading `L` from the project name
-  `llauncher`:
-
-  | Old                          | New                           |
-  | ---------------------------- | ----------------------------- |
-  | `LAUNCHER_AGENT_TOKEN`       | `LLAUNCHER_AGENT_TOKEN`       |
-  | `LAUNCHER_AGENT_HOST`        | `LLAUNCHER_AGENT_HOST`        |
-  | `LAUNCHER_AGENT_PORT`        | `LLAUNCHER_AGENT_PORT`        |
-  | `LAUNCHER_AGENT_NODE_NAME`   | `LLAUNCHER_AGENT_NODE_NAME`   |
-
-  No runtime fallback shim is provided (pre-v1). Existing systemd/NSSM
-  deployments will fail auth on next agent restart until operators
-  update the env file by hand.
-
-  **Operator migration:**
-
-  - **Linux / systemd** — edit `${XDG_CONFIG_HOME:-$HOME/.config}/llauncher/agent.env`
-    (typically `~/.config/llauncher/agent.env`; run `echo "${XDG_CONFIG_HOME:-$HOME/.config}/llauncher/agent.env"`
-    to confirm the path on hosts with a non-default `$XDG_CONFIG_HOME`):
-
-    ```sh
-    sed -i 's/^LAUNCHER_AGENT_/LLAUNCHER_AGENT_/' "${XDG_CONFIG_HOME:-$HOME/.config}/llauncher/agent.env"
-    sudo systemctl restart llauncher-agent
-    ```
-
-  - **Windows / NSSM** — edit `%USERPROFILE%\.llauncher\agent.env`:
-
-    ```powershell
-    (Get-Content $env:USERPROFILE\.llauncher\agent.env) `
-      -replace '^LAUNCHER_AGENT_', 'LLAUNCHER_AGENT_' `
-      | Set-Content $env:USERPROFILE\.llauncher\agent.env
-    nssm restart llauncher-agent
-    ```
-
-  Fresh `scripts/systemd/install.sh` and `scripts/windows/install.ps1`
-  runs write the new names. Existing `agent.env` files are **not**
-  auto-migrated.
-
-- **Installer now enforces `requires-python >=3.11` at the door (#334,
-  #433).** An install attempt on an older interpreter fails loud instead of
-  proceeding into a partially-broken environment.
-- **The `agent.env` mirror file is retired — a single live env source is
-  read directly by both the agent and the UI processes (#284, #286).**
-  Deployments that depended on the second copy of `agent.env` lose it;
-  fresh `install.sh`/`install.ps1` runs write only the one file.
-- **Pre-#139 `LAUNCHER_AGENT_*` env keys are migrated at the door on next
-  install/restart, and a missing token now fails loud instead of silently
-  running unauthenticated (#282).** Consistent with this repo's
-  parse-at-the-door rule — no dual-shape env file is read going forward.
-- **`ModelConfig` no longer mirrors llama-server's argument schema; 16
-  fields removed (#477, #483, ADR-LLNCH-026).** `cache_type_k`,
-  `cache_type_v`, `threads`, `threads_batch`, `ubatch_size`, `batch_size`,
-  `n_cpu_moe`, `flash_attn`, `no_mmap`, `mlock`, `temperature`, `top_k`, `top_p`, `min_p`,
-  `repeat_penalty`, `reverse_prompt` are gone; `extra_args` (still `str`)
-  now carries llama-server flags verbatim with no pydantic content
-  validation. `config.json` is migrated in place, once, on first load under
-  the new code (dropped fields fold into `extra_args`, deferring to any
-  existing occurrence there; the three fields `build_command` used to emit
-  unconditionally — `threads_batch`, `ubatch_size`, `flash_attn` — always
-  materialize their effective value so argv stays byte-identical). The
-  llauncher-owned deny-list (`--alias`, `-m`/`--model`, `--host`/`--port`,
-  `--api-key`, `--metrics`, `--slots`/`--no-slots`) moves to
-  `core/process.py::build_command` as the sole launch-time enforcement
-  point.
-- **`GET /models/health` and `GET /models/health/{name}` are removed,
-  replaced by `GET /models/validate` and `GET /models/validate/{name}`
-  (#475, #481).** No alias and no deprecation window — there was no in-repo
-  consumer, and two endpoints serving overlapping shapes of one artifact is
-  the dual-shape the no-shims rule forbids. ADR-LLNCH-005's endpoint section
-  is superseded. Any out-of-tree caller of `/models/health` must move to
-  `/models/validate`; the response carries per-model verdicts rather than a
-  single health field.
 
 ### Internal/test
 
