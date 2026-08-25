@@ -17,7 +17,7 @@ Canonical surface for LLM agents and automation. Stdio transport; full read + mu
 - **Configuration CRUD**: `add_model`, `update_model_config`, `delete_model`, `validate_config`
 
 ### HTTP Agent
-Same verbs over REST for multi-node setups (ADR-009 hub-spoke). Port-keyed routes (`/start/{port}`, `/swap/{port}`, `/stop/{port}`, `/cancel/{port}`, `/footer-context/{port}`) plus `/status`, `/models`, `/models/health`. **Always** token-protected via an `X-Api-Key` header — including on loopback, where the token is auto-generated rather than operator-supplied (ADR-003). A non-loopback bind additionally *refuses to start* without a pre-existing token. Unlike the agent, the MCP server and local CLI are in-process and tokenless. See [`docs/auth.md`](docs/auth.md) for the full token/auth model.
+Same verbs over REST for multi-node setups (ADR-009 hub-spoke). Port-keyed routes (`/start/{port}`, `/swap/{port}`, `/stop/{port}`, `/cancel/{port}`, `/footer-context/{port}`) plus `/status`, `/models`, `/models/validate`. **Always** token-protected via an `X-Api-Key` header — including on loopback, where the token is auto-generated rather than operator-supplied (ADR-003). A non-loopback bind additionally *refuses to start* without a pre-existing token. Unlike the agent, the MCP server and local CLI are in-process and tokenless. See [`docs/auth.md`](docs/auth.md) for the full token/auth model.
 
 ### Streamlit UI
 Web dashboard for human operators. Four tabs: Dashboard (read-only running view), Models (config CRUD + per-model start/stop/swap with explicit port picker), Nodes (peer registry), Audit (local audit-log tail).

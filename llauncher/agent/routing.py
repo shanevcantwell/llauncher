@@ -356,50 +356,39 @@ def list_models() -> list[dict]:
     return models
 
 
-# ── ADR-005: Model health endpoints ─────────────────────────────
+# ── Issue #475 / ADR-027: model validate endpoints ────────────────
+#
+# Replace (not alias) ADR-005's GET /models/health[/{name}] — no in-repo
+# consumer, and two endpoints serving overlapping shapes of one artifact is
+# the dual-shape the no-shims rule forbids (ADR-027 §2, Q1). Plain ``def``
+# (not ``async def``, matching the verb endpoints below): the underlying op
+# does blocking file stats.
+#
+# Deliberately NOT folded into GET /models (ADR-027 §2): that endpoint is
+# on the UI hot path (RemoteAggregator.get_all_models, called on every
+# Streamlit rerun per node) — validation stays an explicit, separately
+# cacheable call so it doesn't put N stat()/open() calls on every rerun.
 
 
-@router.get("/models/health")
-def models_health() -> list[dict]:
-    """Health status for *all* configured models (ADR-005)."""
-    from llauncher.core.model_health import check_model_health
-
-    state = get_state()
-    state.refresh()
-
-    results = []
-    for name, config in state.models.items():
-        health = check_model_health(config.model_path)
-        results.append({
-            "name": name,
-            "model_path": config.model_path,
-            **health.model_dump(),
-        })
-
-    return results
+@router.get("/models/validate")
+def models_validate() -> dict:
+    """Validation report for *all* configured models (issue #475, ADR-027)."""
+    report = ops.validate_models()
+    return report.model_dump(mode="json")
 
 
-@router.get("/models/health/{model_name}")
-def model_health_detail(model_name: str) -> dict:
-    """Health status for a single model (ADR-005)."""
-    from llauncher.core.model_health import check_model_health
+@router.get("/models/validate/{model_name}")
+def model_validate_detail(model_name: str) -> dict:
+    """Validation report for a single model (issue #475, ADR-027)."""
+    from llauncher.core.config import ConfigStore
 
-    state = get_state()
-    state.refresh()
-
-    if model_name not in state.models:
+    if model_name not in ConfigStore.list_models():
         raise HTTPException(
             status_code=404, detail=f"Model '{model_name}' not found"
         )
 
-    config = state.models[model_name]
-    health = check_model_health(config.model_path)
-
-    return {
-        "name": model_name,
-        "model_path": config.model_path,
-        **health.model_dump(),
-    }
+    report = ops.validate_models(names=[model_name])
+    return report.model_dump(mode="json")
 
 
 # ───────────────────── Verb endpoints (ADR-010) ──────────────────
