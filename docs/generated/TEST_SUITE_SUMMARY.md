@@ -16,10 +16,10 @@
 
 | Category | Files | Tests |
 |----------|-------|-------|
-| Unit | 101 | 1590 |
+| Unit | 102 | 1586 |
 | Integration | 13 | 84 |
-| Other | 21 | 213 |
-| **Total** | **135** | **1887** |
+| Other | 21 | 211 |
+| **Total** | **136** | **1881** |
 
 ## Tests carrying special markers
 
@@ -64,12 +64,12 @@ ad-hoc markers used in the suite without declaration.
   - *Returns error for unknown model.*
 - **`test_update_model_config_success`**
   - *Updates model and saves to ConfigStore.*
-- **`test_update_model_config_sets_batch_parallel_family`**
-  - *Issue #156: batch_size / ubatch_size / parallel / threads_batch are*
+- **`test_update_model_config_sets_parallel`**
+  - *``parallel`` is one of the six llauncher-owned fields the tool*
 - **`test_update_model_config_sets_remaining_native_fields`**
-  - *Cover the threads / flash_attn / no_mmap / metrics apply branches so*
-- **`test_update_model_config_rejects_colliding_extra_args`**
-  - *Issue #156: stuffing a natively-emitted flag into extra_args via the*
+  - *Cover the ctx_size / metrics / slots apply branches so the whole*
+- **`test_update_model_config_extra_args_accepts_any_flag`**
+  - *ADR-026 / issue #477: extra_args carries llama-server flags*
 - **`test_update_model_config_pydantic_validation_error`**
   - *update_model_config returns error when updated config fails Pydantic validation.*
 - **`test_validate_config_missing_config`**
@@ -100,8 +100,8 @@ ad-hoc markers used in the suite without declaration.
   - *Refuses a delete while the model is running.*
 - **`test_get_tools_returns_four_tools`**
   - *get_tools returns four config tools.*
-- **`test_update_model_config_schema_exposes_batch_family`**
-  - *Issue #156: the batch/parallel family must be advertised as*
+- **`test_update_model_config_schema_exposes_owned_fields`**
+  - *ADR-026 / issue #477: the six llauncher-owned fields (plus*
 - **`test_metrics_field_reachable_via_mcp_config_schema`**
   - *Issue #169: the ``metrics`` toggle must be discoverable via both*
 
@@ -116,7 +116,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_list_models_multiple`**
   - *Multiple models with mixed status in structured format.*
 - **`test_list_models_omits_default_port`**
-  - *Per ADR-LLNCH-010, default_port is no longer in the response.*
+  - *Per ADR-010, default_port is no longer in the response.*
 - **`test_get_model_config_returns_full_config`**
   - *get_model_config returns configuration dict with ctx_size.*
 - **`test_get_model_config_success`**
@@ -161,7 +161,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_read_handler_reflects_refresh_in_data_output`**
   - *Handler reads post-refresh data from same state instance it refreshed (#34-B).*
 - **`test_mutate_handlers_are_stateless`**
-  - *Verb tools (start/stop/swap/delete) take no LauncherState (ADR-LLNCH-008).*
+  - *Verb tools (start/stop/swap/delete) take no LauncherState (ADR-008).*
 - **`test_dispatch_uses_get_mcp_state`**
   - *Patch get_mcp_state to return MagicMock; dispatch list_models.*
 - **`test_list_models_passes_lazy_state_to_handler`**
@@ -214,7 +214,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_dispatch_tool_validate_config`**
   - *Dispatch to validate_config — should bypass get_mcp_state entirely via early return (#34-G).*
 - **`test_dispatch_tool_delete_model`**
-  - *Dispatch to delete_model tool — stateless per ADR-LLNCH-008.*
+  - *Dispatch to delete_model tool — stateless per ADR-008.*
 - **`test_main_async`**
   - *Test main_async function.*
 - **`test_main`**
@@ -284,7 +284,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_returns_nine_tools`**
   - *start, stop, swap, cancel, server_status, get_server_logs,*
 - **`test_start_server_requires_model_and_port`**
-  - *start_server tool schema requires both model_name and port (ADR-LLNCH-010).*
+  - *start_server tool schema requires both model_name and port (ADR-010).*
 - **`test_swap_server_requires_port_and_model`**
 - **`test_stop_server_requires_only_port`**
 - **`test_stop_server_description_documents_both_terminal_actions`**
@@ -489,7 +489,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_returns_null_fields_when_config_missing`**
 - **`test_cancel_when_marker_exists_returns_200_delivered`**
 - **`test_cancel_when_no_marker_returns_200_marker_existed_false`**
-  - *ADR-LLNCH-014 §5: 'nothing to cancel' is a successful no-op, not a 404.*
+  - *ADR-014 §5: 'nothing to cancel' is a successful no-op, not a 404.*
 
 #### `tests/unit/test_agent_auth_token_file.py` (5 tests)
 
@@ -546,7 +546,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_setup_listed_in_help`**
   - *The new subcommand is discoverable from the help output.*
 - **`test_ensure_unit_template_shape`**
-  - *The oneshot ensure template carries the ADR-LLNCH-023 OQ guarantees.*
+  - *The oneshot ensure template carries the ADR-023 OQ guarantees.*
 - **`test_agent_system_unit_requires_ensure_unit`**
   - *The agent never starts without the guaranteed venv (Requires + After).*
 - **`test_user_agent_unit_has_no_cross_scope_dependency`**
@@ -645,7 +645,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_health_exempt_with_empty_key`**
   - */health remains accessible even when a wrong/empty key is sent (exempt path).*
 - **`test_exempt_paths_match_documented_set`**
-  - *Pin the exempt set to ADR-LLNCH-003's narrowed contract (#126 drift guard).*
+  - *Pin the exempt set to ADR-003's narrowed contract (#126 drift guard).*
 - **`test_limited_receive_forwards_non_request_message`**
   - *``limited_receive`` forwards non-``http.request`` messages verbatim.*
 - **`test_guarded_send_suppresses_late_response_after_rejection`**
@@ -852,7 +852,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_model_validate_no_vram_flag_suppresses_the_shellout`**
   - *``--no-vram`` reaches the op as ``vram=False`` (no nvidia-smi at all).*
 - **`test_model_validate_status_tokens_are_distinguishable`**
-  - *Every gating failure is NOT ``MISSING`` (ADR-LLNCH-027 status vocabulary).*
+  - *Every gating failure is NOT ``MISSING`` (ADR-027 status vocabulary).*
 - **`test_model_validate_renders_on_cp1252_stdout`**
   - *The whole rendered table survives a cp1252 console (#471-class guard).*
 - **`test_server_status_no_servers`**
@@ -862,16 +862,16 @@ ad-hoc markers used in the suite without declaration.
 - **`test_start_missing_model`**
   - *Starting a non-existent model should error.*
 - **`test_start_without_port_errors`**
-  - *Omitting --port must fail at arg-parse time (ADR-LLNCH-010 / issue #58).*
+  - *Omitting --port must fail at arg-parse time (ADR-010 / issue #58).*
 - **`test_start_with_explicit_port`**
   - *Starting a model with --port should call operations.start with that port.*
 - **`test_server_cancel_delivered`**
-  - *ADR-LLNCH-014: cancel reports marker_existed=True when a marker existed.*
+  - *ADR-014: cancel reports marker_existed=True when a marker existed.*
 - **`test_server_cancel_no_op_when_no_marker`**
-  - *ADR-LLNCH-014: 'nothing to cancel' is a successful no-op (exit 0).*
+  - *ADR-014: 'nothing to cancel' is a successful no-op (exit 0).*
 - **`test_server_cancel_json_output`**
 - **`test_stop_nonexistent_port`**
-  - *Stopping a non-running server is now idempotent (per ADR-LLNCH-010).*
+  - *Stopping a non-running server is now idempotent (per ADR-010).*
 - **`test_start_delegates_over_http_when_agent_present`**
 - **`test_start_in_process_when_no_agent`**
 - **`test_start_env_override_forces_delegation`**
@@ -887,13 +887,13 @@ ad-hoc markers used in the suite without declaration.
 - **`test_delegated_outcome_none_seam`**
   - *Unit-level guard on the dict|None reducer (mirrors MCP ``_delegated_or_error``).*
 - **`test_swap_without_port_errors`**
-  - *Omitting --port must fail at arg-parse time, mirroring ``start`` (ADR-LLNCH-010).*
+  - *Omitting --port must fail at arg-parse time, mirroring ``start`` (ADR-010).*
 - **`test_swap_with_explicit_port`**
   - *Swapping a model with --port should call operations.swap with that port.*
 - **`test_swap_rejected_empty_port`**
-  - *Swap on an empty port is rejected per ADR-LLNCH-010 (use start instead).*
+  - *Swap on an empty port is rejected per ADR-010 (use start instead).*
 - **`test_swap_rolled_back_surfaces_previous_model`**
-  - *A rolled-back swap renders both the message and the restored model (ADR-LLNCH-011).*
+  - *A rolled-back swap renders both the message and the restored model (ADR-011).*
 - **`test_swap_delegates_over_http_when_agent_present`**
 - **`test_swap_in_process_when_no_agent`**
 - **`test_swap_delegated_failure_exits_nonzero`**
@@ -1031,6 +1031,29 @@ ad-hoc markers used in the suite without declaration.
   - *Callers that don't pass a caller= are recorded as 'unknown'.*
 - **`test_save_raising_before_replace_leaves_old_config_file_intact`**
   - *A crash between writing the ``.tmp`` file and the atomic rename must*
+
+#### `tests/unit/test_config_migration_026.py` (17 tests)
+
+- **`test_field_set_flag_absent_appends_and_drops_field`**
+- **`test_both_present_extra_args_wins_field_just_dropped`**
+- **`test_both_present_long_form_also_recognized`**
+- **`test_neither_set_field_dropped_no_value_appended`**
+- **`test_bool_field_true_appends_bare_flag`**
+- **`test_bool_field_false_appends_nothing`**
+- **`test_always_materialize_fields_appended_even_at_default`**
+  - *threads_batch/ubatch_size/flash_attn were emitted unconditionally*
+- **`test_already_migrated_entry_is_a_no_op`**
+- **`test_malformed_extra_args_quoting_raises`**
+- **`test_unrecognized_key_raises`**
+- **`test_legacy_silent_drop_fields_do_not_trip_unrecognized_check`**
+- **`test_migration_rewrites_config_json_once`**
+- **`test_second_load_is_a_no_op_rewrite`**
+- **`test_unrecognized_key_fails_the_whole_load`**
+- **`test_load_emits_zero_warnings_under_error_filter`**
+  - *Pre-#477 a managed-flag collision on load emitted a UserWarning.*
+- **`test_live_embedding_repro_migrates_cleanly`**
+  - *The exact shape of the operator's live resident embedding config*
+- **`test_pre_and_post_migration_argv_match`**
 
 #### `tests/unit/test_conftest_fake_managed_pid.py` (8 tests)
 
@@ -1509,14 +1532,14 @@ ad-hoc markers used in the suite without declaration.
 - **`test_is_cancelled_false_when_no_marker`**
 - **`test_is_cancelled_false_when_unflagged`**
 - **`test_request_cancel_returns_false_when_no_marker`**
-  - *Per ADR-LLNCH-014: no marker → no-op; returns False (no signal delivered).*
+  - *Per ADR-014: no marker → no-op; returns False (no signal delivered).*
 - **`test_request_cancel_sets_flag_and_is_cancelled_reads_it`**
 - **`test_request_cancel_preserves_other_fields`**
   - *Atomic rewrite must not lose caller/from/to/pid/started_at.*
 - **`test_release_marker_clears_cancel_state_implicitly`**
-  - *After release, a fresh take starts cancelled=False (ADR-LLNCH-014).*
+  - *After release, a fresh take starts cancelled=False (ADR-014).*
 - **`test_back_compat_read_of_pre_adr_marker`**
-  - *Markers written before ADR-LLNCH-014 omit the ``cancelled`` field; reads*
+  - *Markers written before ADR-014 omit the ``cancelled`` field; reads*
 - **`test_request_cancel_on_corrupt_marker_returns_false`**
   - *Corrupt marker → treated as 'no marker'; request_cancel returns False.*
 - **`test_reconcile_dead_owner`**
@@ -1592,12 +1615,12 @@ ad-hoc markers used in the suite without declaration.
 - **`test_check_model_health_resolves_sharded_path_matches_model_config`**
   - *Regression guard: ``ModelConfig.model_exists`` and*
 
-#### `tests/unit/test_models.py` (20 tests)
+#### `tests/unit/test_models.py` (18 tests)
 
 - **`test_model_config_validation`**
   - *Test that ModelConfig validates input correctly.*
 - **`test_model_config_drops_legacy_default_port`**
-  - *Per ADR-LLNCH-010, ``default_port`` is silently dropped on load.*
+  - *Per ADR-010, ``default_port`` is silently dropped on load.*
 - **`test_model_config_extra_args_migration`**
   - *Test that extra_args is migrated from list[str] to str.*
 - **`test_model_config_extra_args_string_format`**
@@ -1624,14 +1647,10 @@ ad-hoc markers used in the suite without declaration.
   - *Test valid ctx_size values.*
 - **`test_ctx_size_invalid`**
   - *Test invalid ctx_size raises error.*
-- **`test_flash_attn_valid_values`**
-  - *Test valid flash_attn values.*
-- **`test_flash_attn_invalid_value`**
-  - *Test invalid flash_attn raises error.*
-- **`test_cache_type_valid_values`**
-  - *Test valid cache_type values.*
-- **`test_cache_type_invalid_value`**
-  - *Test invalid cache_type raises error.*
+- **`test_flash_attn_any_value_passes_through_extra_args`**
+  - *Per ADR-026 / issue #477, ``flash_attn`` is no longer a typed*
+- **`test_cache_type_any_value_passes_through_extra_args`**
+  - *Per ADR-026 / issue #477 (the issue's root cause): the former*
 
 #### `tests/unit/test_models_config_extended.py` (20 tests)
 
@@ -1662,71 +1681,24 @@ ad-hoc markers used in the suite without declaration.
 - **`test_bool_is_not_overridden`**
 - **`test_populated_instance_is_truthy`**
 
-#### `tests/unit/test_models_config_extra_args.py` (37 tests)
+#### `tests/unit/test_models_config_extra_args.py` (13 tests)
 
-- **`test_c7_a_denies_api_key_bare`**
-- **`test_c7_a_denies_api_key_equals_form`**
-  - *``--api-key=foo`` must be rejected just like the bare form —*
-- **`test_c7_b_denies_alias_bare`**
-- **`test_c7_b_denies_alias_equals_form`**
-- **`test_c7_c_allows_benign_ctx_size`**
-  - *Benign llama-server flags must round-trip unchanged.*
-- **`test_c7_c_allows_log_disable`**
-  - *Plan §4 lists ``--log-disable`` as the C7-c canonical example.*
-- **`test_c7_c_allows_empty`**
-  - *The default empty string must not be flagged.*
-- **`test_c7_c_allows_multiple_benign`**
-- **`test_each_managed_flag_is_denied`**
-  - *Every member of ``DENIED_EXTRA_ARG_FLAGS`` must trigger the*
-- **`test_denied_flag_via_from_dict`**
-  - *Surface the same error through the public dict constructor —*
-- **`test_denied_flag_via_from_dict_unvalidated`**
-  - *The deny-list must also fire on the load path so a malicious*
-- **`test_legacy_list_extra_args_normalized_then_validated`**
-  - *Legacy ``list[str]`` shape gets joined to a string in*
-- **`test_malformed_quoting_raises_validation_error`**
-  - *A shell-unparseable ``extra_args`` should be a clean validation*
-- **`test_substring_flag_is_allowed`**
-  - *A flag whose *name* contains a denied flag as a substring*
-- **`test_assignment_of_denied_flag_raises`**
-- **`test_assignment_of_denied_flag_equals_form_raises`**
-- **`test_assignment_of_benign_args_succeeds`**
-  - *Sanity: legitimate post-construction updates still work.*
-- **`test_security_flags_present`**
-  - *The two flags called out by name in Issue #81 must be in*
-- **`test_runtime_binding_flags_present`**
-  - *``--host`` / ``--port`` / ``-m`` / ``--model`` are set by*
-- **`test_deny_list_is_frozen`**
-  - *Frozenset guards against accidental mutation at import time.*
-- **`test_construction_rejects_each_managed_native_flag`**
-- **`test_error_names_the_owning_field`**
-  - *The reject message points the operator at the dedicated field.*
-- **`test_construction_rejects_equals_form`**
-- **`test_assignment_rejects_managed_native_flag`**
-  - *validate_assignment enforces the guard post-construction too.*
-- **`test_from_dict_rejects_managed_native_flag`**
-  - *The public dict constructor (UI/CLI write path) rejects too.*
-- **`test_issue_156_named_family_is_guarded`**
-- **`test_short_alias_is_registered`**
-  - *``-ctk``/``-ctv`` are the same flag to llama-server as*
-- **`test_construction_rejects_short_alias`**
-  - *Reproduces issue #399: registering ``-ctk``/``-ctv`` in*
-- **`test_short_alias_error_names_the_owning_field`**
-- **`test_load_warns_but_tolerates_short_alias_collision`**
-  - *Load-path tolerance (warn, don't raise) applies to the short*
-- **`test_short_alias_equals_form_rejected`**
-  - *Equals form (``-ctk=q8_0``) must be caught identically to the*
-- **`test_load_warns_but_tolerates_collision`**
-  - *A pre-existing config on disk with a managed flag in extra_args*
-- **`test_load_live_embedding_repro_warns`**
-  - *Exact shape of the live resident embedding config (issue #156):*
-- **`test_load_still_raises_on_security_denied_flag`**
-  - *Load tolerance applies ONLY to the silent-loss class. The*
-- **`test_managed_native_and_denied_are_disjoint`**
-  - *The two collision classes must not overlap — a flag is either*
-- **`test_managed_native_flags_derived_from_mapping`**
-- **`test_validator_handles_list_input_defensively`**
-  - *Defend-in-depth: if the validator is called directly with a*
+- **`test_construction_accepts_formerly_denied_flags`**
+- **`test_construction_accepts_benign_flags`**
+- **`test_construction_accepts_empty`**
+- **`test_construction_accepts_malformed_shell_quoting`**
+  - *Pre-#477 this raised at construction; now it's accepted here and*
+- **`test_assignment_accepts_formerly_denied_flags`**
+- **`test_from_dict_accepts_formerly_denied_flags`**
+- **`test_from_dict_unvalidated_accepts_formerly_denied_flags`**
+- **`test_no_warning_emitted_for_a_formerly_managed_flag`**
+  - *Pre-#477 loading a managed-flag collision emitted a UserWarning.*
+- **`test_legacy_list_extra_args_normalized_to_string`**
+  - *The legacy ``list[str]`` shape is still joined to a string in*
+- **`test_substring_flag_untouched`**
+- **`test_denied_extra_arg_flags_not_in_models_config`**
+- **`test_managed_native_flag_machinery_removed`**
+- **`test_denied_extra_arg_flags_lives_in_process`**
 
 #### `tests/unit/test_models_tab.py` (6 tests)
 
@@ -1847,7 +1819,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_swap_failed_when_rollback_also_fails`**
   - *Both new launch and rollback launch fail — port is dead.*
 - **`test_swap_uses_snapshot_config_for_rollback`**
-  - *A mid-swap config edit doesn't poison rollback (ADR-LLNCH-011 §Rollback).*
+  - *A mid-swap config edit doesn't poison rollback (ADR-011 §Rollback).*
 - **`test_swap_result_to_dict_envelope`**
 - **`test_swap_result_to_dict_envelope_defaults_ctx_and_parallel_to_none`**
   - *Non-success actions (e.g. rejections/rollbacks) don't carry config;*
@@ -1858,7 +1830,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_swap_default_preflight_proceeds_when_both_pass`**
   - *End-to-end swap with default adapters wired: both pass, swap succeeds.*
 - **`test_startup_logs_capped_at_max`**
-  - *Startup logs are capped (ADR-LLNCH-011 open question 2 — preserve ADR-LLNCH-002 cap).*
+  - *Startup logs are capped (ADR-011 open question 2 — preserve ADR-002 cap).*
 - **`test_delete_model_not_found_is_idempotent`**
 - **`test_delete_model_happy_path`**
 - **`test_delete_model_rejected_when_in_use`**
@@ -1885,17 +1857,17 @@ ad-hoc markers used in the suite without declaration.
 - **`test_start_cancel_before_preflight_returns_cancelled`**
   - *A cancel detected at the pre-flight checkpoint yields no state change.*
 - **`test_start_rejected_in_progress_when_marker_present`**
-  - *A pre-existing marker on the port causes start to reject (ADR-LLNCH-014).*
+  - *A pre-existing marker on the port causes start to reject (ADR-014).*
 - **`test_start_cancel_post_commit_completes_with_advisory`**
-  - *A cancel that arrives after the lockfile is written is a no-op (ADR-LLNCH-014).*
+  - *A cancel that arrives after the lockfile is written is a no-op (ADR-014).*
 - **`test_swap_cancel_post_stop_restores_previous`**
   - *Cancel detected after Phase 3 (stop-old) triggers restore + 'cancelled' action.*
 - **`test_swap_cancel_during_readiness_rolls_back_as_cancelled`**
   - *Cancel during Phase 5 readiness poll → rollback path; action='cancelled'.*
 - **`test_swap_cancel_after_success_is_no_op_with_advisory`**
-  - *Cancel that arrives after readiness returns ready is a no-op (ADR-LLNCH-014).*
+  - *Cancel that arrives after readiness returns ready is a no-op (ADR-014).*
 - **`test_start_cancel_after_preflight_returns_cancelled`**
-  - *Cancel at the *post-preflight* checkpoint (ADR-LLNCH-014) yields no state change.*
+  - *Cancel at the *post-preflight* checkpoint (ADR-014) yields no state change.*
 - **`test_swap_same_model_in_flight_marker_rejects`**
   - *Same-model swap while a marker is already held → ``rejected_in_progress``.*
 - **`test_launch_and_await_ready_lockfile_race_terminate_accessdenied`**
@@ -1997,7 +1969,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_in_use_by_unmanaged_process_warns_and_returns_port`**
 - **`test_valid_free_port_returns_port_with_no_caption`**
 - **`test_picker_does_not_call_find_available_port`**
-  - *ADR-LLNCH-010 invariant: the picker is pure UI, no auto-allocation.*
+  - *ADR-010 invariant: the picker is pure UI, no auto-allocation.*
 - **`test_picker_does_not_call_state_start_server`**
   - *The picker must not invoke any verb.*
 - **`test_picker_ignores_self_collision_when_model_name_matches`**
@@ -2031,7 +2003,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_default_vram_check_mixed_none_and_real_value_uses_real_value`**
   - *#241: the genuine-capacity path is unchanged when at least one device*
 
-#### `tests/unit/test_process.py` (97 tests)
+#### `tests/unit/test_process.py` (101 tests)
 
 - **`test_preferred_port_available`**
   - *Preferred port available - returns immediately.*
@@ -2048,7 +2020,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_minimal_config`**
   - *Minimal config produces basic command.*
 - **`test_full_config`**
-  - *Full config includes all flags.*
+  - *Full config includes the owned fields and the extra_args passthrough.*
 - **`test_parallel_default_not_included`**
   - *parallel=1 (default) is not included in command.*
 - **`test_extra_args_extended`**
@@ -2057,10 +2029,10 @@ ad-hoc markers used in the suite without declaration.
   - *extra_args properly handles quoted strings with spaces.*
 - **`test_custom_host`**
   - *Custom host parameter is used.*
-- **`test_repeat_penalty_none_not_included`**
-  - *repeat_penalty=None does not include --repeat-penalty flag.*
-- **`test_repeat_penalty_included`**
-  - *repeat_penalty=1.5 includes --repeat-penalty flag with correct value.*
+- **`test_repeat_penalty_absent_by_default`**
+  - *No --repeat-penalty flag when extra_args doesn't carry one.*
+- **`test_repeat_penalty_included_via_extra_args`**
+  - *--repeat-penalty 1.5 set via extra_args passes through verbatim.*
 - **`test_metrics_default_on`**
   - *Issue #169: metrics defaults to True and emits --metrics.*
 - **`test_metrics_disabled_omits_flag`**
@@ -2083,6 +2055,12 @@ ad-hoc markers used in the suite without declaration.
   - *Benign ``extra_args`` must not produce a second ``--alias``;*
 - **`test_alias_cannot_be_overridden_via_extra_args`**
   - *Launcher-owned flag stays launcher-owned: ``extra_args``*
+- **`test_each_denied_flag_raises`**
+- **`test_each_denied_flag_equals_form_raises`**
+- **`test_modelconfig_itself_accepts_denied_flags_unvalidated`**
+  - *ADR-026: constructing/assigning a denied flag into extra_args*
+- **`test_port_denied`**
+- **`test_benign_flag_not_denied`**
 - **`test_normal_start`**
   - *Normal successful server start.*
 - **`test_binary_not_found`**
@@ -2195,11 +2173,9 @@ ad-hoc markers used in the suite without declaration.
   - *A 5 MiB log requesting 10 lines must read kilobytes, not megabytes.*
 - **`test_appends_banner_and_preserves_prior_content`**
   - *A pre-existing log file is preserved; the banner appends to it.*
-- **`test_banner_is_utc_wallclock_anchor_with_canonical_name`**
-  - *Issue #405 — the banner anchors the log to the wall clock.*
 - **`test_rotates_when_existing_log_exceeds_max_bytes`**
   - *An oversized log triggers rotation before the new run appends.*
-- **`test_every_emitted_flag_is_registered`**
+- **`test_natively_emitted_flags_match_the_ratified_scope`**
 - **`test_dead_pid_returns_none`**
 - **`test_zombie_status_returns_none`**
 - **`test_zombie_process_exception_at_construction_returns_none`**
@@ -2213,7 +2189,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_live_non_llama_process_returns_none`**
   - *PID-reuse defense: alive + readable but not a llama-server.*
 - **`test_expect_port_mismatch_returns_none_and_warns`**
-  - *ADR-LLNCH-008: argv port disagrees with the lockfile's claim → refuse.*
+  - *ADR-008: argv port disagrees with the lockfile's claim → refuse.*
 - **`test_live_llama_server_returns_full_info`**
   - *The good case: alias/port/model_path/create_time populated.*
 - **`test_live_llama_server_no_expect_port_still_verifies`**
@@ -2345,9 +2321,9 @@ ad-hoc markers used in the suite without declaration.
 - **`test_is_local_agent_ready_detects_existing_online_node`**
   - *Test that is_local_agent_ready correctly detects when local node exists and is online.*
 - **`test_model_config_includes_all_server_options`**
-  - *Test that ModelConfig includes all expected llama-server fields.*
-- **`test_model_config_supports_top_k_and_min_p`**
-  - *Test that ModelConfig supports top_k and min_p fields.*
+  - *Test that ModelConfig includes the llauncher-owned fields.*
+- **`test_model_config_supports_top_k_and_min_p_via_extra_args`**
+  - *top_k/min_p are set and modified through extra_args.*
 - **`test_model_config_works_without_multi_gpu_fields`**
   - *Test that ModelConfig works correctly without multi-GPU fields.*
 - **`test_legacy_default_port_silently_dropped`**
@@ -2887,7 +2863,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_build_streamlit_argv_binds_resolved_port`**
 - **`test_build_streamlit_argv_includes_both_address_and_port_flags`**
 
-#### `tests/unit/test_ui_rendering.py` (22 tests)
+#### `tests/unit/test_ui_rendering.py` (23 tests)
 
 - **`test_add_model_validation_missing_name`**
   - *Name is required.*
@@ -2895,16 +2871,18 @@ ad-hoc markers used in the suite without declaration.
   - *Path is required.*
 - **`test_add_model_validation_duplicate_name`**
   - *Error for existing model name.*
-- **`test_add_model_optional_fields_none`**
-  - *Optional fields default correctly when 0.*
+- **`test_add_model_extra_args_stripped_when_blank`**
+  - *Per ADR-026 / issue #477, the Advanced Options per-field widgets*
+- **`test_add_model_extra_args_passed_through_verbatim`**
+  - *A populated extra_args textarea is stripped but not otherwise*
 - **`test_edit_model_validation_empty_path`**
   - *Path required on edit.*
-- **`test_edit_model_flash_attn_index`**
-  - *Correct index calculated from config value.*
+- **`test_edit_model_extra_args_defaults_to_empty_string`**
+  - *Per ADR-026 / issue #477, ``flash_attn`` is no longer a*
 - **`test_model_entry_running_status`**
   - *Running model shows actual port with 'running'.*
 - **`test_model_entry_stopped_no_port_attribute`**
-  - *Per ADR-LLNCH-010, stopped model has no port attribute on its config.*
+  - *Per ADR-010, stopped model has no port attribute on its config.*
 - **`test_model_entry_legacy_default_port_silently_dropped`**
   - *Legacy ``default_port`` in serialized data is dropped on load.*
 - **`test_model_entry_delete_running`**
@@ -3109,7 +3087,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_start_with_wrong_api_key_returns_403`**
 - **`test_health_exempt_without_api_key`**
 - **`test_mcp_invalid_model_returns_structured_error`**
-  - *Unknown model surfaces as ADR-LLNCH-010 error envelope, no stack trace.*
+  - *Unknown model surfaces as ADR-010 error envelope, no stack trace.*
 - **`test_mcp_unknown_tool_returns_structured_error`**
   - *Unknown tool name routes through call_tool_handler's except — but*
 - **`test_auth_uses_hmac_compare_digest`**
@@ -3160,7 +3138,7 @@ ad-hoc markers used in the suite without declaration.
 #### `tests/integration/test_self_swap.py` (3 tests)
 
 - **`test_self_swap_canonical_worked_example`**
-  - *ADR-LLNCH-016 worked example, executable form.*
+  - *ADR-016 worked example, executable form.*
 - **`test_self_swap_envelope_contract_on_rejected_preflight`**
   - *Even on rejected-preflight the §3 contract holds.*
 - **`test_self_swap_live_completion_against_new_model`** `@integration_real` `@live`
@@ -3322,9 +3300,9 @@ ad-hoc markers used in the suite without declaration.
 #### `tests/regression/test_orphan_regression.py` (12 tests)
 
 - **`test_list_orphans_never_kills_or_claims`**
-  - *Pin ADR-LLNCH-015 §6: ``list_orphans`` annotates only — no kill, no claim.*
+  - *Pin ADR-015 §6: ``list_orphans`` annotates only — no kill, no claim.*
 - **`test_http_orphans_envelope_canonical`**
-  - *``GET /orphans`` returns ``{node, orphans:[...], total}`` per ADR-LLNCH-015 §5.*
+  - *``GET /orphans`` returns ``{node, orphans:[...], total}`` per ADR-015 §5.*
 - **`test_mcp_list_orphans_envelope_canonical`**
   - *MCP ``list_orphans`` returns the same orphan dicts as HTTP.*
 - **`test_cli_orphan_list_json_envelope_canonical`**
@@ -3340,7 +3318,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_cli_orphan_list_empty_json_is_array`**
   - *``llauncher orphan list --json`` with zero orphans emits ``[]``.*
 - **`test_refresh_orphans_emits_observed_orphan_once_per_lifetime`**
-  - *Pin ADR-LLNCH-015 §3: first-sighting writes one audit line; repeats are silent.*
+  - *Pin ADR-015 §3: first-sighting writes one audit line; repeats are silent.*
 - **`test_refresh_orphans_disappear_reappear_emits_twice`**
   - *A pid that leaves and re-enters the scan emits a fresh audit line.*
 - **`test_refresh_orphans_unreadable_pid_never_audits`**
@@ -3362,11 +3340,9 @@ ad-hoc markers used in the suite without declaration.
 - **`test_routing_health_reports_shared_version`**
 - **`test_server_app_reports_shared_version`**
 
-#### `tests/ui/test_app_shell.py` (4 tests)
+#### `tests/ui/test_app_shell.py` (2 tests)
 
 - **`test_agent_down_shows_banner_and_stops_before_sidebar_and_tabs`**
-- **`test_config_load_failure_shows_banner_not_traceback`**
-- **`test_refresh_click_on_corrupt_config_banners_and_stops`**
 - **`test_refresh_all_click_dispatches_and_toast_survives_rerun`**
 
 #### `tests/ui/test_audit_tab.py` (16 tests)
@@ -3431,8 +3407,8 @@ ad-hoc markers used in the suite without declaration.
 - **`test_model_name_not_in_state_models_shows_error_and_renders_no_form`**
 - **`test_config_absent_when_handler_rechecks_shows_error`**
 - **`test_update_model_raises_shows_error_not_exception`**
-- **`test_mlock_and_temperature_pass_through_to_config`**
-- **`test_extra_args_and_reverse_prompt_pass_through_to_config`**
+- **`test_slots_and_parallel_pass_through_to_config`**
+- **`test_extra_args_passes_through_to_config_verbatim`**
 
 #### `tests/ui/test_model_card.py` (50 tests)
 

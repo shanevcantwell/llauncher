@@ -49,32 +49,22 @@ class TestAddModelValidation:
 
         assert result == "Model 'existing-model' already exists"
 
-    def test_add_model_optional_fields_none(self):
-        """Optional fields default correctly when 0."""
-        threads = 0
-        n_cpu_moe = 0
-        batch_size = 0
-        temperature = 0.0
-        top_k = 0
-        top_p = 0.0
-        min_p = 0.0
+    def test_add_model_extra_args_stripped_when_blank(self):
+        """Per ADR-026 / issue #477, the Advanced Options per-field widgets
+        (threads, n_cpu_moe, batch_size, temperature, top_k, top_p, min_p,
+        ...) are gone; a blank extra_args textarea normalizes to "".
+        """
+        extra_args = "   "
+        extra_args_val = extra_args.strip() if extra_args else ""
+        assert extra_args_val == ""
 
-        # Simulate the None conversion from render_add_model
-        threads_val = threads if threads > 0 else None
-        n_cpu_moe_val = n_cpu_moe if n_cpu_moe > 0 else None
-        batch_size_val = batch_size if batch_size > 0 else None
-        temperature_val = temperature if temperature > 0 else None
-        top_k_val = top_k if top_k > 0 else None
-        top_p_val = top_p if top_p > 0 else None
-        min_p_val = min_p if min_p > 0 else None
-
-        assert threads_val is None
-        assert n_cpu_moe_val is None
-        assert batch_size_val is None
-        assert temperature_val is None
-        assert top_k_val is None
-        assert top_p_val is None
-        assert min_p_val is None
+    def test_add_model_extra_args_passed_through_verbatim(self):
+        """A populated extra_args textarea is stripped but not otherwise
+        transformed — no per-flag parsing happens in the UI layer.
+        """
+        extra_args = "  --flash-attn on --cache-type-k q4_0  "
+        extra_args_val = extra_args.strip() if extra_args else ""
+        assert extra_args_val == "--flash-attn on --cache-type-k q4_0"
 
 
 class TestEditModelValidation:
@@ -91,17 +81,16 @@ class TestEditModelValidation:
 
         assert result == "Model path is required"
 
-    def test_edit_model_flash_attn_index(self):
-        """Correct index calculated from config value."""
-        test_cases = [
-            ("on", 0),
-            ("off", 1),
-            ("auto", 2),
-        ]
-
-        for flash_value, expected_index in test_cases:
-            flash_idx = ["on", "off", "auto"].index(flash_value)
-            assert flash_idx == expected_index
+    def test_edit_model_extra_args_defaults_to_empty_string(self):
+        """Per ADR-026 / issue #477, ``flash_attn`` is no longer a
+        dedicated field/widget (no index to compute) — the edit form's
+        extra_args textarea defaults from ``config.extra_args or ""``.
+        """
+        config = ModelConfig.from_dict_unvalidated({
+            "name": "test",
+            "model_path": "/path/to/model.gguf",
+        })
+        assert (config.extra_args or "") == ""
 
 
 class TestModelEntryLogic:
