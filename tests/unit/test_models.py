@@ -80,7 +80,15 @@ def test_model_config_extra_args_empty_list_migration():
 
 
 class TestModelConfigFieldRoundtrip:
-    """Test that all ModelConfig fields roundtrip correctly through to_dict/from_dict."""
+    """Test that all ModelConfig fields roundtrip correctly through to_dict/from_dict.
+
+    Per ADR-026 / issue #477, the 16 llama-server mirror fields
+    (``threads``, ``threads_batch``, ``ubatch_size``, ``batch_size``,
+    ``flash_attn``, ``no_mmap``, ``cache_type_k/v``, ``n_cpu_moe``,
+    ``temperature``, ``top_k``, ``top_p``, ``min_p``, ``repeat_penalty``,
+    ``reverse_prompt``, ``mlock``) no longer exist as ``ModelConfig``
+    fields — the equivalent flags now round-trip through ``extra_args``.
+    """
 
     def test_all_fields_roundtrip(self):
         """Test all ModelConfig fields are preserved through serialization."""
@@ -90,23 +98,16 @@ class TestModelConfigFieldRoundtrip:
             "mmproj_path": "/fake/path/mmproj.gguf",
             "n_gpu_layers": 100,
             "ctx_size": 32768,
-            "threads": 8,
-            "threads_batch": 16,
-            "ubatch_size": 1024,
-            "batch_size": 512,
-            "flash_attn": "auto",
-            "no_mmap": True,
-            "cache_type_k": "f16",
-            "cache_type_v": "f16",
-            "n_cpu_moe": 4,
             "parallel": 4,
-            "temperature": 0.8,
-            "top_k": 40,
-            "top_p": 0.9,
-            "min_p": 0.05,
-            "reverse_prompt": "STOP",
-            "mlock": True,
-            "extra_args": "--custom-flag value",
+            "metrics": False,
+            "slots": True,
+            "extra_args": (
+                "--threads 8 --threads-batch 16 --ubatch-size 1024 "
+                "--batch-size 512 --flash-attn auto --no-mmap "
+                "--cache-type-k f16 --cache-type-v f16 --n-cpu-moe 4 "
+                "--temp 0.8 --top-k 40 --top-p 0.9 --min-p 0.05 "
+                "--reverse-prompt STOP --mlock --custom-flag value"
+            ),
         }
 
         config = ModelConfig.from_dict_unvalidated(original_data)
@@ -119,22 +120,9 @@ class TestModelConfigFieldRoundtrip:
         assert restored.mmproj_path == original_data["mmproj_path"]
         assert restored.n_gpu_layers == original_data["n_gpu_layers"]
         assert restored.ctx_size == original_data["ctx_size"]
-        assert restored.threads == original_data["threads"]
-        assert restored.threads_batch == original_data["threads_batch"]
-        assert restored.ubatch_size == original_data["ubatch_size"]
-        assert restored.batch_size == original_data["batch_size"]
-        assert restored.flash_attn == original_data["flash_attn"]
-        assert restored.no_mmap == original_data["no_mmap"]
-        assert restored.cache_type_k == original_data["cache_type_k"]
-        assert restored.cache_type_v == original_data["cache_type_v"]
-        assert restored.n_cpu_moe == original_data["n_cpu_moe"]
         assert restored.parallel == original_data["parallel"]
-        assert restored.temperature == original_data["temperature"]
-        assert restored.top_k == original_data["top_k"]
-        assert restored.top_p == original_data["top_p"]
-        assert restored.min_p == original_data["min_p"]
-        assert restored.reverse_prompt == original_data["reverse_prompt"]
-        assert restored.mlock == original_data["mlock"]
+        assert restored.metrics == original_data["metrics"]
+        assert restored.slots == original_data["slots"]
         assert restored.extra_args == original_data["extra_args"]
 
     def test_optional_fields_defaults(self):
@@ -149,22 +137,9 @@ class TestModelConfigFieldRoundtrip:
         assert config.mmproj_path is None
         assert config.n_gpu_layers == 255  # Default
         assert config.ctx_size == 131072  # Default
-        assert config.threads is None
-        assert config.threads_batch == 8  # Default
-        assert config.ubatch_size == 512  # Default
-        assert config.batch_size is None
-        assert config.flash_attn == "on"  # Default
-        assert config.no_mmap is False
-        assert config.cache_type_k is None
-        assert config.cache_type_v is None
-        assert config.n_cpu_moe is None
         assert config.parallel == 1  # Default
-        assert config.temperature is None
-        assert config.top_k is None
-        assert config.top_p is None
-        assert config.min_p is None
-        assert config.reverse_prompt is None
-        assert config.mlock is False
+        assert config.metrics is True  # Default
+        assert config.slots is False  # Default
         assert config.extra_args == ""
 
 
@@ -263,46 +238,31 @@ class TestModelConfigFieldValidators:
         with pytest.raises(ValueError):
             ModelConfig.from_dict_unvalidated(data)
 
-    def test_flash_attn_valid_values(self):
-        """Test valid flash_attn values."""
-        for value in ["on", "off", "auto"]:
+    def test_flash_attn_any_value_passes_through_extra_args(self):
+        """Per ADR-026 / issue #477, ``flash_attn`` is no longer a typed
+        field with a ``Literal`` constraint — it's a free-form extra_args
+        token, so even a value llama-server itself would reject is
+        accepted by ModelConfig (no pydantic content validation)."""
+        for value in ["on", "off", "auto", "invalid-but-unvalidated"]:
             data = {
                 "name": "test-model",
                 "model_path": "/fake/path/model.gguf",
-                "flash_attn": value,
+                "extra_args": f"--flash-attn {value}",
             }
             config = ModelConfig.from_dict_unvalidated(data)
-            assert config.flash_attn == value
+            assert f"--flash-attn {value}" in config.extra_args
 
-    def test_flash_attn_invalid_value(self):
-        """Test invalid flash_attn raises error."""
-        data = {
-            "name": "test-model",
-            "model_path": "/fake/path/model.gguf",
-            "flash_attn": "invalid",
-        }
-        with pytest.raises(ValueError):
-            ModelConfig.from_dict_unvalidated(data)
-
-    def test_cache_type_valid_values(self):
-        """Test valid cache_type values."""
-        for value in ["f32", "f16", "bf16", "q8_0"]:
+    def test_cache_type_any_value_passes_through_extra_args(self):
+        """Per ADR-026 / issue #477 (the issue's root cause): the former
+        ``Literal["f32", "f16", "bf16", "q8_0"]`` on ``cache_type_k/v``
+        could not hold ``q4_0``, a value llama-server actually supports.
+        extra_args has no such ceiling."""
+        for value in ["f32", "f16", "bf16", "q8_0", "q4_0"]:
             data = {
                 "name": "test-model",
                 "model_path": "/fake/path/model.gguf",
-                "cache_type_k": value,
-                "cache_type_v": value,
+                "extra_args": f"--cache-type-k {value} --cache-type-v {value}",
             }
             config = ModelConfig.from_dict_unvalidated(data)
-            assert config.cache_type_k == value
-            assert config.cache_type_v == value
-
-    def test_cache_type_invalid_value(self):
-        """Test invalid cache_type raises error."""
-        data = {
-            "name": "test-model",
-            "model_path": "/fake/path/model.gguf",
-            "cache_type_k": "invalid",
-        }
-        with pytest.raises(ValueError):
-            ModelConfig.from_dict_unvalidated(data)
+            assert f"--cache-type-k {value}" in config.extra_args
+            assert f"--cache-type-v {value}" in config.extra_args

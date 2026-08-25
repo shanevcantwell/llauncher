@@ -82,7 +82,7 @@ The driving principle: **proportionate to a workstation tool, not enterprise**. 
 
 **What exists today:**
 - `llauncher/core/process.py:79-174` (`build_command`) builds a `list[str]` argv. No `shell=True` anywhere (`process.py:231-236` uses `Popen(cmd, …)` with the list form).
-- All numeric/enum fields flow through Pydantic typing (`models/config.py:29-62`) — integers, floats, and `Literal[...]` for things like `flash_attn`, `cache_type_k`.
+- The numeric fields llauncher still owns flow through Pydantic typing (`models/config.py:ModelConfig`) — `n_gpu_layers`, `ctx_size`, `parallel` carry `ge`/`gt` constraints. *(Updated for ADR-026 / issue #477: the 16 llama-server mirror fields — `flash_attn`, `cache_type_k` and the rest, formerly `Literal[...]`-typed here — were dropped. They now live in `extra_args` verbatim, with no pydantic content validation; llama-server's own argv parser is the authority on its own flags' valid values. The llauncher-owned deny-list below is enforced at launch in `core/process.py:build_command`, which is now the only validation of `extra_args` anywhere.)*
 - **String fields that reach argv verbatim**: `model_path`, `mmproj_path`, `reverse_prompt`, `extra_args`.
 - `extra_args` is parsed with `shlex.split` (`process.py:171-172`). This **does not** invoke a shell — but it does let a malicious config inject arbitrary llama-server flags (e.g. `--alias`, `--api-key`, or future flags that read other files).
 - `config.name` is sanitized for log-file naming via `re.sub(r'[^\w\-]', '_', …)` (`process.py:209`) and the path is `.resolve()`d into `LOG_DIR`. Good.

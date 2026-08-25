@@ -1,6 +1,7 @@
 """Tests for llauncher core process management."""
 
 import logging
+import importlib
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -25,12 +26,12 @@ from llauncher.core.process import (
     stream_logs,
     _tail_file,
     is_port_in_use,
-)
-from llauncher.models.config import (
     DENIED_EXTRA_ARG_FLAGS,
-    MANAGED_NATIVE_FLAGS,
-    ModelConfig,
+    DeniedExtraArgError,
+    ExtraArgsError,
+    MalformedExtraArgsError,
 )
+from llauncher.models.config import ModelConfig
 
 
 # Fixtures
@@ -48,7 +49,9 @@ def minimal_config():
 
 @pytest.fixture
 def full_config():
-    """Full model config with all optional fields."""
+    """Full model config with all llauncher-owned fields set, plus a
+    representative extra_args passthrough (ADR-026 / issue #477: the 16
+    llama-server mirror fields no longer exist as ModelConfig fields)."""
     return ModelConfig.from_dict_unvalidated(
         {
             "name": "full-model",
@@ -57,24 +60,15 @@ def full_config():
             "default_port": 8080,
             "n_gpu_layers": 255,
             "ctx_size": 4096,
-            "threads": 8,
-            "threads_batch": 8,
-            "ubatch_size": 512,
-            "batch_size": 2048,
-            "flash_attn": "auto",
-            "no_mmap": True,
-            "cache_type_k": "f16",
-            "cache_type_v": "f16",
-            "n_cpu_moe": 4,
             "parallel": 4,
-            "temperature": 0.7,
-            "top_k": 40,
-            "top_p": 0.9,
-            "min_p": 0.1,
-            "repeat_penalty": 1.5,
-            "reverse_prompt": "STOP",
-            "mlock": True,
-            "extra_args": "--custom-flag value",
+            "extra_args": (
+                "--threads 8 --threads-batch 8 --ubatch-size 512 "
+                "--batch-size 2048 --flash-attn auto --no-mmap "
+                "--cache-type-k f16 --cache-type-v f16 --n-cpu-moe 4 "
+                "--temp 0.7 --top-k 40 --top-p 0.9 --min-p 0.1 "
+                "--repeat-penalty 1.5 --reverse-prompt STOP --mlock "
+                "--custom-flag value"
+            ),
         }
     )
 
@@ -164,42 +158,27 @@ class TestBuildCommand:
         assert "8080" in cmd
 
     def test_full_config(self, full_config):
-        """Full config includes all flags."""
+        """Full config includes the owned fields and the extra_args passthrough."""
         cmd = build_command(full_config, port=8080)
         cmd_str = " ".join(cmd)
 
-        # Check all fields
+        # Owned fields, rendered from their dedicated ModelConfig fields.
         assert "--mmproj" in cmd_str
         assert full_config.mmproj_path in cmd
-        assert "--threads" in cmd
-        assert str(full_config.threads) in cmd
-        assert "--batch-size" in cmd
-        assert str(full_config.batch_size) in cmd
-        assert "--flash-attn" in cmd
-        assert full_config.flash_attn in cmd
-        assert "--no-mmap" in cmd
-        assert "--cache-type-k" in cmd
-        assert full_config.cache_type_k in cmd
-        assert "--cache-type-v" in cmd
-        assert full_config.cache_type_v in cmd
-        assert "--n-cpu-moe" in cmd
-        assert str(full_config.n_cpu_moe) in cmd
         assert "--parallel" in cmd
         assert str(full_config.parallel) in cmd
-        assert "--temp" in cmd
-        assert str(full_config.temperature) in cmd
-        assert "--top-k" in cmd
-        assert str(full_config.top_k) in cmd
-        assert "--top-p" in cmd
-        assert str(full_config.top_p) in cmd
-        assert "--min-p" in cmd
-        assert str(full_config.min_p) in cmd
-        assert "--repeat-penalty" in cmd
-        assert str(full_config.repeat_penalty) in cmd
-        assert "--reverse-prompt" in cmd
-        assert full_config.reverse_prompt in cmd
-        assert "--mlock" in cmd
-        assert "--custom-flag" in cmd
+
+        # Everything else (ADR-026 / issue #477 dropped fields) arrives
+        # verbatim through extra_args, appended once, unmodified.
+        for token in (
+            "--threads", "8", "--threads-batch", "--ubatch-size", "512",
+            "--batch-size", "2048", "--flash-attn", "auto", "--no-mmap",
+            "--cache-type-k", "f16", "--cache-type-v", "--n-cpu-moe", "4",
+            "--temp", "0.7", "--top-k", "40", "--top-p", "0.9", "--min-p",
+            "0.1", "--repeat-penalty", "1.5", "--reverse-prompt", "STOP",
+            "--mlock", "--custom-flag", "value",
+        ):
+            assert token in cmd, f"expected {token!r} from extra_args in {cmd}"
 
     def test_parallel_default_not_included(self, minimal_config):
         """parallel=1 (default) is not included in command."""
@@ -234,15 +213,18 @@ class TestBuildCommand:
         assert "--host" in cmd
         assert "127.0.0.1" in cmd
 
-    def test_repeat_penalty_none_not_included(self, minimal_config):
-        """repeat_penalty=None does not include --repeat-penalty flag."""
-        minimal_config.repeat_penalty = None
+    def test_repeat_penalty_absent_by_default(self, minimal_config):
+        """No --repeat-penalty flag when extra_args doesn't carry one.
+
+        Per ADR-026 / issue #477, repeat_penalty is no longer a dedicated
+        ModelConfig field — it's reachable only through extra_args.
+        """
         cmd = build_command(minimal_config, port=8080)
         assert "--repeat-penalty" not in cmd
 
-    def test_repeat_penalty_included(self, minimal_config):
-        """repeat_penalty=1.5 includes --repeat-penalty flag with correct value."""
-        minimal_config.repeat_penalty = 1.5
+    def test_repeat_penalty_included_via_extra_args(self, minimal_config):
+        """--repeat-penalty 1.5 set via extra_args passes through verbatim."""
+        minimal_config.extra_args = "--repeat-penalty 1.5"
         cmd = build_command(minimal_config, port=8080)
         assert "--repeat-penalty" in cmd
         assert "1.5" in cmd
@@ -359,17 +341,69 @@ class TestBuildCommandAlias:
 
     def test_alias_cannot_be_overridden_via_extra_args(self, minimal_config):
         """Launcher-owned flag stays launcher-owned: ``extra_args``
-        carrying ``--alias`` is rejected by the C7 deny-list before
-        ``build_command`` ever sees it (both bare and equals forms).
+        carrying ``--alias`` is accepted by ``ModelConfig`` (ADR-026 / issue
+        #477: no pydantic content validation) but rejected by
+        ``build_command`` — the single, launch-time enforcement point —
+        before argv is ever assembled (both bare and equals forms).
         """
-        with pytest.raises(ValueError, match="--alias"):
-            minimal_config.extra_args = "--alias impostor"
-        with pytest.raises(ValueError, match="--alias"):
-            minimal_config.extra_args = "--alias=impostor"
-        # Config unchanged; argv still carries only the minted name.
+        minimal_config.extra_args = "--alias impostor"
+        with pytest.raises(DeniedExtraArgError, match="--alias"):
+            build_command(minimal_config, port=8080)
+
+        minimal_config.extra_args = "--alias=impostor"
+        with pytest.raises(DeniedExtraArgError, match="--alias"):
+            build_command(minimal_config, port=8080)
+
+        # A benign extra_args still produces the minted name, unharmed.
+        minimal_config.extra_args = ""
         cmd = build_command(minimal_config, port=8080)
         assert cmd.count("--alias") == 1
         assert _alias_value(cmd) == "test-model"
+
+
+class TestBuildCommandDenyList:
+    """ADR-026 / issue #477: the llauncher-owned extra_args deny-list is
+    enforced exactly once, at launch time, in ``build_command`` — no
+    pydantic content validation exists any more (``ModelConfig`` accepts
+    any string). Covers both bare and ``=``-form for every denied flag.
+    """
+
+    @pytest.mark.parametrize("flag", sorted(DENIED_EXTRA_ARG_FLAGS))
+    def test_each_denied_flag_raises(self, minimal_config, flag) -> None:
+        minimal_config.extra_args = f"{flag} sentinel-value"
+        with pytest.raises(DeniedExtraArgError, match=re.escape(flag)):
+            build_command(minimal_config, port=8080)
+
+    @pytest.mark.parametrize("flag", sorted(DENIED_EXTRA_ARG_FLAGS))
+    def test_each_denied_flag_equals_form_raises(self, minimal_config, flag) -> None:
+        minimal_config.extra_args = f"{flag}=sentinel-value"
+        with pytest.raises(DeniedExtraArgError, match=re.escape(flag)):
+            build_command(minimal_config, port=8080)
+
+    def test_modelconfig_itself_accepts_denied_flags_unvalidated(self) -> None:
+        """ADR-026: constructing/assigning a denied flag into extra_args
+        does NOT raise — only build_command does. This is the "disable
+        pydantic for extra_args" directive, made concrete.
+        """
+        cfg = ModelConfig.from_dict_unvalidated({
+            "name": "m",
+            "model_path": "/fake/does-not-matter.gguf",
+            "extra_args": "--api-key leaked --port 9999",
+        })
+        assert cfg.extra_args == "--api-key leaked --port 9999"
+        cfg.extra_args = "--alias sneaky"
+        assert cfg.extra_args == "--alias sneaky"
+
+    def test_port_denied(self, minimal_config) -> None:
+        minimal_config.extra_args = "--port 9999"
+        with pytest.raises(DeniedExtraArgError, match="--port"):
+            build_command(minimal_config, port=8080)
+
+    def test_benign_flag_not_denied(self, minimal_config) -> None:
+        minimal_config.extra_args = "--log-disable --flash-attn on"
+        cmd = build_command(minimal_config, port=8080)
+        assert "--log-disable" in cmd
+        assert "--flash-attn" in cmd
 
 
 class TestStartServer:
@@ -1401,13 +1435,17 @@ class TestStartServerLogsLifecycle:
 
 
 class TestBuildCommandManagedFlagDriftGuard:
-    """Issue #156: keep ``MANAGED_NATIVE_FLAGS`` (the collision deny-set) in
+    """ADR-026 / issue #477: pin the exact, deliberately-small set of
+    natively-emitted flags that fall outside ``DENIED_EXTRA_ARG_FLAGS``.
 
-    sync with what ``build_command`` actually emits. If a future change adds a
-    native flag to ``build_command`` without registering it in
-    ``MANAGED_NATIVE_FLAGS`` / ``DENIED_EXTRA_ARG_FLAGS``, the silent
-    first-wins-loss trap would reopen for that flag — this test fails loudly
-    instead.
+    Per the #477 ratification (point 5), the deny-list covers only the
+    identity/security/observability flags (``--alias``, ``-m``/``--model``,
+    ``--host``/``--port``, ``--api-key``, ``--metrics``,
+    ``--slots``/``--no-slots``) — *not* the remaining llauncher-owned
+    fields (``--mmproj``, ``--n-gpu-layers``, ``-c``, ``--parallel``). A
+    duplicate of one of those four in ``extra_args`` is not guarded against
+    at the door; this test exists so that scope is a pinned, intentional
+    fact, not an accident a future edit could silently widen or narrow.
     """
 
     @staticmethod
@@ -1421,7 +1459,11 @@ class TestBuildCommandManagedFlagDriftGuard:
             return True
         return False
 
-    def test_every_emitted_flag_is_registered(self) -> None:
+    # The natively-emitted flags NOT covered by DENIED_EXTRA_ARG_FLAGS,
+    # per the ratification's deliberate scope (point 5).
+    _UNGUARDED_OWNED_FLAGS = frozenset({"--mmproj", "--n-gpu-layers", "-c", "--parallel"})
+
+    def test_natively_emitted_flags_match_the_ratified_scope(self) -> None:
         # Exercise every conditional branch in build_command so all native
         # flags are emitted. extra_args is empty so only native flags appear.
         cfg = ModelConfig.from_dict_unvalidated({
@@ -1430,35 +1472,22 @@ class TestBuildCommandManagedFlagDriftGuard:
             "mmproj_path": "/fake/mmproj.gguf",
             "n_gpu_layers": 10,
             "ctx_size": 4096,
-            "threads": 4,
-            "threads_batch": 8,
-            "ubatch_size": 512,
-            "batch_size": 2048,
-            "flash_attn": "on",
-            "no_mmap": True,
-            "cache_type_k": "q8_0",
-            "cache_type_v": "q8_0",
-            "n_cpu_moe": 2,
             "parallel": 4,
-            "temperature": 0.7,
-            "top_k": 40,
-            "top_p": 0.9,
-            "min_p": 0.05,
-            "repeat_penalty": 1.1,
-            "reverse_prompt": "STOP",
-            "mlock": True,
+            "metrics": True,
+            "slots": True,
             "extra_args": "",
         })
         cmd = build_command(cfg, port=8080, host="0.0.0.0")
 
         emitted_flags = {t for t in cmd if self._is_flag(t)}
-        registered = MANAGED_NATIVE_FLAGS | DENIED_EXTRA_ARG_FLAGS
+        registered = DENIED_EXTRA_ARG_FLAGS | self._UNGUARDED_OWNED_FLAGS
 
         unregistered = emitted_flags - registered
         assert not unregistered, (
-            "build_command emits flags not registered in MANAGED_NATIVE_FLAGS "
-            f"or DENIED_EXTRA_ARG_FLAGS: {sorted(unregistered)}. Register them "
-            "so the issue #156 collision guard covers them."
+            "build_command emits native flags not registered in "
+            f"DENIED_EXTRA_ARG_FLAGS or the pinned _UNGUARDED_OWNED_FLAGS "
+            f"set: {sorted(unregistered)}. If this is a new owned field, "
+            "add it to one of the two sets deliberately (ADR-026 / #477)."
         )
 
 
@@ -1687,3 +1716,54 @@ class TestDiscoverAllCreateTimeGuard:
         assert len(discovered) == 1
         assert discovered[0].pid == 99
         assert discovered[0].create_time is None
+
+
+class TestBuildCommandMalformedExtraArgs:
+    """Unparseable ``extra_args`` quoting is a typed launch failure.
+
+    ADR-026 removed every pydantic check from ``extra_args``, so the UI
+    textarea, the MCP tool and the CLI all accept an unbalanced quote and
+    persist it. ``build_command`` is the first and only place it is
+    tokenized — ``shlex.split``'s bare ``ValueError`` there would escape
+    ``operations.start`` / ``operations.swap``, whose except-tuple catches
+    launch failures by type. Both ``extra_args`` failure modes therefore
+    share one base class, and the operations layer catches the base.
+    """
+
+    def test_unbalanced_quote_raises_malformed_extra_args_error(
+        self, minimal_config
+    ) -> None:
+        minimal_config.extra_args = '--chat-template "hello'
+        with pytest.raises(MalformedExtraArgsError) as excinfo:
+            build_command(minimal_config, port=8080)
+        assert "test-model" in str(excinfo.value)
+
+    def test_both_failure_modes_share_one_catchable_base(self) -> None:
+        assert issubclass(MalformedExtraArgsError, ExtraArgsError)
+        assert issubclass(DeniedExtraArgError, ExtraArgsError)
+        assert issubclass(ExtraArgsError, ValueError)
+
+    def test_operations_catch_the_base_class_not_a_subclass(self) -> None:
+        """A regression guard for the actual defect: catching only
+
+        ``DeniedExtraArgError`` let a malformed-quoting ``ValueError``
+        through, because a sibling subclass is not caught by its sibling.
+        """
+        assert not issubclass(MalformedExtraArgsError, DeniedExtraArgError)
+        for module in ("llauncher.operations.start", "llauncher.operations.swap"):
+            source = Path(
+                importlib.import_module(module).__file__
+            ).read_text(encoding="utf-8")
+            assert "proc.ExtraArgsError" in source, module
+            assert "proc.DeniedExtraArgError" not in source, module
+
+    def test_start_server_surfaces_it_before_popen(self, minimal_config) -> None:
+        """No argv reaches ``subprocess.Popen`` when extra_args cannot parse."""
+        minimal_config.extra_args = "--grammar-file 'unterminated"
+        mock_bin = MagicMock()
+        mock_bin.exists.return_value = True
+        with patch("llauncher.core.process.DEFAULT_SERVER_BINARY", mock_bin), \
+             patch("subprocess.Popen") as popen:
+            with pytest.raises(MalformedExtraArgsError):
+                start_server(minimal_config, 8080)
+        popen.assert_not_called()

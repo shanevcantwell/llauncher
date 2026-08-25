@@ -159,22 +159,9 @@ Get the full configuration for a specific model.
     "mmproj_path": null,
     "n_gpu_layers": 255,
     "ctx_size": 131072,
-    "threads": null,
-    "threads_batch": 8,
-    "ubatch_size": 512,
-    "batch_size": null,
-    "flash_attn": "on",
-    "no_mmap": false,
-    "cache_type_k": null,
-    "cache_type_v": null,
-    "n_cpu_moe": null,
     "parallel": 1,
-    "temperature": null,
-    "top_k": null,
-    "top_p": null,
-    "min_p": null,
-    "reverse_prompt": null,
-    "mlock": false,
+    "metrics": true,
+    "slots": false,
     "extra_args": ""
   },
   "status": {
@@ -516,7 +503,7 @@ Add a new model configuration to the store.
     "model_path": "/models/gemma-2b.gguf",
     "n_gpu_layers": 255,
     "ctx_size": 8192,
-    "flash_attn": "on"
+    "extra_args": "--flash-attn on"
   }
 }
 ```
@@ -531,7 +518,7 @@ Add a new model configuration to the store.
     "model_path": "/models/gemma-2b.gguf",
     "n_gpu_layers": 255,
     "ctx_size": 8192,
-    "flash_attn": "on",
+    "extra_args": "--flash-attn on",
     ...
   }
 }
@@ -561,9 +548,17 @@ Add a new model configuration to the store.
 - `mmproj_path`: Path to multimodal projector (for vision models)
 - `n_gpu_layers`: GPU offload layers (default: 255)
 - `ctx_size`: Context size (default: 131072)
-- `flash_attn`: Flash attention mode ("on", "off", "auto")
-- `no_mmap`: Disable memory mapping (default: false)
-- And many more...
+- `parallel`: Parallel slot count (default: 1)
+- `metrics`: Enable Prometheus `/metrics` (default: true)
+- *(`slots` — whether `/slots` is exposed — is llauncher-owned but **not**
+  agent-writable: `/slots` leaks per-slot prompt text, so the exposure
+  decision stays the operator's, in the UI (ADR-LLNCH-019). It appears in
+  read responses; it is not accepted here.)*
+- `extra_args`: Verbatim llama-server flags (ADR-026 / issue #477) — every
+  other llama-server flag (`--flash-attn`, `--no-mmap`, `--cache-type-k`,
+  sampling params, etc.) lives here, in the spelling from
+  `llama-server --help`. No content validation; llauncher-owned flags are
+  rejected at launch time.
 
 **Use Cases:**
 - Register new models discovered on disk
@@ -630,7 +625,7 @@ Update an existing model's configuration.
   "name": "mistral-7b",
   "config": {
     "ctx_size": 65536,
-    "flash_attn": "auto"
+    "extra_args": "--flash-attn auto"
   }
 }
 ```
@@ -644,7 +639,7 @@ Update an existing model's configuration.
     "name": "mistral-7b",
     "model_path": "/models/mistral-7b.gguf",
     "ctx_size": 65536,
-    "flash_attn": "auto",
+    "extra_args": "--flash-attn auto",
     ...
   }
 }
@@ -661,10 +656,10 @@ Update an existing model's configuration.
 **Updateable Fields:**
 - `n_gpu_layers`: Adjust GPU offloading
 - `ctx_size`: Modify context window size
-- `threads`: Set thread count
-- `flash_attn`: Toggle flash attention
-- `no_mmap`: Enable/disable memory mapping
-- `extra_args`: Additional command-line arguments (subject to the managed-flag deny-list)
+- `parallel`: Parallel slot count
+- `metrics` / `slots`: llauncher's own observability/exposure flags
+- `extra_args`: Verbatim llama-server flags (ADR-026 / issue #477); the
+  llauncher-owned deny-list is enforced at launch time, not here
 
 Per ADR-LLNCH-010, port is a call-site argument and is not persisted in `ModelConfig` — `default_port` is silently dropped if supplied here.
 

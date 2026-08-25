@@ -51,6 +51,15 @@ def _button_by_label(at, label):
     )
 
 
+def _text_area_by_label(at, label):
+    for el in at.text_area:
+        if el.label == label:
+            return el
+    raise AssertionError(
+        f"no text_area labelled {label!r}; saw {[e.label for e in at.text_area]}"
+    )
+
+
 @pytest.fixture
 def model_path(tmp_path):
     """A real, existing file path — ``ModelConfig`` validates path existence."""
@@ -402,10 +411,10 @@ class TestEditModelVanishedAtSubmit:
             "existing-model",  # model_name
             model_path,        # model_path
             None,               # mmproj_path
-            255, 131072, 0, "on", False,  # n_gpu_layers .. no_mmap
-            1, False, True,     # parallel, mlock, metrics
-            0, 0, 0.0, 0, 0.0, 0.0, 0.0,  # n_cpu_moe .. repeat_penalty
-            "",                 # reverse_prompt
+            255, 131072,        # n_gpu_layers, ctx_size
+            1,                  # parallel
+            True,               # metrics
+            False,              # slots
             "",                 # extra_args
         )
 
@@ -446,14 +455,16 @@ class TestEditModelConfigStoreFailureShowsErrorNotException:
 
 
 # ---------------------------------------------------------------------------
-# Advanced options — representative subset (not all ~20 fields; #328 scope).
+# Advanced options (ADR-026 / issue #477: parallel/metrics/slots plus a
+# single verbatim extra_args passthrough — the 12 per-flag widgets this
+# suite used to pin here are gone).
 # ---------------------------------------------------------------------------
 class TestAddModelAdvancedOptions:
-    """A representative slice of the "Advanced Options" expander fields
-    reach ``ModelConfig`` unchanged through ``ConfigStore.add_model``.
+    """The Advanced Options expander's fields reach ``ModelConfig``
+    unchanged through ``ConfigStore.add_model``.
     """
 
-    def test_mlock_and_temperature_pass_through_to_config(
+    def test_slots_and_parallel_pass_through_to_config(
         self, tab_harness, mock_state, mock_config_store, model_path
     ):
         at = tab_harness(render_add_model, mock_state)
@@ -461,34 +472,34 @@ class TestAddModelAdvancedOptions:
         _text_input_by_label(at, "Model Name").set_value("adv-model")
         _text_input_by_label(at, "Model Path").set_value(model_path)
         for el in at.checkbox:
-            if el.label == "Lock Memory in RAM (mlock)":
+            if el.label == "Expose /slots monitoring endpoint (--slots)":
                 el.set_value(True)
         for el in at.number_input:
-            if el.label == "Temperature (optional)":
-                el.set_value(0.42)
+            if el.label == "Parallel Slots (-np)":
+                el.set_value(4)
         _button_by_label(at, "Add Model").click()
         at.run()
 
         assert not at.exception
         mock_config_store.add_model.assert_called_once()
         (added_config,), _ = mock_config_store.add_model.call_args
-        assert added_config.mlock is True
-        assert added_config.temperature == pytest.approx(0.42)
+        assert added_config.slots is True
+        assert added_config.parallel == 4
 
-    def test_extra_args_and_reverse_prompt_pass_through_to_config(
+    def test_extra_args_passes_through_to_config_verbatim(
         self, tab_harness, mock_state, mock_config_store, model_path
     ):
         at = tab_harness(render_add_model, mock_state)
 
         _text_input_by_label(at, "Model Name").set_value("adv-model-2")
         _text_input_by_label(at, "Model Path").set_value(model_path)
-        _text_input_by_label(at, "Reverse Prompt (optional)").set_value("### Human:")
-        _text_input_by_label(at, "Extra Args (optional)").set_value("--mcp-config /x.json")
+        _text_area_by_label(at, "Extra Args").set_value(
+            "--mcp-config /x.json --flash-attn on"
+        )
         _button_by_label(at, "Add Model").click()
         at.run()
 
         assert not at.exception
         mock_config_store.add_model.assert_called_once()
         (added_config,), _ = mock_config_store.add_model.call_args
-        assert added_config.reverse_prompt == "### Human:"
-        assert added_config.extra_args == "--mcp-config /x.json"
+        assert added_config.extra_args == "--mcp-config /x.json --flash-attn on"

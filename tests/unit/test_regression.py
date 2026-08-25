@@ -42,80 +42,69 @@ class TestIssue13LocalAgentAutoStart:
 
 
 class TestIssue6LlamaServerConfigFields:
-    """Regression test for issue #6: Missing llama-server config fields."""
+    """Regression test for issue #6: Missing llama-server config fields.
+
+    Per ADR-026 / issue #477, the fields this test originally exercised
+    (``threads``, ``threads_batch``, ``ubatch_size``, ``batch_size``,
+    ``flash_attn``, ``no_mmap``, ``cache_type_k/v``, ``n_cpu_moe``,
+    ``temperature``, ``top_k``, ``top_p``, ``min_p``, ``reverse_prompt``,
+    ``mlock``) were dropped from ``ModelConfig`` — they now live in
+    ``extra_args`` verbatim. This test now covers the fields llauncher
+    still owns directly plus the passthrough.
+    """
 
     def test_model_config_includes_all_server_options(self):
-        """Test that ModelConfig includes all expected llama-server fields."""
-        # Test that we can create a ModelConfig with various server options
+        """Test that ModelConfig includes the llauncher-owned fields."""
         config = ModelConfig.from_dict_unvalidated({
             "name": "test-model",
             "model_path": "/path/to/model.gguf",
             "n_gpu_layers": 32,
             "ctx_size": 2048,
-            "threads": 4,
-            "threads_batch": 2,
-            "ubatch_size": 128,
-            "batch_size": 512,
-            "flash_attn": "on",  # Valid values: "on", "off", "auto"
-            "no_mmap": False,
-            "cache_type_k": "f32",  # Valid values: "f32", "f16", "bf16", "q8_0"
-            "cache_type_v": "f16",  # Valid values: "f32", "f16", "bf16", "q8_0"
-            "n_cpu_moe": 0,
             "parallel": 2,
-            "temperature": 0.8,
-            "top_k": 40,
-            "top_p": 0.95,
-            "min_p": 0.05,
-            "reverse_prompt": "</s>",
-            "mlock": True,
-            "extra_args": "--log-disable"
+            "extra_args": (
+                "--threads 4 --threads-batch 2 --ubatch-size 128 "
+                "--batch-size 512 --flash-attn on --cache-type-k f32 "
+                "--cache-type-v f16 --n-cpu-moe 0 --temp 0.8 --top-k 40 "
+                "--top-p 0.95 --min-p 0.05 --reverse-prompt </s> --mlock "
+                "--log-disable"
+            ),
         })
 
-        # Verify all fields are set correctly
+        # Verify the llauncher-owned fields are set correctly
         assert config.name == "test-model"
         assert config.model_path == "/path/to/model.gguf"
         assert config.n_gpu_layers == 32
         assert config.ctx_size == 2048
-        assert config.threads == 4
-        assert config.threads_batch == 2
-        assert config.ubatch_size == 128
-        assert config.batch_size == 512
-        assert config.flash_attn == "on"
-        assert config.no_mmap is False
-        assert config.cache_type_k == "f32"
-        assert config.cache_type_v == "f16"
-        assert config.n_cpu_moe == 0
         assert config.parallel == 2
-        assert config.temperature == 0.8
-        assert config.top_k == 40
-        assert config.top_p == 0.95
-        assert config.min_p == 0.05
-        assert config.reverse_prompt == "</s>"
-        assert config.mlock is True
-        assert config.extra_args == "--log-disable"
+        # Everything else round-trips verbatim through extra_args.
+        assert "--flash-attn on" in config.extra_args
+        assert "--cache-type-k f32" in config.extra_args
+        assert "--log-disable" in config.extra_args
 
 
 class TestIssue11TopKMinPInUIForms:
-    """Regression test for issue #11: top_k/min_p missing from UI forms."""
+    """Regression test for issue #11: top_k/min_p missing from UI forms.
 
-    def test_model_config_supports_top_k_and_min_p(self):
-        """Test that ModelConfig supports top_k and min_p fields."""
-        # These were reportedly missing from UI forms
+    Per ADR-026 / issue #477, ``top_k``/``min_p`` are no longer dedicated
+    ``ModelConfig`` fields — they are reachable through ``extra_args`` like
+    every other sampling parameter, with no per-field widget to omit.
+    """
+
+    def test_model_config_supports_top_k_and_min_p_via_extra_args(self):
+        """top_k/min_p are set and modified through extra_args."""
         config = ModelConfig.from_dict_unvalidated({
             "name": "test-model",
             "model_path": "/path/to/model.gguf",
-            "top_k": 33,
-            "min_p": 0.02
+            "extra_args": "--top-k 33 --min-p 0.02",
         })
 
-        assert config.top_k == 33
-        assert config.min_p == 0.02
+        assert "--top-k 33" in config.extra_args
+        assert "--min-p 0.02" in config.extra_args
 
-        # Test that they can be modified
-        config.top_k = 50
-        config.min_p = 0.1
-        assert config.top_k == 50
-        assert config.min_p == 0.1
+        # Test that the passthrough string can be modified freely.
+        config.extra_args = "--top-k 50 --min-p 0.1"
+        assert "--top-k 50" in config.extra_args
+        assert "--min-p 0.1" in config.extra_args
 
 
 class TestIssue7UnusedMultiGpuFields:
@@ -132,8 +121,9 @@ class TestIssue7UnusedMultiGpuFields:
         # Should have default values for multi-GPU related fields
         assert config.name == "test-model"
         assert config.model_path == "/path/to/model.gguf"
-        # These should have sensible defaults even if not explicitly set
-        assert hasattr(config, 'n_cpu_moe')
+        # ``parallel`` is still a llauncher-owned field; the old
+        # ``n_cpu_moe`` field was dropped per ADR-026 / issue #477 (it's
+        # now reachable, if needed, through extra_args).
         assert hasattr(config, 'parallel')
 
 
