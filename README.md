@@ -308,13 +308,20 @@ Per ADR-LLNCH-010, port is supplied at every call site (UI port picker, CLI `--p
 
 Per ADR-LLNCH-008, the lockfile directory and audit log are env-configurable so a container can mount host state as a volume — letting an in-container agent (e.g. `pi-coding-agent`) introspect the state of llauncher running on the host.
 
+> **Two env-var families are both current, not a typo.** This state-paths family below is
+> single-`L` (`LAUNCHER_*`); the agent-identity family under
+> [Multi-Node Management → Deployment](#deployment) (`LLAUNCHER_AGENT_HOST` etc.) is double-`L`.
+> The split is real — tracked open in [#151](https://github.com/shanevcantwell/llauncher/issues/151);
+> don't rename either family ahead of that issue landing.
+
 | Env var | Default | Holds |
 |---------|---------|-------|
 | `LAUNCHER_STATE_DIR` | `~/.llauncher` | Base for every derived path below |
 | `LAUNCHER_RUN_DIR` | `$LAUNCHER_STATE_DIR/run` | Per-server lockfiles (`{port}.lock`) and swap markers |
 | `LAUNCHER_AUDIT_PATH` | `$LAUNCHER_STATE_DIR/audit.jsonl` | Append-only JSON Lines audit log |
+| `LAUNCHER_LOG_DIR` | `~/.llauncher/logs` | Per-server log directory (append mode, ADR-LLNCH-013) |
 
-Precedence for each path is the explicit per-path var (`LAUNCHER_RUN_DIR` / `LAUNCHER_AUDIT_PATH`) > the `LAUNCHER_STATE_DIR`-derived default. With every var unset the paths are byte-identical to the legacy `~/.llauncher/*` layout, so setting them is opt-in.
+Precedence for each path is the explicit per-path var (`LAUNCHER_RUN_DIR` / `LAUNCHER_AUDIT_PATH` / `LAUNCHER_LOG_DIR`) > the `LAUNCHER_STATE_DIR`-derived default. With every var unset the paths are byte-identical to the legacy `~/.llauncher/*` layout, so setting them is opt-in.
 
 To let a container read the host's live llauncher state, mount the host paths in read-only and point the in-container env vars at the mount:
 
