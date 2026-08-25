@@ -40,6 +40,39 @@ def get_tools() -> list[Tool]:
                 "required": ["name"],
             },
         ),
+        Tool(
+            name="validate_models",
+            description=(
+                "Read-only validation of configured model weights (issue #475, "
+                "ADR-027): file existence/readability/size and GGUF magic bytes "
+                "(gating), plus VRAM headroom and lockfile staleness reported as "
+                "advisory (never gate the result). Never starts a process, "
+                "deletes a config entry, or writes an audit line. Returns "
+                "``{checked_at, ok, models: [...]}`` where each entry carries "
+                "``verdicts`` (per-check outcomes) and its own ``ok``."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "names": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Model names to validate. Omit to validate every "
+                            "configured model."
+                        ),
+                    },
+                    "vram": {
+                        "type": "boolean",
+                        "description": (
+                            "When false, skip the VRAM check entirely (no "
+                            "nvidia-smi shell-out). Default true."
+                        ),
+                    },
+                },
+                "required": [],
+            },
+        ),
     ]
 
 
@@ -122,3 +155,27 @@ async def get_model_config(state: LauncherState, args: dict) -> dict:
             **({"pid": status_info["pid"]} if status_info.get("status") == "running" else {})
         }
     }
+
+
+async def validate_models(args: dict) -> dict:
+    """Read-only validation of configured model weights (issue #475, ADR-027).
+
+    Stateless — reuses :func:`llauncher.operations.validate_models` directly,
+    the same peer as ``start_server``/``delete_model`` in the dispatch table
+    (no ``LauncherState`` singleton needed: the op reads ``ConfigStore`` and
+    the lockfile registry fresh on every call).
+
+    Args:
+        args: Tool arguments — optional ``names`` (list[str]) and ``vram``
+            (bool, default True).
+
+    Returns:
+        The ``ValidationReport`` as a plain dict.
+    """
+    from llauncher import operations as ops
+
+    names = args.get("names")
+    vram = args.get("vram", True)
+
+    report = ops.validate_models(names=names, vram=vram)
+    return report.model_dump(mode="json")

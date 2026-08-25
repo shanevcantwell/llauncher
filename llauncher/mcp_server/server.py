@@ -85,6 +85,8 @@ async def _dispatch_tool(name: str, arguments: dict) -> dict:
         return await servers_tools.cancel_server(arguments)
     elif name == "delete_model":
         return await config_tools.delete_model(arguments)
+    elif name == "validate_models":
+        return await models_tools.validate_models(arguments)
     elif name == "server_metrics":
         return await servers_tools.server_metrics(arguments)
     elif name == "server_slots":
