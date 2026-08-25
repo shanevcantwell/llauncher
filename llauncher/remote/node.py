@@ -347,8 +347,14 @@ class RemoteNode:
             self.status = NodeStatus.OFFLINE
             return None
 
-    def get_model_validation(self) -> dict | None:
+    def get_model_validation(self, vram: bool = True) -> dict | None:
         """Read-only validation report for all models on this node (#475, ADR-027).
+
+        Args:
+            vram: When ``False``, ask the node to skip the advisory VRAM
+                check (``?vram=false``) — no ``nvidia-smi`` shell-out on the
+                peer. The UI tab passes ``False``; it re-renders on every
+                widget interaction and never gates a badge on that verdict.
 
         Returns:
             A ``ValidationReport`` dict (``{checked_at, ok, models: [...]}``),
@@ -360,11 +366,12 @@ class RemoteNode:
 
             self.status = NodeStatus.ONLINE
             self.last_seen = datetime.now()
-            return ops.validate_models().model_dump(mode="json")
+            return ops.validate_models(vram=vram).model_dump(mode="json")
         try:
             with self._get_client() as client:
                 response = client.get(
                     f"{self.base_url}/models/validate",
+                    params={"vram": str(bool(vram)).lower()},
                     headers=self._get_headers(),
                 )
                 if response.status_code == 200:

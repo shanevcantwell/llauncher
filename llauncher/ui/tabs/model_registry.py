@@ -10,6 +10,9 @@ closed): it consumes the shared ``ModelValidation``/``ValidationReport``
 shape locally (``target == "local"``) and, for a remote node, through
 ``RemoteNode.get_model_validation()`` / ``RemoteAggregator.get_validation()``
 — the sanctioned client layer (thin-client UI rule, ``docs/ARCHITECTURE.md``).
+
+Validation here runs with ``vram=False``: the tab is on the rerun hot path
+and the VRAM verdict is advisory, so it never gates a badge (ADR-027 §2/§3).
 """
 
 from __future__ import annotations
@@ -37,12 +40,17 @@ def render_model_registry(state, registry=None, aggregator=None, target="local")
         from llauncher import operations as ops
 
         state.refresh()
-        report = ops.validate_models()
+        # ``vram=False``: this tab re-renders on every Streamlit widget
+        # interaction and the VRAM verdict is advisory-only, so paying an
+        # ``nvidia-smi`` shell-out per rerun buys nothing the badge gates on
+        # — exactly the per-rerun shell-out economics ADR-027 §2 kept off
+        # the hot path. Lockfile staleness (the other advisory) is free.
+        report = ops.validate_models(vram=False)
         entries = [m.model_dump(mode="json") for m in report.models]
     else:
         entries = []
         if aggregator is not None:
-            remote_report = aggregator.get_validation(target)
+            remote_report = aggregator.get_validation(target, vram=False)
             if remote_report:
                 entries = remote_report.get("models", [])
 

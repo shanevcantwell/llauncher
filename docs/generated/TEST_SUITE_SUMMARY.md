@@ -16,10 +16,10 @@
 
 | Category | Files | Tests |
 |----------|-------|-------|
-| Unit | 101 | 1557 |
+| Unit | 101 | 1579 |
 | Integration | 13 | 84 |
-| Other | 21 | 209 |
-| **Total** | **135** | **1850** |
+| Other | 21 | 211 |
+| **Total** | **135** | **1874** |
 
 ## Tests carrying special markers
 
@@ -33,7 +33,7 @@ ad-hoc markers used in the suite without declaration.
 | `@pytest.mark.integration` | 7 |
 | `@pytest.mark.integration_real` | 2 |
 | `@pytest.mark.live` | 5 |
-| `@pytest.mark.real_model_health` | 8 |
+| `@pytest.mark.real_model_health` | 12 |
 
 ## Detailed listing
 
@@ -651,7 +651,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_guarded_send_suppresses_late_response_after_rejection`**
   - *A send attempted *after* the cap trips is suppressed.*
 
-#### `tests/unit/test_agent_models_validate_api.py` (7 tests)
+#### `tests/unit/test_agent_models_validate_api.py` (11 tests)
 
 - **`test_returns_200_with_no_models`** `@real_model_health`
 - **`test_report_shape_with_one_model`** `@real_model_health`
@@ -661,6 +661,10 @@ ad-hoc markers used in the suite without declaration.
   - *No dedicated GET route remains. FastAPI resolves the path to*
 - **`test_models_health_detail_route_gone`**
 - **`test_get_models_performs_zero_health_checks`**
+- **`test_list_endpoint_forwards_vram_false`** `@real_model_health`
+- **`test_list_endpoint_defaults_to_vram_true`** `@real_model_health`
+- **`test_detail_endpoint_forwards_vram_false`** `@real_model_health`
+- **`test_no_vram_response_carries_no_vram_verdict`** `@real_model_health`
 
 #### `tests/unit/test_agent_nonblocking.py` (2 tests)
 
@@ -815,7 +819,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_install_cli_sh_calls_the_floor_check_before_venv_creation`**
   - *The floor check must run BEFORE `python3 -m venv`, never after —*
 
-#### `tests/unit/test_cli.py` (69 tests)
+#### `tests/unit/test_cli.py` (71 tests)
 
 - **`test_help_shows_all_command_groups`**
   - *CLI help should display all four subcommand groups.*
@@ -845,8 +849,12 @@ ad-hoc markers used in the suite without declaration.
   - *``--json`` emits a ``ValidationReport``-shaped payload.*
 - **`test_model_validate_single_name_delegates`**
   - *Naming a single model calls ``validate_models(names=[name])``.*
-- **`test_model_validate_ascii_safe_on_cp1252_stdout`**
-  - *Status tokens are plain ASCII words — no glyph to fail to encode on*
+- **`test_model_validate_no_vram_flag_suppresses_the_shellout`**
+  - *``--no-vram`` reaches the op as ``vram=False`` (no nvidia-smi at all).*
+- **`test_model_validate_status_tokens_are_distinguishable`**
+  - *Every gating failure is NOT ``MISSING`` (ADR-027 status vocabulary).*
+- **`test_model_validate_renders_on_cp1252_stdout`**
+  - *The whole rendered table survives a cp1252 console (#471-class guard).*
 - **`test_server_status_no_servers`**
   - *Server status with no running servers should show informational message.*
 - **`test_server_status_json_empty`**
@@ -2486,7 +2494,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_node_empty_api_key_treated_as_none`**
   - *An empty string for api_key should be normalised to None.*
 
-#### `tests/unit/test_remote_node_extended.py` (30 tests)
+#### `tests/unit/test_remote_node_extended.py` (33 tests)
 
 - **`test_gethostname_oserror_returns_literal_set`**
 - **`test_get_node_info_offline`**
@@ -2525,8 +2533,11 @@ ad-hoc markers used in the suite without declaration.
 - **`test_builds_local_target_with_resolved_token`**
 - **`test_builds_local_target_with_no_token`**
   - *``allow_generate=False`` resolver returning None → api_key None.*
+- **`test_vram_false_is_sent_as_a_query_param`**
+- **`test_vram_true_is_the_default`**
+- **`test_self_loop_forwards_vram_false`**
 
-#### `tests/unit/test_remote_state_extended.py` (24 tests)
+#### `tests/unit/test_remote_state_extended.py` (25 tests)
 
 - **`test_get_all_servers_offline_with_cache`**
   - *Test that offline node returns cached data with offline indicator.*
@@ -2568,6 +2579,8 @@ ad-hoc markers used in the suite without declaration.
   - *Test getting servers when no nodes are configured.*
 - **`test_get_validation_unknown_node_returns_none`**
 - **`test_get_validation_delegates_to_node`**
+- **`test_get_validation_forwards_vram_false`**
+  - *The UI tab's cheap mode has to survive the aggregator hop (#481).*
 - **`test_get_validation_unreachable_node_returns_none`**
 
 #### `tests/unit/test_render_op_result.py` (18 tests)
@@ -2937,7 +2950,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_backstop_fails_loud_when_entrypoint_not_executable`**
   - *Entry point present but not executable ⇒ 'usable' check fails loud.*
 
-#### `tests/unit/test_validate.py` (10 tests)
+#### `tests/unit/test_validate.py` (22 tests)
 
 - **`test_report_shape_and_verdicts`**
 - **`test_names_filter_selects_subset`**
@@ -2951,6 +2964,19 @@ ad-hoc markers used in the suite without declaration.
 - **`test_vram_absent_for_running_model`**
   - *A model with a live lockfile skips the VRAM check entirely.*
 - **`test_stale_lockfile_advisory_failure`**
+- **`test_single_gpu_query_across_all_models`**
+- **`test_no_gpu_query_at_all_when_vram_false`**
+- **`test_vram_adapter_exception_becomes_advisory_failure`**
+- **`test_weights_adapter_exception_becomes_gating_failure`**
+- **`test_deleted_weights_flip_ok_immediately`**
+- **`test_restored_weights_flip_back_immediately`**
+- **`test_resolved_path_is_fully_resolved`**
+- **`test_symlinked_entry_resolves_to_target`**
+  - *``resolved_path`` is documented as post-symlink resolution and must*
+- **`test_bad_magic_reports_bad_magic_not_missing`**
+- **`test_too_small_reports_too_small`**
+- **`test_missing_reports_missing_and_ok_reports_ok`**
+- **`test_advisory_failures_surface_as_their_own_tokens`**
 
 #### `tests/unit/test_windows_agent_env_example_docs.py` (3 tests)
 
@@ -3443,7 +3469,7 @@ ad-hoc markers used in the suite without declaration.
   - *The post-parse re-verify (~line 225-226): a middle segment that*
 - **`test_config_vanished_between_render_and_click_toasts_and_returns`**
 
-#### `tests/ui/test_model_registry_tab.py` (14 tests)
+#### `tests/ui/test_model_registry_tab.py` (16 tests)
 
 - **`test_local_target_with_no_models_shows_info_banner`**
 - **`test_remote_target_with_no_aggregator_data_shows_info_banner`**
@@ -3463,6 +3489,8 @@ ad-hoc markers used in the suite without declaration.
   - *A remote report's ``last_modified`` arrives as a JSON ISO string*
 - **`test_none_last_modified_renders_em_dash`**
 - **`test_local_target_calls_state_refresh_and_validate_models`**
+- **`test_local_render_suppresses_the_vram_check`**
+- **`test_remote_render_suppresses_the_peers_vram_check`**
 
 #### `tests/ui/test_models_tab.py` (13 tests)
 

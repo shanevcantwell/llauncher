@@ -24,9 +24,17 @@ logger = logging.getLogger(__name__)
 _GGUF_MAGIC = b"GGUF"
 
 
-def _weights_verdict(config: ModelConfig) -> ValidationVerdict:
-    """The ``weights`` check — existence/readability/size (gates ``ok``)."""
-    ok, reason = preflight.default_model_health_check(config)
+def _weights_verdict(config: ModelConfig, check: preflight.PreflightCheck) -> ValidationVerdict:
+    """The ``weights`` check — existence/readability/size (gates ``ok``).
+
+    Routed through :func:`preflight.run_preflight_check` — the invoker that
+    exists precisely to turn an adapter exception into ``(False, reason)``.
+    Calling the adapter directly would let a malformed-``nvidia-smi`` /
+    wedged-handle raise escape ``validate_models``, contradicting its
+    "never raises on a bad model entry" contract with an HTTP 500, a CLI
+    traceback, and a red Streamlit tab.
+    """
+    ok, reason = preflight.run_preflight_check(check, config, "weights")
     return ValidationVerdict(check="weights", ok=ok, reason="" if ok else reason)
 
 
@@ -53,9 +61,16 @@ def _gguf_magic_verdict(resolved_path: Path, exists: bool) -> ValidationVerdict 
     )
 
 
-def _vram_verdict(config: ModelConfig) -> ValidationVerdict:
-    """The ``vram`` check — always advisory (ADR-027 §3)."""
-    ok, reason = preflight.default_vram_check(config)
+def _vram_verdict(config: ModelConfig, check: preflight.PreflightCheck) -> ValidationVerdict:
+    """The ``vram`` check — always advisory (ADR-027 §3).
+
+    ``check`` is a collector-bound callable from
+    :func:`preflight.make_vram_check` (one ``nvidia-smi`` per
+    :func:`validate_models` call, not one per model), invoked through
+    :func:`preflight.run_preflight_check` for the same
+    never-raise reason as :func:`_weights_verdict`.
+    """
+    ok, reason = preflight.run_preflight_check(check, config, "vram")
     return ValidationVerdict(check="vram", ok=ok, reason="" if ok else reason, advisory=True)
 
 
@@ -84,8 +99,22 @@ def _running_port_and_lockfile_verdict(
     return None, None
 
 
-def _validate_one(name: str, config: ModelConfig, *, vram: bool) -> ModelValidation:
+def _validate_one(
+    name: str,
+    config: ModelConfig,
+    *,
+    weights_check: preflight.PreflightCheck,
+    vram_check: preflight.PreflightCheck | None,
+) -> ModelValidation:
+    # ``.resolve()`` to match ``check_model_health`` (and this field's own
+    # documented "after symlink + shard resolution" contract) — otherwise a
+    # symlinked entry's ``resolved_path`` names a different file than the
+    # verdict beside it describes.
     resolved = resolve_shard_path(config.model_path)
+    try:
+        resolved = resolved.resolve()
+    except OSError:  # pragma: no cover - resolve() is strict=False here
+        pass
     exists = resolved.exists()
 
     size_bytes = None
@@ -100,7 +129,7 @@ def _validate_one(name: str, config: ModelConfig, *, vram: bool) -> ModelValidat
 
     running_port, lockfile_verdict = _running_port_and_lockfile_verdict(name)
 
-    verdicts: list[ValidationVerdict] = [_weights_verdict(config)]
+    verdicts: list[ValidationVerdict] = [_weights_verdict(config, weights_check)]
 
     magic_verdict = _gguf_magic_verdict(resolved, exists)
     if magic_verdict is not None:
@@ -109,8 +138,8 @@ def _validate_one(name: str, config: ModelConfig, *, vram: bool) -> ModelValidat
     # VRAM: advisory, skipped entirely for a currently-running model (its
     # own weights already occupy the VRAM the estimate compares against —
     # ADR-027 §3), and suppressible via vram=False.
-    if vram and running_port is None:
-        verdicts.append(_vram_verdict(config))
+    if vram_check is not None and running_port is None:
+        verdicts.append(_vram_verdict(config, vram_check))
 
     if lockfile_verdict is not None:
         verdicts.append(lockfile_verdict)
@@ -144,7 +173,8 @@ def validate_models(
             check membership themselves before calling this).
         vram: When ``False``, the VRAM check is skipped entirely (no
             ``nvidia-smi`` shell-out at all), not merely omitted from the
-            gate — it was already advisory.
+            gate — it was already advisory. When ``True``, all models in
+            one call share a single GPU query.
 
     Returns:
         A :class:`ValidationReport` — never raises on a bad model entry;
@@ -157,7 +187,20 @@ def validate_models(
     else:
         selected = [(n, all_models[n]) for n in names if n in all_models]
 
-    results = [_validate_one(name, config, vram=vram) for name, config in selected]
+    # One collector for the whole batch: ``GPUHealthCollector``'s TTL cache
+    # is per-instance, so a per-model collector is a per-model ``nvidia-smi``
+    # subprocess (ADR-027 §2's refused economics, at N-per-call).
+    vram_check = preflight.make_vram_check() if vram else None
+    # Fresh weights verdict: the 60 s health cache would otherwise serve a
+    # stale ``ok`` next to freshly-stat'd metadata (deleted file ->
+    # ``exists: false`` alongside ``ok: true``, which #468's delete loop
+    # would read as healthy).
+    weights_check = preflight.make_model_health_check(force_refresh=True)
+
+    results = [
+        _validate_one(name, config, weights_check=weights_check, vram_check=vram_check)
+        for name, config in selected
+    ]
 
     return ValidationReport(
         checked_at=datetime.now(timezone.utc),

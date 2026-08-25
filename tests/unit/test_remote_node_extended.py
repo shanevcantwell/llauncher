@@ -133,7 +133,7 @@ class TestReadEndpointsErrorPaths:
         with patch.object(RemoteNode, "_is_self_loop", return_value=True), \
                 patch("llauncher.operations.validate_models", return_value=report) as mocked:
             result = n.get_model_validation()
-        mocked.assert_called_once_with()
+        mocked.assert_called_once_with(vram=True)
         assert result["ok"] is True
         assert result["models"] == []
 
@@ -387,3 +387,45 @@ class TestLocalAgentNodeFactory:
         assert node.name == "local"
         assert node.port == 8765
         assert node.api_key is None
+
+
+class TestRemoteNodeValidationVramPassthrough:
+    """``vram=False`` must reach the peer, not just the local op (PR #481)."""
+
+    @patch("httpx.Client")
+    def test_vram_false_is_sent_as_a_query_param(self, mock_cls):
+        resp = MagicMock(status_code=200)
+        resp.json = MagicMock(return_value={"ok": True, "models": []})
+        client = _http_client_mock(response=resp)
+        mock_cls.return_value = client
+        n = _node()
+
+        n.get_model_validation(vram=False)
+
+        _args, kwargs = client.__enter__.return_value.get.call_args
+        assert kwargs["params"] == {"vram": "false"}
+
+    @patch("httpx.Client")
+    def test_vram_true_is_the_default(self, mock_cls):
+        resp = MagicMock(status_code=200)
+        resp.json = MagicMock(return_value={"ok": True, "models": []})
+        client = _http_client_mock(response=resp)
+        mock_cls.return_value = client
+        n = _node()
+
+        n.get_model_validation()
+
+        _args, kwargs = client.__enter__.return_value.get.call_args
+        assert kwargs["params"] == {"vram": "true"}
+
+    def test_self_loop_forwards_vram_false(self):
+        from datetime import datetime, timezone
+
+        from llauncher.models.validation import ValidationReport
+
+        report = ValidationReport(checked_at=datetime.now(timezone.utc), ok=True, models=[])
+        n = RemoteNode("local", "127.0.0.1", port=8765)
+        with patch.object(RemoteNode, "_is_self_loop", return_value=True), \
+                patch("llauncher.operations.validate_models", return_value=report) as mocked:
+            n.get_model_validation(vram=False)
+        mocked.assert_called_once_with(vram=False)

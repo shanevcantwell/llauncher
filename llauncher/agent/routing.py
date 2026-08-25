@@ -371,15 +371,23 @@ def list_models() -> list[dict]:
 
 
 @router.get("/models/validate")
-def models_validate() -> dict:
-    """Validation report for *all* configured models (issue #475, ADR-027)."""
-    report = ops.validate_models()
+def models_validate(vram: bool = True) -> dict:
+    """Validation report for *all* configured models (issue #475, ADR-027).
+
+    ``?vram=false`` skips the advisory VRAM check entirely — no
+    ``nvidia-smi`` shell-out at all — for callers polling a large registry.
+    """
+    report = ops.validate_models(vram=vram)
     return report.model_dump(mode="json")
 
 
 @router.get("/models/validate/{model_name}")
-def model_validate_detail(model_name: str) -> dict:
-    """Validation report for a single model (issue #475, ADR-027)."""
+def model_validate_detail(model_name: str, vram: bool = True) -> dict:
+    """Validation report for a single model (issue #475, ADR-027).
+
+    ``?vram=false`` skips the advisory VRAM check (see
+    :func:`models_validate`).
+    """
     from llauncher.core.config import ConfigStore
 
     if model_name not in ConfigStore.list_models():
@@ -387,7 +395,7 @@ def model_validate_detail(model_name: str) -> dict:
             status_code=404, detail=f"Model '{model_name}' not found"
         )
 
-    report = ops.validate_models(names=[model_name])
+    report = ops.validate_models(names=[model_name], vram=vram)
     return report.model_dump(mode="json")
 
 

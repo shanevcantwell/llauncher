@@ -204,7 +204,7 @@ Read-only validation of configured model weights (issue #475, ADR-027). Checks f
 }
 ```
 
-Both fields are optional: omit `names` to validate every configured model; `vram: false` skips the VRAM check entirely (no `nvidia-smi` shell-out), not merely from the gate.
+Both fields are optional: omit `names` to validate every configured model; `vram: false` skips the VRAM check entirely (no `nvidia-smi` shell-out), not merely from the gate. With `vram: true`, every model in one call shares a single GPU query — the shell-out is per call, never per model. The same suppression is available as `--no-vram` on `llauncher model validate` and as `?vram=false` on the HTTP endpoints.
 
 **Output:**
 ```json
@@ -979,5 +979,5 @@ The MCP tools map to these HTTP endpoints (all port-keyed per ADR-010; `routing.
 | `get_server_logs` | `GET /logs/{port}` |
 | `list_orphans` | `GET /orphans` |
 | `delete_model` | `DELETE /models/{model_name}` |
+| `validate_models` | `GET /models/validate`, `GET /models/validate/{model_name}` (both accept `?vram=false`) |
 | (footer) | `GET /footer-context/{port}` |
-| (health probe) | `GET /models/health`, `GET /models/health/{model_name}` |

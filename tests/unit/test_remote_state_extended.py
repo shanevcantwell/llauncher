@@ -492,7 +492,18 @@ class TestGetValidation:
             result = aggregator.get_validation("gpu-rig")
 
         assert result == report
-        mocked.assert_called_once_with()
+        mocked.assert_called_once_with(vram=True)
+
+    def test_get_validation_forwards_vram_false(self):
+        """The UI tab's cheap mode has to survive the aggregator hop (#481)."""
+        registry = NodeRegistry()
+        registry.add_node("gpu-rig", "localhost", 8765)
+        aggregator = RemoteAggregator(registry)
+
+        with patch.object(RemoteNode, "get_model_validation", return_value=None) as mocked:
+            aggregator.get_validation("gpu-rig", vram=False)
+
+        mocked.assert_called_once_with(vram=False)
 
     def test_get_validation_unreachable_node_returns_none(self):
         registry = NodeRegistry()

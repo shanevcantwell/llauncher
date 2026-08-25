@@ -93,7 +93,7 @@ config, no lockfile, no audit entry, no reconcile.
 
 ### Doors
 
-- **`cli.py`** — `model validate [NAME] [--json]`. Distinct from the
+- **`cli.py`** — `model validate [NAME] [--json] [--no-vram]`. Distinct from the
   existing `config validate NAME` (schema-only round-trip). Exit `0`
   all-good, `1` unknown name, `2` at least one gating failure.
 - **`agent/routing.py`** — `GET /models/validate` and
@@ -111,7 +111,9 @@ config, no lockfile, no audit entry, no reconcile.
 - **`ui/tabs/model_registry.py`** — stops importing `core.model_health`
   and deriving its own status vocabulary; calls `ops.validate_models()`
   for `target == "local"` and `RemoteNode.get_model_validation()` /
-  `RemoteAggregator.get_validation()` for a remote node. The status badge
+  `RemoteAggregator.get_validation()` for a remote node — both with
+  `vram=False`, since the tab re-renders on every widget interaction and
+  the VRAM verdict is advisory (it never gates the badge). The status badge
   is a direct function of each entry's `verdicts`, not a second copy of
   the rule.
 
@@ -119,9 +121,9 @@ config, no lockfile, no audit entry, no reconcile.
 
 | check | source | gates `ok`? | notes |
 |---|---|---|---|
-| `weights` | `preflight.default_model_health_check` | **yes** | exists / readable / >=1 MiB, symlink- and shard-resolved |
-| `gguf_magic` | first 4 bytes == `b"GGUF"` | **yes** | read inside the readability check's own `open()`; skipped for non-`.gguf` |
-| `vram` | `preflight.default_vram_check` | no — advisory | skipped entirely for a currently-running model (its own weights already occupy the VRAM being compared against); suppressible via `vram=False` |
+| `weights` | `preflight.default_model_health_check` | **yes** | exists / readable / >=1 MiB, symlink- and shard-resolved. Run with `force_refresh=True`: this verb's whole purpose is the filesystem *now*, and a 60 s-cached `ok` served beside freshly-stat'd `exists: false` is the false verdict #468's delete loop would act on |
+| `gguf_magic` | first 4 bytes == `b"GGUF"` | **yes** | its own `open()` on the resolved path (one extra open+read per `.gguf`); skipped for non-`.gguf` and for a path that failed existence |
+| `vram` | `preflight.default_vram_check` | no — advisory | skipped entirely for a currently-running model (its own weights already occupy the VRAM being compared against); suppressible via `vram=False`. **One** `GPUHealthCollector` is bound per `validate_models()` call (`preflight.make_vram_check`) — the collector's TTL cache is per-instance, so a per-model collector would be a per-model `nvidia-smi` subprocess |
 | `lockfile` | `lockfile.list_lockfiles()` + `is_pid_alive` | no — advisory | a stale claim is reported, never reconciled — `stop`/`delete` own reconciliation |
 
 **Explicitly out of scope:** no auto-removal (deletion stays `model
@@ -130,12 +132,38 @@ process start, no config rewrite, no reconciliation, no audit entries (a
 read emits none — matches the #463 falsifier's zero-new-audit-lines
 expectation).
 
-## Windows / cp1252 (#471)
+## Status vocabulary and Windows / cp1252 (#471)
 
-`model validate` prints ASCII-only status tokens unconditionally (`OK`,
-`MISSING`) in the CLI table — no glyph anywhere on that path, so the verb
-is independent of #471's landing. Streamlit stays UTF-8 and keeps its
-emoji badges.
+The CLI table's `STATUS` column reports one token per distinguishable
+outcome. Collapsing every gating failure to `MISSING` would send an
+operator hunting for weights that are on disk but unreadable, truncated,
+or corrupt, so the vocabulary is:
+
+| token | meaning | source |
+|---|---|---|
+| `OK` | every gating check passed, no advisory failure | — |
+| `MISSING` | file not found | `weights` (`reason == "not found"`) |
+| `UNREADABLE` | present but cannot be opened | `weights` (`"unreadable"`) |
+| `TOO_SMALL` | present but under the 1 MiB heuristic | `weights` (`"too small"`) |
+| `BAD_MAGIC` | present, sized, but first 4 bytes are not `GGUF` | `gguf_magic` |
+| `INVALID` | gating failure with no more specific token (e.g. an adapter raised) | any gating verdict |
+| `STALE_LOCK` | gating-clean, stale lockfile claim | `lockfile` (advisory) |
+| `VRAM?` | gating-clean, VRAM headroom failed or unverifiable | `vram` (advisory) |
+
+Gating failures win over advisories; the token is derived once, on
+`ModelValidation.status` (the floor type), so CLI/HTTP/MCP/UI cannot fork
+it — the same rule as the verdict list itself.
+
+Every token is ASCII by construction — no glyph on that path, so the verb
+is independent of #471's landing. The claim is pinned end-to-end by
+`test_cli.py::test_model_validate_renders_on_cp1252_stdout`, which invokes
+the CLI against a cp1252-encoded stdout and encodes the *whole* rendered
+table (frame included) rather than re-deriving the status expression in the
+test body — a test that re-implements the production string passes unchanged
+if the production string becomes an emoji. The table *frame* is Rich's
+concern and is already handled: `Table.safe_box` substitutes an ASCII box
+whenever `ConsoleOptions.ascii_only` is set, which it is for any non-UTF
+console encoding. Streamlit stays UTF-8 and keeps its emoji badges.
 
 ## Consequences
 

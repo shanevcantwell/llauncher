@@ -321,6 +321,14 @@ def validate_models_cmd(
         None, help="Name of a single model to validate (default: all configured models)."
     ),
     as_json: bool = typer.Option(False, "--json", "-j", help="Output in JSON format"),
+    no_vram: bool = typer.Option(
+        False,
+        "--no-vram",
+        help=(
+            "Skip the advisory VRAM check entirely (no nvidia-smi shell-out). "
+            "Cheap mode for a large registry or a headless host."
+        ),
+    ),
 ) -> None:
     """Read-only validation of configured model weights (issue #475, ADR-027).
 
@@ -342,7 +350,9 @@ def validate_models_cmd(
         console.print(f"[red]Model '{name}' not found.[/red]")
         raise typer.Exit(code=1)
 
-    report = ops.validate_models(names=[name] if name is not None else None)
+    report = ops.validate_models(
+        names=[name] if name is not None else None, vram=not no_vram
+    )
 
     if as_json:
         _json_output(report.model_dump(mode="json"))
@@ -351,7 +361,7 @@ def validate_models_cmd(
     headers = ["NAME", "STATUS", "SIZE", "DETAILS"]
     rows = []
     for m in report.models:
-        status = "OK" if m.ok else "MISSING"
+        status = m.status
         size = str(m.size_bytes) if m.size_bytes is not None else "-"
         gating_fails = [v.reason for v in m.verdicts if not v.ok and not v.advisory]
         advisories = [v.reason for v in m.verdicts if not v.ok and v.advisory]

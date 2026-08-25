@@ -206,7 +206,7 @@ class TestModelRegistryRemoteTarget:
         )
 
         assert not at.exception
-        mock_aggregator.get_validation.assert_called_once_with("gpu-rig")
+        mock_aggregator.get_validation.assert_called_once_with("gpu-rig", vram=False)
         df = at.dataframe[0].value
         assert list(df["name"]) == ["remote-model"]
         assert list(df["node"]) == ["gpu-rig"]
@@ -334,4 +334,44 @@ class TestModelRegistryLocalTargetRefresh:
 
         assert not at.exception
         mock_state.refresh.assert_called_once()
-        mock_validate.assert_called_once_with()
+        mock_validate.assert_called_once_with(vram=False)
+
+
+class TestModelRegistryVramEconomics:
+    """The tab never pays an ``nvidia-smi`` shell-out on a rerun (PR #481).
+
+    ``validate_models`` is called with default ``vram=True`` from every other
+    door, but this tab re-renders on every widget interaction and the VRAM
+    verdict is advisory — it never gates the badge — so it is suppressed
+    here, locally and on the peer. That is the per-rerun shell-out economics
+    ADR-027 kept off the hot path.
+    """
+
+    def test_local_render_suppresses_the_vram_check(
+        self, tab_harness, mock_state, mock_aggregator
+    ):
+        report = _report([_validation(ok=True)])
+        with patch(
+            "llauncher.operations.validate_models", return_value=report
+        ) as mock_validate:
+            at = tab_harness(
+                render_model_registry, mock_state, None, mock_aggregator, "local"
+            )
+
+        assert not at.exception
+        assert mock_validate.call_args.kwargs["vram"] is False
+
+    def test_remote_render_suppresses_the_peers_vram_check(
+        self, tab_harness, mock_state, mock_aggregator
+    ):
+        mock_aggregator.get_validation.return_value = {
+            "checked_at": "2026-08-25T00:00:00Z",
+            "ok": True,
+            "models": [],
+        }
+        at = tab_harness(
+            render_model_registry, mock_state, None, mock_aggregator, "gpu-rig"
+        )
+
+        assert not at.exception
+        assert mock_aggregator.get_validation.call_args.kwargs["vram"] is False

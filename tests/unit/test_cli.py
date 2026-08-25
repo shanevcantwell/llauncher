@@ -232,12 +232,29 @@ def _validation_report(*, ok: bool, models: list):
     return ValidationReport(checked_at=datetime.now(timezone.utc), ok=ok, models=models)
 
 
-def _model_validation(name: str, *, ok: bool, gating_reason: str = ""):
+def _model_validation(
+    name: str,
+    *,
+    ok: bool,
+    gating_reason: str = "",
+    check: str = "weights",
+    advisory_check: str = "",
+    advisory_reason: str = "",
+):
     from llauncher.models.validation import ModelValidation, ValidationVerdict
 
     verdicts = [
-        ValidationVerdict(check="weights", ok=ok, reason="" if ok else gating_reason)
+        ValidationVerdict(check=check, ok=ok, reason="" if ok else gating_reason)
     ]
+    if advisory_check:
+        verdicts.append(
+            ValidationVerdict(
+                check=advisory_check,
+                ok=False,
+                reason=advisory_reason,
+                advisory=True,
+            )
+        )
     return ModelValidation(
         name=name,
         model_path=f"/fake/{name}.gguf",
@@ -260,7 +277,7 @@ def test_model_validate_all_ok_exit_zero(mock_config_store):
 
     assert result.exit_code == 0
     assert "OK" in result.stdout
-    mocked.assert_called_once_with(names=None)
+    mocked.assert_called_once_with(names=None, vram=True)
 
 
 def test_model_validate_one_missing_exit_two(mock_config_store):
@@ -320,13 +337,78 @@ def test_model_validate_single_name_delegates(mock_config_store):
         result = runner.invoke(app, ["model", "validate", "healthy"])
 
     assert result.exit_code == 0
-    mocked.assert_called_once_with(names=["healthy"])
+    mocked.assert_called_once_with(names=["healthy"], vram=True)
 
 
-def test_model_validate_ascii_safe_on_cp1252_stdout():
-    """Status tokens are plain ASCII words — no glyph to fail to encode on
-    a cp1252 console (#471-class guard, ADR-027 §5)."""
-    from llauncher.models.validation import ModelValidation, ValidationVerdict
+def test_model_validate_no_vram_flag_suppresses_the_shellout(mock_config_store):
+    """``--no-vram`` reaches the op as ``vram=False`` (no nvidia-smi at all)."""
+    _dir, _path = mock_config_store
+    ConfigStore.add_model(ModelConfig.from_dict_unvalidated({
+        "name": "healthy", "model_path": "/fake/healthy.gguf",
+    }))
+
+    report = _validation_report(ok=True, models=[_model_validation("healthy", ok=True)])
+    with patch("llauncher.operations.validate_models", return_value=report) as mocked:
+        result = runner.invoke(app, ["model", "validate", "--no-vram"])
+
+    assert result.exit_code == 0
+    mocked.assert_called_once_with(names=None, vram=False)
+
+
+@pytest.mark.parametrize(
+    "kwargs,expected",
+    [
+        ({"ok": True}, "OK"),
+        ({"ok": False, "gating_reason": "not found"}, "MISSING"),
+        ({"ok": False, "gating_reason": "unreadable"}, "UNREADABLE"),
+        ({"ok": False, "gating_reason": "too small"}, "TOO_SMALL"),
+        ({"ok": False, "check": "gguf_magic", "gating_reason": "bad magic bytes"}, "BAD_MAGIC"),
+        (
+            {"ok": True, "advisory_check": "lockfile", "advisory_reason": "stale lockfile on port 8081"},
+            "STALE_LOCK",
+        ),
+        (
+            {"ok": True, "advisory_check": "vram", "advisory_reason": "insufficient VRAM"},
+            "VRAM?",
+        ),
+    ],
+)
+def test_model_validate_status_tokens_are_distinguishable(
+    mock_config_store, kwargs, expected
+):
+    """Every gating failure is NOT ``MISSING`` (ADR-027 status vocabulary).
+
+    Collapsing them sent the operator hunting for weights that are on disk
+    but unreadable, truncated, or corrupt.
+    """
+    _dir, _path = mock_config_store
+    ConfigStore.add_model(ModelConfig.from_dict_unvalidated({
+        "name": "subject", "model_path": "/fake/subject.gguf",
+    }))
+
+    entry = _model_validation("subject", **kwargs)
+    report = _validation_report(ok=entry.ok, models=[entry])
+    with patch("llauncher.operations.validate_models", return_value=report):
+        result = runner.invoke(app, ["model", "validate"])
+
+    assert not isinstance(result.exception, UnicodeEncodeError)
+    assert expected in result.stdout
+
+
+def test_model_validate_renders_on_cp1252_stdout(mock_config_store):
+    """The whole rendered table survives a cp1252 console (#471-class guard).
+
+    This invokes the CLI for real against a cp1252-encoded stdout, so it
+    covers the whole ``_print_table`` render — including the box frame, whose
+    default Rich glyphs are U+2500-range and not cp1252-encodable — not just
+    the status tokens. Re-deriving the status expression inside the test body would
+    pass unchanged if ``cli.py`` started emitting emoji, which is exactly
+    what this guard must catch.
+    """
+    _dir, _path = mock_config_store
+    ConfigStore.add_model(ModelConfig.from_dict_unvalidated({
+        "name": "healthy", "model_path": "/fake/healthy.gguf",
+    }))
 
     report = _validation_report(
         ok=False,
@@ -335,13 +417,17 @@ def test_model_validate_ascii_safe_on_cp1252_stdout():
             _model_validation("gone", ok=False, gating_reason="not found"),
         ],
     )
-    # Every status/detail token used in the CLI's render path must survive
-    # a strict cp1252 round-trip.
-    for m in report.models:
-        status = "OK" if m.ok else "MISSING"
-        status.encode("cp1252")
-        for v in m.verdicts:
-            v.reason.encode("cp1252")
+    cp1252_runner = CliRunner(charset="cp1252")
+    with patch("llauncher.operations.validate_models", return_value=report):
+        result = cp1252_runner.invoke(app, ["model", "validate"])
+
+    assert not isinstance(result.exception, UnicodeEncodeError), (
+        f"CLI failed to encode its own table on a cp1252 console: {result.exception!r}"
+    )
+    assert result.exit_code == 2
+    # Every byte the console emitted must round-trip through cp1252.
+    result.stdout.encode("cp1252")
+    assert "OK" in result.stdout and "MISSING" in result.stdout
 
 
 # ---------------------------------------------------------------------------

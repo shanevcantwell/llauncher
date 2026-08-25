@@ -7,11 +7,14 @@ stale-lockfile advisory.
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
+from llauncher.core import gpu as gpu_mod
 from llauncher.core.config import ConfigStore
+from llauncher.operations import preflight
 from llauncher.models.config import ModelConfig, _skip_path_validation
 
 # These tests exercise the real weights/gguf_magic verdicts against real
@@ -227,3 +230,223 @@ class TestValidateModelsLockfile:
         assert lock_verdict.ok is False
         # Advisory — does not gate ok, and validate never reconciles.
         assert entry.ok is True
+
+
+# ---------------------------------------------------------------------------
+# Review findings on PR #481
+# ---------------------------------------------------------------------------
+
+_REAL_VRAM_CHECK = preflight.default_vram_check
+
+
+def _fake_gpu(free_mb: int = 999_999):
+    """A ``refresh()`` replacement that records each call (one per shell-out)."""
+    calls: list[int] = []
+
+    def _refresh(self):
+        calls.append(1)
+        return gpu_mod.GPUHealthResult(
+            backends=["nvidia"],
+            devices=[gpu_mod.GPUDevice(index=0, name="fake", free_vram_mb=free_mb)],
+        )
+
+    return calls, _refresh
+
+
+class TestValidateModelsGpuQueryEconomics:
+    """One GPU query per call, not one per model (blocker on PR #481).
+
+    ``GPUHealthCollector``'s TTL cache is per-instance, so building a fresh
+    collector inside the per-model check meant an ``nvidia-smi`` subprocess
+    per configured model -- N-per-rerun on the Models tab, which is exactly
+    the shell-out economics ADR-027 refused to put on a hot path.
+    """
+
+    def test_single_gpu_query_across_all_models(self, registry):
+        from llauncher import operations as ops
+
+        calls, fake_refresh = _fake_gpu()
+        with patch(
+            "llauncher.operations.preflight.default_vram_check", _REAL_VRAM_CHECK
+        ), patch.object(gpu_mod.GPUHealthCollector, "refresh", fake_refresh):
+            report = ops.validate_models()
+
+        assert len(report.models) == 3
+        assert all(
+            any(v.check == "vram" for v in m.verdicts) for m in report.models
+        ), "every model still gets a vram verdict"
+        assert len(calls) == 1, f"expected one GPU query for the batch, got {len(calls)}"
+
+    def test_no_gpu_query_at_all_when_vram_false(self, registry):
+        from llauncher import operations as ops
+
+        calls, fake_refresh = _fake_gpu()
+        with patch(
+            "llauncher.operations.preflight.default_vram_check", _REAL_VRAM_CHECK
+        ), patch.object(gpu_mod.GPUHealthCollector, "refresh", fake_refresh):
+            ops.validate_models(vram=False)
+
+        assert calls == []
+
+
+class TestValidateModelsNeverRaises:
+    """The docstring promises "never raises on a bad model entry"."""
+
+    def test_vram_adapter_exception_becomes_advisory_failure(self, registry):
+        from llauncher import operations as ops
+
+        with patch(
+            "llauncher.operations.preflight.default_vram_check",
+            side_effect=ValueError("malformed nvidia-smi CSV"),
+        ):
+            report = ops.validate_models(names=["present-model"])
+
+        entry = report.models[0]
+        verdict = next(v for v in entry.verdicts if v.check == "vram")
+        assert verdict.ok is False
+        assert verdict.advisory is True
+        assert "malformed nvidia-smi CSV" in verdict.reason
+        assert entry.ok is True, "an advisory adapter crash must not gate ok"
+
+    def test_weights_adapter_exception_becomes_gating_failure(self, registry):
+        from llauncher import operations as ops
+
+        with patch(
+            "llauncher.operations.preflight.default_model_health_check",
+            side_effect=OSError("wedged handle"),
+        ):
+            report = ops.validate_models(names=["present-model"], vram=False)
+
+        entry = report.models[0]
+        verdict = next(v for v in entry.verdicts if v.check == "weights")
+        assert verdict.ok is False
+        assert "wedged handle" in verdict.reason
+        assert entry.ok is False
+        assert entry.status == "INVALID"
+
+
+class TestValidateModelsFreshness:
+    """The gating verdict and the stat'd metadata must describe one moment.
+
+    ``check_model_health`` caches for 60 s; the metadata beside it was always
+    stat'd fresh. A model deleted after any recent call therefore reported
+    ``exists: false`` next to ``ok: true`` -- the false verdict #468's
+    "delete entries with missing weights" loop would act on.
+    """
+
+    def test_deleted_weights_flip_ok_immediately(self, registry):
+        from llauncher import operations as ops
+
+        first = ops.validate_models(names=["present-model"], vram=False)
+        assert first.models[0].ok is True
+
+        Path(registry["present"]).unlink()
+
+        second = ops.validate_models(names=["present-model"], vram=False)
+        entry = second.models[0]
+        assert entry.exists is False
+        assert entry.ok is False, "a cached ok beside exists=false is the #468 false verdict"
+        assert entry.status == "MISSING"
+
+    def test_restored_weights_flip_back_immediately(self, registry):
+        from llauncher import operations as ops
+
+        Path(registry["present"]).unlink()
+        assert ops.validate_models(names=["present-model"], vram=False).models[0].ok is False
+
+        Path(registry["present"]).write_bytes(_gguf_bytes())
+
+        entry = ops.validate_models(names=["present-model"], vram=False).models[0]
+        assert entry.exists is True
+        assert entry.ok is True
+
+
+class TestValidateModelsResolvedPath:
+    def test_resolved_path_is_fully_resolved(self, registry):
+        from llauncher import operations as ops
+
+        entry = ops.validate_models(names=["present-model"], vram=False).models[0]
+        assert entry.resolved_path == str(Path(registry["present"]).resolve())
+
+    def test_symlinked_entry_resolves_to_target(self, registry, tmp_path):
+        """``resolved_path`` is documented as post-symlink resolution and must
+        name the same file the weights verdict read."""
+        from llauncher import operations as ops
+
+        link = tmp_path / "link.gguf"
+        try:
+            link.symlink_to(registry["present"])
+        except (OSError, NotImplementedError):  # pragma: no cover - needs privilege
+            pytest.skip("symlink creation not permitted on this host")
+
+        models = ConfigStore.load()
+        models["linked-model"] = _write_model("linked-model", str(link))
+        ConfigStore.save(models)
+
+        entry = ops.validate_models(names=["linked-model"], vram=False).models[0]
+        assert entry.ok is True
+        assert entry.resolved_path == str(Path(registry["present"]).resolve())
+
+
+class TestValidationStatusTokens:
+    """ADR-027's status vocabulary -- a gating failure is not always MISSING."""
+
+    def test_bad_magic_reports_bad_magic_not_missing(self, registry, tmp_path):
+        from llauncher import operations as ops
+
+        bad = tmp_path / "corrupt.gguf"
+        bad.write_bytes(_gguf_bytes(magic=False))
+        models = ConfigStore.load()
+        models["corrupt-model"] = _write_model("corrupt-model", str(bad))
+        ConfigStore.save(models)
+
+        entry = ops.validate_models(names=["corrupt-model"], vram=False).models[0]
+        assert entry.exists is True
+        assert entry.status == "BAD_MAGIC"
+
+    def test_too_small_reports_too_small(self, registry, tmp_path):
+        from llauncher import operations as ops
+
+        tiny = tmp_path / "tiny.gguf"
+        tiny.write_bytes(b"GGUF" + b"\x00" * 16)
+        models = ConfigStore.load()
+        models["tiny-model"] = _write_model("tiny-model", str(tiny))
+        ConfigStore.save(models)
+
+        entry = ops.validate_models(names=["tiny-model"], vram=False).models[0]
+        assert entry.status == "TOO_SMALL"
+
+    def test_missing_reports_missing_and_ok_reports_ok(self, registry):
+        from llauncher import operations as ops
+
+        report = ops.validate_models(vram=False)
+        names = {m.name: m for m in report.models}
+        assert names["missing-model"].status == "MISSING"
+        assert names["present-model"].status == "OK"
+
+    def test_advisory_failures_surface_as_their_own_tokens(self, registry):
+        from llauncher import operations as ops
+        from llauncher.core import lockfile as lf
+
+        with patch(
+            "llauncher.operations.preflight.default_vram_check",
+            return_value=(False, "insufficient VRAM"),
+        ):
+            entry = ops.validate_models(names=["present-model"]).models[0]
+        assert entry.ok is True
+        assert entry.status == "VRAM?"
+
+        with patch.object(lf, "list_lockfiles") as mocked_list, \
+                patch.object(lf, "is_pid_alive", return_value=False):
+            mocked_list.return_value = [
+                lf.Lockfile(
+                    pid=99999,
+                    model="present-model",
+                    port=8081,
+                    started_at="2026-08-25T00:00:00Z",
+                    llauncher_pid=1,
+                )
+            ]
+            entry = ops.validate_models(names=["present-model"], vram=False).models[0]
+        assert entry.ok is True
+        assert entry.status == "STALE_LOCK"

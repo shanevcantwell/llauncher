@@ -158,3 +158,57 @@ class TestModelsEndpointHotPathGuarantee:
 
         assert response.status_code == 200
         mocked_health.assert_not_called()
+
+
+@pytest.mark.real_model_health
+class TestModelsValidateVramQueryParam:
+    """``?vram=false`` is the HTTP door's cheap mode (PR #481).
+
+    Without it there was no way to run the verb over HTTP without paying an
+    ``nvidia-smi`` shell-out — the flag existed only on the MCP tool.
+    """
+
+    def _client(self):
+        from fastapi.testclient import TestClient
+        from llauncher.agent.server import create_app_unauthenticated as create_app
+
+        return TestClient(create_app())
+
+    def test_list_endpoint_forwards_vram_false(self, config_with_one_model):
+        from llauncher.models.validation import ValidationReport
+        from datetime import datetime, timezone
+
+        report = ValidationReport(checked_at=datetime.now(timezone.utc), ok=True, models=[])
+        with patch("llauncher.operations.validate_models", return_value=report) as mocked:
+            response = self._client().get("/models/validate?vram=false")
+
+        assert response.status_code == 200
+        assert mocked.call_args.kwargs["vram"] is False
+
+    def test_list_endpoint_defaults_to_vram_true(self, config_with_one_model):
+        from llauncher.models.validation import ValidationReport
+        from datetime import datetime, timezone
+
+        report = ValidationReport(checked_at=datetime.now(timezone.utc), ok=True, models=[])
+        with patch("llauncher.operations.validate_models", return_value=report) as mocked:
+            response = self._client().get("/models/validate")
+
+        assert response.status_code == 200
+        assert mocked.call_args.kwargs["vram"] is True
+
+    def test_detail_endpoint_forwards_vram_false(self, config_with_one_model):
+        from llauncher.models.validation import ValidationReport
+        from datetime import datetime, timezone
+
+        report = ValidationReport(checked_at=datetime.now(timezone.utc), ok=True, models=[])
+        with patch("llauncher.operations.validate_models", return_value=report) as mocked:
+            response = self._client().get("/models/validate/validate-model?vram=false")
+
+        assert response.status_code == 200
+        assert mocked.call_args.kwargs == {"names": ["validate-model"], "vram": False}
+
+    def test_no_vram_response_carries_no_vram_verdict(self, config_with_one_model):
+        response = self._client().get("/models/validate?vram=false")
+        assert response.status_code == 200
+        entry = response.json()["models"][0]
+        assert not any(v["check"] == "vram" for v in entry["verdicts"])
