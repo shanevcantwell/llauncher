@@ -255,7 +255,7 @@ def start(
         # Launch the process.
         try:
             popen = proc.start_server(config, port, server_bin=server_bin)
-        except (FileNotFoundError, OSError) as e:
+        except (FileNotFoundError, OSError, proc.DeniedExtraArgError) as e:
             al.record(
                 AuditAction.STARTED,
                 AuditResult.ERROR,
