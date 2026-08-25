@@ -55,7 +55,7 @@ trust-and-degrade on an unrecognized one (`PARSE-AT-THE-DOOR`).
 confirmation) — never port occupancy, model identity, or lifecycle truth. When
 the UI and the backend disagree, the UI is wrong: repair by re-fetch, never by
 widening `session_state`. Full statement, enforcement surfaces, and the
-instant-fail row: `docs/ARCHITECTURE.md` (Enforced UI boundary, ADR-025;
+instant-fail row: `docs/ARCHITECTURE.md` (Enforced UI boundary, ADR-LLNCH-025;
 recorded via #410).
 
 ## Autonomy contract (operator-ratified 2026-06-10)

@@ -527,12 +527,12 @@ def test_delegated_outcome_none_seam():
 
 
 # ---------------------------------------------------------------------------
-# server swap (#337 — parity with start/stop; ADR-010/ADR-011 envelope)
+# server swap (#337 — parity with start/stop; ADR-LLNCH-010/ADR-LLNCH-011 envelope)
 # ---------------------------------------------------------------------------
 
 
 def test_swap_without_port_errors(mock_config_store):
-    """Omitting --port must fail at arg-parse time, mirroring ``start`` (ADR-010)."""
+    """Omitting --port must fail at arg-parse time, mirroring ``start`` (ADR-LLNCH-010)."""
     _dir, _path = mock_config_store
 
     with patch("llauncher.operations.swap") as mock_swap:
@@ -567,7 +567,7 @@ def test_swap_with_explicit_port(mock_config_store):
 
 
 def test_swap_rejected_empty_port(mock_config_store):
-    """Swap on an empty port is rejected per ADR-010 (use start instead)."""
+    """Swap on an empty port is rejected per ADR-LLNCH-010 (use start instead)."""
     _dir, _path = mock_config_store
 
     with patch("llauncher.operations.swap") as mock_swap:
@@ -587,7 +587,7 @@ def test_swap_rejected_empty_port(mock_config_store):
 
 
 def test_swap_rolled_back_surfaces_previous_model(mock_config_store):
-    """A rolled-back swap renders both the message and the restored model (ADR-011)."""
+    """A rolled-back swap renders both the message and the restored model (ADR-LLNCH-011)."""
     _dir, _path = mock_config_store
 
     with patch("llauncher.operations.swap") as mock_swap:

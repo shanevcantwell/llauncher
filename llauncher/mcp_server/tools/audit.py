@@ -19,7 +19,7 @@ def get_tools() -> list[Tool]:
         Tool(
             name="read_audit",
             description=(
-                "Read recent audit-log entries on this node (ADR-008, "
+                "Read recent audit-log entries on this node (ADR-LLNCH-008, "
                 "issue #64). The audit log is process-global (not "
                 "port-scoped). 'limit' bounds the tail (default 200); "
                 "'action' and 'result' filter entries by their exact enum "

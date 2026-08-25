@@ -607,7 +607,7 @@ def _extract_flag_value(cmdline: list[str], flag: str) -> str | None:
 def verify_pid(pid: int, *, expect_port: int | None = None) -> ServerProcessInfo | None:
     """Verify a lockfile-claimed pid against the live process table (#466).
 
-    The pid-addressed replacement for ADR-008's reconciliation table
+    The pid-addressed replacement for ADR-LLNCH-008's reconciliation table
     (``lockfile x pid-alive x argv-match``) and the natural body of
     :func:`llauncher.core.lockfile.reconcile_lockfile`'s ``sentinel_check``
     hook — one handle, one cmdline read (~11 ms measured on Windows),
@@ -617,7 +617,7 @@ def verify_pid(pid: int, *, expect_port: int | None = None) -> ServerProcessInfo
         pid: The pid a lockfile claims is running a managed server.
         expect_port: When given, the claim's port. A live llama-server
             whose argv ``--port`` disagrees is treated as a corrupted
-            claim, not a match (ADR-008: "present, argv mismatch ->
+            claim, not a match (ADR-LLNCH-008: "present, argv mismatch ->
             refuse to act on this port").
 
     Returns:
@@ -665,7 +665,7 @@ def verify_pid(pid: int, *, expect_port: int | None = None) -> ServerProcessInfo
     if expect_port is not None and port != expect_port:
         logger.warning(
             "verify_pid: pid %s argv port %s does not match expected port "
-            "%s — refusing to treat this as the claimed server (ADR-008)",
+            "%s — refusing to treat this as the claimed server (ADR-LLNCH-008)",
             pid, port, expect_port,
         )
         return None

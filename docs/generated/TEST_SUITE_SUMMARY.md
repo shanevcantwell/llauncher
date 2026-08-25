@@ -864,13 +864,13 @@ ad-hoc markers used in the suite without declaration.
 - **`test_delegated_outcome_none_seam`**
   - *Unit-level guard on the dict|None reducer (mirrors MCP ``_delegated_or_error``).*
 - **`test_swap_without_port_errors`**
-  - *Omitting --port must fail at arg-parse time, mirroring ``start`` (ADR-010).*
+  - *Omitting --port must fail at arg-parse time, mirroring ``start`` (ADR-LLNCH-010).*
 - **`test_swap_with_explicit_port`**
   - *Swapping a model with --port should call operations.swap with that port.*
 - **`test_swap_rejected_empty_port`**
-  - *Swap on an empty port is rejected per ADR-010 (use start instead).*
+  - *Swap on an empty port is rejected per ADR-LLNCH-010 (use start instead).*
 - **`test_swap_rolled_back_surfaces_previous_model`**
-  - *A rolled-back swap renders both the message and the restored model (ADR-011).*
+  - *A rolled-back swap renders both the message and the restored model (ADR-LLNCH-011).*
 - **`test_swap_delegates_over_http_when_agent_present`**
 - **`test_swap_in_process_when_no_agent`**
 - **`test_swap_delegated_failure_exits_nonzero`**
@@ -2164,7 +2164,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_live_non_llama_process_returns_none`**
   - *PID-reuse defense: alive + readable but not a llama-server.*
 - **`test_expect_port_mismatch_returns_none_and_warns`**
-  - *ADR-008: argv port disagrees with the lockfile's claim → refuse.*
+  - *ADR-LLNCH-008: argv port disagrees with the lockfile's claim → refuse.*
 - **`test_live_llama_server_returns_full_info`**
   - *The good case: alias/port/model_path/create_time populated.*
 - **`test_live_llama_server_no_expect_port_still_verifies`**

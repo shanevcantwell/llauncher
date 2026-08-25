@@ -22,7 +22,7 @@ Code path:
     eject-failure symptom — even though the pid still exists.
 
 Expected-correct: a still-present pid claiming the port should be stoppable
-(lockfile-authoritative truth, ADR-008). Actual-buggy: the kill is never
+(lockfile-authoritative truth, ADR-LLNCH-008). Actual-buggy: the kill is never
 attempted; eject is a success-shaped no-op.
 
 This script: forks a fake llama-server bound conceptually to port 18181,

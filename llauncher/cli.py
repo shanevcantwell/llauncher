@@ -298,14 +298,14 @@ def swap_server(
         ...,
         "--port",
         "-p",
-        help="Port whose occupant to replace (required; ADR-010).",
+        help="Port whose occupant to replace (required; ADR-LLNCH-010).",
     ),
     caller: str = typer.Option("cli", hidden=True),
 ) -> None:
     """Replace whatever is running on ``port`` with ``name``.
 
-    Per ADR-010 the caller supplies the port, mirroring ``start``/``stop``.
-    Performs the ADR-011 5-phase swap (pre-flight, marker, stop, start,
+    Per ADR-LLNCH-010 the caller supplies the port, mirroring ``start``/``stop``.
+    Performs the ADR-LLNCH-011 5-phase swap (pre-flight, marker, stop, start,
     readiness) with rollback to the previous model on failure — same
     delegation gate as ``start``/``stop``: a healthy local agent gets the
     swap over HTTP, else it runs in-process.
@@ -614,7 +614,7 @@ def audit(
     ),
     as_json: bool = typer.Option(False, "--json", "-j", help="Output in JSON format"),
 ) -> None:
-    """Read recent audit-log entries (ADR-008, issue #64).
+    """Read recent audit-log entries (ADR-LLNCH-008, issue #64).
 
     Mirrors the agent's ``GET /audit`` contract exactly
     (``agent/routing.py::get_audit``): a bounded tail read via

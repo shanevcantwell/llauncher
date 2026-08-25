@@ -1509,7 +1509,7 @@ class TestVerifyPid:
         assert proc.verify_pid(4242) is None
 
     def test_expect_port_mismatch_returns_none_and_warns(self, monkeypatch, caplog):
-        """ADR-008: argv port disagrees with the lockfile's claim → refuse."""
+        """ADR-LLNCH-008: argv port disagrees with the lockfile's claim → refuse."""
         from llauncher.core import process as proc
 
         p = MagicMock()
