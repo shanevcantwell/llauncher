@@ -328,9 +328,10 @@ llauncher includes validation rules to prevent problematic actions:
 
 ## Versioning
 
-`vN` (`v1`, `v2`, `v3` …) denotes the architecture generation; `0.x`
-(`0.4.0a0` / `v0.4.0-alpha`) denotes the semver release. They are independent
-axes and do not map to each other — see [`docs/VERSIONING.md`](docs/VERSIONING.md).
+`vN` (`v1`, `v2`, `v3` …) denotes the architecture generation; `0.x` denotes
+the semver release (currently `0.4.1a0` / `v0.4.1-alpha` — read the live
+number from `pyproject.toml` or the latest git tag, not this doc). They are
+independent axes and do not map to each other — see [`docs/VERSIONING.md`](docs/VERSIONING.md).
 
 ## Project Structure
 
