@@ -11,6 +11,7 @@ Output uses Rich tables with color-coded status indicators and supports --json f
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -72,6 +73,26 @@ STATUS_COLOR = {
     "offline": "red",
     "error": "red bold",
 }
+
+
+def _glyph(ok: bool) -> str:
+    """Return a status glyph, falling back to ASCII when stdout can't encode unicode.
+
+    Issue #471: on a cp1252 (or otherwise non-UTF-8) console, printing the
+    unicode check/cross glyphs raises ``UnicodeEncodeError`` from deep inside
+    rich's Windows console handling — *after* the underlying operation (e.g.
+    ``server start``) already succeeded, so the crash reads as a phantom
+    failure. Probe the actual stdout encoding and degrade to plain ASCII
+    rather than let that raise.
+    """
+    unicode_glyph = "✓" if ok else "✗"
+    ascii_glyph = "OK" if ok else "X"
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    try:
+        unicode_glyph.encode(encoding)
+    except (UnicodeEncodeError, LookupError):
+        return ascii_glyph
+    return unicode_glyph
 
 
 def _color(text: str, status: str = "") -> Text:
@@ -210,7 +231,7 @@ def remove_model(
     result = ops.delete_model(name, caller="cli")
 
     if not result.success:
-        console.print(f"[red]✗ {result.message}[/red]")
+        console.print(f"[red]{_glyph(False)} {result.message}[/red]")
         raise typer.Exit(code=1)
     console.print(_color(result.message, "stopped"))
 
@@ -259,7 +280,7 @@ def start_server(
         success, message = result.success, result.message
 
     if not success:
-        console.print(f"[red]✗ {message}[/red]")
+        console.print(f"[red]{_glyph(False)} {message}[/red]")
         raise typer.Exit(code=1)
     console.print(_color(message, "running"))
 
@@ -286,7 +307,7 @@ def stop_server(
         success, message = result.success, result.message
 
     if not success:
-        console.print(f"[red]✗ {message}[/red]")
+        console.print(f"[red]{_glyph(False)} {message}[/red]")
         raise typer.Exit(code=1)
     console.print(_color(message, "stopped"))
 
@@ -328,7 +349,7 @@ def swap_server(
             message = f"{message} (rolled back to {result.previous_model})"
 
     if not success:
-        console.print(f"[red]✗ {message}[/red]")
+        console.print(f"[red]{_glyph(False)} {message}[/red]")
         raise typer.Exit(code=1)
     console.print(_color(message, "running"))
 
@@ -462,7 +483,7 @@ def add_node(
     actual_port = port or 8765
     ok, msg = registry.add_node(name=name, host=host, port=actual_port, api_key=api_key)
     if not ok:
-        console.print(f"[red]✗ {msg}[/red]")
+        console.print(f"[red]{_glyph(False)} {msg}[/red]")
         raise typer.Exit(code=1)
     console.print(_color(msg, "online"))
 
@@ -499,7 +520,7 @@ def remove_node(
     registry = NodeRegistry()
     ok, msg = registry.remove_node(name)
     if not ok:
-        console.print(f"[red]✗ {msg}[/red]")
+        console.print(f"[red]{_glyph(False)} {msg}[/red]")
         raise typer.Exit(code=1)
     console.print(_color(msg, "stopped"))
 
@@ -590,9 +611,9 @@ def validate_config(
     # Basic field validation (re-instantiate to catch schema errors)
     try:
         validated = ModelConfig.model_validate(config.to_dict())  # type: ignore[arg-type]
-        console.print(f"[green]✓[/green] Model '{name}' configuration is valid.")
+        console.print(f"[green]{_glyph(True)}[/green] Model '{name}' configuration is valid.")
     except Exception as e:
-        console.print(f"[red]✗ Validation failed for '{name}': {e}[/red]")
+        console.print(f"[red]{_glyph(False)} Validation failed for '{name}': {e}[/red]")
         raise typer.Exit(code=1)
 
 

@@ -4,6 +4,7 @@ Uses typer.testing.CliRunner to invoke the CLI without subprocess.
 Covers all four subcommand groups: model, server, node, config.
 """
 
+import io
 import json
 import pytest
 from contextlib import contextmanager
@@ -1196,3 +1197,86 @@ def test_audit_limit_bounds_tail(tmp_path, monkeypatch):
     assert len(data) == 2
     assert data[0]["message"] == "entry-3"
     assert data[1]["message"] == "entry-4"
+
+
+# ---------------------------------------------------------------------------
+# Issue #471: ASCII-safe status glyphs on consoles that can't encode ✓/✗
+# ---------------------------------------------------------------------------
+#
+# On a cp1252 (or otherwise non-UTF-8) console, ``console.print`` of the
+# literal ✓/✗ glyphs raises ``UnicodeEncodeError`` deep inside rich's Windows
+# console handling — *after* the underlying operation (e.g. ``server start``)
+# already succeeded, so the crash reads as a phantom failure. ``cli._glyph``
+# probes the actual stdout encoding and degrades to plain ASCII rather than
+# let that raise.
+
+def test_glyph_falls_back_to_ascii_on_cp1252_stdout(monkeypatch):
+    """``_glyph`` returns ASCII when stdout can't encode the unicode glyph."""
+    fake_stdout = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+    monkeypatch.setattr("sys.stdout", fake_stdout)
+
+    assert cli._glyph(True) == "OK"
+    assert cli._glyph(False) == "X"
+
+
+def test_glyph_uses_unicode_on_utf8_stdout(monkeypatch):
+    """``_glyph`` keeps the unicode glyph when stdout can encode it."""
+    fake_stdout = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
+    monkeypatch.setattr("sys.stdout", fake_stdout)
+
+    assert cli._glyph(True) == "✓"  # ✓
+    assert cli._glyph(False) == "✗"  # ✗
+
+
+def test_server_start_success_exits_zero_under_cp1252_stdout(mock_config_store):
+    """The ``server start`` success path must not raise or exit nonzero when
+    the console can't encode ✓/✗ (issue #471's exact regression: the launch
+    already succeeded, so this must never read as a phantom failure)."""
+    from llauncher.operations import StartResult
+
+    cp1252_runner = CliRunner(charset="cp1252")
+
+    with patch("llauncher.operations.start") as mock_start:
+        mock_start.return_value = StartResult(
+            success=True,
+            action="started",
+            port=9999,
+            model="test-model",
+            pid=42,
+            message="Started test-model on port 9999",
+        )
+
+        result = cp1252_runner.invoke(
+            app, ["server", "start", "test-model", "--port", "9999"]
+        )
+
+    assert result.exception is None
+    assert result.exit_code == 0
+
+
+def test_server_start_failure_still_reports_ascii_under_cp1252_stdout(mock_config_store):
+    """The failure path must degrade to ASCII, not crash, under cp1252."""
+    from llauncher.operations import StartResult
+
+    cp1252_runner = CliRunner(charset="cp1252")
+
+    with patch("llauncher.operations.start") as mock_start:
+        mock_start.return_value = StartResult(
+            success=False,
+            action="error",
+            port=9999,
+            model="unknown-model",
+            message="Model not found: unknown-model",
+        )
+
+        result = cp1252_runner.invoke(
+            app, ["server", "start", "unknown-model", "--port", "9999"]
+        )
+
+    # Exit(1) is the expected typer.Exit for a failed launch; the bug this
+    # guards against is an *unhandled* UnicodeEncodeError, not the deliberate
+    # nonzero exit.
+    assert not isinstance(result.exception, UnicodeEncodeError)
+    assert result.exit_code == 1
+    assert "X" in result.stdout
+    assert "not found" in result.stdout.lower()
