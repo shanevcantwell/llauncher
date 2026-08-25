@@ -8,7 +8,7 @@ state of the decision**, not the maturity of the ADR document itself.
 | [`completed/`](./completed/) | Accepted; implementation done; no open issues tracking gaps against the ADR | 10 |
 | [`accepted/`](./accepted/) | Accepted; known partial implementation tracked as open issues, or scope explicitly deferred in the ADR's own §Deferred Work | 9 |
 | [`superseded/`](./superseded/) | Replaced by a later ADR; preserved as historical record | 2 |
-| [`draft/`](./draft/) | Not yet ratified | 2 |
+| [`draft/`](./draft/) | Not yet ratified | 3 (ADR-LLNCH-026 ratified but filed here per its own ratification comment; see index) |
 
 ADR statuses inside the documents themselves follow the canon laid out
 in `docs/v2-handoff.md` §Conventions:
@@ -42,11 +42,12 @@ Folder placement and in-document Status are kept in sync.
 - [ADR-LLNCH-022 — llauncher UI under Operator-Scoped `systemd --user` Control](./accepted/adr-llnch-022-llauncher-ui-user-service.md) — per-operator user unit (`scripts/systemd/llauncher-ui.service.user.in` + `install-ui.sh`); narrows ADR-LLNCH-018's UI posture; `/usr/local/bin` symlink (`install-cli.sh`, root) and `inference`-group membership are operator/host steps (#223)
 - [ADR-LLNCH-023 — Service-Owned Venv Recomposition](./accepted/adr-llnch-023-service-owned-venv-recomposition.md) — re-couples each service's `ExecStart` venv reference to a same-scope recompose guarantee (root `*-ensure-venv` oneshot units; user UI fail-loud backstop); amends ADR-LLNCH-018 / ADR-LLNCH-022; OQ1 resolved as shared `/opt` venv (2026-06-28); Phases A/B implementation pending
 - [ADR-LLNCH-025 — UI Endpoint-Layer Boundary, Enforced by a Static Test](./accepted/adr-llnch-025-ui-endpoint-layer-boundary-enforced-by-test.md) — codifies the `ui/` → `state`/`operations`/`remote` rule as an AST guard (`tests/architecture/test_ui_layer_boundaries.py`) + AppTest harness; the deterministic catch for the cross-layer reach that escaped to an alpha; OQ: drop the `ui/*` coverage omit and re-baseline the floor (tracked #69)
+- [ADR-LLNCH-026 — `ModelConfig` Does Not Mirror llama-server's Argument Schema](./draft/adr-llnch-026-config-does-not-mirror-llama-server-schema.md) — ratified and implemented end-to-end in the same PR (#477); filed under `draft/` per the ratification comment's own instruction (point 6) rather than moved to `accepted/`
 
 ### Draft
 
 - [ADR-LLNCH-017 — Trusted-Host Session-Token Issuance (Design B)](./draft/adr-llnch-017-session-token-issuance.md) — Phase 1 of the provisioning roadmap (#135 / #137); supersedes the static-token-only framing of ADR-LLNCH-003 on ratification
-- [ADR-LLNCH-024 — Declarative Render Matrix](./draft/adr-llnch-024-declarative-render-matrix.md) — declarative config→backend-argument render matrix; Status: Draft
+- [ADR-LLNCH-024 — Declarative Render Matrix](./draft/adr-llnch-024-declarative-render-matrix.md) — declarative config→backend-argument render matrix; Status: Draft; amended 2026-08-25 by ADR-LLNCH-026 (Phase 2 withdrawn; Phases 1/3 re-scoped to the six-field owned column)
 
 ### Pending (unmerged branch)
 

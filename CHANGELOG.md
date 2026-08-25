@@ -56,23 +56,45 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
   runs write the new names. Existing `agent.env` files are **not**
   auto-migrated.
 
-### Added
-
-- **Remote-node provisioning is now discoverable ([#134](https://github.com/shanevcantwell/llauncher/issues/134)).** The README's
-  Multi-Node section gained an *Adding a remote node* walkthrough naming the
-  token file on each platform (`~/.llauncher/agent.token` on Linux,
-  `%USERPROFILE%\.llauncher\agent.token` on Windows) and the SSH/RDP →
-  read → copy → paste steps. The UI's Add Node form gained an info banner and
-  platform-specific API-key help text. A new `llauncher-agent print-token`
-  subcommand resolves and prints the local agent token to stdout, so
-  `ssh <box> llauncher-agent print-token` replaces file-archaeology. UI auth
-  is restored end-to-end after the security-hardening cohort
-  (#131, #132, #134). The manual copy itself is eliminated by session-token
-  issuance in a later phase (#137).
+- **`ModelConfig` no longer mirrors llama-server's argument schema; 16
+  fields removed (#477, #483, ADR-LLNCH-026).** `cache_type_k`,
+  `cache_type_v`, `threads`, `threads_batch`, `ubatch_size`, `batch_size`,
+  `n_cpu_moe`, `flash_attn`, `no_mmap`, `mlock`, `temperature`, `top_k`, `top_p`, `min_p`,
+  `repeat_penalty`, `reverse_prompt` are gone; `extra_args` (still `str`)
+  now carries llama-server flags verbatim with no pydantic content
+  validation. `config.json` is migrated in place, once, on first load under
+  the new code (dropped fields fold into `extra_args`, deferring to any
+  existing occurrence there; the three fields `build_command` used to emit
+  unconditionally — `threads_batch`, `ubatch_size`, `flash_attn` — always
+  materialize their effective value so argv stays byte-identical). The
+  llauncher-owned deny-list (`--alias`, `-m`/`--model`, `--host`/`--port`,
+  `--api-key`, `--metrics`, `--slots`/`--no-slots`) moves to
+  `core/process.py::build_command` as the sole launch-time enforcement
+  point.
+- **`GET /models/health` and `GET /models/health/{name}` are removed,
+  replaced by `GET /models/validate` and `GET /models/validate/{name}`
+  (#475, #481).** No alias and no deprecation window — there was no in-repo
+  consumer, and two endpoints serving overlapping shapes of one artifact is
+  the dual-shape the no-shims rule forbids. ADR-LLNCH-005's endpoint section
+  is superseded. Any out-of-tree caller of `/models/health` must move to
+  `/models/validate`; the response carries per-model verdicts rather than a
+  single health field.
+- **Installer now enforces `requires-python >=3.11` at the door (#334,
+  #433).** An install attempt on an older interpreter fails loud instead of
+  proceeding into a partially-broken environment.
+- **The `agent.env` mirror file is retired — a single live env source is
+  read directly by both the agent and the UI processes (#284, #286).**
+  Deployments that depended on the second copy of `agent.env` lose it;
+  fresh `install.sh`/`install.ps1` runs write only the one file.
+- **Pre-#139 `LAUNCHER_AGENT_*` env keys are migrated at the door on next
+  install/restart, and a missing token now fails loud instead of silently
+  running unauthenticated (#282).** Consistent with this repo's
+  parse-at-the-door rule — no dual-shape env file is read going forward.
 
 ### Highlights
 
-Curated from `git log v0.4.1-alpha..HEAD` — see the full history for the complete set.
+The span's majors at a glance, curated from `git log v0.4.1-alpha..HEAD`;
+full categorized detail in the Added/Changed/Fixed sections below.
 
 - **Test isolation:** full pytest could drive the *live* agent and the operator's real
   `~/.llauncher`, stopping a running model mid-suite. Closed by scoping
@@ -104,9 +126,16 @@ Curated from `git log v0.4.1-alpha..HEAD` — see the full history for the compl
 - **`model validate` verb:** a new read-only validation path (CLI, HTTP agent, MCP tool,
   UI registry badge) reports missing/invalid model weights without attempting a start.
   `GET /models/validate[/{name}]` replaces `GET /models/health[/{name}]` outright — no
-  alias, per this repo's no-dual-shape rule. Recorded as ADR-LLNCH-027
+  alias, per this repo's no-dual-shape rule (see Breaking). Recorded as ADR-LLNCH-027
   ([#475](https://github.com/shanevcantwell/llauncher/issues/475),
   [#481](https://github.com/shanevcantwell/llauncher/pull/481)).
+- **`extra_args` verbatim passthrough:** `ModelConfig` drops all 16 llama-server mirror
+  fields (`cache_type_k`/`cache_type_v`, `flash_attn`, `batch_size`, …); `extra_args`
+  carries llama-server flags verbatim, and persisted configs are migrated once, in
+  place, at the door — migration-bearing, see Breaking for the full field list.
+  Recorded as ADR-LLNCH-026
+  ([#477](https://github.com/shanevcantwell/llauncher/issues/477),
+  [#483](https://github.com/shanevcantwell/llauncher/pull/483)).
 - **Config-error banner:** a corrupt/unreadable config now surfaces as a Streamlit
   `st.error` banner instead of a raw traceback (follow-up to #472)
   ([#476](https://github.com/shanevcantwell/llauncher/issues/476),
@@ -117,12 +146,229 @@ Curated from `git log v0.4.1-alpha..HEAD` — see the full history for the compl
   [#485](https://github.com/shanevcantwell/llauncher/pull/485)).
 - **llama.cpp build scripts:** added a recommended build recipe for Windows and Linux
   ([#473](https://github.com/shanevcantwell/llauncher/pull/473)).
-- **`extra_args` verbatim passthrough — *pending merge at time of writing*:** the
-  `cache_type_k`/`cache_type_v` shadow fields (and the rest of the llama-server mirror
-  fields) are dropped from `ModelConfig`; `extra_args` carries llama-server flags
-  verbatim, and persisted configs are **migrated once, in place, at the door** (existing
-  field values fold into `extra_args`; no dual-parse, per this repo's no-shims rule).
-  Migration-bearing: the persisted `config.json` shape changes, deterministically and
-  without operator action. Recorded as ADR-026. Entry finalized when
-  [#483](https://github.com/shanevcantwell/llauncher/pull/483) lands
-  ([#477](https://github.com/shanevcantwell/llauncher/issues/477)).
+
+### Added
+
+- **`llauncher model validate` — one read-only validation verb reused across
+  every door (#475, #481, ADR-LLNCH-027).** Reachable as `GET
+  /models/validate` and `GET /models/validate/{name}` on the agent (these
+  **replace** the removed `/models/health` routes — see Breaking changes),
+  via the CLI (`llauncher model validate [NAME] [--json]`, ASCII-only
+  `OK`/`MISSING` tokens, exit `0`/`1`/`2`), and via MCP (`validate_models`,
+  peer to `list_models`). Gating checks (`gguf_magic`, existing
+  model-health/VRAM checks) plus advisory `vram`/`lockfile` checks; no
+  config write, no lockfile write, no audit entry. The Model Registry tab's
+  status badge is now a direct function of the same verdicts.
+- **Recommended llama.cpp build recipe, Windows + Linux (#473).**
+  `scripts/build-llama-server.sh` and `scripts/windows/build-llama-server.ps1`
+  build llama-server with `CMAKE_BUILD_TYPE=Release` and
+  `GGML_CUDA_FA_ALL_QUANTS=ON` verified by reading back `CMakeCache.txt`,
+  guarding two previously-silent failure modes: a single-config generator
+  silently ignoring `--config Release` (shipping an unoptimized Debug
+  build), and flash-attention quant support defaulting off (prompt
+  processing collapsing 20-40x with no error). Both scripts print the
+  resulting `LLAMA_SERVER_PATH` on success.
+- **Audit-log reads exposed via CLI and MCP (#338, #454).**
+- **`llauncher server swap` subcommand (#337, #430).**
+- **`scripts/ensure-server.sh`, an idempotent converge-a-model-onto-a-port
+  script for login/cron/agent use (#424).**
+- **Pinned `/opt/llauncher/venv` systemd units + compose ritual (#360, #362).**
+- **`LLAUNCHER_UI_PORT` env var with fail-loud validation (#359).**
+- **Model-config delete, wired through the CLI and UI (#276, #278).**
+- **`ctx_size`/`parallel` are now carried in `start`/`swap` tool results (#269).**
+- **Server-metrics surface, ADR-LLNCH-019 (#264).**
+- **Global `--state-dir` CLI override (#215).**
+- **`metrics` config field to enable `llama-server --metrics` (#261).**
+- **Fail-loud UI shared-venv backstop under systemd (#228, #232).**
+- **`ensure-venv` oneshot guarantees the agent's systemd-managed venv (#227, #230).**
+- **UI runs under operator-scoped `systemd --user`, per ADR-LLNCH-022 (#225).**
+- **Remote-node provisioning is now discoverable (#134).** The README's
+  Multi-Node section gained an *Adding a remote node* walkthrough naming the
+  token file on each platform (`~/.llauncher/agent.token` on Linux,
+  `%USERPROFILE%\.llauncher\agent.token` on Windows) and the SSH/RDP →
+  read → copy → paste steps. The UI's Add Node form gained an info banner and
+  platform-specific API-key help text. A new `llauncher-agent print-token`
+  subcommand resolves and prints the local agent token to stdout, so
+  `ssh <box> llauncher-agent print-token` replaces file-archaeology. UI auth
+  is restored end-to-end after the security-hardening cohort
+  (#131, #132, #134). The manual copy itself is eliminated by session-token
+  issuance in a later phase (#137).
+
+### Changed
+
+- **`verify_pid`/`discover_all`, pid-first process primitives — #466 Phase 1
+  (#470).** `core/process.py` gains `verify_pid(pid)`, a single-handle,
+  single-cmdline-read lookup (~11 ms measured) implementing the ADR-LLNCH-008
+  reconciliation table, alongside the renamed `discover_all()` (formerly
+  `find_all_llama_servers_annotated`) world-walk. This lands the primitives
+  only — no request path has been rewired to use `verify_pid` yet, so there
+  is **no user-visible latency change in this alpha**; that's Phase 2
+  (tracked on #466, see Known issues below).
+- Windows `LLAMA_SERVER_PATH` documented in the installer flow (#380, #457)
+  and in `agent.env.example`.
+- ADR handles are namespaced `ADR-LLNCH-NNN` and the 22 ADR files renamed to
+  match, with citations swept repo-wide (#386, #479). Documentation only —
+  no behavior change.
+- UI thin-client invariant (`session_state` is view-state only, never
+  authoritative) stated in `docs/ARCHITECTURE.md` and pointed to from
+  `CLAUDE.md` for edit-time reach (#410, #411).
+- The 2026-07-17 handoff capsule's "the product's core purpose has never
+  worked" framing corrected to attribute a Windows Streamlit surface defect
+  as a surface defect, not a core one (#378, #406).
+- README documents both UI run postures (#355, #358), Docker's
+  volume-mountable state paths (#38, #272), and the versioning statement
+  that architecture generation (vN) and semver (0.x) are independent axes
+  (#216).
+- `CLAUDE.md`'s coverage gate now points at `pytest.ini` instead of
+  restating the floor inline (#460).
+- ADR-LLNCH-003's exempt-paths narrowed to match the live middleware
+  (#126, #218).
+- Doctrine pointers repointed to the `operating-doctrine` repo (#277);
+  `.claude/architecture.md` consolidated into `docs/ARCHITECTURE.md` (#280).
+- ADR-LLNCH-022 (UI under `systemd --user`, superseding ADR-LLNCH-018's
+  hand-launched posture) and ADR-LLNCH-023 (service-owned venv
+  recomposition) accepted and documented.
+
+### Fixed
+
+- **`ConfigStore.load()` fails loud on unreadable or corrupt config (#403,
+  #472).** Previously, a missing config, a permissions/OSError, and a
+  corrupt (`JSONDecodeError`) config all collapsed to an empty registry via
+  a bare `print()` — violating this repo's fail-loud/parse-at-the-door rule.
+  A genuinely absent config is still non-fatal (first run), now with a
+  logged warning naming the resolved config path; an unreadable or corrupt
+  config now raises, with the resolved path in the message.
+- **Duplicate process-table scans removed on cold `GET /status` (#309,
+  #464).** The cold-path scan count drops from 5 to 2 (state construction's
+  own refresh, plus the handler's), by removing a redundant
+  post-construction re-scan in `routing.get_state()` and skipping the
+  handler's own re-scan on the request that just built the state. Warm-path
+  staleness is unchanged (still bounded by the existing 3 s scan-cache TTL).
+- Lockfile-race rollback now routes through `stop_server_by_pid` (#415, #444).
+- Malformed `BLACKLISTED_PORTS` entries fail loud instead of silently
+  dropping (#450, #456).
+- Installer seeds `agent.env` with required keys only, not the full
+  template (#382, #453).
+- Redundant `state.refresh()` removed from the UI's Models tab (#370, #452).
+- Readiness poll fast-fails when the launched process has already exited
+  (#368, #440).
+- Streamlit dependency floor bumped to the tested 1.58.0 (#439).
+- Every unhandled 500 in the agent now logs a full traceback (#404, #437).
+- `LLAUNCHER_AGENT_NODE_NAME` uses a falsy-or fallback instead of dropping
+  an intentionally-empty value (#367, #436).
+- MCP `stop_server` contract aligned; `get_server_logs`' `lines` bound
+  fixed (#369, #435).
+- `-ctk`/`-ctv` short aliases registered in the managed-flag collision
+  guard (#399, #434).
+- `__version__` now derives from package metadata — a single mint instead
+  of a hardcoded duplicate (#425, #432).
+- Running-server identity is sourced from `--alias`, not `model_path`
+  (#429).
+- `model_registry`'s `last_modified` guarded against a bare `str` before
+  calling `.strftime` (#347, #428).
+- Installer polls the actual `/health` endpoint instead of only
+  service-is-active (#420, #421, #426).
+- UI's eviction-confirm dialog persists across reruns (#419); `_handle_start`'s
+  error persists across its own `st.rerun()` (#417).
+- Process scan cache invalidated intrinsically inside the spawn/terminate
+  primitives, instead of relying on callers to remember (#414).
+- `server start` waits for readiness before reporting success (#413).
+- Local node normalized to IPv4 in the node registry (#385).
+- Redundant process-table scans that stalled UI navigation eliminated
+  (#392, #396).
+- BOM stripped from `install.ps1`'s env writes and agent-token sources
+  (#127, #395).
+- Installer's `[ui]` extra collapsed into base dependencies (#375); NSSM
+  resolved via a PATH → choco fallback chain (#352, #372); durable NSSM
+  logging plus surfaced silent start-500s (#128, #308, #345); dedupe of
+  same-pass legacy-key collisions with an accurate guard message (#298,
+  #325); NSSM `Application` repointed on every `install.ps1` run (#314,
+  #315); empty-string elements allowed in `MigrateEnvKeys` (#305);
+  `install.ps1` de-Unicoded to pure ASCII, with a matching Linux ASCII
+  guard (#300, #302).
+- Agent token/env reads are CRLF/BOM-tolerant at the door (#310, #326).
+- Uvicorn access/error log lines are timestamped (#307, #324).
+- Per-entry validation failure in `NodeRegistry._load` scoped to that entry
+  instead of failing the whole load (#274).
+- CLI config-path printing soft-wraps so a long path never breaks
+  mid-atom (#256, #271).
+- Node `host`/`port`/`timeout` validated via a Pydantic `NodeConfig`
+  (#27, #266).
+- Dead, mislabeled `ModelConfig.np` field removed (#265).
+- An all-`None` `free_vram_mb` preflight reading fails loud instead of
+  reporting "0 MiB" (#262).
+- Audit tab's filter selection now forwarded to the remote `read_audit`
+  call (#118).
+- `run.sh stop` no longer bootstraps a venv (#229); `run.sh install` made
+  honest about what it does, with the global-install path surfaced in
+  `--help` (#154, #219).
+- `wait_for_server_ready`'s tuple unpacked correctly, making the eviction
+  rollback path reachable (#259).
+- `extra_args` flag collisions fail loud; `batch`/`parallel` family
+  exposed (#156, #242).
+- VRAM preflight check fails loud when GPU device data is unavailable
+  (#150, #240).
+- **The UI surfaces a corrupt or unreadable `config.json` as an error
+  banner naming the file, instead of a raw Streamlit traceback (#476,
+  #486).** Follow-up to #472: both load sites (initial state build and the
+  sidebar's Refresh All) now stop cleanly on the fail-loud raise. CLI and
+  MCP keep their existing fail-loud behavior.
+- **Per-model log banners carry an absolute UTC timestamp and the canonical
+  model name (#405 anchor half, #485).** llama-server's own lines only
+  carry time-since-start offsets; the banner is now
+  `=== started at <utc-iso> port=<n> model=<name> ===`, so a log can be
+  joined to the audit ledger, lockfile mtimes, and wall-clock observations.
+  The `=== started at` run-boundary grep contract (ADR-LLNCH-013) is
+  unchanged.
+- **`llauncher server start`/`stop`/`swap` no longer crash with
+  `UnicodeEncodeError` on a cp1252 console (Git-Bash on Windows) after a
+  successful launch (#471, #478).** The status glyph (`✓`/`✗`) degrades to
+  ASCII (`OK`/`X`) when `sys.stdout.encoding` can't encode it; message text
+  and exit codes are unchanged.
+
+### Internal/test
+
+- Test-suite isolation and Windows-seat gate work: a suite-wide
+  `LAUNCHER_STATE_DIR` isolation hole that let bare `pytest` runs write into
+  the operator's real `~/.llauncher` state (and run the `live` marker
+  against a real port) is closed with autouse fixtures covering both the
+  env-var seam and already-imported module constants, plus a fail-closed
+  backstop against real-state writes (#463, #469). `TestStatusScanDedup309`
+  and friends extend the same scan-count-spy pattern into a standing gate
+  (#464).
+- Coverage close-outs across the core/runtime, ops/gpu, interface
+  (CLI/MCP/agent), and remote clusters, raising the floor to 99% (#243,
+  #244, #245, #247, #248, #250, #251, #329, #351); UI `AppTest` coverage
+  built out across the Dashboard, Model Registry, Models, add/edit-model,
+  and Audit tabs plus the layer-boundary and dispatch-seam-parity guards
+  (#69, #340, #341, #342, #343, #344, #346, #348, #349); the same suite's
+  `patch()`-based stubs retired in favor of real `AppTest` (#328, #461).
+- `TEST_SUITE_SUMMARY.md` drift gate added and repeatedly regenerated to
+  match the tree as it grew (#124, #222, #403, #408, #431).
+- Real `X-Api-Key` auth exercised over a real socket to a real agent,
+  replacing a mocked equivalent (#317, #327).
+- Twelve review-verified defensive branches pinned against regression
+  (#458).
+
+### Known issues
+
+*(New subsection — this file hasn't carried one before; adding it now
+because several dated, unresolved items are worth an operator's awareness
+going into this alpha.)*
+
+- **Windows service: `Restart-Service llauncher-agent` terminates the
+  managed llama-server children the agent spawned (#480, filed 2026-08-25).**
+  A service restart should not take down in-flight inference. Related:
+  #422 (systemd `KillMode` default has the same shape on Linux), #366, #383.
+- **55 environment/portability failures on Windows as of `cf442f5`
+  (2026-08-25), in the six buckets of #364; CI-green requires Linux.**
+  WSL's `bash` shadowing Git Bash accounts for ~20 of them plus cascades;
+  the rest are POSIX-permission-bit asserts on NTFS, `Path.home()` under a
+  cleared environment, git path-quoting, and `test_ui_syntax.py`.
+- **Cold `GET /status` still costs ≈2 process-table scans (~12.6 s no-load,
+  measured on the Windows box) — #466 Phase 2 is pending.** Phase 1 (#470,
+  above) landed the `verify_pid`/`discover_all` primitives only; no request
+  path has been rewired to the cheap pid-addressed lookup yet. A *warm*
+  `/status` with one managed server resident measured 4.45 s on the same box
+  (vs 0.07 s with no servers), so the per-running-server path is also inside
+  Phase 2's scope.

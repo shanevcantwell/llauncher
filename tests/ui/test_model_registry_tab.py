@@ -375,3 +375,75 @@ class TestModelRegistryVramEconomics:
 
         assert not at.exception
         assert mock_aggregator.get_validation.call_args.kwargs["vram"] is False
+
+
+class TestQuarantinedEntriesSurface:
+    """ADR-026 / issue #477: a config entry whose persisted shape did not
+
+    migrate deterministically is *not loaded*, so it has no validation row
+    here. ``state.config_errors`` is the registry's error list the ratified
+    quarantine rule requires ("recorded as a load error against that model
+    name and surfaced in the registry's error list"); without this banner a
+    broken entry would simply disappear from the operator's registry view --
+    degraded, the one outcome quarantine exists to prevent.
+    """
+
+    def test_quarantined_entry_renders_an_error_banner(
+        self, tab_harness, mock_state, mock_aggregator
+    ):
+        mock_state.config_errors = {
+            "broken-model": "unrecognized config key(s) ['comment']"
+        }
+
+        with patch(
+            "llauncher.operations.validate_models",
+            return_value=_report([_validation()]),
+        ):
+            at = tab_harness(
+                render_model_registry, mock_state, None, mock_aggregator, "local"
+            )
+
+        assert not at.exception
+        assert "broken-model" in at.error[0].value
+        assert "unrecognized config key" in at.error[0].value
+        # The healthy sibling still renders its row.
+        assert len(at.dataframe) == 1
+
+    def test_quarantine_banner_survives_the_empty_registry_early_return(
+        self, tab_harness, mock_state, mock_aggregator
+    ):
+        """Every entry quarantined => no rows at all. The banner must still
+
+        render, or the operator sees "No models configured" for a registry
+        that has models.
+        """
+        mock_state.config_errors = {"a": "boom", "b": "bang"}
+
+        with patch(
+            "llauncher.operations.validate_models", return_value=_report([])
+        ):
+            at = tab_harness(
+                render_model_registry, mock_state, None, mock_aggregator, "local"
+            )
+
+        assert not at.exception
+        assert [e.value.count("failed to load") for e in at.error] == [1, 1]
+        assert "No models configured" in at.info[0].value
+
+    def test_remote_target_does_not_render_local_quarantine_errors(
+        self, tab_harness, mock_state, mock_aggregator
+    ):
+        """``config_errors`` is local state; the remote branch never reads it."""
+        mock_state.config_errors = {"broken-model": "boom"}
+        mock_aggregator.get_validation.return_value = {
+            "checked_at": "2026-08-25T00:00:00Z",
+            "ok": True,
+            "models": [],
+        }
+
+        at = tab_harness(
+            render_model_registry, mock_state, None, mock_aggregator, "gpu-rig"
+        )
+
+        assert not at.exception
+        assert at.error == []

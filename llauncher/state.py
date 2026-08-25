@@ -57,12 +57,20 @@ class LauncherState:
 
     Tracks:
     - Model configurations (loaded from config + discovered scripts)
+    - Per-model config load errors (quarantined entries)
     - Running server processes (port → server info)
     - Audit log of actions
     - Change rules for validation
     """
 
     models: dict[str, ModelConfig] = field(default_factory=dict)
+    # Per-model config load errors from the most recent refresh (ADR-026 /
+    # issue #477's ratified "quarantine, not tolerance"): name -> reason.
+    # An entry here did NOT load and is absent from ``models``; its
+    # siblings loaded normally. This is the registry's error list the
+    # quarantine rule requires -- read it to surface a broken entry to the
+    # operator rather than letting it vanish silently.
+    config_errors: dict[str, str] = field(default_factory=dict)
     running: dict[int, RunningServer] = field(default_factory=dict)
     audit: list[AuditEntry] = field(default_factory=list)
     rules: ChangeRules = field(default_factory=ChangeRules)
@@ -80,8 +88,11 @@ class LauncherState:
 
     def refresh(self) -> None:
         """Refresh state from disk and process list."""
-        # Load configurations from config.json (single source of truth)
-        self.models = ConfigStore.load()
+        # Load configurations from config.json (single source of truth).
+        # A single malformed entry is quarantined, not fatal -- one stray
+        # key must not take the UI, the agent and the CLI down with it
+        # (ADR-026 / issue #477).
+        self.models, self.config_errors = ConfigStore.load_with_errors()
 
         # Refresh running servers
         self.refresh_running_servers()

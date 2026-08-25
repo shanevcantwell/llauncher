@@ -43,6 +43,100 @@ _SCAN_KEY_ALL_SERVERS = "find_all_llama_servers"
 _SCAN_KEY_ALL_SERVERS_ANNOTATED = "find_all_llama_servers_annotated"
 
 
+class ExtraArgsError(ValueError):
+    """``extra_args`` could not be turned into argv at launch time.
+
+    The one exception type callers catch for every ``extra_args`` defect
+    (ADR-026 / issue #477). ``extra_args`` carries llama-server flags
+    verbatim with no pydantic content validation, so *both* of its failure
+    modes — unparseable shell quoting and a llauncher-owned flag — first
+    become observable here, in :func:`build_command`, the single
+    enforcement point. ``operations.start`` / ``operations.swap`` catch
+    this base class alongside their other launch-failure exceptions, so
+    neither subclass can escape as a bare ``ValueError``.
+    """
+
+
+class DeniedExtraArgError(ExtraArgsError):
+    """``extra_args`` carries a flag llauncher owns and enforces at launch.
+
+    Raised by :func:`build_command` — the single enforcement point for
+    :data:`DENIED_EXTRA_ARG_FLAGS` (ADR-026 / issue #477). Callers
+    (``start_server``, ``operations.start``/``operations.swap``) catch this
+    alongside their other launch-failure exceptions and surface it as a
+    clear, typed error rather than letting a malformed/hostile argv reach
+    ``subprocess.Popen``.
+    """
+
+
+class MalformedExtraArgsError(ExtraArgsError):
+    """``extra_args`` is not valid shell-token text (unbalanced quoting).
+
+    ADR-026 removed all pydantic content validation from ``extra_args``,
+    so the UI/MCP/CLI write path accepts any string the operator types —
+    deliberately, since llama-server's own parser is the authority on its
+    flags. The consequence is that ``shlex.split`` can fail here, at
+    launch. Raising a typed error (rather than letting ``shlex``'s bare
+    ``ValueError`` out) keeps that failure inside the launch-error contract
+    ``operations.start``/``operations.swap`` already handle, instead of
+    escaping as an unhandled exception.
+    """
+
+
+# Deny-list of llama-server flags llauncher manages at its own boundary
+# (security-hardening-plan §3 C7, Issue #81; ADR-LLNCH-019). These flags
+# must not appear in ``ModelConfig.extra_args`` because:
+#
+# * ``--api-key`` / ``--alias`` — security-sensitive identity that
+#   llauncher owns. ``--alias`` is emitted below from
+#   ``ModelConfig.name`` per issue #120 / EMIT-CANONICAL; a config
+#   slipping one of these in would silently override llauncher's minted
+#   identity.
+# * ``-m`` / ``--model`` — set below from ``ModelConfig.model_path``.
+#   Duplication bypasses the path validator on ``model_path``.
+# * ``--host`` / ``--port`` — supplied at start time as runtime
+#   parameters (ADR-010). An override here defeats port allocation and
+#   the loopback-default binding (C2, PR #75).
+# * ``--metrics`` / ``--slots`` / ``--no-slots`` — llauncher's own
+#   observability and exposure contract (ADR-LLNCH-019). llauncher
+#   always emits ``--slots`` or ``--no-slots`` explicitly, in both
+#   directions, so effective policy is config-driven, never the binary
+#   default; an ``extra_args`` duplicate could silently defeat that.
+#
+# ADR-026 / issue #477: this is now the *only* enforcement point for the
+# deny-list — a pydantic field validator used to duplicate this check at
+# config-construction/load time; that duplication is gone. A malformed
+# config on disk is caught here, at launch, not earlier.
+DENIED_EXTRA_ARG_FLAGS: frozenset[str] = frozenset({
+    "--api-key",
+    "--alias",
+    "-m",
+    "--model",
+    "--host",
+    "--port",
+    "--metrics",
+    "--slots",
+    "--no-slots",
+})
+
+
+def _check_extra_args_deny_list(tokens: list[str]) -> None:
+    """Raise :class:`DeniedExtraArgError` if ``tokens`` carries a denied flag.
+
+    Matches both the bare (``--api-key foo``) and equals (``--api-key=foo``)
+    forms — the head before ``=`` is what is compared.
+    """
+    for token in tokens:
+        head = token.split("=", 1)[0]
+        if head in DENIED_EXTRA_ARG_FLAGS:
+            raise DeniedExtraArgError(
+                f"extra_args contains llauncher-managed flag {head!r} — "
+                f"set it via the dedicated ModelConfig field (or runtime "
+                f"parameter), or remove it. llauncher enforces this at "
+                f"launch time (ADR-026 / issue #477)."
+            )
+
+
 def invalidate_process_scan_cache() -> None:
     """Purge the cached process-table scans (issue #392).
 
@@ -156,59 +250,9 @@ def build_command(
     # Context size
     cmd.extend(["-c", str(config.ctx_size)])
 
-    # Threads (optional)
-    if config.threads:
-        cmd.extend(["--threads", str(config.threads)])
-
-    # Threads batch
-    cmd.extend(["--threads-batch", str(config.threads_batch)])
-
-    # Ubatch size
-    cmd.extend(["--ubatch-size", str(config.ubatch_size)])
-
-    # Batch size (optional)
-    if config.batch_size is not None:
-        cmd.extend(["--batch-size", str(config.batch_size)])
-
-    # Flash attention
-    cmd.extend(["--flash-attn", config.flash_attn])
-
-    # No mmap
-    if config.no_mmap:
-        cmd.append("--no-mmap")
-
-    # Cache types (optional)
-    if config.cache_type_k:
-        cmd.extend(["--cache-type-k", config.cache_type_k])
-
-    if config.cache_type_v:
-        cmd.extend(["--cache-type-v", config.cache_type_v])
-
-    # CPU MOE threads (optional)
-    if config.n_cpu_moe:
-        cmd.extend(["--n-cpu-moe", str(config.n_cpu_moe)])
-
     # Parallel/server slots
     if config.parallel and config.parallel > 1:
         cmd.extend(["--parallel", str(config.parallel)])
-
-    # Sampling parameters
-    if config.temperature is not None:
-        cmd.extend(["--temp", str(config.temperature)])
-    if config.top_k is not None:
-        cmd.extend(["--top-k", str(config.top_k)])
-    if config.top_p is not None:
-        cmd.extend(["--top-p", str(config.top_p)])
-    if config.min_p is not None:
-        cmd.extend(["--min-p", str(config.min_p)])
-    if config.repeat_penalty is not None:
-        cmd.extend(["--repeat-penalty", str(config.repeat_penalty)])
-    if config.reverse_prompt:
-        cmd.extend(["--reverse-prompt", config.reverse_prompt])
-
-    # Memory management
-    if config.mlock:
-        cmd.append("--mlock")
 
     # Prometheus /metrics endpoint (issue #169). Default-on: cheap scrape
     # surface, and the structured source for tps/kv-cache/draft-acceptance
@@ -224,9 +268,23 @@ def build_command(
     # ``config.slots``, never the binary's own default.
     cmd.append("--slots" if config.slots else "--no-slots")
 
-    # Extra args (parse free-form string into arguments)
+    # Extra args (parse free-form string into arguments). ADR-026 / issue
+    # #477: extra_args is a verbatim passthrough with no pydantic content
+    # validation — the llauncher-owned deny-list is enforced right here,
+    # at launch time, the single enforcement point. A denied flag raises
+    # before any argv reaches subprocess.Popen.
     if config.extra_args:
-        cmd.extend(shlex.split(config.extra_args))
+        try:
+            extra_tokens = shlex.split(config.extra_args)
+        except ValueError as e:
+            raise MalformedExtraArgsError(
+                f"extra_args for model {config.name!r} is not valid "
+                f"shell-token text ({e}) — check the quoting. llauncher "
+                f"stores extra_args verbatim and parses it only here, at "
+                f"launch (ADR-026 / issue #477)."
+            ) from e
+        _check_extra_args_deny_list(extra_tokens)
+        cmd.extend(extra_tokens)
 
     return cmd
 

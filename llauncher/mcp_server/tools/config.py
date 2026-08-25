@@ -26,15 +26,9 @@ def get_tools() -> list[Tool]:
                         "properties": {
                             "n_gpu_layers": {"type": "integer"},
                             "ctx_size": {"type": "integer"},
-                            "threads": {"type": "integer"},
-                            "threads_batch": {"type": "integer"},
-                            "ubatch_size": {"type": "integer"},
-                            "batch_size": {"type": "integer"},
                             "parallel": {"type": "integer"},
-                            "flash_attn": {"type": "string", "enum": ["on", "off", "auto"]},
-                            "no_mmap": {"type": "boolean"},
                             "metrics": {"type": "boolean", "description": "Enable llama-server's Prometheus /metrics endpoint (--metrics). Defaults to true."},
-                            "extra_args": {"type": "string", "description": "Additional command-line arguments (space-separated). Flags llauncher emits natively (e.g. --batch-size, --ubatch-size, --parallel, --threads-batch) are rejected here — set the dedicated field instead (issue #156)."},
+                            "extra_args": {"type": "string", "description": "Verbatim llama-server command-line flags (space-separated), in the spelling from `llama-server --help`. No content validation. Flags llauncher owns (--alias, -m/--model, --host/--port, --api-key, --metrics, --slots/--no-slots) are rejected at launch time, not here (ADR-026 / issue #477)."},
                         },
                     },
                 },
@@ -76,11 +70,9 @@ def get_tools() -> list[Tool]:
                             "mmproj_path": {"type": "string"},
                             "n_gpu_layers": {"type": "integer"},
                             "ctx_size": {"type": "integer"},
-                            "threads": {"type": "integer"},
-                            "flash_attn": {"type": "string"},
-                            "no_mmap": {"type": "boolean"},
+                            "parallel": {"type": "integer"},
                             "metrics": {"type": "boolean", "description": "Enable llama-server's Prometheus /metrics endpoint (--metrics). Defaults to true."},
-                            "extra_args": {"type": "string", "description": "Additional command-line arguments (space-separated, use quotes for args with spaces)"},
+                            "extra_args": {"type": "string", "description": "Verbatim llama-server command-line flags (space-separated, use quotes for args with spaces), in the spelling from `llama-server --help`. No content validation (ADR-026 / issue #477)."},
                         },
                         "required": ["name", "model_path"],
                     },
@@ -153,22 +145,15 @@ async def update_model_config(state: LauncherState, args: dict) -> dict:
             updated_config.n_gpu_layers = updates["n_gpu_layers"]
         if "ctx_size" in updates:
             updated_config.ctx_size = updates["ctx_size"]
-        if "threads" in updates:
-            updated_config.threads = updates["threads"]
-        if "threads_batch" in updates:
-            updated_config.threads_batch = updates["threads_batch"]
-        if "ubatch_size" in updates:
-            updated_config.ubatch_size = updates["ubatch_size"]
-        if "batch_size" in updates:
-            updated_config.batch_size = updates["batch_size"]
         if "parallel" in updates:
             updated_config.parallel = updates["parallel"]
-        if "flash_attn" in updates:
-            updated_config.flash_attn = updates["flash_attn"]
-        if "no_mmap" in updates:
-            updated_config.no_mmap = updates["no_mmap"]
         if "metrics" in updates:
             updated_config.metrics = updates["metrics"]
+        # NOTE: ``slots`` is deliberately NOT agent-writable. It is an
+        # llauncher-owned field (ADR-026), but /slots leaks per-slot prompt
+        # text and llauncher's posture is that the exposure decision is the
+        # operator's (ADR-LLNCH-019). ADR-026 §5 shrinks this hand-maintained
+        # allow-list; it does not extend it. Edit ``slots`` in the UI.
         if "extra_args" in updates:
             updated_config.extra_args = updates["extra_args"]
 
