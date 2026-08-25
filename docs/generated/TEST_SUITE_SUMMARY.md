@@ -16,10 +16,10 @@
 
 | Category | Files | Tests |
 |----------|-------|-------|
-| Unit | 99 | 1528 |
+| Unit | 99 | 1538 |
 | Integration | 13 | 84 |
 | Other | 21 | 210 |
-| **Total** | **133** | **1822** |
+| **Total** | **133** | **1832** |
 
 ## Tests carrying special markers
 
@@ -812,7 +812,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_install_cli_sh_calls_the_floor_check_before_venv_creation`**
   - *The floor check must run BEFORE `python3 -m venv`, never after —*
 
-#### `tests/unit/test_cli.py` (63 tests)
+#### `tests/unit/test_cli.py` (73 tests)
 
 - **`test_help_shows_all_command_groups`**
   - *CLI help should display all four subcommand groups.*
@@ -930,6 +930,26 @@ ad-hoc markers used in the suite without declaration.
   - *``--result`` narrows the result to entries with that result.*
 - **`test_audit_limit_bounds_tail`**
   - *``--limit`` caps the number of entries returned to the newest N.*
+- **`test_glyph_falls_back_to_ascii_on_cp1252_console`**
+  - *``_glyph`` returns ASCII when the console can't encode the glyph.*
+- **`test_glyph_uses_unicode_on_utf8_console`**
+  - *``_glyph`` keeps the unicode glyph when the console can encode it.*
+- **`test_ascii_safe_transliterates_arrow_on_cp1252_console`**
+  - *The seam downgrades *any* un-encodable character, not just check/cross.*
+- **`test_ascii_safe_is_identity_on_utf8_console`**
+  - *A UTF-8 console keeps the real characters.*
+- **`test_ascii_safe_passes_through_unknown_codec`**
+  - *An unrecognised codec name is not a reason to mangle output.*
+- **`test_config_validate_success_exits_zero_under_cp1252_stdout`**
+  - *A *success* path that actually prints a glyph must not crash on cp1252.*
+- **`test_server_swap_success_exits_zero_under_cp1252_stdout`**
+  - *``server swap``'s SUCCESS message carries U+2192 from the operations layer.*
+- **`test_server_swap_delegated_success_exits_zero_under_cp1252_stdout`**
+  - *The delegated branch prints the agent's message verbatim too.*
+- **`test_no_unguarded_non_ascii_string_literals_in_cli_module`**
+  - *Lock the seam in: no runtime string in ``cli.py`` may carry a raw glyph.*
+- **`test_operations_result_messages_route_through_the_emit_seam`**
+  - *A generalisation of the blocker: operations-minted text is safe to print.*
 
 #### `tests/unit/test_cli_state_dir.py` (8 tests)
 
