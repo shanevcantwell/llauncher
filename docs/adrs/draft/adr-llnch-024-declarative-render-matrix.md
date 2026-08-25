@@ -1,7 +1,36 @@
 # ADR-LLNCH-024: Declarative Render Matrix — internal config → backend argv as a typed table
 
-**Status:** Draft
+**Status:** Draft (amended 2026-08-25 by ADR-LLNCH-026, ratified on #477)
 **Date:** 2026-06-29
+
+> **Amendment (ADR-LLNCH-026, 2026-08-25):** the `ModelConfig` schema this ADR renders
+> shrank by ~70% (22 map entries / 16 fields dropped to 6 kept fields) before
+> any phase of this ADR shipped. Disposition per ADR-LLNCH-026 §5:
+> - **Phase 2 ("promote hazardous/missing `extra_args` flags to typed canonical
+>   fields") is withdrawn.** It moved in the opposite direction from ADR-LLNCH-026:
+>   it would have added `--cache-reuse`, `--spec-type`, `--spec-draft-n-max`,
+>   and the `#242` batch/parallel family as fields. `#184`'s mechanical half
+>   (the reason Phase 2 existed) goes with it — `#184`'s incident becomes
+>   operator documentation and hazard notes, not a typed field.
+> - **Phase 1 is re-scoped**: it renders only the ~8-row llauncher-owned
+>   column (`name`, `model_path`, `mmproj_path`, `n_gpu_layers`, `ctx_size`,
+>   `parallel`, `metrics`, `slots`), not the pre-ADR-LLNCH-026 22-entry schema.
+>   Decision §4 (the `name` row is `LAUNCHER_FORCED`, untransformed in every
+>   column) and §6 (structural collision check fails loud at the door) are
+>   **kept and strengthened** — easier over six rows than sixteen.
+> - **Decision §5 (MCP writable allow-list derived from the matrix) is kept,
+>   re-scoped**: post-ADR-LLNCH-026 the derived list is the six kept fields plus
+>   `name`/`model_path`/`extra_args`.
+> - **Phase 3 (vLLM, `#155`) survives and gets cheaper**: the cross-backend
+>   mapping problem was hardest for the tuning knobs with no clean vLLM
+>   analogue, and those are now passthrough (never rendered by this ADR at
+>   all).
+> - This ADR's own collision-detection mechanism (decision §6, the
+>   `emitted_flag_heads` structural check) was never implemented before
+>   ADR-LLNCH-026 landed; ADR-LLNCH-026's launch-time deny-list (`core/process.py`) is a
+>   narrower, already-shipped stand-in for the identity/security subset of
+>   what this ADR's collision check would have covered. Building the full
+>   render matrix (Phase 1) remains open future work, re-scoped as above.
 **Tracking:** #156 (direct motivator — contract gap + silent flag-collision loss). Related: #184 (promote risky `extra_args` flags; keep its mechanical half, drop its semantic-gate half), #152 (schema as boundary layer), #155 (vLLM/ST backend kind — future column), #170 (the `models → core` layering wart NOT to deepen).
 **Doctrine:** `harness-tools/docs/ground-physics/GROUND_PHYSICS.md` + `CODE_CONSTITUTION.md` — `IDENTITY⊥ENVELOPE`, `ONE-MINT`, `EMIT-CANONICAL`, `PARSE-AT-THE-DOOR`, `ONE-DOOR`. Layering: `docs/ARCHITECTURE.md` rule 1 (downward-only).
 **Disposition:** `auto:draft` — operator ratifies before any implementation begins. In-document Status `Draft` is the house canon (README §statuses) for the dispatch's "Proposed."
