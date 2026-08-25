@@ -221,6 +221,130 @@ def test_model_remove_without_yes_aborts_on_no(mock_config_store):
 
 
 # ---------------------------------------------------------------------------
+# model validate (#475, ADR-027)
+# ---------------------------------------------------------------------------
+
+
+def _validation_report(*, ok: bool, models: list):
+    from llauncher.models.validation import ValidationReport
+    from datetime import datetime, timezone
+
+    return ValidationReport(checked_at=datetime.now(timezone.utc), ok=ok, models=models)
+
+
+def _model_validation(name: str, *, ok: bool, gating_reason: str = ""):
+    from llauncher.models.validation import ModelValidation, ValidationVerdict
+
+    verdicts = [
+        ValidationVerdict(check="weights", ok=ok, reason="" if ok else gating_reason)
+    ]
+    return ModelValidation(
+        name=name,
+        model_path=f"/fake/{name}.gguf",
+        exists=ok,
+        verdicts=verdicts,
+        ok=ok,
+    )
+
+
+def test_model_validate_all_ok_exit_zero(mock_config_store):
+    """``model validate`` with no argument exits 0 when every entry passes."""
+    _dir, _path = mock_config_store
+    ConfigStore.add_model(ModelConfig.from_dict_unvalidated({
+        "name": "healthy", "model_path": "/fake/healthy.gguf",
+    }))
+
+    report = _validation_report(ok=True, models=[_model_validation("healthy", ok=True)])
+    with patch("llauncher.operations.validate_models", return_value=report) as mocked:
+        result = runner.invoke(app, ["model", "validate"])
+
+    assert result.exit_code == 0
+    assert "OK" in result.stdout
+    mocked.assert_called_once_with(names=None)
+
+
+def test_model_validate_one_missing_exit_two(mock_config_store):
+    """``model validate`` exits 2 when at least one entry fails a gating check."""
+    _dir, _path = mock_config_store
+    ConfigStore.add_model(ModelConfig.from_dict_unvalidated({
+        "name": "gone", "model_path": "/fake/gone.gguf",
+    }))
+
+    report = _validation_report(
+        ok=False, models=[_model_validation("gone", ok=False, gating_reason="not found")]
+    )
+    with patch("llauncher.operations.validate_models", return_value=report):
+        result = runner.invoke(app, ["model", "validate"])
+
+    assert result.exit_code == 2
+    assert "MISSING" in result.stdout
+    assert "not found" in result.stdout
+
+
+def test_model_validate_unknown_name_exit_one(mock_config_store):
+    """Validating an unconfigured name exits 1, matching ``model info``."""
+    _dir, _path = mock_config_store
+
+    result = runner.invoke(app, ["model", "validate", "no-such-model"])
+    assert result.exit_code == 1
+    assert "not found" in result.stdout.lower()
+
+
+def test_model_validate_json_shape(mock_config_store):
+    """``--json`` emits a ``ValidationReport``-shaped payload."""
+    _dir, _path = mock_config_store
+    ConfigStore.add_model(ModelConfig.from_dict_unvalidated({
+        "name": "healthy", "model_path": "/fake/healthy.gguf",
+    }))
+
+    report = _validation_report(ok=True, models=[_model_validation("healthy", ok=True)])
+    with patch("llauncher.operations.validate_models", return_value=report):
+        result = runner.invoke(app, ["model", "validate", "--json"])
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["ok"] is True
+    assert data["models"][0]["name"] == "healthy"
+    assert "verdicts" in data["models"][0]
+
+
+def test_model_validate_single_name_delegates(mock_config_store):
+    """Naming a single model calls ``validate_models(names=[name])``."""
+    _dir, _path = mock_config_store
+    ConfigStore.add_model(ModelConfig.from_dict_unvalidated({
+        "name": "healthy", "model_path": "/fake/healthy.gguf",
+    }))
+
+    report = _validation_report(ok=True, models=[_model_validation("healthy", ok=True)])
+    with patch("llauncher.operations.validate_models", return_value=report) as mocked:
+        result = runner.invoke(app, ["model", "validate", "healthy"])
+
+    assert result.exit_code == 0
+    mocked.assert_called_once_with(names=["healthy"])
+
+
+def test_model_validate_ascii_safe_on_cp1252_stdout():
+    """Status tokens are plain ASCII words — no glyph to fail to encode on
+    a cp1252 console (#471-class guard, ADR-027 §5)."""
+    from llauncher.models.validation import ModelValidation, ValidationVerdict
+
+    report = _validation_report(
+        ok=False,
+        models=[
+            _model_validation("healthy", ok=True),
+            _model_validation("gone", ok=False, gating_reason="not found"),
+        ],
+    )
+    # Every status/detail token used in the CLI's render path must survive
+    # a strict cp1252 round-trip.
+    for m in report.models:
+        status = "OK" if m.ok else "MISSING"
+        status.encode("cp1252")
+        for v in m.verdicts:
+            v.reason.encode("cp1252")
+
+
+# ---------------------------------------------------------------------------
 # server subcommands
 # ---------------------------------------------------------------------------
 
