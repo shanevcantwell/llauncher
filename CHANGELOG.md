@@ -241,13 +241,11 @@ going into this alpha.)*
   managed llama-server children the agent spawned (#480, filed 2026-08-25).**
   A service restart should not take down in-flight inference. Related:
   #422 (systemd `KillMode` default has the same shape on Linux), #366, #383.
-- **The full pytest suite is not green on Windows: 45 failures across six
-  environment/portability buckets — none touch code under active
-  development (#364).** WSL's `bash` shadowing Git Bash accounts for ~20 of
-  them plus cascades; the rest are POSIX-permission-bit asserts on NTFS,
-  `Path.home()` under a cleared environment, git path-quoting, and
-  `test_ui_syntax.py`. CI-green currently requires running the suite on
-  Linux.
+- **55 environment/portability failures on Windows as of `cf442f5`
+  (2026-08-25), in the six buckets of #364; CI-green requires Linux.**
+  WSL's `bash` shadowing Git Bash accounts for ~20 of them plus cascades;
+  the rest are POSIX-permission-bit asserts on NTFS, `Path.home()` under a
+  cleared environment, git path-quoting, and `test_ui_syntax.py`.
 - **`extra_args` entries containing `-ctk`/`-ctv` emit a repeated
   `UserWarning` on every config load (visible in the UI's console stream)
   until #477 lands** (dropping the `cache_type_k`/`cache_type_v` shadow
