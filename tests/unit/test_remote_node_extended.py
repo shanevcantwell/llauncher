@@ -99,6 +99,44 @@ class TestReadEndpointsErrorPaths:
         n = _node()
         assert n.get_models() is None
 
+    @patch("httpx.Client")
+    def test_get_model_validation_offline(self, mock_cls):
+        mock_cls.side_effect = httpx.RequestError("down")
+        n = _node()
+        assert n.get_model_validation() is None
+        assert n.status == NodeStatus.OFFLINE
+
+    @patch("httpx.Client")
+    def test_get_model_validation_non_200_returns_none(self, mock_cls):
+        resp = MagicMock(status_code=404)
+        mock_cls.return_value = _http_client_mock(response=resp)
+        n = _node()
+        assert n.get_model_validation() is None
+
+    @patch("httpx.Client")
+    def test_get_model_validation_200_returns_json(self, mock_cls):
+        resp = MagicMock(status_code=200)
+        resp.json = MagicMock(return_value={"ok": True, "models": []})
+        mock_cls.return_value = _http_client_mock(response=resp)
+        n = _node()
+        result = n.get_model_validation()
+        assert result == {"ok": True, "models": []}
+        assert n.status == NodeStatus.ONLINE
+
+    def test_get_model_validation_self_loop_calls_ops_validate_models(self):
+        """The self-loop path (agent -> local node) delegates in-process."""
+        from llauncher.models.validation import ValidationReport
+        from datetime import datetime, timezone
+
+        report = ValidationReport(checked_at=datetime.now(timezone.utc), ok=True, models=[])
+        n = RemoteNode("local", "127.0.0.1", port=8765)
+        with patch.object(RemoteNode, "_is_self_loop", return_value=True), \
+                patch("llauncher.operations.validate_models", return_value=report) as mocked:
+            result = n.get_model_validation()
+        mocked.assert_called_once_with()
+        assert result["ok"] is True
+        assert result["models"] == []
+
 
 # ---------------------------------------------------------------------------
 # HTTPException 'detail' surfacing on start/swap/delete

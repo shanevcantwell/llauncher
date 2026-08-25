@@ -1,29 +1,20 @@
 """Streamlit ``AppTest`` tests for the Model Registry tab
 (``llauncher/ui/tabs/model_registry.py``).
 
-Contract pinned here: for a given ``target`` (``"local"`` or a remote node
-name), ``render_model_registry`` gathers that target's configured models —
-from ``state.models`` when local, from ``aggregator.get_all_models()`` when
-remote — and renders one health-annotated row per model via
-``check_model_health()`` (ADR-005). Each row's status column is a
-deterministic function of the health result:
+Contract pinned here (issue #475, ADR-027): for ``target == "local"`` the
+tab calls ``operations.validate_models()`` directly (no ``core.model_health``
+import — that fork is exactly what ADR-027 closed); for a remote target it
+calls ``aggregator.get_validation(target)``, never local state. Each row's
+status column is derived from the entry's own ``verdicts``/``ok``, not a
+second copy of the rule:
 
-* ``exists=False``                              -> "❌ missing"
-* ``valid=True``                                 -> "✅ ready"
-* ``valid=False`` and reason mentions "too small"/"unreadable" -> "⚠️ corrupted"
-* ``valid=False`` with any other reason          -> "❓ unknown (<reason>)"
-* ``check_model_health`` raising                 -> treated as "❌ missing"
-  (the exception-swallow branch defaults ``exists=False``)
+* ``ok=False``                                    -> "❌ missing (<gating reasons>)"
+* ``ok=True`` with an advisory verdict failure     -> "⚠️ ready (<advisory reasons>)"
+* ``ok=True`` with no advisory failures            -> "✅ ready"
 
-No health data reaches the UI except through ``check_model_health`` — this
-file patches that single seam (``llauncher.core.model_health.check_model_health``,
-patched at its defining module because ``model_registry.py`` imports it
-locally on each render) to hit every status branch deterministically, without
-touching real files on disk.
-
-Also pinned: the empty-state branches (no models configured locally; no
-aggregator data for a remote target) and the remote-target data path, which
-reads from the mocked ``RemoteAggregator`` facade only — never local state.
+Also pinned: the empty-state branches (no models locally; no aggregator
+report for a remote target) and that the remote-target path never touches
+local state.
 """
 
 from __future__ import annotations
@@ -33,8 +24,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from llauncher.core.model_health import ModelHealthResult
 from llauncher.models.config import ModelConfig
+from llauncher.models.validation import ModelValidation, ValidationReport, ValidationVerdict
 from llauncher.ui.tabs.model_registry import render_model_registry
 
 
@@ -42,13 +33,35 @@ def _make_model(name="test-model", path="/models/test-model.gguf"):
     return ModelConfig.from_dict_unvalidated({"name": name, "model_path": path})
 
 
-def _status_cells(at):
-    """Extract the rendered dataframe's ``status`` column values.
+def _validation(
+    name="test-model",
+    path="/models/test-model.gguf",
+    *,
+    ok=True,
+    exists=True,
+    size_bytes=2_000_000,
+    last_modified=None,
+    verdicts=None,
+):
+    if verdicts is None:
+        verdicts = [ValidationVerdict(check="weights", ok=ok, reason="" if ok else "not found")]
+    return ModelValidation(
+        name=name,
+        model_path=path,
+        exists=exists,
+        size_bytes=size_bytes,
+        last_modified=last_modified,
+        verdicts=verdicts,
+        ok=ok,
+    )
 
-    The tab renders via ``st.dataframe(df, ...)`` — AppTest exposes this as
-    an ``at.dataframe`` element whose ``.value`` is the underlying
-    ``pandas.DataFrame`` passed to it.
-    """
+
+def _report(models):
+    return ValidationReport(checked_at=datetime.now(timezone.utc), ok=all(m.ok for m in models), models=models)
+
+
+def _status_cells(at):
+    """Extract the rendered dataframe's ``status`` column values."""
     df = at.dataframe[0].value
     return list(df["status"])
 
@@ -59,9 +72,8 @@ class TestModelRegistryEmptyStates:
     def test_local_target_with_no_models_shows_info_banner(
         self, tab_harness, mock_state, mock_aggregator
     ):
-        mock_state.models = {}
-
-        at = tab_harness(render_model_registry, mock_state, None, mock_aggregator, "local")
+        with patch("llauncher.operations.validate_models", return_value=_report([])):
+            at = tab_harness(render_model_registry, mock_state, None, mock_aggregator, "local")
 
         assert not at.exception
         assert "No models configured" in at.info[0].value
@@ -71,7 +83,7 @@ class TestModelRegistryEmptyStates:
     def test_remote_target_with_no_aggregator_data_shows_info_banner(
         self, tab_harness, mock_state, mock_aggregator
     ):
-        mock_aggregator.get_all_models.return_value = {}
+        mock_aggregator.get_validation.return_value = None
 
         at = tab_harness(
             render_model_registry, mock_state, None, mock_aggregator, "gpu-rig"
@@ -93,74 +105,28 @@ class TestModelRegistryEmptyStates:
         assert len(at.dataframe) == 0
 
 
-class TestModelRegistryHealthStatusBranches:
-    """Each ``check_model_health`` outcome renders its pinned status label.
-
-    ``check_model_health`` is patched inline per test (not via conftest) so
-    each branch is deterministic and independent of any real file on disk.
-    """
+class TestModelRegistryStatusBranches:
+    """Each validation outcome renders its pinned status label."""
 
     def test_ready_model_renders_ready_status(
         self, tab_harness, mock_state, mock_aggregator
     ):
-        mock_state.models = {"test-model": _make_model()}
-        healthy = ModelHealthResult(valid=True, exists=True, readable=True, size_bytes=2_000_000)
+        report = _report([_validation(ok=True)])
 
-        with patch(
-            "llauncher.core.model_health.check_model_health", return_value=healthy
-        ) as mock_check:
+        with patch("llauncher.operations.validate_models", return_value=report):
             at = tab_harness(
                 render_model_registry, mock_state, None, mock_aggregator, "local"
             )
 
         assert not at.exception
-        mock_check.assert_called_once_with("/models/test-model.gguf")
         assert _status_cells(at) == ["✅ ready"]
 
-    def test_missing_model_renders_missing_status(
+    def test_missing_model_renders_missing_status_with_reason(
         self, tab_harness, mock_state, mock_aggregator
     ):
-        mock_state.models = {"test-model": _make_model()}
-        missing = ModelHealthResult(valid=False, exists=False, reason="not found")
+        report = _report([_validation(ok=False, exists=False)])
 
-        with patch(
-            "llauncher.core.model_health.check_model_health", return_value=missing
-        ):
-            at = tab_harness(
-                render_model_registry, mock_state, None, mock_aggregator, "local"
-            )
-
-        assert not at.exception
-        assert _status_cells(at) == ["❌ missing"]
-
-    @pytest.mark.parametrize("reason", ["too small", "unreadable"])
-    def test_corrupted_model_renders_corrupted_status(
-        self, tab_harness, mock_state, mock_aggregator, reason
-    ):
-        mock_state.models = {"test-model": _make_model()}
-        corrupted = ModelHealthResult(
-            valid=False, exists=True, readable=(reason != "unreadable"), reason=reason
-        )
-
-        with patch(
-            "llauncher.core.model_health.check_model_health", return_value=corrupted
-        ):
-            at = tab_harness(
-                render_model_registry, mock_state, None, mock_aggregator, "local"
-            )
-
-        assert not at.exception
-        assert _status_cells(at) == ["⚠️ corrupted"]
-
-    def test_unknown_reason_renders_unknown_status_with_reason(
-        self, tab_harness, mock_state, mock_aggregator
-    ):
-        mock_state.models = {"test-model": _make_model()}
-        odd = ModelHealthResult(valid=False, exists=True, readable=True, reason="checksum mismatch")
-
-        with patch(
-            "llauncher.core.model_health.check_model_health", return_value=odd
-        ):
+        with patch("llauncher.operations.validate_models", return_value=report):
             at = tab_harness(
                 render_model_registry, mock_state, None, mock_aggregator, "local"
             )
@@ -168,31 +134,48 @@ class TestModelRegistryHealthStatusBranches:
         assert not at.exception
         cells = _status_cells(at)
         assert len(cells) == 1
-        assert cells[0].startswith("❓ unknown")
-        assert "checksum mismatch" in cells[0]
+        assert cells[0].startswith("❌ missing")
+        assert "not found" in cells[0]
 
-    def test_check_model_health_exception_is_swallowed_and_renders_missing(
+    def test_advisory_failure_renders_ready_with_reason_not_missing(
         self, tab_harness, mock_state, mock_aggregator
     ):
-        """A raising ``check_model_health`` must not crash the tab.
+        """An advisory-only failure (stale lockfile, low VRAM) keeps the
+        badge "ready" — advisory verdicts never gate the status (ADR-027)."""
+        verdicts = [
+            ValidationVerdict(check="weights", ok=True),
+            ValidationVerdict(
+                check="lockfile", ok=False, reason="stale lockfile on port 8081", advisory=True
+            ),
+        ]
+        report = _report([_validation(ok=True, verdicts=verdicts)])
 
-        The ``except Exception`` branch in ``render_model_registry`` defaults
-        to ``valid=False`` / ``exists=False`` on any exception, which resolves
-        to the same "missing" status as a health check that cleanly reports a
-        nonexistent file — the row still renders, never an ``at.exception``.
-        """
-        mock_state.models = {"test-model": _make_model()}
-
-        with patch(
-            "llauncher.core.model_health.check_model_health",
-            side_effect=RuntimeError("disk exploded"),
-        ):
+        with patch("llauncher.operations.validate_models", return_value=report):
             at = tab_harness(
                 render_model_registry, mock_state, None, mock_aggregator, "local"
             )
 
         assert not at.exception
-        assert _status_cells(at) == ["❌ missing"]
+        cells = _status_cells(at)
+        assert cells[0].startswith("⚠️ ready")
+        assert "stale lockfile" in cells[0]
+
+    def test_validate_models_call_does_not_touch_core_model_health(
+        self, tab_harness, mock_state, mock_aggregator
+    ):
+        """Regression guard: the tab must not import ``core.model_health``
+        directly (ADR-027 closes the forked-vocabulary defect)."""
+        report = _report([_validation(ok=True)])
+
+        with patch("llauncher.operations.validate_models", return_value=report), patch(
+            "llauncher.core.model_health.check_model_health"
+        ) as mock_health:
+            at = tab_harness(
+                render_model_registry, mock_state, None, mock_aggregator, "local"
+            )
+
+        assert not at.exception
+        mock_health.assert_not_called()
 
 
 class TestModelRegistryRemoteTarget:
@@ -201,60 +184,38 @@ class TestModelRegistryRemoteTarget:
     def test_remote_target_renders_rows_from_aggregator_not_local_state(
         self, tab_harness, mock_state, mock_aggregator
     ):
-        mock_state.models = {"local-model": _make_model(name="local-model")}
-        mock_aggregator.get_all_models.return_value = {
-            "gpu-rig": [{"name": "remote-model", "model_path": "/remote/models/remote-model.gguf"}]
+        remote_report = {
+            "checked_at": "2026-08-25T00:00:00+00:00",
+            "ok": True,
+            "models": [
+                {
+                    "name": "remote-model",
+                    "model_path": "/remote/models/remote-model.gguf",
+                    "exists": True,
+                    "size_bytes": 2_000_000,
+                    "last_modified": None,
+                    "verdicts": [{"check": "weights", "ok": True, "reason": "", "advisory": False}],
+                    "ok": True,
+                }
+            ],
         }
-        healthy = ModelHealthResult(valid=True, exists=True, readable=True, size_bytes=2_000_000)
+        mock_aggregator.get_validation.return_value = remote_report
 
-        with patch(
-            "llauncher.core.model_health.check_model_health", return_value=healthy
-        ) as mock_check:
-            at = tab_harness(
-                render_model_registry, mock_state, None, mock_aggregator, "gpu-rig"
-            )
+        at = tab_harness(
+            render_model_registry, mock_state, None, mock_aggregator, "gpu-rig"
+        )
 
         assert not at.exception
-        mock_aggregator.get_all_models.assert_called_once()
-        mock_check.assert_called_once_with("/remote/models/remote-model.gguf")
+        mock_aggregator.get_validation.assert_called_once_with("gpu-rig")
         df = at.dataframe[0].value
         assert list(df["name"]) == ["remote-model"]
         assert list(df["node"]) == ["gpu-rig"]
         # Local target's state was never consulted for a remote render.
         mock_state.refresh.assert_not_called()
 
-    def test_remote_target_accepts_model_objects_with_to_dict(
-        self, tab_harness, mock_state, mock_aggregator
-    ):
-        """Aggregator rows may be model-like objects, not only plain dicts."""
-        model_obj = MagicMock()
-        model_obj.to_dict.return_value = {
-            "name": "obj-model",
-            "model_path": "/remote/models/obj-model.gguf",
-        }
-        mock_aggregator.get_all_models.return_value = {"gpu-rig": [model_obj]}
-        healthy = ModelHealthResult(valid=True, exists=True, readable=True, size_bytes=2_000_000)
-
-        with patch(
-            "llauncher.core.model_health.check_model_health", return_value=healthy
-        ):
-            at = tab_harness(
-                render_model_registry, mock_state, None, mock_aggregator, "gpu-rig"
-            )
-
-        assert not at.exception
-        model_obj.to_dict.assert_called_once()
-        df = at.dataframe[0].value
-        assert list(df["name"]) == ["obj-model"]
-
 
 class TestModelRegistrySizeFormatting:
-    """The rendered ``size`` column is a human-readable string per byte scale.
-
-    ``_format_size`` is exercised indirectly through a real health result
-    (rather than mocked) so the test pins the *rendered* size string a
-    maintainer would actually see in the table.
-    """
+    """The rendered ``size`` column is a human-readable string per byte scale."""
 
     @pytest.mark.parametrize(
         "size_bytes, expected",
@@ -267,18 +228,9 @@ class TestModelRegistrySizeFormatting:
     def test_size_column_scales_with_byte_count(
         self, tab_harness, mock_state, mock_aggregator, size_bytes, expected
     ):
-        mock_state.models = {"test-model": _make_model()}
-        # Small sizes are naturally "not valid" per the 1 MiB heuristic, but
-        # the size column renders from ``size_bytes`` regardless of validity.
-        health = ModelHealthResult(
-            valid=(size_bytes >= 1024 * 1024),
-            exists=True,
-            readable=True,
-            size_bytes=size_bytes,
-            reason=None if size_bytes >= 1024 * 1024 else "too small",
-        )
+        report = _report([_validation(ok=True, size_bytes=size_bytes)])
 
-        with patch("llauncher.core.model_health.check_model_health", return_value=health):
+        with patch("llauncher.operations.validate_models", return_value=report):
             at = tab_harness(
                 render_model_registry, mock_state, None, mock_aggregator, "local"
             )
@@ -287,23 +239,32 @@ class TestModelRegistrySizeFormatting:
         df = at.dataframe[0].value
         assert list(df["size"]) == [expected]
 
+    def test_no_size_renders_em_dash(
+        self, tab_harness, mock_state, mock_aggregator
+    ):
+        report = _report([_validation(ok=True, size_bytes=None)])
+
+        with patch("llauncher.operations.validate_models", return_value=report):
+            at = tab_harness(
+                render_model_registry, mock_state, None, mock_aggregator, "local"
+            )
+
+        assert not at.exception
+        df = at.dataframe[0].value
+        assert list(df["size"]) == ["—"]
+
 
 class TestModelRegistryLastModifiedFormatting:
-    """The rendered ``last_modified`` column tolerates non-datetime values.
-
-    Regression coverage for #347: a str-typed ``last_modified`` (or any
-    value without ``.strftime``) must render as a display string instead of
-    raising ``AttributeError`` — https://github.com/shanevcantwell/llauncher/issues/347.
-    """
+    """The rendered ``last_modified`` column tolerates non-datetime values
+    (#347 regression posture — a string must render as-is, never raise)."""
 
     def test_datetime_last_modified_renders_formatted_timestamp(
         self, tab_harness, mock_state, mock_aggregator
     ):
-        mock_state.models = {"test-model": _make_model()}
         when = datetime(2026, 1, 2, 3, 4, tzinfo=timezone.utc)
-        health = ModelHealthResult(valid=True, exists=True, readable=True, last_modified=when)
+        report = _report([_validation(ok=True, last_modified=when)])
 
-        with patch("llauncher.core.model_health.check_model_health", return_value=health):
+        with patch("llauncher.operations.validate_models", return_value=report):
             at = tab_harness(
                 render_model_registry, mock_state, None, mock_aggregator, "local"
             )
@@ -312,46 +273,41 @@ class TestModelRegistryLastModifiedFormatting:
         df = at.dataframe[0].value
         assert list(df["last_modified"]) == ["2026-01-02 03:04"]
 
-    def test_str_typed_last_modified_does_not_raise_and_renders_as_is(
+    def test_iso_string_last_modified_renders_formatted_timestamp(
         self, tab_harness, mock_state, mock_aggregator
     ):
-        """A str-typed ``last_modified`` must not hit ``.strftime`` (#347)."""
-        mock_state.models = {"test-model": _make_model()}
-        healthy = ModelHealthResult(valid=True, exists=True, readable=True)
+        """A remote report's ``last_modified`` arrives as a JSON ISO string
+        (``ValidationReport.model_dump(mode="json")`` over HTTP)."""
+        mock_aggregator.get_validation.return_value = {
+            "checked_at": "2026-08-25T00:00:00+00:00",
+            "ok": True,
+            "models": [
+                {
+                    "name": "remote-model",
+                    "model_path": "/remote/m.gguf",
+                    "exists": True,
+                    "size_bytes": None,
+                    "last_modified": "2026-01-02T03:04:00+00:00",
+                    "verdicts": [],
+                    "ok": True,
+                }
+            ],
+        }
 
-        # Bypass ModelHealthResult's datetime typing: model_dump() is what
-        # the tab actually reads from, so patch it directly to return a
-        # str-typed last_modified — reproducing any producer that has
-        # already serialized the timestamp to a string.
-        with patch(
-            "llauncher.core.model_health.check_model_health", return_value=healthy
-        ), patch.object(
-            ModelHealthResult,
-            "model_dump",
-            return_value={
-                "valid": True,
-                "exists": True,
-                "readable": True,
-                "reason": None,
-                "size_bytes": None,
-                "last_modified": "2026-01-02T03:04:00+00:00",
-            },
-        ):
-            at = tab_harness(
-                render_model_registry, mock_state, None, mock_aggregator, "local"
-            )
+        at = tab_harness(
+            render_model_registry, mock_state, None, mock_aggregator, "gpu-rig"
+        )
 
         assert not at.exception
         df = at.dataframe[0].value
-        assert list(df["last_modified"]) == ["2026-01-02T03:04:00+00:00"]
+        assert list(df["last_modified"]) == ["2026-01-02 03:04"]
 
     def test_none_last_modified_renders_em_dash(
         self, tab_harness, mock_state, mock_aggregator
     ):
-        mock_state.models = {"test-model": _make_model()}
-        health = ModelHealthResult(valid=True, exists=True, readable=True, last_modified=None)
+        report = _report([_validation(ok=True, last_modified=None)])
 
-        with patch("llauncher.core.model_health.check_model_health", return_value=health):
+        with patch("llauncher.operations.validate_models", return_value=report):
             at = tab_harness(
                 render_model_registry, mock_state, None, mock_aggregator, "local"
             )
@@ -362,20 +318,20 @@ class TestModelRegistryLastModifiedFormatting:
 
 
 class TestModelRegistryLocalTargetRefresh:
-    """The local target's model list is sourced by refreshing local state."""
+    """The local target's model list is validated after refreshing local state."""
 
-    def test_local_target_calls_state_refresh_before_reading_models(
+    def test_local_target_calls_state_refresh_and_validate_models(
         self, tab_harness, mock_state, mock_aggregator
     ):
-        mock_state.models = {"test-model": _make_model()}
-        healthy = ModelHealthResult(valid=True, exists=True, readable=True, size_bytes=2_000_000)
+        report = _report([_validation(ok=True)])
 
         with patch(
-            "llauncher.core.model_health.check_model_health", return_value=healthy
-        ):
+            "llauncher.operations.validate_models", return_value=report
+        ) as mock_validate:
             at = tab_harness(
                 render_model_registry, mock_state, None, mock_aggregator, "local"
             )
 
         assert not at.exception
         mock_state.refresh.assert_called_once()
+        mock_validate.assert_called_once_with()

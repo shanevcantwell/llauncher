@@ -471,3 +471,33 @@ class TestGetAllServersEmptyNodes:
         servers = aggregator.get_all_servers()
 
         assert isinstance(servers, list)
+
+
+class TestGetValidation:
+    """Tests for RemoteAggregator.get_validation (issue #475, ADR-027)."""
+
+    def test_get_validation_unknown_node_returns_none(self):
+        registry = NodeRegistry()
+        aggregator = RemoteAggregator(registry)
+
+        assert aggregator.get_validation("no-such-node") is None
+
+    def test_get_validation_delegates_to_node(self):
+        registry = NodeRegistry()
+        registry.add_node("gpu-rig", "localhost", 8765)
+        aggregator = RemoteAggregator(registry)
+
+        report = {"checked_at": "2026-08-25T00:00:00Z", "ok": True, "models": []}
+        with patch.object(RemoteNode, "get_model_validation", return_value=report) as mocked:
+            result = aggregator.get_validation("gpu-rig")
+
+        assert result == report
+        mocked.assert_called_once_with()
+
+    def test_get_validation_unreachable_node_returns_none(self):
+        registry = NodeRegistry()
+        registry.add_node("gpu-rig", "localhost", 8765)
+        aggregator = RemoteAggregator(registry)
+
+        with patch.object(RemoteNode, "get_model_validation", return_value=None):
+            assert aggregator.get_validation("gpu-rig") is None

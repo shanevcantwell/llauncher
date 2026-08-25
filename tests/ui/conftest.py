@@ -94,6 +94,7 @@ def mock_aggregator():
     agg = MagicMock(name="RemoteAggregator")
     agg.get_all_servers.return_value = []
     agg.get_all_models.return_value = {}
+    agg.get_validation.return_value = None
     return agg
 
 
