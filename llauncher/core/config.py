@@ -9,6 +9,7 @@ don't pass one are recorded as ``"unknown"``.
 
 import json
 import logging
+import shlex
 
 from llauncher.core import audit_log as al
 from llauncher.core.audit_log import AuditAction, AuditResult
@@ -16,6 +17,157 @@ from llauncher.core.settings import LAUNCHER_STATE_DIR
 from llauncher.models.config import ModelConfig
 
 logger = logging.getLogger(__name__)
+
+
+# ADR-026 / issue #477: the 16 llama-server mirror fields dropped from
+# ModelConfig, mapped to the flag spelling(s) ``build_command`` used to
+# emit for them. Multiple spellings (e.g. cache_type_k's ``-ctk`` short
+# alias) are checked for "flag already present in extra_args"; the first
+# spelling is the one migration *writes* when it materializes a value.
+_DROPPED_FIELD_FLAGS: dict[str, list[str]] = {
+    "threads": ["--threads"],
+    "threads_batch": ["--threads-batch"],
+    "ubatch_size": ["--ubatch-size"],
+    "batch_size": ["--batch-size"],
+    "flash_attn": ["--flash-attn"],
+    "no_mmap": ["--no-mmap"],
+    "cache_type_k": ["--cache-type-k", "-ctk"],
+    "cache_type_v": ["--cache-type-v", "-ctv"],
+    "n_cpu_moe": ["--n-cpu-moe"],
+    "temperature": ["--temp"],
+    "top_k": ["--top-k"],
+    "top_p": ["--top-p"],
+    "min_p": ["--min-p"],
+    "repeat_penalty": ["--repeat-penalty"],
+    "reverse_prompt": ["--reverse-prompt"],
+    "mlock": ["--mlock"],
+}
+
+# Boolean fields build_command emitted as a bare flag (no value) iff true.
+_BOOL_FLAG_FIELDS: frozenset[str] = frozenset({"no_mmap", "mlock"})
+
+# Fields build_command emitted *unconditionally*, from the field's default
+# when unset (RATIFIED §3's "sharp edge"): the effective current value —
+# default included — must be materialized on migration or every persisted
+# config's argv silently changes on upgrade.
+_ALWAYS_MATERIALIZE_FIELDS: frozenset[str] = frozenset(
+    {"threads_batch", "ubatch_size", "flash_attn"}
+)
+
+# Fields build_command emitted conditionally on truthiness (``if value:``),
+# not ``is not None`` — mirrors build_command's exact prior conditionals so
+# migrated argv is byte-identical to pre-migration argv.
+_TRUTHY_FIELDS: frozenset[str] = frozenset(
+    {"threads", "cache_type_k", "cache_type_v", "n_cpu_moe", "reverse_prompt"}
+)
+
+# All other dropped fields (batch_size, temperature, top_k, top_p, min_p,
+# repeat_penalty) were emitted conditionally on ``is not None``.
+
+# Fields ModelConfig legitimately drops silently on load (ADR-010 / #235),
+# handled inside ``ModelConfig.from_dict_unvalidated`` itself — not part of
+# this migration's dropped-field set, but must not trip the "unrecognized
+# key" fail-loud check below.
+_LEGACY_SILENT_DROP_FIELDS: frozenset[str] = frozenset(
+    {"default_port", "port", "host", "np"}
+)
+
+_KNOWN_MODEL_CONFIG_FIELDS: frozenset[str] = frozenset(ModelConfig.model_fields)
+
+
+def _field_should_emit(field: str, value) -> bool:
+    """Would ``build_command`` have emitted this field's flag, pre-drop?"""
+    if field in _ALWAYS_MATERIALIZE_FIELDS:
+        return True
+    if field in _BOOL_FLAG_FIELDS or field in _TRUTHY_FIELDS:
+        return bool(value)
+    return value is not None
+
+
+def _format_flag_token(field: str, flag: str, value) -> str:
+    """Render one dropped field as the extra_args token(s) it materializes to."""
+    if field in _BOOL_FLAG_FIELDS:
+        return flag
+    return f"{flag} {shlex.quote(str(value))}"
+
+
+def _migrate_config_dict(name: str, data: dict) -> tuple[dict, bool]:
+    """One-shot migration at the door for a single persisted model entry.
+
+    PARSE-AT-THE-DOOR (ADR-026 / issue #477): for each of the 16 dropped
+    llama-server mirror fields present in ``data``:
+
+    * field's flag already present in ``extra_args`` (either spelling) →
+      drop the field, the ``extra_args`` occurrence wins.
+    * field would have caused ``build_command`` to emit its flag (see
+      :func:`_field_should_emit`) and the flag is absent from
+      ``extra_args`` → append the flag(+value) to ``extra_args``, drop
+      the field. Boolean fields append the bare flag.
+    * neither → drop the field; nothing is appended (the field carried no
+      effective value, so argv is unaffected).
+
+    No dual-parse: every dropped-field key that exists in ``data`` is
+    removed. Returns ``(migrated_data, dirty)`` — ``dirty`` is True iff
+    ``data`` actually changed (a field was dropped, or the legacy
+    ``extra_args`` list shape was normalized), so callers only rewrite
+    ``config.json`` when something really migrated.
+
+    Raises:
+        ValueError: ``extra_args`` is not valid shell-token text, or
+            ``data`` carries a key that is neither a current ``ModelConfig``
+            field, a dropped field handled here, nor a legacy field
+            ``ModelConfig.from_dict_unvalidated`` silently drops — an
+            unrecognized persisted shape is not tolerated (PARSE-AT-THE-DOOR).
+    """
+    data = dict(data)
+    dirty = False
+
+    extra_args = data.get("extra_args", "")
+    if isinstance(extra_args, list):
+        extra_args = " ".join(str(t) for t in extra_args)
+        dirty = True
+
+    try:
+        tokens_present = set(shlex.split(extra_args)) if extra_args else set()
+    except ValueError as e:
+        raise ValueError(
+            f"Model {name!r}: extra_args is not a valid shell token "
+            f"string: {e}"
+        ) from e
+    heads_present = {t.split("=", 1)[0] for t in tokens_present}
+
+    appended: list[str] = []
+    for field, flags in _DROPPED_FIELD_FLAGS.items():
+        if field not in data:
+            continue
+        value = data.pop(field)
+        dirty = True
+        if any(f in heads_present for f in flags):
+            continue
+        if _field_should_emit(field, value):
+            appended.append(_format_flag_token(field, flags[0], value))
+
+    if appended:
+        extra_args = (
+            f"{extra_args} {' '.join(appended)}".strip()
+            if extra_args
+            else " ".join(appended)
+        )
+    data["extra_args"] = extra_args
+
+    unknown = (
+        set(data)
+        - _KNOWN_MODEL_CONFIG_FIELDS
+        - _LEGACY_SILENT_DROP_FIELDS
+    )
+    if unknown:
+        raise ValueError(
+            f"Model {name!r}: unrecognized config key(s) {sorted(unknown)} "
+            f"— refusing to guess a migration. Fix or remove the entry in "
+            f"config.json."
+        )
+
+    return data, dirty
 
 
 # Derived from the single LAUNCHER_STATE_DIR base (issue #196). With
@@ -79,11 +231,38 @@ class ConfigStore:
             # config.json carrying a Windows-editor UTF-8 BOM (#310) --
             # same defect class, and same fix, as the registry.py reads.
             data = json.loads(CONFIG_PATH.read_text(encoding="utf-8-sig"))
+
+            # ADR-026 / issue #477: one-shot migration at the door. Each
+            # entry's dropped llama-server mirror fields are folded into
+            # extra_args (or dropped outright if extra_args already wins)
+            # before ModelConfig ever sees them. A ValueError here (bad
+            # extra_args quoting, an unrecognized persisted key) is not
+            # caught -- it propagates and fails this load loudly, same as
+            # a corrupt config, rather than tolerating an unrecognized
+            # shape (PARSE-AT-THE-DOOR).
+            migrated: dict[str, dict] = {}
+            any_dirty = False
+            for name, cfg in data.items():
+                cfg, dirty = _migrate_config_dict(name, cfg)
+                migrated[name] = cfg
+                any_dirty = any_dirty or dirty
+
             # Use from_dict_unvalidated to skip path validation for persisted configs
-            return {
+            models = {
                 name: ModelConfig.from_dict_unvalidated(cfg)
-                for name, cfg in data.items()
+                for name, cfg in migrated.items()
             }
+
+            if any_dirty:
+                logger.info(
+                    "Migrating %d model config(s) at %s to drop llama-server "
+                    "mirror fields (ADR-026 / issue #477); rewriting once.",
+                    len(models),
+                    CONFIG_PATH,
+                )
+                cls.save(models)
+
+            return models
         except OSError as e:
             logger.error("Cannot read config at %s: %s", CONFIG_PATH, e)
             raise OSError(f"Cannot read config at {CONFIG_PATH}: {e}") from e
