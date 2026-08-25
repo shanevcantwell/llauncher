@@ -104,7 +104,8 @@ llama.cpp from source rather than using a prebuilt release, use the
 recommended build recipe instead of a bare `cmake` invocation — it sets
 `CMAKE_BUILD_TYPE=Release` and `GGML_CUDA_FA_ALL_QUANTS=ON` explicitly and
 verifies both stuck, because both fail *silently* (wrong build type, or
-flash-attention silently falling back to the CPU backend — issue #397):
+flash-attention silently falling back to the CPU backend — see
+`scripts/build-llama-server.sh`'s header for the full writeup):
 
 ```bash
 ./scripts/build-llama-server.sh --cuda-arch 86      # Linux; 89 Ada, 90 Hopper

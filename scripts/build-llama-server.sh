@@ -1,7 +1,6 @@
 #!/bin/bash
 # Build llama.cpp's llama-server with CUDA, verifying the two flags whose
-# failure mode is SILENT rather than an error. See issue #397 for the full
-# writeup; the short version:
+# failure mode is SILENT rather than an error:
 #
 #   - CMAKE_BUILD_TYPE=Release: with a single-config generator (make, the
 #     default here), `cmake --build --config Release` is IGNORED and the
@@ -14,7 +13,8 @@
 #     the scheduler silently relocates the whole FLASH_ATTN_EXT op to the
 #     CPU backend -- prompt processing collapses 20-40x while token
 #     generation looks normal. No error, no log line. See llama.cpp
-#     issue #27109. Costs extra compile time; that is the tradeoff.
+#     issue https://github.com/ggml-org/llama.cpp/issues/27109. Costs
+#     extra compile time; that is the tradeoff.
 #
 # Usage:
 #   ./scripts/build-llama-server.sh [options]
