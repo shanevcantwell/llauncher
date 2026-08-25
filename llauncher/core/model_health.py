@@ -13,6 +13,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from llauncher.models.config import resolve_shard_path
 from llauncher.util.cache import _TTLCache
 
 
@@ -57,7 +58,9 @@ def check_model_health(model_path: str) -> ModelHealthResult:
 
     Resolution order:
       1. Look up the cached result (TTL 60 s).  Return immediately on hit.
-      2. Resolve any symlinks via ``Path.resolve()``.
+      2. Resolve the sharded-GGUF fallback pattern (issue #475 precondition;
+         see :func:`llauncher.models.config.resolve_shard_path`), then
+         resolve any symlinks via ``Path.resolve()``.
       3. Check that the resolved path points to an existing file.
       4. Attempt to open for reading.
       5. Verify size exceeds 1 MiB (heuristic for a real model).
@@ -78,7 +81,7 @@ def check_model_health(model_path: str) -> ModelHealthResult:
     result = ModelHealthResult()
 
     try:
-        path = Path(model_path).resolve()
+        path = resolve_shard_path(model_path).resolve()
         result.exists = path.is_file()
         if not result.exists:
             result.reason = "not found"

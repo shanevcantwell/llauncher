@@ -161,6 +161,50 @@ MANAGED_NATIVE_FLAG_TO_FIELD: dict[str, str] = {
 MANAGED_NATIVE_FLAGS: frozenset[str] = frozenset(MANAGED_NATIVE_FLAG_TO_FIELD)
 
 
+def resolve_shard_path(path_str: str) -> Path:
+    """Resolve a model path, following the sharded-GGUF fallback pattern.
+
+    A sharded model is configured with the *first-shard* filename (e.g.
+    ``model-00001-of-00003.gguf``), but an operator may instead have only
+    the merged single-file form (``model.gguf``) on disk, or vice versa.
+    Resolution order:
+
+    1. The literal path, if it exists.
+    2. For a ``-of-`` sharded name, the base (pre-shard) ``.gguf`` path,
+       if *that* exists.
+    3. Otherwise, the literal (non-existent) path is returned unchanged so
+       callers can report the original configured path in their failure
+       reason.
+
+    This is the single source of truth for shard resolution — both
+    :meth:`ModelConfig.model_exists` (construction-time validation) and
+    :func:`llauncher.core.model_health.check_model_health` (runtime file
+    stat) call this, so a sharded entry is never a false negative in one
+    surface and a false positive in the other (issue #475 precondition,
+    load-bearing for #468's "delete entries with missing weights" rule).
+    """
+    path = Path(path_str)
+    try:
+        literal_exists = path.exists()
+    except OSError:
+        # Defensive: an errno-less/synthetic OSError from a patched or
+        # exotic filesystem layer must not propagate out of a resolution
+        # helper — treat it as "not found" and fall through to the shard
+        # check / literal-path return, exactly as a normal ENOENT would.
+        literal_exists = False
+    if literal_exists:
+        return path
+    if "-of-" in path_str:
+        base = path.parent / (path.stem.rsplit("-of-", 1)[0] + ".gguf")
+        try:
+            base_exists = base.exists()
+        except OSError:
+            base_exists = False
+        if base_exists:
+            return base
+    return path
+
+
 class BackendKind(str, Enum):
     """Inference backend discriminator (Issue #42 scaffolding).
 
@@ -309,14 +353,8 @@ class ModelConfig(BaseModel):
         if _skip_path_validation_var.get():
             return v
 
-        path = Path(v)
-        if not path.exists():
-            if "-of-" in v:
-                base = path.parent / (path.stem.rsplit("-of-", 1)[0] + ".gguf")
-                if not base.exists():
-                    raise ValueError(f"Model path does not exist: {v}")
-            else:
-                raise ValueError(f"Model path does not exist: {v}")
+        if not resolve_shard_path(v).exists():
+            raise ValueError(f"Model path does not exist: {v}")
         return v
 
     @classmethod
