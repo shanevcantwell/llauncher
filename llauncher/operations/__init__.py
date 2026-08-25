@@ -60,6 +60,7 @@ from .swap import (
     SwapResult,
     swap,
 )
+from .validate import validate_models
 
 __all__ = [
     # Verbs
@@ -70,6 +71,7 @@ __all__ = [
     "join_inflight_stop",  # issue #140: reaper coalesce with in-flight stop
     "swap",
     "delete_model",
+    "validate_models",
     # Result envelopes
     "StartResult",
     "StopResult",
