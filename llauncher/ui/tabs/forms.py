@@ -37,14 +37,6 @@ def render_add_model(state: LauncherState) -> None:
                 "Context Size", min_value=1024, value=131072
             )
 
-        col4, col5 = st.columns(2)
-        with col4:
-            threads = st.number_input("Threads (optional)", min_value=0, value=0)
-        with col5:
-            flash_attn = st.selectbox("Flash Attention", ["on", "off", "auto"], index=0)
-
-        no_mmap = st.checkbox("Disable Memory Mapping (no-mmap)", value=False)
-
         # Additional options (expandable)
         with st.expander("Advanced Options", expanded=False):
             col_adv1, col_adv2 = st.columns(2)
@@ -53,76 +45,41 @@ def render_add_model(state: LauncherState) -> None:
                     "Parallel Slots (-np)", min_value=1, value=1
                 )
             with col_adv2:
-                mlock = st.checkbox("Lock Memory in RAM (mlock)", value=False)
+                metrics = st.checkbox(
+                    "Enable Prometheus Metrics (--metrics)",
+                    value=True,
+                    help="Exposes the /metrics endpoint for tps, kv-cache, and draft-acceptance telemetry.",
+                )
 
-            metrics = st.checkbox(
-                "Enable Prometheus Metrics (--metrics)",
-                value=True,
-                help="Exposes the /metrics endpoint for tps, kv-cache, and draft-acceptance telemetry.",
+            slots = st.checkbox(
+                "Expose /slots monitoring endpoint (--slots)",
+                value=False,
+                help="Includes per-slot prompt text — sensitive, default off.",
             )
 
-            col_adv3, col_adv4, col_adv5 = st.columns(3)
-            with col_adv3:
-                n_cpu_moe = st.number_input(
-                    "CPU MOE Threads (-ncmoe, optional)", min_value=0, value=0
-                )
-            with col_adv4:
-                batch_size = st.number_input(
-                    "Batch Size (optional)", min_value=0, value=0
-                )
-            with col_adv5:
-                temperature = st.number_input(
-                    "Temperature (optional)", min_value=0.0, value=0.7, step=0.1
-                )
-
-            col_adv6, col_adv7, col_adv8 = st.columns(3)
-            with col_adv6:
-                top_k = st.number_input(
-                    "Top-K (optional)", min_value=0, value=40
-                )
-            with col_adv7:
-                top_p = st.number_input(
-                    "Top-P (optional)",
-                    min_value=0.0,
-                    max_value=1.0,
-                    value=0.9,
-                    step=0.01,
-                )
-            with col_adv8:
-                min_p = st.number_input(
-                    "Min-P (optional)",
-                    min_value=0.0,
-                    max_value=1.0,
-                    value=0.1,
-                    step=0.01,
-                )
-
-            repeat_penalty = st.number_input(
-                "Repeat Penalty (optional)",
-                min_value=0.0,
-                value=1.1,
-                step=0.01,
-                help="Penalize repeat sequences of tokens (1.0 = disabled)",
-            )
-
-            reverse_prompt = st.text_input(
-                "Reverse Prompt (optional)",
-                help="Halt generation when this string is encountered",
-            )
-
-            extra_args = st.text_input(
-                "Extra Args (optional)",
-                help="Additional command-line arguments (e.g., '--mcp-config /path/to/file.json')",
+            # ADR-026 / issue #477: extra_args is a verbatim llama-server
+            # flag passthrough — no dedicated widget per flag, no pydantic
+            # content validation. Denied (llauncher-owned) flags are
+            # rejected at launch time, not here.
+            extra_args = st.text_area(
+                "Extra Args",
+                help=(
+                    "Additional llama-server command-line flags, in the "
+                    "spelling from `llama-server --help` (e.g. "
+                    "'--flash-attn on --cache-type-k q4_0 --threads 8'). "
+                    "Flags llauncher owns (--alias, -m/--model, "
+                    "--host/--port, --api-key, --metrics, --slots/"
+                    "--no-slots) are rejected at launch time."
+                ),
             )
 
         submitted = st.form_submit_button("Add Model", width='stretch')
 
         if submitted:
-            _process_add_model(state, name, model_path, mmproj_path,
-                             n_gpu_layers, ctx_size, threads, flash_attn,
-                             no_mmap, parallel, mlock, metrics, n_cpu_moe, batch_size,
-                             temperature, top_k, top_p, min_p, repeat_penalty,
-                             reverse_prompt, extra_args)
+            _process_add_model(
+                state, name, model_path, mmproj_path,
+                n_gpu_layers, ctx_size, parallel, metrics, slots, extra_args,
+            )
 
 
 def _process_add_model(
@@ -132,20 +89,9 @@ def _process_add_model(
     mmproj_path: str | None,
     n_gpu_layers: int,
     ctx_size: int,
-    threads: int,
-    flash_attn: str,
-    no_mmap: bool,
     parallel: int,
-    mlock: bool,
     metrics: bool,
-    n_cpu_moe: int,
-    batch_size: int,
-    temperature: float,
-    top_k: int,
-    top_p: float,
-    min_p: float,
-    repeat_penalty: float,
-    reverse_prompt: str,
+    slots: bool,
     extra_args: str,
 ) -> None:
     """Process the add model form submission.
@@ -157,21 +103,10 @@ def _process_add_model(
         mmproj_path: Path to multimodal projector (optional).
         n_gpu_layers: Number of GPU layers.
         ctx_size: Context size.
-        threads: Number of threads.
-        flash_attn: Flash attention setting.
-        no_mmap: Disable memory mapping flag.
         parallel: Parallel slots.
-        mlock: Lock memory in RAM flag.
         metrics: Enable Prometheus /metrics endpoint flag.
-        n_cpu_moe: CPU MOE threads.
-        batch_size: Batch size.
-        temperature: Temperature value.
-        top_k: Top-K value.
-        top_p: Top-P value.
-        min_p: Min-P value.
-        repeat_penalty: Repeat penalty value.
-        reverse_prompt: Reverse prompt string.
-        extra_args: Additional command-line arguments.
+        slots: Enable /slots monitoring endpoint flag.
+        extra_args: Verbatim llama-server flag passthrough.
     """
     # Strip whitespace from inputs
     name = name.strip()
@@ -195,20 +130,9 @@ def _process_add_model(
             mmproj_path=mmproj_path,
             n_gpu_layers=n_gpu_layers,
             ctx_size=ctx_size,
-            threads=threads if threads > 0 else None,
-            flash_attn=flash_attn,
-            no_mmap=no_mmap,
             parallel=parallel,
-            mlock=mlock,
             metrics=metrics,
-            n_cpu_moe=n_cpu_moe if n_cpu_moe > 0 else None,
-            batch_size=batch_size if batch_size > 0 else None,
-            temperature=temperature if temperature > 0 else None,
-            top_k=top_k if top_k > 0 else None,
-            top_p=top_p if top_p > 0 else None,
-            min_p=min_p if min_p > 0 else None,
-            repeat_penalty=repeat_penalty if repeat_penalty > 0 else None,
-            reverse_prompt=reverse_prompt.strip() if reverse_prompt else None,
+            slots=slots,
             extra_args=extra_args.strip() if extra_args else "",
         )
 
@@ -268,19 +192,6 @@ def render_edit_model(state: LauncherState, model_name: str | None = None) -> No
                 "Context Size", min_value=1024, value=config.ctx_size
             )
 
-        col4, col5 = st.columns(2)
-        with col4:
-            threads = st.number_input(
-                "Threads (optional)", min_value=0, value=config.threads or 0
-            )
-        with col5:
-            flash_idx = ["on", "off", "auto"].index(config.flash_attn)
-            flash_attn = st.selectbox(
-                "Flash Attention", ["on", "off", "auto"], index=flash_idx
-            )
-
-        no_mmap = st.checkbox("Disable Memory Mapping (no-mmap)", value=config.no_mmap)
-
         with st.expander("Advanced Options", expanded=False):
             col_adv1, col_adv2 = st.columns(2)
             with col_adv1:
@@ -288,67 +199,28 @@ def render_edit_model(state: LauncherState, model_name: str | None = None) -> No
                     "Parallel Slots (-np)", min_value=1, value=config.parallel
                 )
             with col_adv2:
-                mlock = st.checkbox("Lock Memory in RAM (mlock)", value=config.mlock)
+                metrics = st.checkbox(
+                    "Enable Prometheus Metrics (--metrics)",
+                    value=config.metrics,
+                    help="Exposes the /metrics endpoint for tps, kv-cache, and draft-acceptance telemetry.",
+                )
 
-            metrics = st.checkbox(
-                "Enable Prometheus Metrics (--metrics)",
-                value=config.metrics,
-                help="Exposes the /metrics endpoint for tps, kv-cache, and draft-acceptance telemetry.",
+            slots = st.checkbox(
+                "Expose /slots monitoring endpoint (--slots)",
+                value=config.slots,
+                help="Includes per-slot prompt text — sensitive, default off.",
             )
 
-            col_adv3, col_adv4, col_adv5 = st.columns(3)
-            with col_adv3:
-                n_cpu_moe = st.number_input(
-                    "CPU MOE Threads", min_value=0, value=config.n_cpu_moe or 0
-                )
-            with col_adv4:
-                batch_size = st.number_input(
-                    "Batch Size", min_value=0, value=config.batch_size or 0
-                )
-            with col_adv5:
-                temperature = st.number_input(
-                    "Temperature",
-                    min_value=0.0,
-                    value=config.temperature or 0.7,
-                    step=0.1,
-                )
-
-            col_adv6, col_adv7, col_adv8 = st.columns(3)
-            with col_adv6:
-                top_k = st.number_input("Top-K", min_value=0, value=config.top_k or 40)
-            with col_adv7:
-                top_p = st.number_input(
-                    "Top-P",
-                    min_value=0.0,
-                    max_value=1.0,
-                    value=config.top_p or 0.9,
-                    step=0.01,
-                )
-            with col_adv8:
-                min_p = st.number_input(
-                    "Min-P",
-                    min_value=0.0,
-                    max_value=1.0,
-                    value=config.min_p or 0.1,
-                    step=0.01,
-                )
-
-            repeat_penalty = st.number_input(
-                "Repeat Penalty",
-                min_value=0.0,
-                value=config.repeat_penalty or 1.1,
-                step=0.01,
-                help="Penalize repeat sequences of tokens (1.0 = disabled)",
-            )
-
-            reverse_prompt = st.text_input(
-                "Reverse Prompt", value=config.reverse_prompt or ""
-            )
-
-            extra_args = st.text_input(
+            extra_args = st.text_area(
                 "Extra Args",
                 value=config.extra_args or "",
-                help="Additional command-line arguments",
+                help=(
+                    "Additional llama-server command-line flags, in the "
+                    "spelling from `llama-server --help`. Flags llauncher "
+                    "owns (--alias, -m/--model, --host/--port, --api-key, "
+                    "--metrics, --slots/--no-slots) are rejected at launch "
+                    "time."
+                ),
             )
 
         col_submit, col_cancel = st.columns(2)
@@ -362,11 +234,10 @@ def render_edit_model(state: LauncherState, model_name: str | None = None) -> No
             st.rerun()
 
         if submitted:
-            _process_edit_model(state, model_name, model_path, mmproj_path,
-                              n_gpu_layers, ctx_size, threads, flash_attn, no_mmap,
-                              parallel, mlock, metrics, n_cpu_moe, batch_size, temperature,
-                              top_k, top_p, min_p, repeat_penalty, reverse_prompt,
-                              extra_args)
+            _process_edit_model(
+                state, model_name, model_path, mmproj_path,
+                n_gpu_layers, ctx_size, parallel, metrics, slots, extra_args,
+            )
 
 
 def _process_edit_model(
@@ -376,20 +247,9 @@ def _process_edit_model(
     mmproj_path: str,
     n_gpu_layers: int,
     ctx_size: int,
-    threads: int,
-    flash_attn: str,
-    no_mmap: bool,
     parallel: int,
-    mlock: bool,
     metrics: bool,
-    n_cpu_moe: int,
-    batch_size: int,
-    temperature: float,
-    top_k: int,
-    top_p: float,
-    min_p: float,
-    repeat_penalty: float,
-    reverse_prompt: str,
+    slots: bool,
     extra_args: str,
 ) -> None:
     """Process the edit model form submission.
@@ -401,21 +261,10 @@ def _process_edit_model(
         mmproj_path: Path to multimodal projector.
         n_gpu_layers: Number of GPU layers.
         ctx_size: Context size.
-        threads: Number of threads.
-        flash_attn: Flash attention setting.
-        no_mmap: Disable memory mapping flag.
         parallel: Parallel slots.
-        mlock: Lock memory in RAM flag.
         metrics: Enable Prometheus /metrics endpoint flag.
-        n_cpu_moe: CPU MOE threads.
-        batch_size: Batch size.
-        temperature: Temperature value.
-        top_k: Top-K value.
-        top_p: Top-P value.
-        min_p: Min-P value.
-        repeat_penalty: Repeat penalty value.
-        reverse_prompt: Reverse prompt string.
-        extra_args: Additional command-line arguments.
+        slots: Enable /slots monitoring endpoint flag.
+        extra_args: Verbatim llama-server flag passthrough.
     """
     if not model_path:
         st.error("Model path is required")
@@ -435,20 +284,9 @@ def _process_edit_model(
                 "mmproj_path": mmproj_path or None,
                 "n_gpu_layers": n_gpu_layers,
                 "ctx_size": ctx_size,
-                "threads": threads if threads > 0 else None,
-                "flash_attn": flash_attn,
-                "no_mmap": no_mmap,
                 "parallel": parallel,
-                "mlock": mlock,
                 "metrics": metrics,
-                "n_cpu_moe": n_cpu_moe if n_cpu_moe > 0 else None,
-                "batch_size": batch_size if batch_size > 0 else None,
-                "temperature": temperature if temperature > 0 else None,
-                "top_k": top_k if top_k > 0 else None,
-                "top_p": top_p if top_p > 0 else None,
-                "min_p": min_p if min_p > 0 else None,
-                "repeat_penalty": repeat_penalty if repeat_penalty > 0 else None,
-                "reverse_prompt": reverse_prompt or None,
+                "slots": slots,
                 "extra_args": extra_args or "",
             }
         )

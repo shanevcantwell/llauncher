@@ -268,27 +268,15 @@ Example config entry:
     "mmproj_path": null,
     "n_gpu_layers": 255,
     "ctx_size": 131072,
-    "threads": 8,
-    "threads_batch": 8,
-    "ubatch_size": 512,
-    "batch_size": null,
-    "flash_attn": "on",
-    "no_mmap": false,
-    "cache_type_k": "f32",
-    "cache_type_v": "f32",
-    "n_cpu_moe": null,
     "parallel": 1,
-    "temperature": null,
-    "top_k": null,
-    "top_p": null,
-    "min_p": null,
-    "repeat_penalty": null,
-    "reverse_prompt": null,
-    "mlock": false,
-    "extra_args": ""
+    "metrics": true,
+    "slots": false,
+    "extra_args": "--threads 8 --flash-attn on --cache-type-k f32 --cache-type-v f32"
   }
 }
 ```
+
+Per ADR-026 (issue #477), `ModelConfig` is not a mirror of llama-server's argument schema: `mmproj_path`, `n_gpu_layers`, `ctx_size`, `parallel`, `metrics`, and `slots` are the only fields llauncher acts on directly. Every other llama-server flag (`--threads`, `--flash-attn`, `--cache-type-k`/`-v`, sampling params, etc.) is a verbatim `extra_args` passthrough, in the spelling from `llama-server --help` — no pydantic content validation. The llauncher-owned deny-list (`--alias`, `-m`/`--model`, `--host`/`--port`, `--api-key`, `--metrics`, `--slots`/`--no-slots`) is enforced once, at launch time, in `core/process.py::build_command`.
 
 Per ADR-LLNCH-010, port is supplied at every call site (UI port picker, CLI `--port`, MCP `port` arg, HTTP `/start/{port}` route) and is **not** persisted in the config. Legacy `default_port` entries in `config.json` are silently dropped on load.
 
