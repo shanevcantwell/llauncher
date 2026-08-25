@@ -15,7 +15,7 @@ Branch `main` is at `97bd9f5` (unchanged since the prior dossier). Six PRs open 
 | #102 | #84 | `sec-84-html-escape-audit` | ready to merge (CONCERNS → review-fix landed at `d46c541`) |
 | #103 | #78 | `sec-78-body-cap` | ready to merge (PASS-with-LOW review) |
 
-v2 refactor milestone state unchanged from prior dossier: M1–M4 complete; M5 has one item left (#56 canonical self-swap integration test, ADR-016); M6/M7 not started.
+v2 refactor milestone state unchanged from prior dossier: M1–M4 complete; M5 has one item left (#56 canonical self-swap integration test, ADR-LLNCH-016); M6/M7 not started.
 
 **Network-trust posture:** loopback + auth-on (default since #75). Once Wave 1 merges, the security backlog is 5 open items: #79, #85, #87 (Wave 2 cohort, blocked on Wave 1 merge), #82 + #86 (user-punted).
 
@@ -61,7 +61,7 @@ Dispatch with the parallel-worktree protocol from prior dossier §7 + the addend
 - **#106** — platform-guard `nodes.json` permission tests for non-POSIX runners (post-#83)
 
 ### Threads still queued (unchanged from prior dossier)
-- **#56** — M5 canonical self-swap integration test (ADR-016). Single dedicated session.
+- **#56** — M5 canonical self-swap integration test (ADR-LLNCH-016). Single dedicated session.
 - **#69** — Streamlit `AppTest` harness. Multi-session; unlocks UI coverage when it lands.
 - **#82** — `LAUNCHER_MODELS_ROOT` containment (user-punted; needs design Q&A first).
 - **#86** — TLS/mTLS scoping (user-punted; design-doc shape, not code).

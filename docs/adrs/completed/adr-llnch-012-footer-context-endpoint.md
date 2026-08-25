@@ -1,8 +1,8 @@
-# ADR-012: Footer Context Endpoint — Minimal Payload, Short TTL Cache
+# ADR-LLNCH-012: Footer Context Endpoint — Minimal Payload, Short TTL Cache
 
 **Status:** Accepted
 **Date:** 2026-05-16
-**Relationship to other ADRs:** ADR-001 (pi-coding-agent / TypeScript footer extension) is the consumer. ADR-008 (stateless facade, configurable on-disk paths) defines the lockfile read path this endpoint relies on. ADR-003 (agent API authentication) governs auth handling, which this endpoint matches without exception. Issue [#36](https://github.com/shanevcantwell/llauncher/issues/36) (multi-node footer-budget cache early-return bug) is adjacent but lives on the consumer side and is not addressed here.
+**Relationship to other ADRs:** ADR-LLNCH-001 (pi-coding-agent / TypeScript footer extension) is the consumer. ADR-LLNCH-008 (stateless facade, configurable on-disk paths) defines the lockfile read path this endpoint relies on. ADR-LLNCH-003 (agent API authentication) governs auth handling, which this endpoint matches without exception. Issue [#36](https://github.com/shanevcantwell/llauncher/issues/36) (multi-node footer-budget cache early-return bug) is adjacent but lives on the consumer side and is not addressed here.
 
 **Supersedes:** No prior ADR. The pre-ADR behavior — footers polling `/status` per-token — was an unratified accretion rather than a deliberate choice.
 
@@ -33,11 +33,11 @@ Added to `llauncher/agent/routing.py`. Returns a fixed, minimal JSON shape:
 }
 ```
 
-When the port has no lockfile, returns **HTTP 404** with body `{"detail": "port_empty"}`. This matches the `port_empty` vocabulary used by `operations.swap` per ADR-011.
+When the port has no lockfile, returns **HTTP 404** with body `{"detail": "port_empty"}`. This matches the `port_empty` vocabulary used by `operations.swap` per ADR-LLNCH-011.
 
 When the lockfile exists but the model name it claims is not present in `ConfigStore` (the user deleted the config while a server using it was still running), returns **HTTP 200** with `ctx_size: null, parallel: null`, model preserved from the lockfile. The footer extension already tolerates null `parallel` (`mc.parallel != null ? mc.parallel : 1`); `ctx_size: null` is a new tolerance the TS side must accept (treat as "unknown"). The lockfile is the source of truth for "what is running"; missing config is a degraded-display case, not a not-found case.
 
-The endpoint is **port-keyed**, not name-keyed, per ADR-010.
+The endpoint is **port-keyed**, not name-keyed, per ADR-LLNCH-010.
 
 ### 2. TTL cache: `llauncher/agent/footer_cache.py` (new module)
 
@@ -63,7 +63,7 @@ We rejected the alternative of exempting the endpoint. The lockfile path on disk
 
 ### 4. Response shape is a stable contract
 
-Unlike `/status`, the shape of this response is *pinned by this ADR* and may not be extended without superseding ADR-012 or amending it in place. The four-field payload is the contract; consumers may rely on the keys present and the keys absent.
+Unlike `/status`, the shape of this response is *pinned by this ADR* and may not be extended without superseding ADR-LLNCH-012 or amending it in place. The four-field payload is the contract; consumers may rely on the keys present and the keys absent.
 
 Adding fields requires amending this ADR. Removing fields requires a new ADR. Renaming fields requires a new ADR plus a deprecation window.
 
@@ -83,7 +83,7 @@ If a future deployment surfaces N-port-per-node footers as a real cost, file a s
 
 - The footer's per-token cost on the agent host drops from "process scan + GPU probe + ~1 KB" to "dict lookup + ~80 B" once the TTL is warm.
 - The footer no longer breaks when `/status` grows new fields.
-- The contract is auditable: anyone reading ADR-012 can predict every byte of the response.
+- The contract is auditable: anyone reading ADR-LLNCH-012 can predict every byte of the response.
 - The cache is small enough to be obviously correct (one file: `footer_cache.py`, no background tasks, no invalidation graph).
 
 ### Negative

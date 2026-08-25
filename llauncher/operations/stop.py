@@ -1,4 +1,4 @@
-"""``stop`` verb — terminate the model on a port per ADR-010 semantics.
+"""``stop`` verb — terminate the model on a port per ADR-LLNCH-010 semantics.
 
 Two entry points share the same reconcile/terminate machinery:
 
@@ -48,7 +48,7 @@ class StopResult:
 
 
 # In-flight background stops keyed by port (issue #140). Process-local
-# bookkeeping, NOT durable state — ADR-008 still holds: the source of
+# bookkeeping, NOT durable state — ADR-LLNCH-008 still holds: the source of
 # truth for "is something on this port" remains the lockfile + process
 # table, both of which the background thread updates exactly as the
 # synchronous path does. This registry only dedupes repeated stop
@@ -155,7 +155,7 @@ def _terminate(port: int, existing: Lockfile, *, caller: str) -> StopResult:
 
 
 def stop(port: int, *, caller: str = "unknown") -> StopResult:
-    """Stop whatever is running on ``port`` per ADR-010 verb semantics.
+    """Stop whatever is running on ``port`` per ADR-LLNCH-010 verb semantics.
 
     - Empty port → idempotent success. Returns ``action="already_empty"``.
     - Stale lockfile (pid dead) → cleaned up, ``action="already_empty"``.
@@ -183,7 +183,7 @@ def stop_in_background(port: int, *, caller: str = "unknown") -> StopResult:
       immediately. Termination, lockfile removal, and the audit record
       happen on the thread; completion is observable via status (the
       port empties) and the audit log (``STOPPED`` with ``SUCCESS`` or
-      ``ERROR``). This mirrors ADR-014's in-flight semantics for
+      ``ERROR``). This mirrors ADR-LLNCH-014's in-flight semantics for
       ``/cancel/{port}``: the endpoint acknowledges, it does not block
       on the outcome.
     - Repeated call while a stop is in flight → ``action="stopping"``

@@ -12,7 +12,7 @@ def mock_state():
     """Mock LauncherState with test data."""
     state = MagicMock()
 
-    # Create test models. Per ADR-010, port is supplied at the call site,
+    # Create test models. Per ADR-LLNCH-010, port is supplied at the call site,
     # not stored on the config — legacy default_port keys are silently dropped.
     running_config = ModelConfig.from_dict_unvalidated({
         "name": "running-model",
@@ -87,7 +87,7 @@ class TestListModels:
 
     @pytest.mark.asyncio
     async def test_list_models_omits_default_port(self, mock_state):
-        """Per ADR-010, default_port is no longer in the response."""
+        """Per ADR-LLNCH-010, default_port is no longer in the response."""
         result = await list_models(mock_state, {})
 
         for model in result["models"]:
@@ -174,7 +174,7 @@ class TestGetTools:
 
 
 class TestValidateModelsTool:
-    """Tests for the validate_models MCP tool (issue #475, ADR-027)."""
+    """Tests for the validate_models MCP tool (issue #475, ADR-LLNCH-027)."""
 
     @pytest.mark.asyncio
     async def test_delegates_to_operations_validate_models(self):

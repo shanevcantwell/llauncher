@@ -1,4 +1,4 @@
-# ADR-005: Model Cache Health Validation in Start/Stop Flow
+# ADR-LLNCH-005: Model Cache Health Validation in Start/Stop Flow
 
 **Status:** Accepted  
 **Date:** 2026-04-26  
@@ -42,11 +42,11 @@ def start_server(self, model_name, port, ...):
     # Continue with existing flow...
 ```
 
-**Layer 2 — Model Health API Endpoint (superseded 2026-08-25 by ADR-027):**
+**Layer 2 — Model Health API Endpoint (superseded 2026-08-25 by ADR-LLNCH-027):**
 `GET /models/health` and `GET /models/health/{name}` were removed on #475 —
 no in-repo consumer ever called them, and `GET /models/validate[/{name}]`
-(ADR-027) serves a superset shape. Layer 1 (the `check_model_health`
-mechanism itself) is unaffected and remains the basis for ADR-027's
+(ADR-LLNCH-027) serves a superset shape. Layer 1 (the `check_model_health`
+mechanism itself) is unaffected and remains the basis for ADR-LLNCH-027's
 `weights` verdict.
 ```
 GET /models/health         → list all models + file status for each
@@ -65,7 +65,7 @@ Response shape:
         "last_modified": "2026-04-25T18:30:00Z",
         "safe_to_load": true  // file > 1MB (heuristic for corruption check)
     },
-    "estimated_vram_mb": null  // populated only if GPU metrics available (see ADR-006)
+    "estimated_vram_mb": null  // populated only if GPU metrics available (see ADR-LLNCH-006)
 }
 ```
 

@@ -1,6 +1,6 @@
 """Unit tests for ``llauncher.core.marker``.
 
-Per ADR-011. Verifies atomic claim semantics, staleness detection, and
+Per ADR-LLNCH-011. Verifies atomic claim semantics, staleness detection, and
 corrupt-file resilience for the in-flight swap marker.
 """
 
@@ -179,7 +179,7 @@ def test_reconcile_alive_owner(run_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# ADR-014: cancel flag (request_cancel, is_cancelled, back-compat)
+# ADR-LLNCH-014: cancel flag (request_cancel, is_cancelled, back-compat)
 # ---------------------------------------------------------------------------
 
 
@@ -202,7 +202,7 @@ def test_is_cancelled_false_when_unflagged(run_dir: Path) -> None:
 
 
 def test_request_cancel_returns_false_when_no_marker(run_dir: Path) -> None:
-    """Per ADR-014: no marker → no-op; returns False (no signal delivered)."""
+    """Per ADR-LLNCH-014: no marker → no-op; returns False (no signal delivered)."""
     assert mk.request_cancel(8081, run_dir=run_dir) is False
 
 
@@ -233,7 +233,7 @@ def test_request_cancel_preserves_other_fields(run_dir: Path) -> None:
 
 
 def test_release_marker_clears_cancel_state_implicitly(run_dir: Path) -> None:
-    """After release, a fresh take starts cancelled=False (ADR-014)."""
+    """After release, a fresh take starts cancelled=False (ADR-LLNCH-014)."""
     mk.take_marker(
         8081, caller="cli", from_model="a", to_model="b", run_dir=run_dir
     )
@@ -248,7 +248,7 @@ def test_release_marker_clears_cancel_state_implicitly(run_dir: Path) -> None:
 
 
 def test_back_compat_read_of_pre_adr_marker(run_dir: Path) -> None:
-    """Markers written before ADR-014 omit the ``cancelled`` field; reads
+    """Markers written before ADR-LLNCH-014 omit the ``cancelled`` field; reads
     must succeed with ``cancelled=False`` rather than KeyError."""
     run_dir.mkdir(parents=True)
     pre_adr_payload = {

@@ -41,7 +41,7 @@ ensure_venv() {
 
 case "${1:-}" in
     setup)
-        # Recompose the agent venv from pyproject.toml (ADR-023, issue #227).
+        # Recompose the agent venv from pyproject.toml (ADR-LLNCH-023, issue #227).
         #
         # This is the single, named recompose command the system ensure unit
         # (llauncher-agent-ensure-venv.service) calls, and the live successor
@@ -54,7 +54,7 @@ case "${1:-}" in
         # venv already resolves `llauncher-agent`, this is a no-op — we
         # recompose only when missing/broken, never eagerly every boot.
         # OQ2 (minimal): rebuild from pyproject.toml `>=` floors via an
-        # editable install; no lockfile (deferred to ADR-023 Phase C).
+        # editable install; no lockfile (deferred to ADR-LLNCH-023 Phase C).
         if [ -x "$PROJECT_DIR/.venv/bin/llauncher-agent" ]; then
             print_status "Agent venv already populated (llauncher-agent present) — nothing to recompose."
             exit 0
@@ -72,7 +72,7 @@ case "${1:-}" in
         fi
         if [ ! -x "$PROJECT_DIR/.venv/bin/llauncher-agent" ]; then
             print_error "Recompose INCOMPLETE: the llauncher-agent entry point is still missing"
-            print_error "after 'pip install -e'. Refusing to report success (fail-loud, ADR-023)."
+            print_error "after 'pip install -e'. Refusing to report success (fail-loud, ADR-LLNCH-023)."
             exit 1
         fi
         print_status "Agent venv recomposed: $PROJECT_DIR/.venv/bin/llauncher-agent present."

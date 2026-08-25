@@ -7,7 +7,7 @@
 
 ---
 
-Generated against `main` (post #55 / ADR-015 orphan list).
+Generated against `main` (post #55 / ADR-LLNCH-015 orphan list).
 Baseline run: 776 passed, 9 skipped, 2 warnings, 14.34 s.
 Full coverage output: `/tmp/llauncher-cov-baseline.txt`.
 
@@ -56,7 +56,7 @@ Most regression-shaped historical bugs without explicit tests: **#1, #2, #19, #3
 
 ## Phases
 
-### Phase A — Recent feature regressions (ADR-013/014/015 + #65/#62)
+### Phase A — Recent feature regressions (ADR-LLNCH-013/014/015 + #65/#62)
 
 Confirm and harden coverage for the most recent feature surface. Existing tests cover the unit-level happy paths; gaps are in cross-module wiring and error branches.
 
@@ -97,8 +97,8 @@ Proposed test files (new, under `tests/integration/mcp/`):
 - `conftest.py` — fixtures: `mcp_dispatch`, `stub_llama_server`, `agent_asgi_client`, `clean_lockfile_dir`.
 - `test_e2e_start_stop.py` — `start_server` then `stop_server`; assert lockfile + marker + audit transitions.
 - `test_e2e_swap.py` — start A, `swap_server` to B; assert eviction, marker continuity, audit log entries.
-- `test_e2e_cancel.py` — start A with delay; `cancel_server` mid-flight; assert ADR-014 marker terminal state + no orphan.
-- `test_e2e_orphan_lifecycle.py` — induce orphan (kill agent mid-start), then `list_orphans` and reconcile; assert ADR-015 list/cleanup verbs.
+- `test_e2e_cancel.py` — start A with delay; `cancel_server` mid-flight; assert ADR-LLNCH-014 marker terminal state + no orphan.
+- `test_e2e_orphan_lifecycle.py` — induce orphan (kill agent mid-start), then `list_orphans` and reconcile; assert ADR-LLNCH-015 list/cleanup verbs.
 - `test_e2e_failure_modes.py` — preflight failure, port already bound, swap-to-same-port no-op, cancel after completion.
 - `test_mcp_stdio_smoke.py` — minimal subprocess spawn of `llauncher-mcp`, single `list_models` round-trip (wire protocol check).
 

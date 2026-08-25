@@ -75,7 +75,7 @@ class TestFakeManagedPidPortGate:
         assert info is None
         messages = [r.getMessage() for r in caplog.records]
         assert any(
-            "verify_pid" in m and "4242" in m and "9999" in m and "ADR-008" in m
+            "verify_pid" in m and "4242" in m and "9999" in m and "ADR-LLNCH-008" in m
             for m in messages
         ), messages
 

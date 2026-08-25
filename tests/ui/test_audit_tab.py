@@ -170,7 +170,7 @@ class TestAuditTabFilters:
 
 
 class TestAuditTabTailControl:
-    """The "Tail (entries)" number_input bounds the read (ADR-013 hook)."""
+    """The "Tail (entries)" number_input bounds the read (ADR-LLNCH-013 hook)."""
 
     def test_default_tail_requests_200_entries(
         self, tab_harness, mock_read_entries, mock_registry

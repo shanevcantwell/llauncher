@@ -1,19 +1,19 @@
-# ADR-011: Swap Semantics v2
+# ADR-LLNCH-011: Swap Semantics v2
 
 **Status:** Accepted  
 **Date:** 2026-05-02  
 
 ## Context
 
-ADR-002 ("Unified Swap-with-Eviction Semantics") consolidated three different swap implementations (UI, Agent API, MCP tool) into a single `state.start_with_eviction()` method with rollback and readiness polling. That work was sound for its premise, but several decisions since have changed the premise:
+ADR-LLNCH-002 ("Unified Swap-with-Eviction Semantics") consolidated three different swap implementations (UI, Agent API, MCP tool) into a single `state.start_with_eviction()` method with rollback and readiness polling. That work was sound for its premise, but several decisions since have changed the premise:
 
-- **ADR-008** reframes `LauncherState` as a stateless facade. The "three callers each constructing their own state" problem ADR-002 addressed no longer exists in that shape; every caller now reaches the same tool layer.
-- **ADR-010** establishes that swap is per-port, port-keyed, and a distinct verb from start. The model-keyed `/start-with-eviction/{model}` endpoint is gone. The verb's precondition is that the port is occupied.
-- The scoping conversation surfaced two requirements ADR-002 doesn't address:
+- **ADR-LLNCH-008** reframes `LauncherState` as a stateless facade. The "three callers each constructing their own state" problem ADR-LLNCH-002 addressed no longer exists in that shape; every caller now reaches the same tool layer.
+- **ADR-LLNCH-010** establishes that swap is per-port, port-keyed, and a distinct verb from start. The model-keyed `/start-with-eviction/{model}` endpoint is gone. The verb's precondition is that the port is occupied.
+- The scoping conversation surfaced two requirements ADR-LLNCH-002 doesn't address:
   1. **Harness-initiated self-swap contract.** When an LLM agent emits a tool call to swap its own brain, the harness orchestrates the swap. The harness keeps a stable transport to llauncher; the inference transport dies during the swap. Reconnection is the harness's responsibility.
   2. **Concurrent swap rejection.** When a swap is mid-flight on a port (old stopped, new not yet ready), a second swap arriving on that port should reject with a clear signal rather than queue or race.
 
-This ADR redefines swap mechanics for the v2 architecture and supersedes ADR-002.
+This ADR redefines swap mechanics for the v2 architecture and supersedes ADR-LLNCH-002.
 
 ## Decision
 
@@ -26,17 +26,17 @@ There is one swap operation, exposed identically through:
 - **CLI:** `llauncher server swap <port> <model>`
 - **Streamlit UI:** the model-card "swap" action
 
-All four reach the same tool-layer `swap` function, which calls into the stateless facade (per ADR-008). No per-caller logic; no `strict_rollback` parameter (the MCP-vs-UI strictness distinction from ADR-002 is gone — single shared mechanic).
+All four reach the same tool-layer `swap` function, which calls into the stateless facade (per ADR-LLNCH-008). No per-caller logic; no `strict_rollback` parameter (the MCP-vs-UI strictness distinction from ADR-LLNCH-002 is gone — single shared mechanic).
 
 ### Five-Phase Mechanic
 
 **Phase 1 — Pre-flight validation** (no state mutation):
 
 - Model exists in `config.json` on the target node.
-- Model file health passes (per ADR-005).
-- VRAM headroom is sufficient if GPU info is available (per ADR-006).
-- Port is occupied (swap's precondition; per ADR-010).
-- The port's lockfile and live process are consistent (per ADR-008's reconciliation rules).
+- Model file health passes (per ADR-LLNCH-005).
+- VRAM headroom is sufficient if GPU info is available (per ADR-LLNCH-006).
+- Port is occupied (swap's precondition; per ADR-LLNCH-010).
+- The port's lockfile and live process are consistent (per ADR-LLNCH-008's reconciliation rules).
 - No swap currently in progress on this port (see In-Flight Marker below).
 
 If any check fails: `success=false, port_state=unchanged, action=rejected_preflight`. Old model untouched.
@@ -66,7 +66,7 @@ The in-flight marker is released in all cases. On `unavailable`, an audit entry 
 
 ### Same-Model Swap
 
-Swap to the model already running on the port returns `success=true, port_state=serving, action=already_running` immediately. No teardown, no relaunch (per ADR-010 — restart is a deliberately deferred separate verb). Pre-flight still runs for the new-model checks (it's the same model, so the checks pass trivially); the marker is taken and released for audit consistency.
+Swap to the model already running on the port returns `success=true, port_state=serving, action=already_running` immediately. No teardown, no relaunch (per ADR-LLNCH-010 — restart is a deliberately deferred separate verb). Pre-flight still runs for the new-model checks (it's the same model, so the checks pass trivially); the marker is taken and released for audit consistency.
 
 ### Harness-Initiated Self-Swap Contract
 
@@ -118,11 +118,11 @@ A swap arriving on a port whose marker file exists rejects immediately:
 }
 ```
 
-If the llauncher process holding the marker dies externally, the marker becomes stale. Lazy reconciliation on next read (same pattern as lockfile staleness in ADR-008): if `llauncher_pid` is dead, the marker is stale; clean it up, audit-log `swap_aborted`. The port may be in any state at that moment (old stopped, new partial, neither); the lockfile + reconciliation rules from ADR-008 report it honestly.
+If the llauncher process holding the marker dies externally, the marker becomes stale. Lazy reconciliation on next read (same pattern as lockfile staleness in ADR-LLNCH-008): if `llauncher_pid` is dead, the marker is stale; clean it up, audit-log `swap_aborted`. The port may be in any state at that moment (old stopped, new partial, neither); the lockfile + reconciliation rules from ADR-LLNCH-008 report it honestly.
 
 ### Response Shape
 
-Aligns with ADR-010's `action`-bearing envelope:
+Aligns with ADR-LLNCH-010's `action`-bearing envelope:
 
 ```json
 {
@@ -148,13 +148,13 @@ Aligns with ADR-010's `action`-bearing envelope:
 | `rejected_preflight` | Pre-flight check failed before any state change | false |
 | `rejected_stop_failed` | Couldn't stop old model; old still running | false |
 | `rejected_in_progress` | Swap already in flight on this port | false |
-| `rejected_empty` | Port had no occupant; per ADR-010 swap requires occupied | false |
+| `rejected_empty` | Port had no occupant; per ADR-LLNCH-010 swap requires occupied | false |
 
-`port_state` values: `serving | restored | unchanged | unavailable` (semantics preserved from ADR-002).
+`port_state` values: `serving | restored | unchanged | unavailable` (semantics preserved from ADR-LLNCH-002).
 
 ### Caller Differences (Eliminated)
 
-ADR-002 distinguished `strict_rollback=True` (MCP) from `strict_rollback=False` (UI / HTTP). With the unified mechanic above, this distinction is removed. All callers get the same behavior. Pre-flight always reads the persisted config; if the old model's config has been deleted, pre-flight catches it (the lockfile says model X is on the port but config X is missing — corruption case from ADR-008's reconciliation rules) and returns `rejected_preflight`. There is no "non-strict" mode that would proceed past a bad pre-flight.
+ADR-LLNCH-002 distinguished `strict_rollback=True` (MCP) from `strict_rollback=False` (UI / HTTP). With the unified mechanic above, this distinction is removed. All callers get the same behavior. Pre-flight always reads the persisted config; if the old model's config has been deleted, pre-flight catches it (the lockfile says model X is on the port but config X is missing — corruption case from ADR-LLNCH-008's reconciliation rules) and returns `rejected_preflight`. There is no "non-strict" mode that would proceed past a bad pre-flight.
 
 ## Consequences
 
@@ -164,7 +164,7 @@ ADR-002 distinguished `strict_rollback=True` (MCP) from `strict_rollback=False` 
 - Concurrency safety against double-swap via the in-flight marker.
 - Self-swap contract is explicit; harness reconnect responsibility documented.
 - Response carries enough information for an LLM to decide the next step (reconnect to new, reconnect to restored with fresh session, escalate on `unavailable`).
-- Builds cleanly on ADR-008 (lockfile / process identity), ADR-009 (per-node sovereignty), and ADR-010 (verb space).
+- Builds cleanly on ADR-LLNCH-008 (lockfile / process identity), ADR-LLNCH-009 (per-node sovereignty), and ADR-LLNCH-010 (verb space).
 
 **Negative:**
 
@@ -174,25 +174,25 @@ ADR-002 distinguished `strict_rollback=True` (MCP) from `strict_rollback=False` 
 
 **Open Questions:**
 
-1. Default readiness timeout. ADR-002 used 120 s; sticking with 120 s, configurable per call. Revisit only if very large models on slower storage become routine.
-2. `startup_logs` field cap. ADR-002 used the first 100 lines; preserving that.
+1. Default readiness timeout. ADR-LLNCH-002 used 120 s; sticking with 120 s, configurable per call. Revisit only if very large models on slower storage become routine.
+2. `startup_logs` field cap. ADR-LLNCH-002 used the first 100 lines; preserving that.
 3. Stale-marker cleanup is lazy (on next read). Acceptable for hobby scope; if footers / dashboards display "swap in progress" briefly when the marker is actually stale, it self-resolves on next reconciliation.
 
 ## Supersession
 
-This ADR **supersedes ADR-002** in full. ADR-002's implementation plan (Tasks 1–8) is replaced by the work captured here plus its forthcoming companion Issues. Specifically:
+This ADR **supersedes ADR-LLNCH-002** in full. ADR-LLNCH-002's implementation plan (Tasks 1–8) is replaced by the work captured here plus its forthcoming companion Issues. Specifically:
 
-- `state.start_with_eviction()` → tool-layer `swap(port, model)` reaching the stateless facade per ADR-008.
+- `state.start_with_eviction()` → tool-layer `swap(port, model)` reaching the stateless facade per ADR-LLNCH-008.
 - `EvictionResult` dataclass → response shape above; rename to `SwapResult` for clarity.
 - `_compat` tuple-return wrapper → unnecessary; v2 is a clean rewrite (per the "rewrite, not migration" framing from the v2 conversation).
 - The `strict_rollback` parameter is removed.
-- Test plan (ADR-002 Tasks 6 + 7) needs re-derivation against the new shape; track separately.
+- Test plan (ADR-LLNCH-002 Tasks 6 + 7) needs re-derivation against the new shape; track separately.
 
 ## Relationship to Other ADRs
 
-- **Builds on ADR-008** (stateless facade): swap operates on facade-level operations (read lockfile, stop process, start process, write lockfile, audit-log) without owning state itself.
-- **Builds on ADR-009** (symmetric topology): a swap on a remote node is dispatched via HTTP to that node's tool layer; the swap mechanic itself runs there, not at the caller.
-- **Builds on ADR-010** (port ownership): the `/swap/{port}` endpoint shape and verb precondition (port occupied) are set there; the mechanics are set here.
-- **References ADR-005** (model health): pre-flight model file validation.
-- **References ADR-006** (GPU / VRAM monitoring): pre-flight VRAM headroom check.
-- **Supersedes ADR-002** (unified swap-with-eviction).
+- **Builds on ADR-LLNCH-008** (stateless facade): swap operates on facade-level operations (read lockfile, stop process, start process, write lockfile, audit-log) without owning state itself.
+- **Builds on ADR-LLNCH-009** (symmetric topology): a swap on a remote node is dispatched via HTTP to that node's tool layer; the swap mechanic itself runs there, not at the caller.
+- **Builds on ADR-LLNCH-010** (port ownership): the `/swap/{port}` endpoint shape and verb precondition (port occupied) are set there; the mechanics are set here.
+- **References ADR-LLNCH-005** (model health): pre-flight model file validation.
+- **References ADR-LLNCH-006** (GPU / VRAM monitoring): pre-flight VRAM headroom check.
+- **Supersedes ADR-LLNCH-002** (unified swap-with-eviction).

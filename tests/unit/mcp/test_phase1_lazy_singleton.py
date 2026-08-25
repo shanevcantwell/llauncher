@@ -245,9 +245,9 @@ class TestMutateHandlersNoExternalRefresh:
 
     @pytest.mark.asyncio
     async def test_mutate_handlers_are_stateless(self):
-        """Verb tools (start/stop/swap/delete) take no LauncherState (ADR-008).
+        """Verb tools (start/stop/swap/delete) take no LauncherState (ADR-LLNCH-008).
 
-        Per ADR-008, the verb tools are stateless — they delegate to
+        Per ADR-LLNCH-008, the verb tools are stateless — they delegate to
         :mod:`llauncher.operations` which reads the live process table
         and lockfile dir on every call. There is therefore no
         LauncherState instance to refresh; freshness is structural, not
@@ -499,7 +499,7 @@ class TestStaleDataElimination:
         reason="v1 pattern: assumes state.refresh_running_servers is "
         "driven by find_all_llama_servers alone. In v2 the running "
         "dict is reconciled against the lockfile dir as well "
-        "(ADR-008), so a host-side stale lockfile leaks into the test. "
+        "(ADR-LLNCH-008), so a host-side stale lockfile leaks into the test. "
         "The post-slice-5 MCP read tools use the same v2 source of "
         "truth; this v1-shaped test is removed alongside the v1 path "
         "in M3 (#46)."

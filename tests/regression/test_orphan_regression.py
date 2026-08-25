@@ -1,4 +1,4 @@
-"""Regression tests for ADR-015 orphan policy (issue #55).
+"""Regression tests for ADR-LLNCH-015 orphan policy (issue #55).
 
 The existing ``tests/unit/test_orphan.py`` already covers the per-process
 classification rules (managed, no-lockfile, stale, pid-mismatch,
@@ -11,7 +11,7 @@ any unit test failing:
   47-106): ``list_orphans`` reads ``lf.read_lockfile`` and
   ``lf.is_pid_alive`` only — it must NOT call any kill verb
   (``stop_server_by_pid`` / ``stop_server_by_port``) and must NOT write
-  a lockfile claiming the orphan. ADR-015 §6 explicitly defers adoption
+  a lockfile claiming the orphan. ADR-LLNCH-015 §6 explicitly defers adoption
   ("Any lockfile *write* on behalf of an orphan pid" is out of scope).
   A refactor that tries to "fix" an orphan by reaping or claiming would
   silently violate the ADR.
@@ -19,12 +19,12 @@ any unit test failing:
 * **Canonical envelope shape across surfaces** (HTTP/MCP/CLI): the same
   orphan must serialize identically on ``GET /orphans``, MCP
   ``list_orphans``, and ``llauncher orphan list --json`` — all three are
-  documented in ADR-015 §5 as returning the same canonical fields
+  documented in ADR-LLNCH-015 §5 as returning the same canonical fields
   (``pid``, ``port``, ``cmdline_unreadable``). A surface that drifts
   (drops a field, renames one, returns a different envelope) breaks
   the operator's "same data everywhere" promise.
 
-* **Empty list is success, not 404 / error**: ADR-015 §5 specifies
+* **Empty list is success, not 404 / error**: ADR-LLNCH-015 §5 specifies
   ``total: 0`` with an empty list. A surface that 404s on "no orphans"
   forces every caller to write a presence check; the regression here
   pins each surface to the success-with-empty-shape contract.
@@ -109,7 +109,7 @@ def _fake_info(
 def test_list_orphans_never_kills_or_claims(
     case: str, setup: str, run_dir: Path
 ) -> None:
-    """Pin ADR-015 §6: ``list_orphans`` annotates only — no kill, no claim.
+    """Pin ADR-LLNCH-015 §6: ``list_orphans`` annotates only — no kill, no claim.
 
     Covers ``llauncher/operations/orphan.py:47-106``. Every classification
     branch must read the lockfile and process table; none may call into
@@ -155,7 +155,7 @@ def test_list_orphans_never_kills_or_claims(
 
 
 # ---------------------------------------------------------------------------
-# Cross-surface canonical envelope shape (ADR-015 §5)
+# Cross-surface canonical envelope shape (ADR-LLNCH-015 §5)
 # ---------------------------------------------------------------------------
 
 
@@ -174,7 +174,7 @@ def http_client():
 
 
 def test_http_orphans_envelope_canonical(http_client, monkeypatch) -> None:
-    """``GET /orphans`` returns ``{node, orphans:[...], total}`` per ADR-015 §5.
+    """``GET /orphans`` returns ``{node, orphans:[...], total}`` per ADR-LLNCH-015 §5.
 
     Pins ``llauncher/agent/routing.py:196-219``. A surface drift here
     (renamed ``total`` to ``count``, dropped ``node``, wrapped in
@@ -297,7 +297,7 @@ def test_cross_surface_orphan_dicts_agree(http_client, monkeypatch) -> None:
 def test_http_orphans_empty_is_200(http_client, monkeypatch) -> None:
     """Empty orphan list returns 200 with shape — not 404 / error.
 
-    Pins ADR-015 §5: callers should not need a presence check.
+    Pins ADR-LLNCH-015 §5: callers should not need a presence check.
     """
     from llauncher.agent import routing
 
@@ -368,7 +368,7 @@ def test_cli_orphan_list_empty_json_is_array() -> None:
 def test_refresh_orphans_emits_observed_orphan_once_per_lifetime(
     run_dir: Path, audit_path: Path
 ) -> None:
-    """Pin ADR-015 §3: first-sighting writes one audit line; repeats are silent.
+    """Pin ADR-LLNCH-015 §3: first-sighting writes one audit line; repeats are silent.
 
     Covers the dedupe interaction between
     ``state.LauncherState.refresh_orphans`` (``state.py`` 127-173) and
@@ -459,7 +459,7 @@ def test_refresh_orphans_unreadable_pid_never_audits(
 ) -> None:
     """``cmdline_unreadable=True`` pids do NOT write OBSERVED_ORPHAN entries.
 
-    Pins ADR-015 §4: we cannot honestly classify managed-vs-unmanaged
+    Pins ADR-LLNCH-015 §4: we cannot honestly classify managed-vs-unmanaged
     without argv, so the audit log must not record those pids. The
     operator-visible surface is the WARNING log (covered by
     test_orphan.py); the audit-log silence is pinned here against a

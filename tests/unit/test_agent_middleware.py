@@ -97,9 +97,9 @@ def test_health_exempt_with_empty_key(self=None):
 
 
 def test_exempt_paths_match_documented_set():
-    """Pin the exempt set to ADR-003's narrowed contract (#126 drift guard).
+    """Pin the exempt set to ADR-LLNCH-003's narrowed contract (#126 drift guard).
 
-    ADR-003 Decision §3 / docs/auth.md document exactly four auth-exempt
+    ADR-LLNCH-003 Decision §3 / docs/auth.md document exactly four auth-exempt
     paths. Every read endpoint (`/status`, `/models`, `/node-info`, …) must
     require the token because each leaks something. This guard fails loudly
     if code widens the set without a matching doc update, re-opening the

@@ -18,7 +18,7 @@ The work is tracked under [Issue #42](https://github.com/shanevcantwell/llaunche
 - `core/process.py:build_command` is hard-coded for llama-server. M6 turns this into a dispatcher.
 - `core/model_health.py` has GGUF-shaped checks. M6 generalizes via per-adapter `validate_model_path`.
 - `core/gpu.py:estimate_vram_mb` has llama-server heuristics. M6 generalizes via per-adapter `estimate_vram_mb`.
-- The argv sentinel (`--alias <model>`) is llama-server-specific. M6 picks env-var or per-backend sentinel per ADR-008's amendment notes.
+- The argv sentinel (`--alias <model>`) is llama-server-specific. M6 picks env-var or per-backend sentinel per ADR-LLNCH-008's amendment notes.
 
 ## Architectural Frame
 
@@ -49,9 +49,9 @@ cmd = adapter.build_command(config, port)
 
 ## Work Breakdown
 
-### Slice 17 — ADR-012 (the new ADR)
+### Slice 17 — ADR-LLNCH-012 (the new ADR)
 
-Per Issue #42's "Future ADR-012" outline:
+Per Issue #42's "Future ADR-LLNCH-012" outline:
 
 - Pattern selection (adapter + discriminated union vs alternatives).
 - `BackendKind` values enumerated; designed-to-extend.
@@ -87,7 +87,7 @@ This is the breaking-shape change. Update the UI form (see slice 21) and the MCP
 - `validate_model_path`: vLLM accepts HuggingFace IDs or local snapshots. Validation: if path looks like a local dir, check `config.json` + `tokenizer*` files; if it looks like an HF ID (`org/model`), defer (no offline validation).
 - `estimate_vram_mb`: vLLM has its own VRAM math (KV-cache budget × `gpu_memory_utilization`). Probably pull from a published heuristic or vLLM's own estimator.
 - `readiness_endpoint`: vLLM's `/health` differs from llama-server's `/health`; abstract via the adapter.
-- `sentinel_kwargs`: env-var sentinel (per ADR-008 amendment) with `LAUNCHER_OWNED_MODEL=<name>` and `LAUNCHER_OWNED_PID=<self_pid>`. Used by `find_all_llama_servers`'s generalized successor.
+- `sentinel_kwargs`: env-var sentinel (per ADR-LLNCH-008 amendment) with `LAUNCHER_OWNED_MODEL=<name>` and `LAUNCHER_OWNED_PID=<self_pid>`. Used by `find_all_llama_servers`'s generalized successor.
 
 ### Slice 21 — UI + MCP surface
 
@@ -100,15 +100,15 @@ This is the breaking-shape change. Update the UI form (see slice 21) and the MCP
 
 - Rename `find_all_llama_servers` → `find_all_owned_processes` (or similar).
 - The function now reads `/proc/<pid>/environ` for `LAUNCHER_OWNED_*` instead of grepping argv. Cross-platform caveat: on Windows there's no `/proc`; we wrap behind a `read_process_env(pid)` abstraction.
-- Lockfile remains the authoritative claim per ADR-008; the sentinel is for cross-validation and orphan detection (M5 item 4).
+- Lockfile remains the authoritative claim per ADR-LLNCH-008; the sentinel is for cross-validation and orphan detection (M5 item 4).
 
 ### Slice 23 — Amend ADRs 005, 006, 008
 
 Each gets an Amendment Notes section dated 2026-MM-DD:
 
-- **ADR-005 (model health)** — replace "GGUF check" with "backend-aware via adapter; GGUF is the LlamaServer adapter's implementation."
-- **ADR-006 (VRAM monitoring)** — replace per-arch VRAM math with "per-adapter `estimate_vram_mb`."
-- **ADR-008 (stateless facade)** — replace argv sentinel with env-var sentinel; cross-reference ADR-012.
+- **ADR-LLNCH-005 (model health)** — replace "GGUF check" with "backend-aware via adapter; GGUF is the LlamaServer adapter's implementation."
+- **ADR-LLNCH-006 (VRAM monitoring)** — replace per-arch VRAM math with "per-adapter `estimate_vram_mb`."
+- **ADR-LLNCH-008 (stateless facade)** — replace argv sentinel with env-var sentinel; cross-reference ADR-LLNCH-012.
 
 ## Touch Points
 
@@ -125,7 +125,7 @@ Each gets an Amendment Notes section dated 2026-MM-DD:
 | `llauncher/ui/tabs/models.py` (post-M4) | Backend selector + per-kind form |
 | `llauncher/mcp_server/tools/config.py` | `add_model` schema with `oneOf` on `kind` |
 | `docs/adrs/012-backend-adapter-layer.md` | **New** |
-| ADR-005, ADR-006, ADR-008 | Amendment Notes sections |
+| ADR-LLNCH-005, ADR-LLNCH-006, ADR-LLNCH-008 | Amendment Notes sections |
 
 ## Test Strategy
 
@@ -137,7 +137,7 @@ Each gets an Amendment Notes section dated 2026-MM-DD:
 
 ## Exit Criteria
 
-- [ ] ADR-012 `Accepted`.
+- [ ] ADR-LLNCH-012 `Accepted`.
 - [ ] ADRs 005, 006, 008 amended.
 - [ ] `LlamaServerAdapter` and `VLLMAdapter` both pass their adapter-protocol test suites.
 - [ ] No backend-specific code outside `llauncher/backends/`. Grep for `llama-server` and `gguf` in the rest of the tree returns only documentation/test-data.
@@ -158,12 +158,12 @@ Each gets an Amendment Notes section dated 2026-MM-DD:
    Pin: (a). `psutil` is already a dependency.
 3. **Should `BackendKind` be open-extensible?** I.e., can a user register a third-party adapter without forking llauncher? **Defer** — single-user hobby scope, no plugin system needed yet.
 4. **vLLM's `--engine` flag (V1 vs V0)?** Pass through via `extra_args` initially. Promote to a first-class field if it becomes a regular knob.
-5. **Multi-backend on same host — do they fight for VRAM?** Yes. The pre-flight VRAM check (ADR-006 + ADR-011) already considers all live processes; no special-casing needed beyond getting the per-adapter `estimate_vram_mb` right.
+5. **Multi-backend on same host — do they fight for VRAM?** Yes. The pre-flight VRAM check (ADR-LLNCH-006 + ADR-LLNCH-011) already considers all live processes; no special-casing needed beyond getting the per-adapter `estimate_vram_mb` right.
 
 ## References
 
 - Issue [#42](https://github.com/shanevcantwell/llauncher/issues/42) — backend adapter layer (the source of truth for this design)
 - Issue [#44](https://github.com/shanevcantwell/llauncher/issues/44) — VRAM estimator heuristic (closes alongside slice 20)
-- ADR-005, ADR-006, ADR-008 — amended in slice 23
+- ADR-LLNCH-005, ADR-LLNCH-006, ADR-LLNCH-008 — amended in slice 23
 - prompt-prix `docs/ARCHITECTURE.md` — adapter-pattern reference
 - v2-orientation-spike — sentinel discussion

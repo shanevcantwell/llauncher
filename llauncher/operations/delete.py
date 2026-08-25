@@ -1,4 +1,4 @@
-"""``delete_model`` verb — remove a model from config per ADR-008 §4.1.
+"""``delete_model`` verb — remove a model from config per ADR-LLNCH-008 §4.1.
 
 Refuses when the model is currently running on any port (live lockfile).
 Stale lockfiles for the target model are reconciled (cleaned up) as a

@@ -14,7 +14,7 @@ written match.
 
 #146/#63: the original name→filename sanitizer was lossy (`model.a` and
 `model_a` collapsed onto one file, silently interleaving two models' logs
-under ADR-013 append mode). `log_stem_for` is now the single injective
+under ADR-LLNCH-013 append mode). `log_stem_for` is now the single injective
 mint: sanitized stem plus a short stable hash of the exact canonical name.
 """
 

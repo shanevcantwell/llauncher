@@ -235,7 +235,7 @@ def render_add_node_form(registry: NodeRegistry) -> None:
                 "`~/.llauncher/agent.env` on Linux / "
                 "`$env:USERPROFILE\\.llauncher\\agent.env` on "
                 "Windows) and paste the value here. Required for non-loopback "
-                "agents (per ADR-003); leave blank only for unauthenticated "
+                "agents (per ADR-LLNCH-003); leave blank only for unauthenticated "
                 "loopback agents."
             ),
         )

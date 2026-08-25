@@ -11,7 +11,7 @@
 | Domain | Risk Level | Key Finding |
 |--------|-----------|-------------|
 | Architecture Layers | 🔴 **HIGH** | `state.py` imports from `core/model_health`, violating layer boundaries; MCP read paths return perpetually stale data |
-| ADR Compliance | 🟠 **MEDIUM-HIGH** | ADR-010 violated (port ownership), ADR-011 partial (dual-swap problem) |
+| ADR Compliance | 🟠 **MEDIUM-HIGH** | ADR-LLNCH-010 violated (port ownership), ADR-LLNCH-011 partial (dual-swap problem) |
 | Module Design | 🟠 **MEDIUM-HIGH** | `operations.swap()` fully implemented but **no surface calls it**; auto-spawn still present despite M4 saying to remove |
 | MCP Server | 🟢 **LOW** | All 11 tools implemented, 96 tests passing; minor output schema drift from docs |
 | Operations & Tests | 🟡 **MEDIUM** | BLE001 silent failure patterns in cleanup paths; config changes not audited; ~85% test coverage |
@@ -20,17 +20,17 @@
 
 ## 🔴 Critical Issues (Must Fix Before Next Release)
 
-### C1: Dual-Swap Problem — ADR-011 "Single Entry Point" Violated
+### C1: Dual-Swap Problem — ADR-LLNCH-011 "Single Entry Point" Violated
 **Severity:** Critical  
 **Affected:** `operations.py`, `mcp_server/tools/servers.py`, `agent/routing.py`
 
-The v2 `operations.swap()` function is fully implemented per ADR-011 (5-phase mechanic, in-flight marker, rollback), but **no surface calls it**:
+The v2 `operations.swap()` function is fully implemented per ADR-LLNCH-011 (5-phase mechanic, in-flight marker, rollback), but **no surface calls it**:
 - HTTP Agent `/start-with-eviction/{model}` uses legacy `state._start_with_eviction_impl()`
 - MCP `swap_server` tool uses legacy `state._start_with_eviction_impl()`
 
-This means the concurrency control (in-flight marker) and structured result envelope from ADR-011 are **dead code** for all production callers.
+This means the concurrency control (in-flight marker) and structured result envelope from ADR-LLNCH-011 are **dead code** for all production callers.
 
-**Fix:** Wire HTTP Agent and MCP tools to use `operations.swap()`. Add port-keyed routes per ADR-010.
+**Fix:** Wire HTTP Agent and MCP tools to use `operations.swap()`. Add port-keyed routes per ADR-LLNCH-010.
 
 ---
 
@@ -53,11 +53,11 @@ State importing from Core creates a tight coupling that makes testing harder and
 
 ---
 
-### C3: ADR-010 Violated — Port Ownership Has Legacy Fallbacks
+### C3: ADR-LLNCH-010 Violated — Port Ownership Has Legacy Fallbacks
 **Severity:** Critical  
 **Affected:** `cli.py`, `state.py`
 
-ADR-010 requires port as a required parameter at every API boundary. But:
+ADR-LLNCH-010 requires port as a required parameter at every API boundary. But:
 - CLI allows env var fallback (`DEFAULT_PORT`) instead of requiring explicit port
 - `state.start_server()` still has auto-allocation logic when port=None
 - Agent endpoints are model-keyed, not port-keyed
@@ -72,7 +72,7 @@ ADR-010 requires port as a required parameter at every API boundary. But:
 **Severity:** High  
 **Affected:** `mcp_server/tools/models.py`, `mcp_server/tools/servers.py`
 
-MCP read tools never call `state.refresh()` before returning data. Since there are 4 independent `LauncherState` instances (per ADR-008), the MCP server's instance is stale relative to config/process changes made via other channels.
+MCP read tools never call `state.refresh()` before returning data. Since there are 4 independent `LauncherState` instances (per ADR-LLNCH-008), the MCP server's instance is stale relative to config/process changes made via other channels.
 
 **Fix:** Add `state.refresh()` or lightweight `refresh_running_servers()` to every MCP read tool.
 
@@ -88,11 +88,11 @@ M4 Design says "Drop auto-spawn" but `NodeRegistry.start_local_agent()` still ex
 
 ---
 
-### H3: Audit Log Not Persisted — ADR-008 Gap
+### H3: Audit Log Not Persisted — ADR-LLNCH-008 Gap
 **Severity:** High  
 **Affected:** `core/audit_log.py`
 
-ADR-008 requires persisted JSON Lines audit log. Current implementation is a minimal stub with no write operations. Governance and debugging signals are lost on restart.
+ADR-LLNCH-008 requires persisted JSON Lines audit log. Current implementation is a minimal stub with no write operations. Governance and debugging signals are lost on restart.
 
 Additionally, config CRUD operations (`ConfigStore.add_model`, `update_model`, `remove_model`) have no corresponding audit entries.
 
@@ -132,15 +132,15 @@ This silently swallows all errors including `KeyboardInterrupt`, `SystemExit`, a
 
 ---
 
-### M3: Missing `/models/health` Endpoint — ADR-005 Gap
-ADR-005 specifies `GET /models/health` and `GET /models/health/<name>` endpoints. Core function exists but no HTTP endpoint exposes it.
+### M3: Missing `/models/health` Endpoint — ADR-LLNCH-005 Gap
+ADR-LLNCH-005 specifies `GET /models/health` and `GET /models/health/<name>` endpoints. Core function exists but no HTTP endpoint exposes it.
 
 **Fix:** Add health check endpoints to agent routing.
 
 ---
 
-### M4: Missing `/status?full=true` GPU Integration — ADR-006 Gap
-GPU collector is fully implemented (ADR-006) but not wired into the `/status` endpoint or swap pre-flight.
+### M4: Missing `/status?full=true` GPU Integration — ADR-LLNCH-006 Gap
+GPU collector is fully implemented (ADR-LLNCH-006) but not wired into the `/status` endpoint or swap pre-flight.
 
 **Fix:** Extend `/status` with `?full=true` query param. Wire VRAM check into swap pre-flight.
 
@@ -184,7 +184,7 @@ No tests for `invalidate_health_cache()` with non-existent keys, empty cache, or
 
 | ADR | Title | Compliance |
 |-----|-------|-----------|
-| 002 | Swap-with-Eviction Semantics | N/A (superseded by ADR-011) |
+| 002 | Swap-with-Eviction Semantics | N/A (superseded by ADR-LLNCH-011) |
 | 003 | Agent API Authentication | ✅ Compliant |
 | 004 | CLI Subcommand Interface | ⚠️ Partial (missing swap command, port fallback) |
 | 005 | Model Cache Health | ⚠️ Partial (core exists, no endpoint) |
@@ -214,7 +214,7 @@ No tests for `invalidate_health_cache()` with non-existent keys, empty cache, or
 ### Phase 1: Critical Fixes (This Sprint)
 1. Wire HTTP Agent and MCP tools to `operations.swap()` — eliminates dual-swap problem
 2. Remove `state.py` import of `core/model_health` — fixes layer violation
-3. Make port required at all boundaries per ADR-010
+3. Make port required at all boundaries per ADR-LLNCH-010
 
 ### Phase 2: High-Priority (Next Sprint)
 4. Add refresh calls to MCP read tools
@@ -223,8 +223,8 @@ No tests for `invalidate_health_cache()` with non-existent keys, empty cache, or
 7. Replace BLE001 patterns with scoped exceptions
 
 ### Phase 3: Medium-Priority (Following Sprints)
-8. Wire `/models/health` endpoint (ADR-005)
-9. Wire GPU data into `/status?full=true` (ADR-006)
+8. Wire `/models/health` endpoint (ADR-LLNCH-005)
+9. Wire GPU data into `/status?full=true` (ADR-LLNCH-006)
 10. Add self-loop short-circuit to RemoteNode (M3 Slice 8)
 11. Fix log truncation — append mode + rotation (M5 Item 2)
 

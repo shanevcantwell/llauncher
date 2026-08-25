@@ -379,7 +379,7 @@ class TestStartServer:
         """Normal successful server start.
 
         Patches ``log_rotation.rotate_if_needed`` to a no-op so the
-        MagicMock ``LOG_DIR`` doesn't break the new ADR-013 rotation
+        MagicMock ``LOG_DIR`` doesn't break the new ADR-LLNCH-013 rotation
         path (which calls ``path.stat().st_size``).
         """
         mock_process = MagicMock()
@@ -1182,7 +1182,7 @@ class TestTailFileExceptions:
     def test_tail_file_invalid_utf8_is_replaced(self, tmp_path):
         """Invalid UTF-8 bytes are silently replaced, not raised.
 
-        Per ADR-013, ``_tail_file`` reads bytes and decodes with
+        Per ADR-LLNCH-013, ``_tail_file`` reads bytes and decodes with
         ``errors="replace"`` so the historical UnicodeError path no
         longer exists. This test verifies the new behavior: a file with
         invalid UTF-8 returns *something* (replacement chars) rather
@@ -1200,7 +1200,7 @@ class TestTailFileExceptions:
 
 
 class TestTailFileBoundedRead:
-    """ADR-013 bounded-tail tests — _tail_file must not slurp the whole file."""
+    """ADR-LLNCH-013 bounded-tail tests — _tail_file must not slurp the whole file."""
 
     def test_returns_last_n_lines_for_small_file(self, tmp_path):
         """Sanity: a small file is returned in full when N >= line count."""
@@ -1292,7 +1292,7 @@ class TestTailFileBoundedRead:
 
 
 class TestStartServerLogsLifecycle:
-    """ADR-013 — start_server uses append mode, writes a banner, rotates first."""
+    """ADR-LLNCH-013 — start_server uses append mode, writes a banner, rotates first."""
 
     def test_appends_banner_and_preserves_prior_content(
         self, tmp_path, minimal_config
@@ -1559,7 +1559,7 @@ class TestVerifyPid:
         assert proc.verify_pid(4242) is None
 
     def test_expect_port_mismatch_returns_none_and_warns(self, monkeypatch, caplog):
-        """ADR-008: argv port disagrees with the lockfile's claim → refuse."""
+        """ADR-LLNCH-008: argv port disagrees with the lockfile's claim → refuse."""
         from llauncher.core import process as proc
 
         p = MagicMock()

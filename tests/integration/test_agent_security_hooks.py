@@ -56,7 +56,7 @@ def test_health_exempt_without_api_key(agent_client_with_token):
 
 
 async def test_mcp_invalid_model_returns_structured_error(mcp_env, mcp_dispatch):
-    """Unknown model surfaces as ADR-010 error envelope, no stack trace."""
+    """Unknown model surfaces as ADR-LLNCH-010 error envelope, no stack trace."""
     result = await mcp_dispatch(
         "start_server", {"model_name": "definitely-not-a-model", "port": 19999}
     )

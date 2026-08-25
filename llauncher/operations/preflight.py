@@ -1,6 +1,6 @@
 """Default pre-flight check adapters for the swap mechanic.
 
-Per ADR-005 (model health) and ADR-006 (GPU/VRAM monitoring). These
+Per ADR-LLNCH-005 (model health) and ADR-LLNCH-006 (GPU/VRAM monitoring). These
 functions adapt :mod:`llauncher.core.model_health` and
 :mod:`llauncher.core.gpu` into the
 :data:`llauncher.operations.swap.PreflightCheck` shape — a callable
@@ -39,12 +39,12 @@ PreflightCheck = Callable[[ModelConfig], "tuple[bool, str]"]
 
 
 # Cap on how many startup-log lines a verb attaches to its result on failure,
-# preserving ADR-002's prior shape (referenced in ADR-011 open question 2).
+# preserving ADR-LLNCH-002's prior shape (referenced in ADR-LLNCH-011 open question 2).
 # Lives here rather than in ``swap.py`` so both ``start`` and ``swap`` import
 # it from a neutral source rather than one verb reaching into the other.
 STARTUP_LOG_TAIL_MAX = 100
 
-# Default readiness-poll timeout in seconds (ADR-011 open question 1). Shared
+# Default readiness-poll timeout in seconds (ADR-LLNCH-011 open question 1). Shared
 # home for the same reason as ``STARTUP_LOG_TAIL_MAX`` above.
 DEFAULT_READINESS_TIMEOUT_S = 120
 
@@ -107,7 +107,7 @@ def estimate_vram_mb(config: ModelConfig) -> int:
        partial-offload configurations.
 
     The estimate is intentionally rough; treat it as a guard rail, not a
-    precise budget. ADR-006 / Issue #42 may refine this when the backend
+    precise budget. ADR-LLNCH-006 / Issue #42 may refine this when the backend
     adapter layer lands.
     """
     haystack = f"{config.model_path} {config.name}"
@@ -247,7 +247,7 @@ def make_vram_check(
 
     Every check produced by a single call shares one collector, so a batch
     validation shells out to ``nvidia-smi`` once (per 5 s TTL window) rather
-    than once per model — the N-shell-outs-per-rerun economics ADR-027 §2
+    than once per model — the N-shell-outs-per-rerun economics ADR-LLNCH-027 §2
     refused to put on the UI hot path.
     """
     shared = collector if collector is not None else gpu_mod.GPUHealthCollector()

@@ -7,7 +7,7 @@ Companion to `docs/plans/security-hardening-plan.md` and `docs/plans/test-covera
 Branch `main` is at `e233bbd` (post-#74). v2 refactor milestone state:
 
 - **M1–M4**: complete (pre-session).
-- **M5 (Tier 2 ADRs)**: now 4/5 ADRs landed and shipped, not just authored. ADR-012 footer-context (#53), ADR-013 logs lifecycle, ADR-014 cancellation (#54), ADR-015 orphan policy (#55) all closed this and the prior session. The remaining M5 item is #56 — canonical self-swap integration test (ADR-016, still unwritten). The Phase C MCP harness from #74 is the substrate that lets #56 be written without standing up a new test infrastructure.
+- **M5 (Tier 2 ADRs)**: now 4/5 ADRs landed and shipped, not just authored. ADR-LLNCH-012 footer-context (#53), ADR-LLNCH-013 logs lifecycle, ADR-LLNCH-014 cancellation (#54), ADR-LLNCH-015 orphan policy (#55) all closed this and the prior session. The remaining M5 item is #56 — canonical self-swap integration test (ADR-LLNCH-016, still unwritten). The Phase C MCP harness from #74 is the substrate that lets #56 be written without standing up a new test infrastructure.
 - **M6 / M7**: not started. M6 = backend adapter for vLLM (#42). M7 = v2.0.0 tag.
 
 Coverage baseline: **83%** total line coverage (3685 stmts, 632 missed), up from the pre-session 79% baseline (785 missed → 632 missed = **153 lines newly covered** across Phases A/B/C). See §3.
@@ -19,7 +19,7 @@ Network-trust posture: still default-open. `LAUNCHER_AGENT_TOKEN` is optional an
 | Ref | Type | Impact (one line) |
 |---|---|---|
 | #70 → PR #71 | docs | `docs/plans/security-hardening-plan.md` — threat model, 8 per-surface assessments, 12 proportionate controls, 17 numbered test hooks, 11 follow-up ticket titles. |
-| PR #72 | tests | `tests/regression/{test_cancel,test_logs_lifecycle,test_orphan}_regression.py` — Phase A pins ADR-013/014/015 + #65/#62 against regression. |
+| PR #72 | tests | `tests/regression/{test_cancel,test_logs_lifecycle,test_orphan}_regression.py` — Phase A pins ADR-LLNCH-013/014/015 + #65/#62 against regression. |
 | PR #73 | tests | `tests/unit/test_*_extended.py` (6 files) — Phase B long-tail unit coverage for non-UI modules (gpu, log_rotation, marker, models/config, remote/node, state). |
 | PR #74 | tests | `tests/integration/{conftest.py, test_agent_security_hooks.py, test_mcp_flows.py, _stubs/llama-server-stub}` — Phase C in-process MCP dispatch harness + stub llama-server binary + real-use-case flows + security regression assertions. |
 | commit `4057b5e` | docs | `test-coverage-plan.md` — phased plan committed as durable artifact (referenced by all four PRs above; now at `docs/plans/test-coverage-plan.md`). |
@@ -60,7 +60,7 @@ UI tabs (`forms.py` 5%, `nodes.py` 5%, `model_registry.py` 8%, `model_card.py` 4
 ### Larger threads
 
 - **11 follow-up security tickets** to file from `docs/plans/security-hardening-plan.md` §6. Titles are pre-written; each is one ticket. The C1 (`LAUNCHER_AGENT_TOKEN` required for non-loopback bind) + C2 (default bind to `127.0.0.1`) pair is the single highest-impact change and should be filed and worked first.
-- **M5 #56 — canonical self-swap integration test** (ADR-016, unwritten). Phase C harness (`tests/integration/conftest.py` fixtures + stub llama-server) is the substrate; the test belongs in `tests/integration/test_mcp_flows.py` or a sibling, exercising start→swap-to-same-port semantics per ADR-011.
+- **M5 #56 — canonical self-swap integration test** (ADR-LLNCH-016, unwritten). Phase C harness (`tests/integration/conftest.py` fixtures + stub llama-server) is the substrate; the test belongs in `tests/integration/test_mcp_flows.py` or a sibling, exercising start→swap-to-same-port semantics per ADR-LLNCH-011.
 - **M6 — multi-backend vLLM adapter** (#42). Out of scope until M5 closes.
 - **UI test harness** (#69) — Streamlit `AppTest`-based; unlocks `ui/tabs/forms.py` + `nodes.py` + `model_registry.py` (300+ uncovered statements).
 - **M7 — v2.0.0 release tag**, blocked on M5 closure + security C1/C2 landed.

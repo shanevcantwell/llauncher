@@ -44,7 +44,7 @@ def get_tools() -> list[Tool]:
             name="validate_models",
             description=(
                 "Read-only validation of configured model weights (issue #475, "
-                "ADR-027): file existence/readability/size and GGUF magic bytes "
+                "ADR-LLNCH-027): file existence/readability/size and GGUF magic bytes "
                 "(gating), plus VRAM headroom and lockfile staleness reported as "
                 "advisory (never gate the result). Never starts a process, "
                 "deletes a config entry, or writes an audit line. Returns "
@@ -158,7 +158,7 @@ async def get_model_config(state: LauncherState, args: dict) -> dict:
 
 
 async def validate_models(args: dict) -> dict:
-    """Read-only validation of configured model weights (issue #475, ADR-027).
+    """Read-only validation of configured model weights (issue #475, ADR-LLNCH-027).
 
     Stateless — reuses :func:`llauncher.operations.validate_models` directly,
     the same peer as ``start_server``/``delete_model`` in the dispatch table

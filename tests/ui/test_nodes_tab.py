@@ -12,13 +12,13 @@ facades under ``forbid_direct_http``. What lives here, by surface:
    It asserts the form renders its fields with the Phase 0 (#134) operability
    copy that ships on ``main`` today: the manual-token-copy ``st.info`` banner
    and the platform-specific (``print-token`` / ``cat`` / ``Get-Content``)
-   API-Key help, alongside the ADR-003 auth reference.
+   API-Key help, alongside the ADR-LLNCH-003 auth reference.
 
 2. **Behavioral remote-I/O test** — drives the tab with ``remote/`` mocked and
    asserts the UI reaches the node *only* through the ``RemoteNode`` facade
    (``get_node_info`` / ``ping``), with **no** raw socket escaping the UI
    (``forbid_direct_http``). This is the runtime complement to the static import
-   guard in ``tests/architecture/test_ui_layer_boundaries.py`` (ADR-025).
+   guard in ``tests/architecture/test_ui_layer_boundaries.py`` (ADR-LLNCH-025).
 
 3. **Node-list branch coverage** — the empty-state banner (falsy registry),
    the "Refresh All" control, every ``NodeStatus`` badge, the optional
@@ -129,7 +129,7 @@ class TestAddNodeFormSmoke:
         """First-contact help tells the operator what the API Key field wants.
 
         Asserts the Phase 0 (#134) copy that ships on ``main`` today: the
-        platform-specific token-retrieval commands and the ADR-003 auth
+        platform-specific token-retrieval commands and the ADR-LLNCH-003 auth
         reference.
         """
         at = tab_harness(render_nodes_tab, mock_registry, mock_aggregator)
@@ -138,7 +138,7 @@ class TestAddNodeFormSmoke:
         assert "llauncher-agent print-token" in help_text
         assert "~/.llauncher/agent.env" in help_text
         assert "$env:USERPROFILE\\.llauncher\\agent.env" in help_text
-        assert "ADR-003" in help_text
+        assert "ADR-LLNCH-003" in help_text
 
 
 class TestAddNodeFormHostValidation:

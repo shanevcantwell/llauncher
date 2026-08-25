@@ -1,4 +1,4 @@
-# ADR-027: Model Validate — a Single Read-Only Validation Path Reused Everywhere
+# ADR-LLNCH-027: Model Validate — a Single Read-Only Validation Path Reused Everywhere
 
 **Status:** Accepted (ratified 2026-08-25 on #475)
 **Date:** 2026-08-25
@@ -19,14 +19,14 @@ Three of the four pieces this verb needs already existed, scattered:
   `PreflightCheck` seam `(ModelConfig) -> (ok, reason)`; reachable only from
   `start`/`swap`.
 - `agent/routing.py` served `GET /models/health` and
-  `GET /models/health/{name}` (ADR-005) with no in-repo consumer —
+  `GET /models/health/{name}` (ADR-LLNCH-005) with no in-repo consumer —
   `remote/node.py` never called them.
 - `ui/tabs/model_registry.py` imported `core.model_health` directly and
   re-derived its own verdict vocabulary (`missing` / `ready` / `corrupted` /
   `unknown`).
 
 The gap was not "no checker" — it was that the verdict logic was forked
-three ways (preflight adapters, the ADR-005 endpoint, the UI tab) and none
+three ways (preflight adapters, the ADR-LLNCH-005 endpoint, the UI tab) and none
 of it was reachable from the CLI.
 
 **Shard-resolution defect (load-bearing precondition for #468).**
@@ -167,8 +167,8 @@ console encoding. Streamlit stays UTF-8 and keeps its emoji badges.
 
 ## Consequences
 
-- `GET /models/health` and `GET /models/health/{name}` (ADR-005) are
-  removed in this PR. ADR-005's endpoint section is marked superseded by
+- `GET /models/health` and `GET /models/health/{name}` (ADR-LLNCH-005) are
+  removed in this PR. ADR-LLNCH-005's endpoint section is marked superseded by
   this ADR.
 - One verdict vocabulary crosses CLI, HTTP, MCP, and UI — the fork this
   ADR closes cannot silently reopen without touching all four doors at

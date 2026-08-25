@@ -278,11 +278,11 @@ class TestModelsEndpoint:
             model = data[0]
             assert "name" in model
             assert "model_path" in model
-            assert "kind" in model  # Per ADR-010 + #42 scaffolding
+            assert "kind" in model  # Per ADR-LLNCH-010 + #42 scaffolding
             assert "n_gpu_layers" in model
             assert "ctx_size" in model
             assert "running" in model
-            assert "default_port" not in model  # Removed per ADR-010
+            assert "default_port" not in model  # Removed per ADR-LLNCH-010
             assert "np" not in model  # Removed per #235 (dead, mislabeled duplicate of `parallel`)
 
 
@@ -453,7 +453,7 @@ class TestStatusScanDedup309:
 
 
 class TestStartServerEndpoint:
-    """Tests for the port-keyed /start/{port} endpoint (ADR-010)."""
+    """Tests for the port-keyed /start/{port} endpoint (ADR-LLNCH-010)."""
 
     def test_start_missing_body_returns_422(self, client):
         """Posting without a body fails FastAPI validation."""
@@ -1701,7 +1701,7 @@ class TestAgentRouting:
         # Should be empty list due to exception
         assert data["ip_addresses"] == []
 
-    # ---- Verb endpoints (ADR-010, M2 slice 4) ---------------------------
+    # ---- Verb endpoints (ADR-LLNCH-010, M2 slice 4) ---------------------------
     #
     # The verb endpoints are thin wrappers around llauncher.operations.
     # Each test mocks the corresponding op and asserts the HTTP layer maps
@@ -2284,7 +2284,7 @@ class TestAgentServerFunctions:
 
 
 class TestFooterContextEndpoint:
-    """Tests for GET /footer-context/{port} (ADR-012)."""
+    """Tests for GET /footer-context/{port} (ADR-LLNCH-012)."""
 
     @pytest.fixture(autouse=True)
     def _clear_footer_cache(self):
@@ -2307,7 +2307,7 @@ class TestFooterContextEndpoint:
         response = client.get("/footer-context/8081")
         assert response.status_code == 200
         body = response.json()
-        # Shape is pinned by ADR-012 — these four keys, nothing more, nothing less.
+        # Shape is pinned by ADR-LLNCH-012 — these four keys, nothing more, nothing less.
         assert set(body.keys()) == {"port", "model", "ctx_size", "parallel"}
         assert body == {
             "port": 8081,
@@ -2348,7 +2348,7 @@ class TestFooterContextEndpoint:
 
 
 class TestCancelEndpoint:
-    """Tests for POST /cancel/{port} (ADR-014)."""
+    """Tests for POST /cancel/{port} (ADR-LLNCH-014)."""
 
     def test_cancel_when_marker_exists_returns_200_delivered(self, client, monkeypatch):
         monkeypatch.setattr(
@@ -2363,7 +2363,7 @@ class TestCancelEndpoint:
     def test_cancel_when_no_marker_returns_200_marker_existed_false(
         self, client, monkeypatch
     ):
-        """ADR-014 §5: 'nothing to cancel' is a successful no-op, not a 404."""
+        """ADR-LLNCH-014 §5: 'nothing to cancel' is a successful no-op, not a 404."""
         monkeypatch.setattr(
             "llauncher.core.marker.request_cancel",
             lambda port, run_dir=None: False,

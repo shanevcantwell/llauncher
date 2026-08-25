@@ -1,6 +1,6 @@
 """FastAPI routing for the llauncher agent service.
 
-Per ADR-010, the start/swap/stop/delete-model verbs are port-keyed (or
+Per ADR-LLNCH-010, the start/swap/stop/delete-model verbs are port-keyed (or
 name-keyed for delete) and delegate to :mod:`llauncher.operations`.
 The agent is a thin HTTP wrapper: it translates requests into op calls
 and op results into HTTP status codes.
@@ -24,7 +24,7 @@ router = APIRouter()
 
 # Global state instance — used only for the read-side ``/status``,
 # ``/models``, and log endpoints. The verbs no longer route through
-# LauncherState; they call the v2 ops directly (ADR-008).
+# LauncherState; they call the v2 ops directly (ADR-LLNCH-008).
 _state: LauncherState | None = None
 
 # Serializes the single construction site below. FastAPI runs these sync
@@ -105,7 +105,7 @@ class SwapRequest(BaseModel):
     model: str
 
 
-# ─────────── Status-code mapping per ADR-010 action discriminator ─
+# ─────────── Status-code mapping per ADR-LLNCH-010 action discriminator ─
 
 
 def _start_status_code(action: str) -> int:
@@ -114,9 +114,9 @@ def _start_status_code(action: str) -> int:
         "started": 200,
         "already_running": 200,
         "rejected_occupied": 409,
-        "rejected_preflight": 409,  # added with issue #57 / ADR-005 seam
-        "rejected_in_progress": 409,  # ADR-014: marker conflict
-        "cancelled": 409,  # ADR-014: caller cancelled before commit
+        "rejected_preflight": 409,  # added with issue #57 / ADR-LLNCH-005 seam
+        "rejected_in_progress": 409,  # ADR-LLNCH-014: marker conflict
+        "cancelled": 409,  # ADR-LLNCH-014: caller cancelled before commit
         "error": 500,
     }.get(action, 500)
 
@@ -139,7 +139,7 @@ def _swap_status_code(action: str) -> int:
         "rejected_in_progress": 409,
         "rejected_stop_failed": 500,
         "rolled_back": 503,
-        "cancelled": 503,  # ADR-014: cancel → rollback path
+        "cancelled": 503,  # ADR-LLNCH-014: cancel → rollback path
         "failed": 500,
     }.get(action, 500)
 
@@ -185,7 +185,7 @@ def node_info() -> dict:
 def get_status() -> dict:
     """Get current status of running servers on this node.
 
-    Returns GPU health data (ADR-006) when a GPU backend is available.
+    Returns GPU health data (ADR-LLNCH-006) when a GPU backend is available.
     """
     from llauncher.core.gpu import GPUHealthCollector
 
@@ -226,7 +226,7 @@ def get_status() -> dict:
         "node": get_node_name(),
         "running_servers": running_servers,
         "total_running": len(running_servers),
-        # ADR-015: surface orphan (unmanaged) llama-server pids alongside
+        # ADR-LLNCH-015: surface orphan (unmanaged) llama-server pids alongside
         # the managed roster. Empty list when none — callers shouldn't
         # need a presence check.
         "orphans": [o.to_dict() for o in state.orphans],
@@ -248,7 +248,7 @@ def get_status() -> dict:
 
 @router.get("/orphans")
 def list_orphans_endpoint() -> dict:
-    """List unmanaged ``llama-server`` processes on this node (ADR-015).
+    """List unmanaged ``llama-server`` processes on this node (ADR-LLNCH-015).
 
     An orphan is a live ``llama-server`` whose ``(port, pid)`` does not
     match a live lockfile. The response shape is::
@@ -259,7 +259,7 @@ def list_orphans_endpoint() -> dict:
             "total": <int>,
         }
 
-    Adopt is intentionally out of scope for this revision — see ADR-015
+    Adopt is intentionally out of scope for this revision — see ADR-LLNCH-015
     §Deferred Work.
     """
     state = get_state()
@@ -274,11 +274,11 @@ def list_orphans_endpoint() -> dict:
 
 @router.get("/footer-context/{port}")
 def get_footer_context(port: int) -> dict:
-    """Minimal footer payload for ``port`` (ADR-012).
+    """Minimal footer payload for ``port`` (ADR-LLNCH-012).
 
-    Response shape is **pinned** by ADR-012; do not extend without
+    Response shape is **pinned** by ADR-LLNCH-012; do not extend without
     amending that ADR. Returns 404 with ``port_empty`` when the port
-    has no lockfile, matching the ADR-011 vocabulary.
+    has no lockfile, matching the ADR-LLNCH-011 vocabulary.
     """
     from llauncher.agent.footer_cache import get_footer_context as _get
 
@@ -356,15 +356,15 @@ def list_models() -> list[dict]:
     return models
 
 
-# ── Issue #475 / ADR-027: model validate endpoints ────────────────
+# ── Issue #475 / ADR-LLNCH-027: model validate endpoints ────────────────
 #
-# Replace (not alias) ADR-005's GET /models/health[/{name}] — no in-repo
+# Replace (not alias) ADR-LLNCH-005's GET /models/health[/{name}] — no in-repo
 # consumer, and two endpoints serving overlapping shapes of one artifact is
-# the dual-shape the no-shims rule forbids (ADR-027 §2, Q1). Plain ``def``
+# the dual-shape the no-shims rule forbids (ADR-LLNCH-027 §2, Q1). Plain ``def``
 # (not ``async def``, matching the verb endpoints below): the underlying op
 # does blocking file stats.
 #
-# Deliberately NOT folded into GET /models (ADR-027 §2): that endpoint is
+# Deliberately NOT folded into GET /models (ADR-LLNCH-027 §2): that endpoint is
 # on the UI hot path (RemoteAggregator.get_all_models, called on every
 # Streamlit rerun per node) — validation stays an explicit, separately
 # cacheable call so it doesn't put N stat()/open() calls on every rerun.
@@ -372,7 +372,7 @@ def list_models() -> list[dict]:
 
 @router.get("/models/validate")
 def models_validate(vram: bool = True) -> dict:
-    """Validation report for *all* configured models (issue #475, ADR-027).
+    """Validation report for *all* configured models (issue #475, ADR-LLNCH-027).
 
     ``?vram=false`` skips the advisory VRAM check entirely — no
     ``nvidia-smi`` shell-out at all — for callers polling a large registry.
@@ -383,7 +383,7 @@ def models_validate(vram: bool = True) -> dict:
 
 @router.get("/models/validate/{model_name}")
 def model_validate_detail(model_name: str, vram: bool = True) -> dict:
-    """Validation report for a single model (issue #475, ADR-027).
+    """Validation report for a single model (issue #475, ADR-LLNCH-027).
 
     ``?vram=false`` skips the advisory VRAM check (see
     :func:`models_validate`).
@@ -399,7 +399,7 @@ def model_validate_detail(model_name: str, vram: bool = True) -> dict:
     return report.model_dump(mode="json")
 
 
-# ───────────────────── Verb endpoints (ADR-010) ──────────────────
+# ───────────────────── Verb endpoints (ADR-LLNCH-010) ──────────────────
 #
 # CONCURRENCY (issue #143): these handlers — and the blocking read
 # endpoints above — are deliberately plain ``def``, NOT ``async def``.
@@ -420,7 +420,7 @@ def model_validate_detail(model_name: str, vram: bool = True) -> dict:
 def start_server(port: int, body: StartRequest) -> dict:
     """Start ``body.model`` on ``port``.
 
-    Per ADR-010, port is at the call site; the model name is the body.
+    Per ADR-LLNCH-010, port is at the call site; the model name is the body.
     Delegates to :func:`llauncher.operations.start`. Status code reflects
     the ``action`` discriminator (200 for ``started``/``already_running``,
     409 for ``rejected_occupied``, 500 for ``error``).
@@ -464,7 +464,7 @@ def start_server(port: int, body: StartRequest) -> dict:
 
 @router.post("/swap/{port}")
 def swap_server(port: int, body: SwapRequest) -> dict:
-    """Swap the model on ``port`` to ``body.model`` per ADR-011.
+    """Swap the model on ``port`` to ``body.model`` per ADR-LLNCH-011.
 
     Performs the 5-phase swap (pre-flight → marker → stop → start →
     readiness) with rollback. Pre-flight uses the operations-package
@@ -483,7 +483,7 @@ def swap_server(port: int, body: SwapRequest) -> dict:
 
 @router.post("/stop/{port}")
 def stop_server(port: int, response: Response) -> dict:
-    """Stop whatever is running on ``port`` per ADR-010.
+    """Stop whatever is running on ``port`` per ADR-LLNCH-010.
 
     Non-blocking per issue #140: a live process is acknowledged with
     **202** and ``action="stopping"`` immediately, and the actual
@@ -493,7 +493,7 @@ def stop_server(port: int, response: Response) -> dict:
     outlived common 5 s client timeouts — callers saw failures on
     stops that succeeded. Completion is observable via ``GET /status``
     (the port empties) and the audit log (``STOPPED`` with ``SUCCESS``
-    or ``ERROR``); this mirrors the ADR-014 ``/cancel/{port}`` pattern
+    or ``ERROR``); this mirrors the ADR-LLNCH-014 ``/cancel/{port}`` pattern
     of acknowledging an in-flight operation without blocking on it.
 
     Idempotent: returns 200 with ``action="already_empty"`` if the port
@@ -514,7 +514,7 @@ def stop_server(port: int, response: Response) -> dict:
 
 @router.post("/cancel/{port}")
 def cancel_op(port: int) -> dict:
-    """Signal cancellation of an in-flight start/swap on ``port`` (ADR-014).
+    """Signal cancellation of an in-flight start/swap on ``port`` (ADR-LLNCH-014).
 
     Sets ``cancelled=True`` on the in-flight marker. The actual abandonment
     happens at the next phase-boundary checkpoint inside the running op;
@@ -523,7 +523,7 @@ def cancel_op(port: int) -> dict:
     Returns 200 in both cases:
     - ``marker_existed=True`` — cancel signal delivered.
     - ``marker_existed=False`` — no in-flight op (successful no-op per
-      ADR-014 §5; "nothing to cancel" is not an error from the caller's
+      ADR-LLNCH-014 §5; "nothing to cancel" is not an error from the caller's
       view).
     """
     from llauncher.core import marker as mk
@@ -538,7 +538,7 @@ def cancel_op(port: int) -> dict:
 
 @router.delete("/models/{model_name}")
 def delete_model(model_name: str) -> dict:
-    """Remove ``model_name`` from the config per ADR-008 §4.1.
+    """Remove ``model_name`` from the config per ADR-LLNCH-008 §4.1.
 
     Refuses with 409 when the model is currently running on any port.
     Idempotent on a missing name (200 + ``action="not_found"``).
@@ -612,7 +612,7 @@ def get_audit(
     action: Annotated[str, None] = None,
     result: Annotated[str, None] = None,
 ) -> list[dict]:
-    """Return recent audit-log entries on this node (ADR-008, issue #64).
+    """Return recent audit-log entries on this node (ADR-LLNCH-008, issue #64).
 
     The audit log is process-global (not port-scoped), so query params are
     used in place of a path key. ``limit`` bounds the tail (mirrors the

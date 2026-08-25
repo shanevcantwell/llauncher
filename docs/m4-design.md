@@ -7,7 +7,7 @@
 
 ## Goal
 
-Bring the Streamlit UI into alignment with ADR-009 (symmetric hub/spoke topology) and ADR-010 (port at the call site). After M3 the UI is functional but topologically naïve — it implicitly assumes "this node" everywhere and inherits a v1-shaped tab layout. M4 is the redesign that:
+Bring the Streamlit UI into alignment with ADR-LLNCH-009 (symmetric hub/spoke topology) and ADR-LLNCH-010 (port at the call site). After M3 the UI is functional but topologically naïve — it implicitly assumes "this node" everywhere and inherits a v1-shaped tab layout. M4 is the redesign that:
 
 - Surfaces **node selection** as a first-class concept on every page that mutates or reads server state.
 - Drops the auto-spawn-local-agent behavior in favor of explicit "agent must be running already" UX.
@@ -16,7 +16,7 @@ Bring the Streamlit UI into alignment with ADR-009 (symmetric hub/spoke topology
 
 ## Why a Redesign and Not a Refactor
 
-After M3, every UI mutation already calls `ops.*(target=None)`. A spot-fix to add a node dropdown in front of each verb would work for one or two pages but would propagate inconsistencies across the seven existing tab files. The orientation spike §6 also flagged the UI's auto-spawn behavior as fighting ADR-009 — that's a UX decision that wants a single coherent treatment, not a per-tab patch.
+After M3, every UI mutation already calls `ops.*(target=None)`. A spot-fix to add a node dropdown in front of each verb would work for one or two pages but would propagate inconsistencies across the seven existing tab files. The orientation spike §6 also flagged the UI's auto-spawn behavior as fighting ADR-LLNCH-009 — that's a UX decision that wants a single coherent treatment, not a per-tab patch.
 
 The redesign budget is small (one milestone) because the underlying ops surface is already correct.
 
@@ -58,20 +58,20 @@ Remove the "agent not running? auto-launch via subprocess" code path that slice 
 - If no response: render a "The llauncher agent is not running on this node. Start it with `llauncher agent start` and refresh." banner. Do **not** subprocess.Popen anything.
 - If user wants the auto-launch ergonomic, the CLI provides `llauncher agent start --background` (a separate slice, M3 or M5).
 
-This matches ADR-009's "every node runs the same software, role is determined by invocation" framing — the UI is just a viewer of an agent that already exists.
+This matches ADR-LLNCH-009's "every node runs the same software, role is determined by invocation" framing — the UI is just a viewer of an agent that already exists.
 
 ### Slice 13 — Tab restructure
 
 Reorganize around what users *do* rather than what objects exist:
 
-- **Dashboard.** Cross-node aggregate of running servers. Replaces both `dashboard.py` and `running.py`. Polls each node's `/status`. Connect-fails-loudly per ADR-009.
+- **Dashboard.** Cross-node aggregate of running servers. Replaces both `dashboard.py` and `running.py`. Polls each node's `/status`. Connect-fails-loudly per ADR-LLNCH-009.
 - **Models.** Browse + edit configs scoped to the selected node. Merges `forms.py` + `model_registry.py`. The "Model Card" detail (per-model start/swap/stop/delete) is a sub-route here, not a separate top-level tab.
 - **Nodes.** Manage `nodes.json`. Drops the "auto-spawn local agent" button. Adds an "Add peer by URL" form that calls `RemoteNode(...).ping()` to validate before persisting.
 - **Audit.** New tab. Tail of `~/.llauncher/audit.jsonl` for the selected node. Read-only. Filter by action type. Useful for debugging swap rollbacks.
 
 ### Slice 14 — Verb result rendering
 
-Adopt the ADR-010 envelope as a first-class UI primitive. Different `action` values render with different visual weight:
+Adopt the ADR-LLNCH-010 envelope as a first-class UI primitive. Different `action` values render with different visual weight:
 
 | `action` | Toast color | Notes |
 |----------|-------------|-------|
@@ -127,7 +127,7 @@ The Streamlit UI doesn't lend itself to unit-test depth. Strategy:
 
 ## References
 
-- ADR-009 — symmetric topology, `nodes.json` per-node ownership, connect-fails-loudly
-- ADR-010 — verb envelope (`success`, `action`, `port`, `model`, ...)
+- ADR-LLNCH-009 — symmetric topology, `nodes.json` per-node ownership, connect-fails-loudly
+- ADR-LLNCH-010 — verb envelope (`success`, `action`, `port`, `model`, ...)
 - v2-orientation-spike §6 — UI auto-spawn deprecation
 - Issue #45 — falsy-registry guard (already in M3, but the UI is the consumer)

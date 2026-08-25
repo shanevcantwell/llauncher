@@ -72,7 +72,7 @@ def check_model_health(model_path: str, *, force_refresh: bool = False) -> Model
         model_path: Path to the model file (may be a symlink).
         force_refresh: Skip the TTL cache and re-stat the file. Callers whose
             *whole purpose* is to report the filesystem as it is right now
-            (``operations.validate_models`` — ADR-027) pass ``True``: a cached
+            (``operations.validate_models`` — ADR-LLNCH-027) pass ``True``: a cached
             verdict served alongside freshly-stat'd metadata is how a deleted
             file reports ``ok=True`` for up to 60 s, which is precisely the
             false verdict #468's delete loop would act on.

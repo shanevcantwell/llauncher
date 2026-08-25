@@ -1,9 +1,9 @@
 """Streamlit ``AppTest`` tests for the Model Registry tab
 (``llauncher/ui/tabs/model_registry.py``).
 
-Contract pinned here (issue #475, ADR-027): for ``target == "local"`` the
+Contract pinned here (issue #475, ADR-LLNCH-027): for ``target == "local"`` the
 tab calls ``operations.validate_models()`` directly (no ``core.model_health``
-import — that fork is exactly what ADR-027 closed); for a remote target it
+import — that fork is exactly what ADR-LLNCH-027 closed); for a remote target it
 calls ``aggregator.get_validation(target)``, never local state. Each row's
 status column is derived from the entry's own ``verdicts``/``ok``, not a
 second copy of the rule:
@@ -141,7 +141,7 @@ class TestModelRegistryStatusBranches:
         self, tab_harness, mock_state, mock_aggregator
     ):
         """An advisory-only failure (stale lockfile, low VRAM) keeps the
-        badge "ready" — advisory verdicts never gate the status (ADR-027)."""
+        badge "ready" — advisory verdicts never gate the status (ADR-LLNCH-027)."""
         verdicts = [
             ValidationVerdict(check="weights", ok=True),
             ValidationVerdict(
@@ -164,7 +164,7 @@ class TestModelRegistryStatusBranches:
         self, tab_harness, mock_state, mock_aggregator
     ):
         """Regression guard: the tab must not import ``core.model_health``
-        directly (ADR-027 closes the forked-vocabulary defect)."""
+        directly (ADR-LLNCH-027 closes the forked-vocabulary defect)."""
         report = _report([_validation(ok=True)])
 
         with patch("llauncher.operations.validate_models", return_value=report), patch(
@@ -344,7 +344,7 @@ class TestModelRegistryVramEconomics:
     door, but this tab re-renders on every widget interaction and the VRAM
     verdict is advisory — it never gates the badge — so it is suppressed
     here, locally and on the peer. That is the per-rerun shell-out economics
-    ADR-027 kept off the hot path.
+    ADR-LLNCH-027 kept off the hot path.
     """
 
     def test_local_render_suppresses_the_vram_check(

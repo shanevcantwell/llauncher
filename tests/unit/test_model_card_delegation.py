@@ -124,7 +124,7 @@ class TestHandleStopDelegation:
     skipped lockfile removal and durable audit — replaced with the same
     ``operations.stop`` seam CLI/MCP already use); ``None`` delegated result →
     failure toast, not an ``AttributeError`` (the cross-uid SIGTERM bug,
-    ADR-018)."""
+    ADR-LLNCH-018)."""
 
     def test_local_stop_delegates_over_http(self):
         node = MagicMock()

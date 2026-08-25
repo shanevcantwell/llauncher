@@ -1,6 +1,6 @@
 """Unit tests for ``llauncher.core.lockfile``.
 
-Per ADR-008. Verifies atomic claim semantics, reconciliation rules, and
+Per ADR-LLNCH-008. Verifies atomic claim semantics, reconciliation rules, and
 corrupt-file resilience.
 """
 

@@ -1,4 +1,4 @@
-"""Unit tests for the footer-context cache (ADR-012).
+"""Unit tests for the footer-context cache (ADR-LLNCH-012).
 
 Covers the cache behavior in isolation from the HTTP layer:
 read-through, TTL expiry, cache-disable (TTL <= 0), missing-lockfile

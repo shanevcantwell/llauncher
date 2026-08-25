@@ -1,9 +1,9 @@
-"""``validate_models`` verb — read-only model validation (issue #475, ADR-027).
+"""``validate_models`` verb — read-only model validation (issue #475, ADR-LLNCH-027).
 
 One validation path, reused by the CLI, HTTP Agent, MCP tool, and UI tab.
 Reuses the existing preflight adapters (:mod:`llauncher.operations.preflight`)
 rather than introducing a fourth verdict vocabulary. Writes nothing: no
-config, no lockfile, no audit entry, no reconcile (ADR-027 §4).
+config, no lockfile, no audit entry, no reconcile (ADR-LLNCH-027 §4).
 """
 
 from __future__ import annotations
@@ -62,7 +62,7 @@ def _gguf_magic_verdict(resolved_path: Path, exists: bool) -> ValidationVerdict 
 
 
 def _vram_verdict(config: ModelConfig, check: preflight.PreflightCheck) -> ValidationVerdict:
-    """The ``vram`` check — always advisory (ADR-027 §3).
+    """The ``vram`` check — always advisory (ADR-LLNCH-027 §3).
 
     ``check`` is a collector-bound callable from
     :func:`preflight.make_vram_check` (one ``nvidia-smi`` per
@@ -82,7 +82,7 @@ def _running_port_and_lockfile_verdict(
     Returns ``(running_port, lockfile_verdict)``. A live lockfile yields
     ``running_port`` populated and no verdict (nothing advisory to report —
     it's healthy). A stale lockfile (dead pid) yields an advisory failure
-    verdict and no ``running_port``. Never reconciles (ADR-027 §3 — that's
+    verdict and no ``running_port``. Never reconciles (ADR-LLNCH-027 §3 — that's
     ``stop``/``delete``'s job).
     """
     for lock in lf.list_lockfiles():
@@ -137,7 +137,7 @@ def _validate_one(
 
     # VRAM: advisory, skipped entirely for a currently-running model (its
     # own weights already occupy the VRAM the estimate compares against —
-    # ADR-027 §3), and suppressible via vram=False.
+    # ADR-LLNCH-027 §3), and suppressible via vram=False.
     if vram_check is not None and running_port is None:
         verdicts.append(_vram_verdict(config, vram_check))
 
@@ -189,7 +189,7 @@ def validate_models(
 
     # One collector for the whole batch: ``GPUHealthCollector``'s TTL cache
     # is per-instance, so a per-model collector is a per-model ``nvidia-smi``
-    # subprocess (ADR-027 §2's refused economics, at N-per-call).
+    # subprocess (ADR-LLNCH-027 §2's refused economics, at N-per-call).
     vram_check = preflight.make_vram_check() if vram else None
     # Fresh weights verdict: the 60 s health cache would otherwise serve a
     # stale ``ok`` next to freshly-stat'd metadata (deleted file ->

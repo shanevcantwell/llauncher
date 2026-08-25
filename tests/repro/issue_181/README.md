@@ -74,7 +74,7 @@ to that scan.
   `(False, "No server running on port {port}")` — the verbatim symptom.
 
 **Expected-correct vs actual-buggy.** Correct: a still-present pid claiming
-the port is stoppable (lockfile-authoritative, ADR-008). Buggy: the kill is
+the port is stoppable (lockfile-authoritative, ADR-LLNCH-008). Buggy: the kill is
 never attempted; eject is a success-shaped no-op.
 
 **How the script demonstrates it.** Forks a fake bound conceptually to 18181,

@@ -1,21 +1,21 @@
-# ADR-023: Service-Owned Venv Recomposition (Re-Coupling Durable References to Their Venv Lifecycle)
+# ADR-LLNCH-023: Service-Owned Venv Recomposition (Re-Coupling Durable References to Their Venv Lifecycle)
 
 **Status:** `accepted`
 **Accepted:** 2026-06-28
 **Date:** 2026-06-28
-**Related:** **amends the `ExecStart` mechanism of** ADR-018 (agent system
-service) and ADR-022 (UI `systemd --user` service). Does **not** revert either:
-ADR-022's per-operator supervision model and ADR-018's system-service model both
+**Related:** **amends the `ExecStart` mechanism of** ADR-LLNCH-018 (agent system
+service) and ADR-LLNCH-022 (UI `systemd --user` service). Does **not** revert either:
+ADR-LLNCH-022's per-operator supervision model and ADR-LLNCH-018's system-service model both
 stand; this ADR adds the missing guarantee that the venv each `ExecStart`
 resolves into exists. Touches the deliberate shared-install decision encoded in
-`scripts/systemd/install-cli.sh` (untracked; tracked as part of ADR-022's
+`scripts/systemd/install-cli.sh` (untracked; tracked as part of ADR-LLNCH-022's
 downstream phase).
 
 > This was a **ratification surface** (`auto:draft`); it is now **ratified**
 > (`accepted`, 2026-06-28), having moved `draft/` → `accepted/` per README:11.
 > It records the **decision and the resolution of its one open fork** (OQ1,
 > resolved below as Fork B-shared); the build is a separate `auto:fix`. The
-> bidirectional amendment notes on ADR-018 / ADR-022 and the README index row
+> bidirectional amendment notes on ADR-LLNCH-018 / ADR-LLNCH-022 and the README index row
 > took effect **on this ratification** (applied in the ratifying commit).
 
 ---
@@ -227,7 +227,7 @@ reproducibility phase. Each is a downstream `auto:fix`; step granularity is
   *(Fork B-peruser swaps the system ensure unit for a user-scope per-operator
   venv + user `ExecStartPre`.)*
 - **Depends on:** ratification of the scope fork (Open Question 1); tracking of
-  the currently-untracked `install-cli.sh` (already in ADR-022's downstream
+  the currently-untracked `install-cli.sh` (already in ADR-LLNCH-022's downstream
   phase).
 - **Verifiable when it lands:** delete `/opt/llauncher/venv` → the system ensure
   unit recomposes it and the symlink resolves; with the ensure unit disabled, the
@@ -289,23 +289,23 @@ reproducibility phase. Each is a downstream `auto:fix`; step granularity is
   `auto:fix`; lazy is the cheaper default.
 - [ ] **OQ4 — Ensure-unit `TimeoutStartSec` value.** What recompose ceiling is
   acceptable before treating it as failed? **Resolution:** measured during the
-  build, mirroring the crash-loop-guard-by-measurement pattern ADR-022 §Open
+  build, mirroring the crash-loop-guard-by-measurement pattern ADR-LLNCH-022 §Open
   Questions used for `Restart=`.
 
 ## Supersession / Amendment Relationships
 
-**Amends (does not supersede):** the **`ExecStart` venv mechanism** of ADR-018
-(`accepted/018-llauncher-system-service.md`) and ADR-022
-(`accepted/022-llauncher-ui-user-service.md`). Both ADRs' core decisions stand;
-ADR-022 is **completed, not corrected** — it chose the right supervision model
+**Amends (does not supersede):** the **`ExecStart` venv mechanism** of ADR-LLNCH-018
+(`accepted/adr-llnch-018-llauncher-system-service.md`) and ADR-LLNCH-022
+(`accepted/adr-llnch-022-llauncher-ui-user-service.md`). Both ADRs' core decisions stand;
+ADR-LLNCH-022 is **completed, not corrected** — it chose the right supervision model
 but was silent on venv durability under the operator's reap policy. This ADR
 fills that gap.
 
 **Superseded by:** TBD.
 
 **On ratification (applied at acceptance, 2026-06-28 — done in the ratifying commit):**
-- [x] Amendment note added to `accepted/018-llauncher-system-service.md` and
-  `accepted/022-llauncher-ui-user-service.md` pointing to ADR-023 as governing
+- [x] Amendment note added to `accepted/adr-llnch-018-llauncher-system-service.md` and
+  `accepted/adr-llnch-022-llauncher-ui-user-service.md` pointing to ADR-LLNCH-023 as governing
   their `ExecStart` venv guarantee.
 - [x] README index row added (`docs/adrs/README.md`) and this file `git mv`'d
   from `draft/` to `accepted/`, Status set to `accepted`. (Moves to `completed/`
@@ -325,8 +325,8 @@ fills that gap.
   `/opt/llauncher/venv` from `git+https…@$REF`; `ln -sfn` symlinks; `chmod a+rX`.
 - `pyproject.toml:6-16,28-33` — `>=` dependency floors (no pins); console-script
   entry points. **No lockfile present in the tree** (verified).
-- `docs/adrs/accepted/018-llauncher-system-service.md`,
-  `docs/adrs/accepted/022-llauncher-ui-user-service.md` — the two ADRs amended.
+- `docs/adrs/accepted/adr-llnch-018-llauncher-system-service.md`,
+  `docs/adrs/accepted/adr-llnch-022-llauncher-ui-user-service.md` — the two ADRs amended.
 - `docs/adrs/README.md:11` — `draft/` = "not yet ratified" status convention.
 - PEP 405 — virtual environments are non-relocatable (rebuilt, not moved).
 

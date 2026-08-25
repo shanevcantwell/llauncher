@@ -211,7 +211,7 @@ class TestIsLocalAgentReady:
 class TestStartLocalAgentRemoved:
     """Regression guard for issue #49 / audit H2.
 
-    ``NodeRegistry.start_local_agent`` was deleted in M4 Slice 12. ADR-009's
+    ``NodeRegistry.start_local_agent`` was deleted in M4 Slice 12. ADR-LLNCH-009's
     symmetric topology says the user starts the agent via the CLI; the
     UI is purely a viewer. This test exists so a future revert that
     re-introduces the auto-spawn surface fails loudly.
@@ -224,7 +224,7 @@ class TestStartLocalAgentRemoved:
         registry = NodeRegistry()
         assert not hasattr(registry, "start_local_agent"), (
             "NodeRegistry.start_local_agent was removed in M4 Slice 12 "
-            "(issue #49). Re-introducing it conflicts with ADR-009 "
+            "(issue #49). Re-introducing it conflicts with ADR-LLNCH-009 "
             "(symmetric hub-spoke topology). The user starts the agent "
             "with `llauncher-agent`; the UI does not auto-spawn."
         )

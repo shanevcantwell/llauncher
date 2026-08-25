@@ -26,7 +26,7 @@ If this test FAILS, a UI module has reached across a layer boundary. The fix is
 never to loosen this guard — it is to route the call through the engine: backend
 verbs via ``state``/``operations``, node I/O via ``remote/``. See
 ``docs/ARCHITECTURE.md`` (the layer map and the forbidden-edge table) and
-ADR-025.
+ADR-LLNCH-025.
 """
 
 from __future__ import annotations
@@ -176,7 +176,7 @@ def test_ui_modules_make_no_forbidden_imports():
     violations = _scan()
     assert not violations, (
         "llauncher/ui/ violated its layer boundary (see "
-        f"{_ARCH_DOC} — the layer map and forbidden-edge table; ADR-025):\n"
+        f"{_ARCH_DOC} — the layer map and forbidden-edge table; ADR-LLNCH-025):\n"
         + "\n".join(violations)
         + "\n\nui/ is an ENDPOINT layer: dependencies point DOWNWARD and "
         "siblings do not import siblings. Route backend calls through "

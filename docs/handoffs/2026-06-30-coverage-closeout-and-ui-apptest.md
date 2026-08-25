@@ -62,13 +62,13 @@ lands on orchestrator, which then finalizes the merge — done for #248).
 ## Open threads (prioritized — operator steers)
 
 1. **#1 the arch-gate ADR** (highest-leverage, still PARKED) — the *semantic* half
-   of #184 that ADR-024 (draft) deliberately dropped: hybrid/recurrent-backend
+   of #184 that ADR-LLNCH-024 (draft) deliberately dropped: hybrid/recurrent-backend
    detection + refuse `--cache-reuse`. Forks: (a) sibling ADR vs fold-into-024;
    (b) detection via GGUF-metadata vs maintained arch-table. Unblocks #237's 3
    pending cache-reuse configs.
 2. **#249** — land the genuine eviction-rollback fix.
 3. **#69 follow-on** — drive UI coverage up on the new harness once it lands.
-4. **#141** — NOT a llauncher bug (ADR-010 makes `/start` port-keyed by design);
+4. **#141** — NOT a llauncher bug (ADR-LLNCH-010 makes `/start` port-keyed by design);
    re-home to the harness-tools pi extension via an issue.
 5. **#246** — MPS dead branch + trailing-colon.
 6. **63 orphan local branch refs** (`worktree-agent-*` + `fix/`/`coverage/`/

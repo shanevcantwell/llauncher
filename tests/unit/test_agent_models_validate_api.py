@@ -1,8 +1,8 @@
-"""Unit tests for GET /models/validate[/{model_name}] (issue #475, ADR-027).
+"""Unit tests for GET /models/validate[/{model_name}] (issue #475, ADR-LLNCH-027).
 
-Replaces ADR-005's ``GET /models/health[/{model_name}]`` (deleted, no
-in-repo consumer, see ``docs/adrs/completed/005-model-cache-health.md``'s
-superseded note). Also pins the ADR-027 §2 hot-path guarantee: ``GET
+Replaces ADR-LLNCH-005's ``GET /models/health[/{model_name}]`` (deleted, no
+in-repo consumer, see ``docs/adrs/completed/adr-llnch-005-model-cache-health.md``'s
+superseded note). Also pins the ADR-LLNCH-027 §2 hot-path guarantee: ``GET
 /models`` must perform zero ``check_model_health`` calls.
 """
 
@@ -109,7 +109,7 @@ class TestModelValidateDetailEndpoint:
 
 
 class TestModelsHealthRoutesRemoved:
-    """The superseded ADR-005 routes must be gone — no alias, no dual shape."""
+    """The superseded ADR-LLNCH-005 routes must be gone — no alias, no dual shape."""
 
     def test_models_health_list_route_gone(self, mock_config_store):
         """No dedicated GET route remains. FastAPI resolves the path to
@@ -137,7 +137,7 @@ class TestModelsHealthRoutesRemoved:
 
 
 class TestModelsEndpointHotPathGuarantee:
-    """ADR-027 §2: GET /models must never call check_model_health.
+    """ADR-LLNCH-027 §2: GET /models must never call check_model_health.
 
     Pinned so a later "just fold validation into /models" cannot land
     silently — that endpoint is on the UI hot path (RemoteAggregator,

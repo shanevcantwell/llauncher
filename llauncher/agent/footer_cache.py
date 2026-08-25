@@ -1,4 +1,4 @@
-"""Per-port TTL cache for the ``/footer-context/{port}`` endpoint (ADR-012).
+"""Per-port TTL cache for the ``/footer-context/{port}`` endpoint (ADR-LLNCH-012).
 
 The footer-context endpoint is hit at footer-redraw cadence (multiple
 times per second per watched port). The four fields the footer reads
@@ -15,7 +15,7 @@ The cache is deliberately small and obvious:
 * TTL is read from ``settings.LAUNCHER_FOOTER_CACHE_S`` at call time so
   tests can override via monkeypatch. ``<= 0`` disables caching.
 * No invalidation hook from ``operations.start``/``swap``/``stop``: a
-  bounded staleness window is acceptable per ADR-012, and wiring
+  bounded staleness window is acceptable per ADR-LLNCH-012, and wiring
   invalidation would couple ops to this module.
 
 This module owns its own lock and dict. Read-side only; the lockfile
@@ -35,7 +35,7 @@ from llauncher.core.lockfile import read_lockfile
 
 @dataclass(frozen=True)
 class FooterContext:
-    """The pinned response shape for ``/footer-context/{port}`` (ADR-012)."""
+    """The pinned response shape for ``/footer-context/{port}`` (ADR-LLNCH-012)."""
 
     port: int
     model: str
@@ -63,7 +63,7 @@ def _read_through(port: int) -> FooterContext | None:
     """Resolve a footer context from disk, bypassing the cache.
 
     Returns ``None`` when the port has no lockfile (the caller should
-    map this to HTTP 404 per ADR-012). Returns a :class:`FooterContext`
+    map this to HTTP 404 per ADR-LLNCH-012). Returns a :class:`FooterContext`
     with ``ctx_size=None`` and ``parallel=None`` when the lockfile
     exists but the model name it names is not in :class:`ConfigStore`
     (degraded display, not not-found).

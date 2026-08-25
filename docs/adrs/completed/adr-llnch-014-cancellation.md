@@ -1,8 +1,8 @@
-# ADR-014: Cancellation of In-Flight Start/Swap
+# ADR-LLNCH-014: Cancellation of In-Flight Start/Swap
 
 **Status:** Accepted
 **Date:** 2026-05-16
-**Relationship to other ADRs:** ADR-011 (swap semantics v2) defines the five-phase mechanic this ADR adds cancel checkpoints to. ADR-010 (port ownership at the call site) defines the port-keyed `POST /cancel/{port}` shape. ADR-008 (stateless facade, on-disk reconciliation) governs the marker file the cancel signal piggy-backs on. ADR-003 (agent API authentication) governs auth for the new endpoint, with no exception.
+**Relationship to other ADRs:** ADR-LLNCH-011 (swap semantics v2) defines the five-phase mechanic this ADR adds cancel checkpoints to. ADR-LLNCH-010 (port ownership at the call site) defines the port-keyed `POST /cancel/{port}` shape. ADR-LLNCH-008 (stateless facade, on-disk reconciliation) governs the marker file the cancel signal piggy-backs on. ADR-LLNCH-003 (agent API authentication) governs auth for the new endpoint, with no exception.
 
 **Supersedes:** No prior ADR — there was no documented cancel facility. The pre-ADR behavior was "wait it out or kill the agent."
 
@@ -19,7 +19,7 @@ Three concrete cases motivate a cancel verb:
 The design space is small but the wrong choice is expensive:
 
 - **Polling granularity.** Mid-phase polling (cancel checks woven through `proc.start_server`, the lockfile write, the SIGTERM grace loop) buys a few seconds of latency at the cost of a much larger reviewable surface and a much harder reasoning load about where cancellation can interrupt. The user-pinned answer is **phase boundaries only**: this gives a worst-case cancel latency bounded by the longest phase (the readiness poll's `check_interval`, default 1 s), with all the simplicity of "every checkpoint is one `if`."
-- **Mechanism.** A condition variable, a thread, or an asyncio Event would each force coupling between the cancel signaller and the cancellable code path. The marker module already provides atomic file-backed state per port, with reconciliation rules ADR-011 ratified. **Adding a boolean to the marker JSON** reuses the existing rewrite path; the signaller writes one field, the poller reads one field.
+- **Mechanism.** A condition variable, a thread, or an asyncio Event would each force coupling between the cancel signaller and the cancellable code path. The marker module already provides atomic file-backed state per port, with reconciliation rules ADR-LLNCH-011 ratified. **Adding a boolean to the marker JSON** reuses the existing rewrite path; the signaller writes one field, the poller reads one field.
 - **Post-commit window.** The sliver between spawn-success and lockfile-write is sub-millisecond in practice and unrecoverable: we've already paid the spawn cost and the new process is alive. Treating a cancel that arrives in this window as a rollback would require killing a healthy child for nothing. The user-pinned answer is **cancel is a no-op after spawn-success**: the operation completes, with an advisory note in the result indicating the cancel arrived too late.
 
 This ADR pins those decisions in code.
@@ -66,7 +66,7 @@ Rationale: the spawn cost has already been paid; the new process is alive and (w
 
 ### 5. HTTP endpoint: `POST /cancel/{port}`
 
-Port-keyed per ADR-010. Body is empty. Response shape:
+Port-keyed per ADR-LLNCH-010. Body is empty. Response shape:
 
 ```json
 {
@@ -83,7 +83,7 @@ The endpoint is registered on the same router as `/swap` and subject to the same
 
 ### 6. MCP tool: `cancel_server(port)`
 
-Mirrors the HTTP shape. Returns the same envelope. Tool prompt text follows ADR-010 §Tool Prompt Guidance: brief enough for an LLM to choose it correctly, naming the relevant ADR.
+Mirrors the HTTP shape. Returns the same envelope. Tool prompt text follows ADR-LLNCH-010 §Tool Prompt Guidance: brief enough for an LLM to choose it correctly, naming the relevant ADR.
 
 ### 7. CLI: `llauncher server cancel <port>`
 
@@ -96,23 +96,23 @@ New verb under the existing `server` group. Match the rich-table + `--json` outp
 - A previously unrecoverable wait (stuck readiness, wrong-model commit) is now a 1 s round-trip plus the time to the next checkpoint.
 - Implementation reuses the marker module's atomic-rewrite path and the existing rollback. No new concurrency primitives, no threads, no asyncio.
 - The cancel-vs-no-op-vs-too-late distinction is explicit in the response envelope. Callers can react deterministically.
-- ADR-016 (canonical self-swap test) can now express the "cancel a stuck swap" path.
+- ADR-LLNCH-016 (canonical self-swap test) can now express the "cancel a stuck swap" path.
 
 ### Negative
 
 - Worst-case cancel latency is the readiness poll's `check_interval` (1 s). At the default this is invisible; configurable lower if a real consumer asks.
-- Adding `cancelled` to the marker JSON couples the cancel mechanism to the marker schema. Future marker-format changes must preserve the field. Acceptable: the marker is internal per ADR-011 and we already control all readers.
+- Adding `cancelled` to the marker JSON couples the cancel mechanism to the marker schema. Future marker-format changes must preserve the field. Acceptable: the marker is internal per ADR-LLNCH-011 and we already control all readers.
 - A `cancel` arriving in the post-commit window completes silently as a successful op (with the `cancel_ignored_post_commit` advisory). A caller relying on cancel as a hard kill switch will be surprised; the advisory exists to make this case observable.
 
 ### Open Questions
 
-- **Should `is_cancelled` reconcile stale markers?** The existing `read_marker` reconciliation (ADR-011 §In-Flight Marker) clears a marker whose `llauncher_pid` is dead. For cancel we don't need that — if the agent is dead the op is already over. Skipping reconciliation here keeps `is_cancelled` cheap. Filed as a follow-up if a real consumer needs it.
+- **Should `is_cancelled` reconcile stale markers?** The existing `read_marker` reconciliation (ADR-LLNCH-011 §In-Flight Marker) clears a marker whose `llauncher_pid` is dead. For cancel we don't need that — if the agent is dead the op is already over. Skipping reconciliation here keeps `is_cancelled` cheap. Filed as a follow-up if a real consumer needs it.
 - **Cancel during rollback.** A cancel that arrives while rollback is in flight is currently ignored — rollback finishes. Rationale: cancelling rollback would leave the port in `unavailable`, which is strictly worse than `restored`. Not exposed as an option until a use case demands it.
 - **Per-caller cancel propagation across the harness boundary.** A harness that wants to surface cancel to a UI affordance will need to fan-out the request itself; the API does not push cancel notifications.
 
 ## Relationship to Other ADRs
 
-- **Builds on ADR-011** (swap semantics v2): cancel slots into the five-phase mechanic at phase boundaries, reusing the rollback path and the marker file.
-- **Builds on ADR-010** (port ownership): the `POST /cancel/{port}` shape and the MCP tool's port-keyed signature follow directly.
-- **Builds on ADR-008** (stateless facade): cancel state lives on disk in the marker file, not in any in-memory state.
-- **Enables ADR-016** (canonical self-swap test): the cancel verb is a precondition for testing the "cancel a stuck swap" path that ADR-016 will document.
+- **Builds on ADR-LLNCH-011** (swap semantics v2): cancel slots into the five-phase mechanic at phase boundaries, reusing the rollback path and the marker file.
+- **Builds on ADR-LLNCH-010** (port ownership): the `POST /cancel/{port}` shape and the MCP tool's port-keyed signature follow directly.
+- **Builds on ADR-LLNCH-008** (stateless facade): cancel state lives on disk in the marker file, not in any in-memory state.
+- **Enables ADR-LLNCH-016** (canonical self-swap test): the cancel verb is a precondition for testing the "cancel a stuck swap" path that ADR-LLNCH-016 will document.

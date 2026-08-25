@@ -2,17 +2,17 @@
 
 Rendered as a table with colour-coded status indicators (ready / missing /
 advisory) sourced from ``operations.validate_models()`` (issue #475,
-ADR-027) — the same verdict vocabulary the CLI ``model validate`` command,
+ADR-LLNCH-027) — the same verdict vocabulary the CLI ``model validate`` command,
 the ``GET /models/validate`` endpoint, and the ``validate_models`` MCP tool
 consume. This tab no longer imports ``core.model_health`` directly or
-derives its own status vocabulary (that fork is exactly what ADR-027
+derives its own status vocabulary (that fork is exactly what ADR-LLNCH-027
 closed): it consumes the shared ``ModelValidation``/``ValidationReport``
 shape locally (``target == "local"``) and, for a remote node, through
 ``RemoteNode.get_model_validation()`` / ``RemoteAggregator.get_validation()``
 — the sanctioned client layer (thin-client UI rule, ``docs/ARCHITECTURE.md``).
 
 Validation here runs with ``vram=False``: the tab is on the rerun hot path
-and the VRAM verdict is advisory, so it never gates a badge (ADR-027 §2/§3).
+and the VRAM verdict is advisory, so it never gates a badge (ADR-LLNCH-027 §2/§3).
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ def render_model_registry(state, registry=None, aggregator=None, target="local")
         # ``vram=False``: this tab re-renders on every Streamlit widget
         # interaction and the VRAM verdict is advisory-only, so paying an
         # ``nvidia-smi`` shell-out per rerun buys nothing the badge gates on
-        # — exactly the per-rerun shell-out economics ADR-027 §2 kept off
+        # — exactly the per-rerun shell-out economics ADR-LLNCH-027 §2 kept off
         # the hot path. Lockfile staleness (the other advisory) is free.
         report = ops.validate_models(vram=False)
         entries = [m.model_dump(mode="json") for m in report.models]
@@ -79,7 +79,7 @@ def _entry_to_row(target: str, entry: dict) -> dict:
     """Reduce one ``ModelValidation``-shaped dict to a table row.
 
     Status is derived directly from ``entry["verdicts"]`` — no second copy
-    of the ready/missing rule (ADR-027's whole point): a gating verdict
+    of the ready/missing rule (ADR-LLNCH-027's whole point): a gating verdict
     failure is "missing", an otherwise-``ok`` entry with an advisory
     failure (stale lockfile, insufficient VRAM) surfaces that reason
     without flipping the badge to missing.

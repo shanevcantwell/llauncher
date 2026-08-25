@@ -1,4 +1,4 @@
-"""``start`` verb — launch a model on a port per ADR-010 semantics."""
+"""``start`` verb — launch a model on a port per ADR-LLNCH-010 semantics."""
 
 from __future__ import annotations
 
@@ -27,12 +27,12 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class StartResult:
-    """Outcome of a start operation, mirroring ADR-010's response envelope.
+    """Outcome of a start operation, mirroring ADR-LLNCH-010's response envelope.
 
     ``action`` values: ``started | already_running | rejected_occupied |
     rejected_preflight | rejected_in_progress | cancelled | error``.
 
-    ``cancel_ignored_post_commit`` (ADR-014): True iff a cancel arrived
+    ``cancel_ignored_post_commit`` (ADR-LLNCH-014): True iff a cancel arrived
     between spawn-success and lockfile-write. The op completed normally.
     """
 
@@ -60,7 +60,7 @@ def start(
     model_health_check: PreflightCheck | None = default_model_health_check,
     readiness_timeout: int = DEFAULT_READINESS_TIMEOUT_S,
 ) -> StartResult:
-    """Start ``model_name`` on ``port`` per ADR-010 verb semantics.
+    """Start ``model_name`` on ``port`` per ADR-LLNCH-010 verb semantics.
 
     - Empty port → start. Returns ``action="started"``.
     - Same model already running → idempotent success. Returns ``action="already_running"``.
@@ -164,7 +164,7 @@ def start(
             message=f"Model not found: {model_name}",
         )
 
-    # ADR-014: take the in-flight marker so a concurrent cancel can signal
+    # ADR-LLNCH-014: take the in-flight marker so a concurrent cancel can signal
     # us before commit. Same primitive as swap; from_model is empty since
     # the port is empty at this point.
     try:
@@ -222,11 +222,11 @@ def start(
         )
 
     try:
-        # ADR-014 checkpoint: before each pre-flight call.
+        # ADR-LLNCH-014 checkpoint: before each pre-flight call.
         if mk.is_cancelled(port):
             return _cancelled_result(port, model_name, caller, stage="pre-preflight")
 
-        # Pre-flight model-file health check (ADR-005). This used to live in
+        # Pre-flight model-file health check (ADR-LLNCH-005). This used to live in
         # ``state.start_server``; lifting it here removes the State→Core import
         # the audit flagged as C2 (issue #57) and gives ``start`` the same
         # pluggable seam ``swap`` already exposes.
@@ -248,7 +248,7 @@ def start(
                 message=f"Model health check failed: {reason}",
             )
 
-        # ADR-014 checkpoint: after pre-flight, before launch.
+        # ADR-LLNCH-014 checkpoint: after pre-flight, before launch.
         if mk.is_cancelled(port):
             return _cancelled_result(port, model_name, caller, stage="post-preflight")
 
@@ -273,7 +273,7 @@ def start(
             )
 
         # Claim the port via lockfile (atomic O_EXCL).
-        # ADR-014: by the time we successfully write the lockfile we have
+        # ADR-LLNCH-014: by the time we successfully write the lockfile we have
         # committed — a cancel that arrives after this point is a no-op
         # with cancel_ignored_post_commit=True.
         try:
@@ -355,7 +355,7 @@ def start(
                 startup_logs=tail,
             )
 
-        # Post-commit cancel detection: per ADR-014, a cancel that arrives
+        # Post-commit cancel detection: per ADR-LLNCH-014, a cancel that arrives
         # between spawn-success/lockfile-write and this check is a no-op.
         # We surface it via the advisory flag rather than tearing down.
         cancel_ignored = mk.is_cancelled(port)
@@ -392,7 +392,7 @@ def start(
 def _cancelled_result(
     port: int, model_name: str, caller: str, *, stage: str
 ) -> StartResult:
-    """ADR-014: cancel detected before commit. No state change; clean exit."""
+    """ADR-LLNCH-014: cancel detected before commit. No state change; clean exit."""
     al.record(
         AuditAction.STARTED,
         AuditResult.CANCELLED,

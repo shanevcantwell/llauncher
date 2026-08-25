@@ -1,4 +1,4 @@
-"""Result types for the read-only ``model validate`` verb (issue #475, ADR-027).
+"""Result types for the read-only ``model validate`` verb (issue #475, ADR-LLNCH-027).
 
 The floor for the validation surface — imports ``pydantic`` and stdlib
 only, nothing from ``core``/``operations``/anywhere upward (rule 3,
@@ -17,7 +17,7 @@ class ValidationVerdict(BaseModel):
     """A single named check's outcome for one model.
 
     ``advisory=True`` means the check is reported but never gates
-    ``ModelValidation.ok`` (e.g. ``vram``, ``lockfile`` — see ADR-027 §3).
+    ``ModelValidation.ok`` (e.g. ``vram``, ``lockfile`` — see ADR-LLNCH-027 §3).
     """
 
     check: str  # "weights" | "gguf_magic" | "vram" | "lockfile"
@@ -26,7 +26,7 @@ class ValidationVerdict(BaseModel):
     advisory: bool = False
 
 
-# Status vocabulary (ADR-027 §5). One token per distinguishable outcome —
+# Status vocabulary (ADR-LLNCH-027 §5). One token per distinguishable outcome —
 # collapsing every gating failure to ``MISSING`` sends an operator hunting
 # for weights that are on disk but unreadable, truncated, or corrupt.
 STATUS_OK = "OK"
@@ -63,7 +63,7 @@ class ModelValidation(BaseModel):
 
     @property
     def status(self) -> str:
-        """ASCII status token for this entry (ADR-027 §5).
+        """ASCII status token for this entry (ADR-LLNCH-027 §5).
 
         Gating failures win over advisories, and the most specific token
         wins: a present-but-corrupt 4 GB ``.gguf`` reports ``BAD_MAGIC``,

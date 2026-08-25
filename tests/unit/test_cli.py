@@ -154,7 +154,7 @@ def test_model_info_json(mock_config_store):
     data = json.loads(result.stdout)
     assert data["name"] == "phi"
     assert data["n_gpu_layers"] == 30
-    assert "default_port" not in data  # ADR-010: not a model attribute
+    assert "default_port" not in data  # ADR-LLNCH-010: not a model attribute
 
 
 # ---------------------------------------------------------------------------
@@ -221,7 +221,7 @@ def test_model_remove_without_yes_aborts_on_no(mock_config_store):
 
 
 # ---------------------------------------------------------------------------
-# model validate (#475, ADR-027)
+# model validate (#475, ADR-LLNCH-027)
 # ---------------------------------------------------------------------------
 
 
@@ -376,7 +376,7 @@ def test_model_validate_no_vram_flag_suppresses_the_shellout(mock_config_store):
 def test_model_validate_status_tokens_are_distinguishable(
     mock_config_store, kwargs, expected
 ):
-    """Every gating failure is NOT ``MISSING`` (ADR-027 status vocabulary).
+    """Every gating failure is NOT ``MISSING`` (ADR-LLNCH-027 status vocabulary).
 
     Collapsing them sent the operator hunting for weights that are on disk
     but unreadable, truncated, or corrupt.
@@ -467,7 +467,7 @@ def test_server_status_json_empty(mock_config_store):
 def test_start_missing_model(mock_config_store):
     """Starting a non-existent model should error.
 
-    --port is required (ADR-010 / issue #58); supplying an arbitrary port
+    --port is required (ADR-LLNCH-010 / issue #58); supplying an arbitrary port
     here lets the test reach the model-not-found error path.
     """
     _dir, _path = mock_config_store
@@ -491,7 +491,7 @@ def test_start_missing_model(mock_config_store):
 
 
 def test_start_without_port_errors(mock_config_store):
-    """Omitting --port must fail at arg-parse time (ADR-010 / issue #58).
+    """Omitting --port must fail at arg-parse time (ADR-LLNCH-010 / issue #58).
 
     Previously the CLI fell back to the ``DEFAULT_PORT`` env var; that
     fallback is removed. ``operations.start`` must never be called when
@@ -535,7 +535,7 @@ def test_start_with_explicit_port(mock_config_store):
 
 
 def test_server_cancel_delivered(mock_config_store):
-    """ADR-014: cancel reports marker_existed=True when a marker existed."""
+    """ADR-LLNCH-014: cancel reports marker_existed=True when a marker existed."""
     with patch("llauncher.core.marker.request_cancel", return_value=True) as mock_req:
         result = runner.invoke(app, ["server", "cancel", "8081"])
     assert result.exit_code == 0
@@ -544,7 +544,7 @@ def test_server_cancel_delivered(mock_config_store):
 
 
 def test_server_cancel_no_op_when_no_marker(mock_config_store):
-    """ADR-014: 'nothing to cancel' is a successful no-op (exit 0)."""
+    """ADR-LLNCH-014: 'nothing to cancel' is a successful no-op (exit 0)."""
     with patch("llauncher.core.marker.request_cancel", return_value=False):
         result = runner.invoke(app, ["server", "cancel", "9999"])
     assert result.exit_code == 0
@@ -560,13 +560,13 @@ def test_server_cancel_json_output(mock_config_store):
 
 
 def test_stop_nonexistent_port(mock_config_store):
-    """Stopping a non-running server is now idempotent (per ADR-010)."""
+    """Stopping a non-running server is now idempotent (per ADR-LLNCH-010)."""
     _dir, _path = mock_config_store
 
     with patch("llauncher.operations.stop") as mock_stop:
         from llauncher.operations import StopResult
 
-        # Per ADR-010, stop on empty port is success-with-already_empty.
+        # Per ADR-LLNCH-010, stop on empty port is success-with-already_empty.
         mock_stop.return_value = StopResult(
             success=True,
             action="already_empty",
@@ -738,12 +738,12 @@ def test_delegated_outcome_none_seam():
 
 
 # ---------------------------------------------------------------------------
-# server swap (#337 — parity with start/stop; ADR-010/ADR-011 envelope)
+# server swap (#337 — parity with start/stop; ADR-LLNCH-010/ADR-LLNCH-011 envelope)
 # ---------------------------------------------------------------------------
 
 
 def test_swap_without_port_errors(mock_config_store):
-    """Omitting --port must fail at arg-parse time, mirroring ``start`` (ADR-010)."""
+    """Omitting --port must fail at arg-parse time, mirroring ``start`` (ADR-LLNCH-010)."""
     _dir, _path = mock_config_store
 
     with patch("llauncher.operations.swap") as mock_swap:
@@ -778,7 +778,7 @@ def test_swap_with_explicit_port(mock_config_store):
 
 
 def test_swap_rejected_empty_port(mock_config_store):
-    """Swap on an empty port is rejected per ADR-010 (use start instead)."""
+    """Swap on an empty port is rejected per ADR-LLNCH-010 (use start instead)."""
     _dir, _path = mock_config_store
 
     with patch("llauncher.operations.swap") as mock_swap:
@@ -798,7 +798,7 @@ def test_swap_rejected_empty_port(mock_config_store):
 
 
 def test_swap_rolled_back_surfaces_previous_model(mock_config_store):
-    """A rolled-back swap renders both the message and the restored model (ADR-011)."""
+    """A rolled-back swap renders both the message and the restored model (ADR-LLNCH-011)."""
     _dir, _path = mock_config_store
 
     with patch("llauncher.operations.swap") as mock_swap:

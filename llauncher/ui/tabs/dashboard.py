@@ -9,7 +9,7 @@ this module no longer accepts ``None``.
 
 Why split? The legacy Dashboard tried to be *both* a status board and a
 management console. That dual role is what kept seducing us into adding
-more verbs to it (ADR-010's port-on-config used to live here). Splitting
+more verbs to it (ADR-LLNCH-010's port-on-config used to live here). Splitting
 the view from the verbs locks the dashboard's surface area down.
 """
 

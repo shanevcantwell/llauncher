@@ -1,4 +1,4 @@
-"""Unit tests for ``operations.validate_models`` (issue #475, ADR-027).
+"""Unit tests for ``operations.validate_models`` (issue #475, ADR-LLNCH-027).
 
 Profiled to the ratified behavior: read-only, no audit entry, per-model
 verdicts, shard resolution agreement, VRAM advisory-and-skipped-when-running,
@@ -259,7 +259,7 @@ class TestValidateModelsGpuQueryEconomics:
     ``GPUHealthCollector``'s TTL cache is per-instance, so building a fresh
     collector inside the per-model check meant an ``nvidia-smi`` subprocess
     per configured model -- N-per-rerun on the Models tab, which is exactly
-    the shell-out economics ADR-027 refused to put on a hot path.
+    the shell-out economics ADR-LLNCH-027 refused to put on a hot path.
     """
 
     def test_single_gpu_query_across_all_models(self, registry):
@@ -389,7 +389,7 @@ class TestValidateModelsResolvedPath:
 
 
 class TestValidationStatusTokens:
-    """ADR-027's status vocabulary -- a gating failure is not always MISSING."""
+    """ADR-LLNCH-027's status vocabulary -- a gating failure is not always MISSING."""
 
     def test_bad_magic_reports_bad_magic_not_missing(self, registry, tmp_path):
         from llauncher import operations as ops

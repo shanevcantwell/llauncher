@@ -141,7 +141,7 @@ async def update_model_config(state: LauncherState, args: dict) -> dict:
     existing = state.models[name]
     updated_config = existing.model_copy()
 
-    # Apply updates (default_port silently dropped per ADR-010). With
+    # Apply updates (default_port silently dropped per ADR-LLNCH-010). With
     # ``validate_assignment=True`` on ``ModelConfig`` (review of PR #101),
     # each per-field assignment below validates that field's constraints;
     # wrap the whole block so the resulting ValidationError returns the
@@ -263,10 +263,10 @@ async def add_model(state: LauncherState, args: dict) -> dict:
 
 
 async def delete_model(args: dict) -> dict:
-    """Delete a model configuration per ADR-008 §4.1.
+    """Delete a model configuration per ADR-LLNCH-008 §4.1.
 
     Thin wrapper over :func:`llauncher.operations.delete_model`. Returns
-    the ADR-010 envelope (``success``, ``action``, ``model``, optional
+    the ADR-LLNCH-010 envelope (``success``, ``action``, ``model``, optional
     ``in_use_port``).
     """
     name = args.get("name")

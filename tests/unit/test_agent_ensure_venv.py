@@ -1,4 +1,4 @@
-"""Guards for ADR-023 Phase A — agent venv recomposition (issue #227).
+"""Guards for ADR-LLNCH-023 Phase A — agent venv recomposition (issue #227).
 
 Two surfaces are exercised here:
 
@@ -179,7 +179,7 @@ def test_setup_listed_in_help(project_dir: Path):
 
 
 def test_ensure_unit_template_shape():
-    """The oneshot ensure template carries the ADR-023 OQ guarantees."""
+    """The oneshot ensure template carries the ADR-LLNCH-023 OQ guarantees."""
     text = ENSURE_TEMPLATE.read_text()
     assert "Type=oneshot" in text
     assert "RemainAfterExit=yes" in text

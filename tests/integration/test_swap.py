@@ -7,7 +7,7 @@ if the required models are not available.
 To run: pytest tests/integration/test_swap.py -v
 To skip: pytest tests/integration/test_swap.py -v -m "not live"
 
-Updated for ADR-008/010: the verb tools are now stateless and take a
+Updated for ADR-LLNCH-008/010: the verb tools are now stateless and take a
 single ``args`` dict. State is consulted only for the read-side
 ``state.refresh_running_servers()`` checks below.
 """
@@ -146,7 +146,7 @@ class TestSwapServerLive:
 
         model_name = list(state.models.keys())[0]
 
-        # Swap on an empty port — per ADR-010 swap requires occupied,
+        # Swap on an empty port — per ADR-LLNCH-010 swap requires occupied,
         # so this should be rejected with action="rejected_empty".
         # Use start_server for the empty-port case in v2.
         result = await swap_server({
@@ -154,7 +154,7 @@ class TestSwapServerLive:
             "model_name": model_name,
         })
 
-        # ADR-010: empty-port swap is a caller-side error.
+        # ADR-LLNCH-010: empty-port swap is a caller-side error.
         assert result["success"] is False
         assert result["action"] == "rejected_empty"
         assert result["port_state"] == "unchanged"

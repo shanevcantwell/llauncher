@@ -99,11 +99,11 @@ class RemoteAggregator:
         return models_by_node
 
     def get_validation(self, node_name: str, vram: bool = True) -> dict | None:
-        """Read-only validation report for a single node's models (#475, ADR-027).
+        """Read-only validation report for a single node's models (#475, ADR-LLNCH-027).
 
         Thin passthrough to :meth:`RemoteNode.get_model_validation` — no
         caching (unlike :meth:`get_all_models`): validation is an explicit,
-        separately-cacheable call by design (ADR-027 §2), not a hot-path
+        separately-cacheable call by design (ADR-LLNCH-027 §2), not a hot-path
         poll, so there is no offline-fallback cache to maintain here.
 
         Args:
@@ -147,7 +147,7 @@ class RemoteAggregator:
         model_name: str,
         port: int,
     ) -> dict | None:
-        """Start ``model_name`` on ``port`` on a specific node (ADR-010).
+        """Start ``model_name`` on ``port`` on a specific node (ADR-LLNCH-010).
 
         Args:
             node_name: Name of the node.

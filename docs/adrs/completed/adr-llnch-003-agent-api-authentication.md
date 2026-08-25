@@ -1,4 +1,4 @@
-# ADR-003: Authentication for Agent API (Port 8765)
+# ADR-LLNCH-003: Authentication for Agent API (Port 8765)
 
 **Status:** Accepted  
 **Date:** 2026-04-26  
@@ -52,7 +52,7 @@ A review document (`docs/reviews/2026-04-25-enhancement-no-auth-agent-api.md`) w
 4. When `api_key` is empty/None in settings, skip auth entirely (backward compatible)
 5. Add `llauncher_add_node` tool support for passing api_key when registering new nodes
 
-### Scope Enum (Future Phase 2 — not in ADR-003 scope)
+### Scope Enum (Future Phase 2 — not in ADR-LLNCH-003 scope)
 | Role | Can Do | Cannot Do |
 |------|--------|-----------|
 | viewer | /status, /health, /models, /logs | start, stop, swap, node management |

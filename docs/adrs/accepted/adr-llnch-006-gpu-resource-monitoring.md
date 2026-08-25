@@ -1,4 +1,4 @@
-# ADR-006: GPU Resource Monitoring and VRAM Tracking
+# ADR-LLNCH-006: GPU Resource Monitoring and VRAM Tracking
 
 **Status:** Accepted — partial implementation  
 **Date:** 2026-04-26  
@@ -119,7 +119,7 @@ Shipped:
   the backend is unavailable (`agent/routing.py:175–193`).
 - VRAM pre-flight check via `operations/preflight.py::estimate_vram_mb()`
   and `default_vram_check()`, wired as an optional seam on
-  `operations.swap()` (ADR-011). Picks the max-free across devices.
+  `operations.swap()` (ADR-LLNCH-011). Picks the max-free across devices.
 
 Deferred from original Decision block:
 
@@ -132,5 +132,5 @@ Deferred from original Decision block:
 
 Endpoint-shape drift from original Decision: the example
 `POST /start-with-eviction/{model}?port={p}` was replaced by the
-port-keyed `POST /swap/{port}` per ADR-010 / ADR-011. The VRAM
+port-keyed `POST /swap/{port}` per ADR-LLNCH-010 / ADR-LLNCH-011. The VRAM
 pre-flight check is wired into the latter.

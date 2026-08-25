@@ -254,7 +254,7 @@ class TestStartOnNode:
 
         aggregator = RemoteAggregator(registry)
 
-        # Mock start_server on node — port is now required (ADR-010).
+        # Mock start_server on node — port is now required (ADR-LLNCH-010).
         captured: dict = {}
 
         def mock_start_server(self, model_name, port):
@@ -474,7 +474,7 @@ class TestGetAllServersEmptyNodes:
 
 
 class TestGetValidation:
-    """Tests for RemoteAggregator.get_validation (issue #475, ADR-027)."""
+    """Tests for RemoteAggregator.get_validation (issue #475, ADR-LLNCH-027)."""
 
     def test_get_validation_unknown_node_returns_none(self):
         registry = NodeRegistry()

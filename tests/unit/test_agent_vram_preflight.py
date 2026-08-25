@@ -1,7 +1,7 @@
 """Unit test for VRAM pre-flight on POST /start-with-eviction.
 
 Split out from the former ``test_agent_models_health_api.py`` (issue #475,
-ADR-027): that file's ``GET /models/health[/{name}]`` endpoint tests were
+ADR-LLNCH-027): that file's ``GET /models/health[/{name}]`` endpoint tests were
 deleted along with the endpoints they covered — superseded by
 ``GET /models/validate[/{name}]`` (see ``test_agent_models_validate_api.py``)
 with no in-repo consumer of the old routes. This VRAM pre-flight test is

@@ -3,14 +3,14 @@
 #
 # Per-operator, unprivileged, session-managed. Renders
 # llauncher-ui.service.user.in into ~/.config/systemd/user/ and runs
-# `systemctl --user enable --now`. See ADR-022 (narrows ADR-018's UI posture):
+# `systemctl --user enable --now`. See ADR-LLNCH-022 (narrows ADR-LLNCH-018's UI posture):
 # the agent is a system service; the UI is a per-operator `systemd --user` unit.
 #
 # Run as your OWN operator account — NOT root. The token-read path works in
 # place via your `inference`-group membership (host provisioning); the
 # /usr/local/bin/llauncher-ui symlink is placed by install-cli.sh (root).
 # Neither is this installer's job. The pinned venv itself
-# (/opt/llauncher/venv, ADR-023, issue #360) is a hard preflight — this
+# (/opt/llauncher/venv, ADR-LLNCH-023, issue #360) is a hard preflight — this
 # installer FAILS LOUD if it is absent (no repo-venv fallback exists). The
 # symlink and group-membership preconditions remain soft warnings.
 #
@@ -66,7 +66,7 @@ done
 
 if [ "$(id -u)" -eq 0 ]; then
     err "Run as your own operator account, NOT root."
-    err "This is a 'systemctl --user' unit owned by your login session (ADR-022)."
+    err "This is a 'systemctl --user' unit owned by your login session (ADR-LLNCH-022)."
     exit 1
 fi
 
@@ -98,7 +98,7 @@ uninstall() {
 PINNED_VENV="/opt/llauncher/venv"
 if [ ! -x "$PINNED_VENV/bin/llauncher-ui" ]; then
     err "$PINNED_VENV/bin/llauncher-ui not found — the pinned runtime venv has"
-    err "not been composed on this host (ADR-023, issue #360). There is no"
+    err "not been composed on this host (ADR-LLNCH-023, issue #360). There is no"
     err "fallback to a repo venv. Compose it (root, one-time or to recompose):"
     err "  sudo bash $SCRIPT_DIR/install-cli.sh"
     err "See docs/operations/run-as-a-service.md, \"Composing the pinned runtime venv\"."
@@ -106,7 +106,7 @@ if [ ! -x "$PINNED_VENV/bin/llauncher-ui" ]; then
 fi
 
 # --- Preflight (warn, do NOT block) ------------------------------------
-# Host-provisioning conditions, out of this installer's scope (ADR-022
+# Host-provisioning conditions, out of this installer's scope (ADR-LLNCH-022
 # §installer-vs-host-provisioning). Warn loudly so the cause of a later
 # 403/token failure is legible, but proceed — the unit can be rendered and
 # enabled now; it will become functional once provisioning is in place.

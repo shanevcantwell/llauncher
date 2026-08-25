@@ -1,14 +1,14 @@
 # Running `llauncher-agent` as a Service
 
-The agent is the daemon piece of llauncher. The UI's service posture is governed by [ADR-022](../adrs/accepted/022-llauncher-ui-user-service.md): it runs as a per-operator `systemd --user` unit, installed via [`scripts/systemd/install-ui.sh`](#ubuntu--linux-ui-systemd-user-unit) (see the UI section below). Two operator/host steps sit outside that installer: the `/usr/local/bin/llauncher-ui` symlink (placed by `install-cli.sh`, as root) and the caller's `inference`-group membership (host provisioning). This doc covers persistent installs on:
+The agent is the daemon piece of llauncher. The UI's service posture is governed by [ADR-LLNCH-022](../adrs/accepted/adr-llnch-022-llauncher-ui-user-service.md): it runs as a per-operator `systemd --user` unit, installed via [`scripts/systemd/install-ui.sh`](#ubuntu--linux-ui-systemd-user-unit) (see the UI section below). Two operator/host steps sit outside that installer: the `/usr/local/bin/llauncher-ui` symlink (placed by `install-cli.sh`, as root) and the caller's `inference`-group membership (host provisioning). This doc covers persistent installs on:
 
 - Linux (systemd, user-mode)
 - Windows (NSSM-wrapped service)
 
 These installers remove the "start it deliberately every morning" step
 for the local agent. (The user-mode posture documented here traces to
-ADR-009's "every node is a deliberately-started peer" framing, which
-**ADR-018 superseded** with a real boot-time system-service mode —
+ADR-LLNCH-009's "every node is a deliberately-started peer" framing, which
+**ADR-LLNCH-018 superseded** with a real boot-time system-service mode —
 `--system`, dedicated `llauncher` account, state under
 `/var/lib/llauncher`. This doc still covers the `--user` install; for the
 token/auth model across both planes see [`../auth.md`](../auth.md).)
@@ -175,7 +175,7 @@ clean state.
 
 The Streamlit UI is a per-operator front-end, not machine infrastructure
 (loopback-only, no built-in auth, matters only while an operator is
-watching). [ADR-022](../adrs/accepted/022-llauncher-ui-user-service.md)
+watching). [ADR-LLNCH-022](../adrs/accepted/adr-llnch-022-llauncher-ui-user-service.md)
 runs it as a `systemd --user` unit owned by your login session — never a
 system unit, never root.
 
@@ -252,7 +252,7 @@ journalctl --user -u llauncher-ui -f      # live logs
 
 **#357 ratified (2026-07-16): the systemd deployment runs from a unique,
 PINNED venv — `/opt/llauncher/venv` — independent of any operator's shell
-state and of any clone's working-tree state.** [ADR-023](../adrs/accepted/023-service-owned-venv-recomposition.md)'s
+state and of any clone's working-tree state.** [ADR-LLNCH-023](../adrs/accepted/adr-llnch-023-service-owned-venv-recomposition.md)'s
 service-owned-venv shape governs this; the repo `.venv` is dev-only and is
 **never** what a systemd `--user` unit's `ExecStart` resolves into (both the
 agent's and the UI's `--user` unit templates resolve through

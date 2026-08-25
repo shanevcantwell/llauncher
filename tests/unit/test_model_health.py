@@ -1,4 +1,4 @@
-"""Unit tests for model health validation (ADR-005).
+"""Unit tests for model health validation (ADR-LLNCH-005).
 
 Tests ``check_model_health()`` and ``ModelHealthResult`` covering:
 - valid file, nonexistent, empty, symlink resolved, broken symlink, unreadable
