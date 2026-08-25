@@ -98,6 +98,28 @@ class RemoteAggregator:
 
         return models_by_node
 
+    def get_validation(self, node_name: str, vram: bool = True) -> dict | None:
+        """Read-only validation report for a single node's models (#475, ADR-027).
+
+        Thin passthrough to :meth:`RemoteNode.get_model_validation` — no
+        caching (unlike :meth:`get_all_models`): validation is an explicit,
+        separately-cacheable call by design (ADR-027 §2), not a hot-path
+        poll, so there is no offline-fallback cache to maintain here.
+
+        Args:
+            node_name: Name of a node in this aggregator's registry.
+            vram: Forwarded to :meth:`RemoteNode.get_model_validation` —
+                ``False`` suppresses the peer's advisory VRAM shell-out.
+
+        Returns:
+            The node's ``ValidationReport`` dict, or ``None`` if the node
+            is unknown or unreachable.
+        """
+        node = self.registry.get_node(node_name)
+        if node is None:
+            return None
+        return node.get_model_validation(vram=vram)
+
     def get_models_by_name(self) -> dict[str, list[tuple[str, dict]]]:
         """Get models grouped by model name across nodes.
 

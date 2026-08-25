@@ -16,10 +16,10 @@
 
 | Category | Files | Tests |
 |----------|-------|-------|
-| Unit | 99 | 1538 |
+| Unit | 101 | 1589 |
 | Integration | 13 | 84 |
-| Other | 21 | 210 |
-| **Total** | **133** | **1832** |
+| Other | 21 | 211 |
+| **Total** | **135** | **1884** |
 
 ## Tests carrying special markers
 
@@ -33,7 +33,7 @@ ad-hoc markers used in the suite without declaration.
 | `@pytest.mark.integration` | 7 |
 | `@pytest.mark.integration_real` | 2 |
 | `@pytest.mark.live` | 5 |
-| `@pytest.mark.real_model_health` | 9 |
+| `@pytest.mark.real_model_health` | 12 |
 
 ## Detailed listing
 
@@ -105,7 +105,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_metrics_field_reachable_via_mcp_config_schema`**
   - *Issue #169: the ``metrics`` toggle must be discoverable via both*
 
-#### `tests/unit/mcp/test_models_tools.py` (12 tests)
+#### `tests/unit/mcp/test_models_tools.py` (14 tests)
 
 - **`test_list_models_empty`**
   - *Empty state returns empty list.*
@@ -129,8 +129,10 @@ ad-hoc markers used in the suite without declaration.
   - *``list_models`` must call ``state.refresh()`` per invocation.*
 - **`test_get_model_config_calls_refresh_each_invocation`**
   - *``get_model_config`` must call ``state.refresh()`` per invocation.*
-- **`test_get_tools_returns_two_tools`**
-  - *get_tools returns list_models and get_model_config.*
+- **`test_get_tools_returns_three_tools`**
+  - *get_tools returns list_models, get_model_config, and validate_models.*
+- **`test_delegates_to_operations_validate_models`**
+- **`test_defaults_names_none_vram_true`**
 
 #### `tests/unit/mcp/test_phase1_lazy_singleton.py` (23 tests)
 
@@ -649,20 +651,20 @@ ad-hoc markers used in the suite without declaration.
 - **`test_guarded_send_suppresses_late_response_after_rejection`**
   - *A send attempted *after* the cap trips is suppressed.*
 
-#### `tests/unit/test_agent_models_health_api.py` (6 tests)
+#### `tests/unit/test_agent_models_validate_api.py` (11 tests)
 
-- **`test_health_list_returns_200`** `@real_model_health`
-  - *The endpoint returns 200 even when no models are configured.*
-- **`test_health_list_with_mocked_models`** `@real_model_health`
-  - *Endpoint returns correct structure for mocked model files.*
-- **`test_health_detail_returns_200`** `@real_model_health`
-  - *Returns 200 when model exists in config.*
-- **`test_health_detail_returns_404_for_missing`** `@real_model_health`
-  - *Returns 404 when the named model is not configured.*
-- **`test_missing_file_shows_exists_false`** `@real_model_health`
-  - *Health endpoint returns exists=False when file is absent.*
-- **`test_vram_error_contains_required_and_available`**
-  - *409 error includes required_mb and available_mb when insufficient.*
+- **`test_returns_200_with_no_models`** `@real_model_health`
+- **`test_report_shape_with_one_model`** `@real_model_health`
+- **`test_detail_returns_200_for_known_model`** `@real_model_health`
+- **`test_detail_returns_404_for_unknown_model`** `@real_model_health`
+- **`test_models_health_list_route_gone`**
+  - *No dedicated GET route remains. FastAPI resolves the path to*
+- **`test_models_health_detail_route_gone`**
+- **`test_get_models_performs_zero_health_checks`**
+- **`test_list_endpoint_forwards_vram_false`** `@real_model_health`
+- **`test_list_endpoint_defaults_to_vram_true`** `@real_model_health`
+- **`test_detail_endpoint_forwards_vram_false`** `@real_model_health`
+- **`test_no_vram_response_carries_no_vram_verdict`** `@real_model_health`
 
 #### `tests/unit/test_agent_nonblocking.py` (2 tests)
 
@@ -747,6 +749,11 @@ ad-hoc markers used in the suite without declaration.
 - **`test_backstop_fails_loud_when_entrypoint_not_executable`**
   - *Entry point present but not executable => 'usable' check fails loud.*
 
+#### `tests/unit/test_agent_vram_preflight.py` (1 tests)
+
+- **`test_vram_error_contains_required_and_available`**
+  - *409 error includes required_mb and available_mb when insufficient.*
+
 #### `tests/unit/test_audit_log.py` (14 tests)
 
 - **`test_record_creates_file`**
@@ -812,7 +819,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_install_cli_sh_calls_the_floor_check_before_venv_creation`**
   - *The floor check must run BEFORE `python3 -m venv`, never after —*
 
-#### `tests/unit/test_cli.py` (73 tests)
+#### `tests/unit/test_cli.py` (81 tests)
 
 - **`test_help_shows_all_command_groups`**
   - *CLI help should display all four subcommand groups.*
@@ -832,6 +839,22 @@ ad-hoc markers used in the suite without declaration.
   - *``model remove --yes`` deletes an existing, not-in-use model end to end.*
 - **`test_model_remove_without_yes_aborts_on_no`**
   - *Omitting ``--yes`` and answering ``n`` aborts without deleting.*
+- **`test_model_validate_all_ok_exit_zero`**
+  - *``model validate`` with no argument exits 0 when every entry passes.*
+- **`test_model_validate_one_missing_exit_two`**
+  - *``model validate`` exits 2 when at least one entry fails a gating check.*
+- **`test_model_validate_unknown_name_exit_one`**
+  - *Validating an unconfigured name exits 1, matching ``model info``.*
+- **`test_model_validate_json_shape`**
+  - *``--json`` emits a ``ValidationReport``-shaped payload.*
+- **`test_model_validate_single_name_delegates`**
+  - *Naming a single model calls ``validate_models(names=[name])``.*
+- **`test_model_validate_no_vram_flag_suppresses_the_shellout`**
+  - *``--no-vram`` reaches the op as ``vram=False`` (no nvidia-smi at all).*
+- **`test_model_validate_status_tokens_are_distinguishable`**
+  - *Every gating failure is NOT ``MISSING`` (ADR-027 status vocabulary).*
+- **`test_model_validate_renders_on_cp1252_stdout`**
+  - *The whole rendered table survives a cp1252 console (#471-class guard).*
 - **`test_server_status_no_servers`**
   - *Server status with no running servers should show informational message.*
 - **`test_server_status_json_empty`**
@@ -1542,7 +1565,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_other_failure_surfaces_error_and_toast`**
 - **`test_remote_details_render_disabled_delete_button`**
 
-#### `tests/unit/test_model_health.py` (10 tests)
+#### `tests/unit/test_model_health.py` (12 tests)
 
 - **`test_existing_valid_file`**
   - *Existing readable file > 1MB returns valid=True.*
@@ -1564,6 +1587,10 @@ ad-hoc markers used in the suite without declaration.
   - *An unexpected exception during resolution is caught (lines 106-109).*
 - **`test_cache_invalidation`**
   - *invalidate_health_cache removes entries as expected.*
+- **`test_check_model_health_resolves_sharded_path`**
+  - *A sharded entry (base .gguf present, first-shard filename absent)*
+- **`test_check_model_health_resolves_sharded_path_matches_model_config`**
+  - *Regression guard: ``ModelConfig.model_exists`` and*
 
 #### `tests/unit/test_models.py` (20 tests)
 
@@ -2487,7 +2514,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_node_empty_api_key_treated_as_none`**
   - *An empty string for api_key should be normalised to None.*
 
-#### `tests/unit/test_remote_node_extended.py` (26 tests)
+#### `tests/unit/test_remote_node_extended.py` (33 tests)
 
 - **`test_gethostname_oserror_returns_literal_set`**
 - **`test_get_node_info_offline`**
@@ -2496,6 +2523,11 @@ ad-hoc markers used in the suite without declaration.
 - **`test_get_status_non_200_returns_none`**
 - **`test_get_models_offline`**
 - **`test_get_models_non_200_returns_none`**
+- **`test_get_model_validation_offline`**
+- **`test_get_model_validation_non_200_returns_none`**
+- **`test_get_model_validation_200_returns_json`**
+- **`test_get_model_validation_self_loop_calls_ops_validate_models`**
+  - *The self-loop path (agent -> local node) delegates in-process.*
 - **`test_swap_server_detail_dict_surfaced`**
 - **`test_swap_server_detail_missing_falls_back`**
 - **`test_swap_server_request_error_marks_offline`**
@@ -2521,8 +2553,11 @@ ad-hoc markers used in the suite without declaration.
 - **`test_builds_local_target_with_resolved_token`**
 - **`test_builds_local_target_with_no_token`**
   - *``allow_generate=False`` resolver returning None → api_key None.*
+- **`test_vram_false_is_sent_as_a_query_param`**
+- **`test_vram_true_is_the_default`**
+- **`test_self_loop_forwards_vram_false`**
 
-#### `tests/unit/test_remote_state_extended.py` (21 tests)
+#### `tests/unit/test_remote_state_extended.py` (25 tests)
 
 - **`test_get_all_servers_offline_with_cache`**
   - *Test that offline node returns cached data with offline indicator.*
@@ -2562,6 +2597,11 @@ ad-hoc markers used in the suite without declaration.
   - *Test aggregator accepts custom registry.*
 - **`test_get_all_servers_empty_nodes`**
   - *Test getting servers when no nodes are configured.*
+- **`test_get_validation_unknown_node_returns_none`**
+- **`test_get_validation_delegates_to_node`**
+- **`test_get_validation_forwards_vram_false`**
+  - *The UI tab's cheap mode has to survive the aggregator hop (#481).*
+- **`test_get_validation_unreachable_node_returns_none`**
 
 #### `tests/unit/test_render_op_result.py` (18 tests)
 
@@ -2929,6 +2969,34 @@ ad-hoc markers used in the suite without declaration.
   - *Venv dir exists but the entry point does not ⇒ fail loud.*
 - **`test_backstop_fails_loud_when_entrypoint_not_executable`**
   - *Entry point present but not executable ⇒ 'usable' check fails loud.*
+
+#### `tests/unit/test_validate.py` (22 tests)
+
+- **`test_report_shape_and_verdicts`**
+- **`test_names_filter_selects_subset`**
+- **`test_unknown_name_silently_skipped`**
+- **`test_bad_gguf_magic_fails_gating`**
+- **`test_no_audit_entry_written`**
+  - *The #463 falsifier pattern: zero new audit lines from a read.*
+- **`test_config_file_mtime_unchanged`**
+- **`test_vram_verdict_present_and_advisory`**
+- **`test_vram_absent_when_vram_false`**
+- **`test_vram_absent_for_running_model`**
+  - *A model with a live lockfile skips the VRAM check entirely.*
+- **`test_stale_lockfile_advisory_failure`**
+- **`test_single_gpu_query_across_all_models`**
+- **`test_no_gpu_query_at_all_when_vram_false`**
+- **`test_vram_adapter_exception_becomes_advisory_failure`**
+- **`test_weights_adapter_exception_becomes_gating_failure`**
+- **`test_deleted_weights_flip_ok_immediately`**
+- **`test_restored_weights_flip_back_immediately`**
+- **`test_resolved_path_is_fully_resolved`**
+- **`test_symlinked_entry_resolves_to_target`**
+  - *``resolved_path`` is documented as post-symlink resolution and must*
+- **`test_bad_magic_reports_bad_magic_not_missing`**
+- **`test_too_small_reports_too_small`**
+- **`test_missing_reports_missing_and_ok_reports_ok`**
+- **`test_advisory_failures_surface_as_their_own_tokens`**
 
 #### `tests/unit/test_windows_agent_env_example_docs.py` (3 tests)
 
@@ -3421,27 +3489,28 @@ ad-hoc markers used in the suite without declaration.
   - *The post-parse re-verify (~line 225-226): a middle segment that*
 - **`test_config_vanished_between_render_and_click_toasts_and_returns`**
 
-#### `tests/ui/test_model_registry_tab.py` (15 tests)
+#### `tests/ui/test_model_registry_tab.py` (16 tests)
 
 - **`test_local_target_with_no_models_shows_info_banner`**
 - **`test_remote_target_with_no_aggregator_data_shows_info_banner`**
 - **`test_remote_target_with_no_aggregator_at_all_shows_info_banner`**
   - *``aggregator=None`` for a remote target is treated as no data.*
 - **`test_ready_model_renders_ready_status`**
-- **`test_missing_model_renders_missing_status`**
-- **`test_corrupted_model_renders_corrupted_status`**
-- **`test_unknown_reason_renders_unknown_status_with_reason`**
-- **`test_check_model_health_exception_is_swallowed_and_renders_missing`**
-  - *A raising ``check_model_health`` must not crash the tab.*
+- **`test_missing_model_renders_missing_status_with_reason`**
+- **`test_advisory_failure_renders_ready_with_reason_not_missing`**
+  - *An advisory-only failure (stale lockfile, low VRAM) keeps the*
+- **`test_validate_models_call_does_not_touch_core_model_health`**
+  - *Regression guard: the tab must not import ``core.model_health``*
 - **`test_remote_target_renders_rows_from_aggregator_not_local_state`**
-- **`test_remote_target_accepts_model_objects_with_to_dict`**
-  - *Aggregator rows may be model-like objects, not only plain dicts.*
 - **`test_size_column_scales_with_byte_count`**
+- **`test_no_size_renders_em_dash`**
 - **`test_datetime_last_modified_renders_formatted_timestamp`**
-- **`test_str_typed_last_modified_does_not_raise_and_renders_as_is`**
-  - *A str-typed ``last_modified`` must not hit ``.strftime`` (#347).*
+- **`test_iso_string_last_modified_renders_formatted_timestamp`**
+  - *A remote report's ``last_modified`` arrives as a JSON ISO string*
 - **`test_none_last_modified_renders_em_dash`**
-- **`test_local_target_calls_state_refresh_before_reading_models`**
+- **`test_local_target_calls_state_refresh_and_validate_models`**
+- **`test_local_render_suppresses_the_vram_check`**
+- **`test_remote_render_suppresses_the_peers_vram_check`**
 
 #### `tests/ui/test_models_tab.py` (13 tests)
 

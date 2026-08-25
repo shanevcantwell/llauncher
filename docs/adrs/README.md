@@ -29,6 +29,7 @@ Folder placement and in-document Status are kept in sync.
 - [ADR-013 — Per-Server Log Lifecycle (Append, Rotate, Bounded Tail)](./completed/013-logs-lifecycle.md)
 - [ADR-014 — Cancellation of In-Flight Start/Swap](./completed/014-cancellation.md)
 - [ADR-016 — Canonical Self-Swap — Worked Example and Integration Test](./completed/016-canonical-self-swap.md)
+- [ADR-027 — Model Validate — a Single Read-Only Validation Path Reused Everywhere](./completed/027-model-validate-read-only-verb.md) — ratified and implemented end-to-end in the same PR (#475)
 
 ### Accepted (with known partial implementation)
 

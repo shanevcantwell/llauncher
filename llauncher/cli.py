@@ -315,6 +315,63 @@ def remove_model(
     _emit(_color(result.message, "stopped"))
 
 
+@model_app.command("validate")
+def validate_models_cmd(
+    name: Optional[str] = typer.Argument(
+        None, help="Name of a single model to validate (default: all configured models)."
+    ),
+    as_json: bool = typer.Option(False, "--json", "-j", help="Output in JSON format"),
+    no_vram: bool = typer.Option(
+        False,
+        "--no-vram",
+        help=(
+            "Skip the advisory VRAM check entirely (no nvidia-smi shell-out). "
+            "Cheap mode for a large registry or a headless host."
+        ),
+    ),
+) -> None:
+    """Read-only validation of configured model weights (issue #475, ADR-027).
+
+    Checks file existence/readability/size and GGUF magic bytes (gating);
+    VRAM headroom and lockfile staleness are reported as advisory. Never
+    starts a process, deletes a config entry, or writes an audit line —
+    the read-only companion to ``model remove``.
+
+    Note: distinct from ``config validate NAME``, which is a schema-only
+    round-trip and does not touch the filesystem.
+
+    Exit codes: ``0`` all-good, ``1`` unknown model name, ``2`` at least
+    one entry failed a gating check.
+    """
+    from llauncher import operations as ops
+    from llauncher.core.config import ConfigStore
+
+    if name is not None and name not in ConfigStore.list_models():
+        console.print(f"[red]Model '{name}' not found.[/red]")
+        raise typer.Exit(code=1)
+
+    report = ops.validate_models(
+        names=[name] if name is not None else None, vram=not no_vram
+    )
+
+    if as_json:
+        _json_output(report.model_dump(mode="json"))
+        raise typer.Exit(code=0 if report.ok else 2)
+
+    headers = ["NAME", "STATUS", "SIZE", "DETAILS"]
+    rows = []
+    for m in report.models:
+        status = m.status
+        size = str(m.size_bytes) if m.size_bytes is not None else "-"
+        gating_fails = [v.reason for v in m.verdicts if not v.ok and not v.advisory]
+        advisories = [v.reason for v in m.verdicts if not v.ok and v.advisory]
+        details = "; ".join(gating_fails) or ("; ".join(advisories) if advisories else "-")
+        rows.append([m.name, status, size, details])
+    _print_table(headers, rows, title="Model Validation")
+
+    raise typer.Exit(code=0 if report.ok else 2)
+
+
 app.add_typer(model_app)
 
 # ---------------------------------------------------------------------------

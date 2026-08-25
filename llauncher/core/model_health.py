@@ -13,6 +13,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from llauncher.models.config import resolve_shard_path
 from llauncher.util.cache import _TTLCache
 
 
@@ -52,12 +53,14 @@ _MIN_SIZE_BYTES = 1024 * 1024  # 1 MiB heuristic
 # Public API
 # ------------------------------------------------------------------
 
-def check_model_health(model_path: str) -> ModelHealthResult:
+def check_model_health(model_path: str, *, force_refresh: bool = False) -> ModelHealthResult:
     """Validate model file existence, readability, and minimum size.
 
     Resolution order:
       1. Look up the cached result (TTL 60 s).  Return immediately on hit.
-      2. Resolve any symlinks via ``Path.resolve()``.
+      2. Resolve the sharded-GGUF fallback pattern (issue #475 precondition;
+         see :func:`llauncher.models.config.resolve_shard_path`), then
+         resolve any symlinks via ``Path.resolve()``.
       3. Check that the resolved path points to an existing file.
       4. Attempt to open for reading.
       5. Verify size exceeds 1 MiB (heuristic for a real model).
@@ -67,18 +70,25 @@ def check_model_health(model_path: str) -> ModelHealthResult:
 
     Args:
         model_path: Path to the model file (may be a symlink).
+        force_refresh: Skip the TTL cache and re-stat the file. Callers whose
+            *whole purpose* is to report the filesystem as it is right now
+            (``operations.validate_models`` — ADR-027) pass ``True``: a cached
+            verdict served alongside freshly-stat'd metadata is how a deleted
+            file reports ``ok=True`` for up to 60 s, which is precisely the
+            false verdict #468's delete loop would act on.
 
     Returns:
         Health check result.
     """
-    cached = _health_cache.get(model_path)
-    if cached is not None:
-        return cached  # type: ignore[return-value]
+    if not force_refresh:
+        cached = _health_cache.get(model_path)
+        if cached is not None:
+            return cached  # type: ignore[return-value]
 
     result = ModelHealthResult()
 
     try:
-        path = Path(model_path).resolve()
+        path = resolve_shard_path(model_path).resolve()
         result.exists = path.is_file()
         if not result.exists:
             result.reason = "not found"
