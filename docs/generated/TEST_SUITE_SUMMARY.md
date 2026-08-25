@@ -16,10 +16,10 @@
 
 | Category | Files | Tests |
 |----------|-------|-------|
-| Unit | 99 | 1526 |
+| Unit | 99 | 1528 |
 | Integration | 13 | 84 |
 | Other | 21 | 210 |
-| **Total** | **133** | **1820** |
+| **Total** | **133** | **1822** |
 
 ## Tests carrying special markers
 
@@ -950,7 +950,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_e2e_config_path_reflects_state_dir_flag`**
   - *``config path`` (the CONFIG_PATH consumer) also honors the flag.*
 
-#### `tests/unit/test_config.py` (16 tests)
+#### `tests/unit/test_config.py` (18 tests)
 
 - **`test_config_store_add_and_get`**
   - *Test adding and retrieving a model from ConfigStore.*
@@ -959,9 +959,13 @@ ad-hoc markers used in the suite without declaration.
 - **`test_config_store_list_models`**
   - *Test listing model names.*
 - **`test_config_store_load_nonexistent`**
-  - *Test loading when no config file exists.*
-- **`test_config_store_load_corrupt_returns_empty`**
-  - *A corrupt (non-JSON) config file recovers to an empty dict (lines 45-47).*
+  - *Absent config is non-fatal: returns {} with a WARNING naming the path.*
+- **`test_config_store_load_corrupt_raises`**
+  - *A corrupt (non-JSON) config file fails loud (issue #403).*
+- **`test_config_store_load_unreadable_raises`**
+  - *An OSError while reading an existing config fails loud (issue #403).*
+- **`test_config_store_load_valid_logs_path`**
+  - *A successful load logs the resolved CONFIG_PATH (issue #403).*
 - **`test_update_missing_model_raises_keyerror`**
   - *Updating a model that was never added raises ``KeyError`` (line 107).*
 - **`test_config_store_update_model`**
