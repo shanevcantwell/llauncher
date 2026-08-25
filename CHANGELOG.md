@@ -9,15 +9,15 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 ### Added
 
 - **`llauncher model validate` — one read-only validation verb reused across
-  every door (#475, ADR-027).** `GET /models/validate` and
-  `GET /models/validate/{name}` **replace** `GET /models/health` and
-  `GET /models/health/{name}` outright (ADR-005 superseded) — no alias, no
-  in-repo consumer of the old routes. Also reachable via the CLI
-  (`llauncher model validate [NAME] [--json]`, ASCII-only `OK`/`MISSING`
-  tokens, exit `0`/`1`/`2`) and MCP (`validate_models`, peer to
-  `list_models`). Gating checks (`gguf_magic`, existing model-health/VRAM
-  checks) plus advisory `vram`/`lockfile` checks; no config write, no
-  lockfile write, no audit entry.
+  every door (#475, #481, ADR-LLNCH-027).** Reachable as `GET
+  /models/validate` and `GET /models/validate/{name}` on the agent (these
+  **replace** the removed `/models/health` routes — see Breaking changes),
+  via the CLI (`llauncher model validate [NAME] [--json]`, ASCII-only
+  `OK`/`MISSING` tokens, exit `0`/`1`/`2`), and via MCP (`validate_models`,
+  peer to `list_models`). Gating checks (`gguf_magic`, existing
+  model-health/VRAM checks) plus advisory `vram`/`lockfile` checks; no
+  config write, no lockfile write, no audit entry. The Model Registry tab's
+  status badge is now a direct function of the same verdicts.
 - **Recommended llama.cpp build recipe, Windows + Linux (#473).**
   `scripts/build-llama-server.sh` and `scripts/windows/build-llama-server.ps1`
   build llama-server with `CMAKE_BUILD_TYPE=Release` and
@@ -35,12 +35,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 - **`LLAUNCHER_UI_PORT` env var with fail-loud validation (#359).**
 - **Model-config delete, wired through the CLI and UI (#276, #278).**
 - **`ctx_size`/`parallel` are now carried in `start`/`swap` tool results (#269).**
-- **Server-metrics surface, ADR-019 (#264).**
+- **Server-metrics surface, ADR-LLNCH-019 (#264).**
 - **Global `--state-dir` CLI override (#215).**
 - **`metrics` config field to enable `llama-server --metrics` (#261).**
 - **Fail-loud UI shared-venv backstop under systemd (#228, #232).**
 - **`ensure-venv` oneshot guarantees the agent's systemd-managed venv (#227, #230).**
-- **UI runs under operator-scoped `systemd --user`, per ADR-022 (#225).**
+- **UI runs under operator-scoped `systemd --user`, per ADR-LLNCH-022 (#225).**
 - **Remote-node provisioning is now discoverable (#134).** The README's
   Multi-Node section gained an *Adding a remote node* walkthrough naming the
   token file on each platform (`~/.llauncher/agent.token` on Linux,
@@ -57,7 +57,7 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 
 - **`verify_pid`/`discover_all`, pid-first process primitives — #466 Phase 1
   (#470).** `core/process.py` gains `verify_pid(pid)`, a single-handle,
-  single-cmdline-read lookup (~11 ms measured) implementing the ADR-008
+  single-cmdline-read lookup (~11 ms measured) implementing the ADR-LLNCH-008
   reconciliation table, alongside the renamed `discover_all()` (formerly
   `find_all_llama_servers_annotated`) world-walk. This lands the primitives
   only — no request path has been rewired to use `verify_pid` yet, so there
@@ -65,6 +65,9 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
   (tracked on #466, see Known issues below).
 - Windows `LLAMA_SERVER_PATH` documented in the installer flow (#380, #457)
   and in `agent.env.example`.
+- ADR handles are namespaced `ADR-LLNCH-NNN` and the 22 ADR files renamed to
+  match, with citations swept repo-wide (#386, #479). Documentation only —
+  no behavior change.
 - UI thin-client invariant (`session_state` is view-state only, never
   authoritative) stated in `docs/ARCHITECTURE.md` and pointed to from
   `CLAUDE.md` for edit-time reach (#410, #411).
@@ -77,12 +80,13 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
   (#216).
 - `CLAUDE.md`'s coverage gate now points at `pytest.ini` instead of
   restating the floor inline (#460).
-- ADR-003's exempt-paths narrowed to match the live middleware (#126, #218).
+- ADR-LLNCH-003's exempt-paths narrowed to match the live middleware
+  (#126, #218).
 - Doctrine pointers repointed to the `operating-doctrine` repo (#277);
   `.claude/architecture.md` consolidated into `docs/ARCHITECTURE.md` (#280).
-- ADR-022 (UI under `systemd --user`, superseding ADR-018's hand-launched
-  posture) and ADR-023 (service-owned venv recomposition) accepted and
-  documented.
+- ADR-LLNCH-022 (UI under `systemd --user`, superseding ADR-LLNCH-018's
+  hand-launched posture) and ADR-LLNCH-023 (service-owned venv
+  recomposition) accepted and documented.
 
 ### Fixed
 
@@ -163,11 +167,23 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
   exposed (#156, #242).
 - VRAM preflight check fails loud when GPU device data is unavailable
   (#150, #240).
+- **The UI surfaces a corrupt or unreadable `config.json` as an error
+  banner naming the file, instead of a raw Streamlit traceback (#476,
+  #486).** Follow-up to #472: both load sites (initial state build and the
+  sidebar's Refresh All) now stop cleanly on the fail-loud raise. CLI and
+  MCP keep their existing fail-loud behavior.
+- **Per-model log banners carry an absolute UTC timestamp and the canonical
+  model name (#405 anchor half, #485).** llama-server's own lines only
+  carry time-since-start offsets; the banner is now
+  `=== started at <utc-iso> port=<n> model=<name> ===`, so a log can be
+  joined to the audit ledger, lockfile mtimes, and wall-clock observations.
+  The `=== started at` run-boundary grep contract (ADR-LLNCH-013) is
+  unchanged.
 - **`llauncher server start`/`stop`/`swap` no longer crash with
   `UnicodeEncodeError` on a cp1252 console (Git-Bash on Windows) after a
-  successful launch (#471).** The status glyph (`✓`/`✗`) degrades to ASCII
-  (`OK`/`X`) when `sys.stdout.encoding` can't encode it; message text and
-  exit codes are unchanged.
+  successful launch (#471, #478).** The status glyph (`✓`/`✗`) degrades to
+  ASCII (`OK`/`X`) when `sys.stdout.encoding` can't encode it; message text
+  and exit codes are unchanged.
 
 ### Breaking changes
 
@@ -222,9 +238,9 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
   running unauthenticated (#282).** Consistent with this repo's
   parse-at-the-door rule — no dual-shape env file is read going forward.
 - **`ModelConfig` no longer mirrors llama-server's argument schema; 16
-  fields removed (#477, ADR-026).** `cache_type_k`, `cache_type_v`,
-  `threads`, `threads_batch`, `ubatch_size`, `batch_size`, `n_cpu_moe`,
-  `flash_attn`, `no_mmap`, `mlock`, `temperature`, `top_k`, `top_p`, `min_p`,
+  fields removed (#477, #483, ADR-LLNCH-026).** `cache_type_k`,
+  `cache_type_v`, `threads`, `threads_batch`, `ubatch_size`, `batch_size`,
+  `n_cpu_moe`, `flash_attn`, `no_mmap`, `mlock`, `temperature`, `top_k`, `top_p`, `min_p`,
   `repeat_penalty`, `reverse_prompt` are gone; `extra_args` (still `str`)
   now carries llama-server flags verbatim with no pydantic content
   validation. `config.json` is migrated in place, once, on first load under
@@ -236,6 +252,14 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
   `--api-key`, `--metrics`, `--slots`/`--no-slots`) moves to
   `core/process.py::build_command` as the sole launch-time enforcement
   point.
+- **`GET /models/health` and `GET /models/health/{name}` are removed,
+  replaced by `GET /models/validate` and `GET /models/validate/{name}`
+  (#475, #481).** No alias and no deprecation window — there was no in-repo
+  consumer, and two endpoints serving overlapping shapes of one artifact is
+  the dual-shape the no-shims rule forbids. ADR-LLNCH-005's endpoint section
+  is superseded. Any out-of-tree caller of `/models/health` must move to
+  `/models/validate`; the response carries per-model verdicts rather than a
+  single health field.
 
 ### Internal/test
 
@@ -276,7 +300,10 @@ going into this alpha.)*
   WSL's `bash` shadowing Git Bash accounts for ~20 of them plus cascades;
   the rest are POSIX-permission-bit asserts on NTFS, `Path.home()` under a
   cleared environment, git path-quoting, and `test_ui_syntax.py`.
-- **Cold `GET /status` still costs ≈2 process-table scans (~12.6 s
-  no-load, measured on the Windows box) — #466 Phase 2 is pending.** Phase
-  1 (#470, above) landed the `verify_pid`/`discover_all` primitives only;
-  no request path has been rewired to the cheap pid-addressed lookup yet.
+- **Cold `GET /status` still costs ≈2 process-table scans (~12.6 s no-load,
+  measured on the Windows box) — #466 Phase 2 is pending.** Phase 1 (#470,
+  above) landed the `verify_pid`/`discover_all` primitives only; no request
+  path has been rewired to the cheap pid-addressed lookup yet. A *warm*
+  `/status` with one managed server resident measured 4.45 s on the same box
+  (vs 0.07 s with no servers), so the per-running-server path is also inside
+  Phase 2's scope.
