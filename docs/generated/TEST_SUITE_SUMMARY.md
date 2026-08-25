@@ -16,10 +16,10 @@
 
 | Category | Files | Tests |
 |----------|-------|-------|
-| Unit | 99 | 1528 |
+| Unit | 99 | 1532 |
 | Integration | 13 | 84 |
 | Other | 21 | 210 |
-| **Total** | **133** | **1822** |
+| **Total** | **133** | **1826** |
 
 ## Tests carrying special markers
 
@@ -812,7 +812,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_install_cli_sh_calls_the_floor_check_before_venv_creation`**
   - *The floor check must run BEFORE `python3 -m venv`, never after —*
 
-#### `tests/unit/test_cli.py` (63 tests)
+#### `tests/unit/test_cli.py` (67 tests)
 
 - **`test_help_shows_all_command_groups`**
   - *CLI help should display all four subcommand groups.*
@@ -930,6 +930,14 @@ ad-hoc markers used in the suite without declaration.
   - *``--result`` narrows the result to entries with that result.*
 - **`test_audit_limit_bounds_tail`**
   - *``--limit`` caps the number of entries returned to the newest N.*
+- **`test_glyph_falls_back_to_ascii_on_cp1252_stdout`**
+  - *``_glyph`` returns ASCII when stdout can't encode the unicode glyph.*
+- **`test_glyph_uses_unicode_on_utf8_stdout`**
+  - *``_glyph`` keeps the unicode glyph when stdout can encode it.*
+- **`test_server_start_success_exits_zero_under_cp1252_stdout`**
+  - *The ``server start`` success path must not raise or exit nonzero when*
+- **`test_server_start_failure_still_reports_ascii_under_cp1252_stdout`**
+  - *The failure path must degrade to ASCII, not crash, under cp1252.*
 
 #### `tests/unit/test_cli_state_dir.py` (8 tests)
 
