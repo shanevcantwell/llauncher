@@ -1,9 +1,11 @@
 """Process management for llama-server instances."""
 
 import hashlib
+import logging
 import re
 import shlex
 import subprocess
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -18,11 +20,13 @@ from llauncher.core.settings import (
 from llauncher.models.config import ModelConfig
 from llauncher.util.cache import _TTLCache
 
+logger = logging.getLogger(__name__)
+
 
 DEFAULT_SERVER_BINARY = LLAMA_SERVER_PATH
 
 # Issue #392: LauncherState.refresh() triggers two full psutil.process_iter
-# scans (find_all_llama_servers + find_all_llama_servers_annotated), and
+# scans (find_all_llama_servers + discover_all), and
 # refresh() itself is called redundantly up to 3-4x per Streamlit rerun
 # (once per tab render). A full process-table scan on Windows is expensive
 # enough (measured ~8.4-8.6s for /status vs 8ms for /node-info) that this
@@ -32,7 +36,7 @@ DEFAULT_SERVER_BINARY = LLAMA_SERVER_PATH
 # invalidate the cache (see llauncher.state's self.running mutation sites).
 #
 # Each scan function gets its OWN cache key — they return different shapes
-# (bare Process list vs (Process, port, bool) tuples) and must never share
+# (bare Process list vs list[ServerProcessInfo]) and must never share
 # a cached result.
 _PROCESS_SCAN_CACHE = _TTLCache(ttl_seconds=3)
 _SCAN_KEY_ALL_SERVERS = "find_all_llama_servers"
@@ -535,42 +539,179 @@ def find_all_llama_servers() -> list[psutil.Process]:
     return servers
 
 
-# Sentinel returned by :func:`find_all_llama_servers_annotated` when a
-# process is iterable but its cmdline cannot be read (AccessDenied) — the
-# pid is still observable but the port cannot be extracted. Callers that
-# care about port-keyed reconciliation should skip pids in this state and
-# log a warning once per pid.
-class _UnreadableCmdline:
-    pass
+@dataclass(frozen=True)
+class ServerProcessInfo:
+    """Attribution of a live process identified as (or believed to be) a
+    llama-server — issue #466.
+
+    Returned by :func:`verify_pid` (pid-addressed lookup, ~11 ms on
+    Windows/measured) and :func:`discover_all` (full process-table walk,
+    the elastic 3.1-12.3s term measured in #309 — orphan discovery's only
+    legitimate use).
+
+    Attributes:
+        pid: OS process id.
+        port: Port extracted from ``--port`` in argv, or ``None`` when
+            absent or cmdline was unreadable.
+        alias: Value of ``--alias`` in argv — the ONE-MINT canonical name
+            (#423) — or ``None`` when absent or cmdline was unreadable.
+        model_path: Value of ``-m``/``--model`` in argv, or ``None``.
+        create_time: ``psutil.Process.create_time()`` — the real process
+            start time, replacing ``state.py``'s ``datetime.now()`` lie —
+            or ``None`` when unavailable.
+        cmdline_unreadable: True when the pid is alive but this uid could
+            not read its argv (``psutil.AccessDenied``, #208). When True,
+            every other field except ``pid`` is ``None`` — the process is
+            "unknown-alive," never dropped as absent.
+    """
+
+    pid: int
+    port: int | None
+    alias: str | None
+    model_path: str | None
+    create_time: float | None
+    cmdline_unreadable: bool = False
 
 
-def find_all_llama_servers_annotated() -> list[tuple[psutil.Process, int | None, bool]]:
-    """Find all running llama-server processes with port annotation.
+def _is_llama_server(name: str, cmdline: list[str]) -> bool:
+    """Shared identity predicate for :func:`verify_pid` and :func:`discover_all`.
 
-    Companion to :func:`find_all_llama_servers` for ADR-015 orphan
-    discovery. Returns each process paired with the port extracted from
-    its argv (when readable), and a ``cmdline_unreadable`` flag that
-    distinguishes "process exists but we couldn't read its cmdline" from
-    "process exists and has no port in its cmdline."
+    A process counts as a llama-server when its ``name()`` contains
+    "llama-server" OR any argv element does (covers a direct binary
+    invocation as well as a shell/wrapper invocation). Single definition
+    per #466 §3 — both scan primitives must agree on what a llama-server
+    is.
+    """
+    return "llama-server" in (name or "") or any("llama-server" in c for c in cmdline)
 
-    Mirrors the port-extraction idiom in
-    :meth:`llauncher.state.LauncherState.refresh_running_servers` so the
-    two scans agree on what counts as a port.
 
-    Cached for ``_PROCESS_SCAN_CACHE``'s TTL (issue #392) under its own key,
-    independent of :func:`find_all_llama_servers`'s cache entry — see
-    :func:`invalidate_process_scan_cache`.
+def _extract_port_from_cmdline(cmdline: list[str]) -> int | None:
+    """Return the ``--port`` value from argv, or ``None`` if absent/non-numeric."""
+    for i, arg in enumerate(cmdline):
+        if arg == "--port" and i + 1 < len(cmdline):
+            try:
+                return int(cmdline[i + 1])
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _extract_flag_value(cmdline: list[str], flag: str) -> str | None:
+    """Return the value following ``flag`` in argv, or ``None`` if absent."""
+    for i, arg in enumerate(cmdline):
+        if arg == flag and i + 1 < len(cmdline):
+            return cmdline[i + 1]
+    return None
+
+
+def verify_pid(pid: int, *, expect_port: int | None = None) -> ServerProcessInfo | None:
+    """Verify a lockfile-claimed pid against the live process table (#466).
+
+    The pid-addressed replacement for ADR-008's reconciliation table
+    (``lockfile x pid-alive x argv-match``) and the natural body of
+    :func:`llauncher.core.lockfile.reconcile_lockfile`'s ``sentinel_check``
+    hook — one handle, one cmdline read (~11 ms measured on Windows),
+    never a process-table walk.
+
+    Args:
+        pid: The pid a lockfile claims is running a managed server.
+        expect_port: When given, the claim's port. A live llama-server
+            whose argv ``--port`` disagrees is treated as a corrupted
+            claim, not a match (ADR-008: "present, argv mismatch ->
+            refuse to act on this port").
 
     Returns:
-        List of ``(proc, port, cmdline_unreadable)`` tuples. ``port`` is
-        ``None`` when no ``--port`` argument was found OR when cmdline
-        was unreadable; the third element disambiguates these.
+        ``None`` when the pid is dead (``NoSuchProcess``/zombie), or is
+        alive but not a llama-server (the PID-reuse defense), or is a
+        live llama-server whose argv port disagrees with ``expect_port``.
+        A :class:`ServerProcessInfo` with ``cmdline_unreadable=True`` when
+        the pid is alive but this uid cannot read it (#208 unknown-alive
+        — must never be dropped from the roster the way ``None`` is).
+        A fully-populated :class:`ServerProcessInfo` for the good case.
+    """
+    try:
+        proc = psutil.Process(pid)
+        if not proc.is_running() or proc.status() == psutil.STATUS_ZOMBIE:
+            return None
+    except psutil.NoSuchProcess:
+        # psutil.ZombieProcess subclasses NoSuchProcess, so this also
+        # covers a zombie encountered mid-call rather than via status().
+        return None
+    except psutil.AccessDenied:
+        # Present but this uid cannot even read status — unknown-alive,
+        # same posture as lockfile.is_pid_alive (#208).
+        return ServerProcessInfo(
+            pid=pid, port=None, alias=None, model_path=None,
+            create_time=None, cmdline_unreadable=True,
+        )
+
+    try:
+        cmdline = proc.cmdline()
+        name = proc.name()
+    except psutil.AccessDenied:
+        return ServerProcessInfo(
+            pid=pid, port=None, alias=None, model_path=None,
+            create_time=None, cmdline_unreadable=True,
+        )
+    except psutil.NoSuchProcess:
+        return None
+
+    if not _is_llama_server(name, cmdline):
+        # Alive, readable, but not a llama-server — the pid was reused
+        # for something else. Refuse to claim it.
+        return None
+
+    port = _extract_port_from_cmdline(cmdline)
+    if expect_port is not None and port != expect_port:
+        logger.warning(
+            "verify_pid: pid %s argv port %s does not match expected port "
+            "%s — refusing to treat this as the claimed server (ADR-008)",
+            pid, port, expect_port,
+        )
+        return None
+
+    try:
+        create_time = proc.create_time()
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+        create_time = None
+
+    return ServerProcessInfo(
+        pid=pid,
+        port=port,
+        alias=_extract_flag_value(cmdline, "--alias"),
+        model_path=(
+            _extract_flag_value(cmdline, "-m")
+            or _extract_flag_value(cmdline, "--model")
+        ),
+        create_time=create_time,
+        cmdline_unreadable=False,
+    )
+
+
+def discover_all() -> list[ServerProcessInfo]:
+    """Find all running llama-server processes via a full process-table walk.
+
+    The world-walk (#466): the elastic 3.1-12.3s term measured in #309,
+    kept for its one legitimate purpose — orphan discovery, the sole
+    question with no pid to start from. Everything that already has a
+    pid to check (a lockfile claim) should call :func:`verify_pid`
+    instead.
+
+    Cached for ``_PROCESS_SCAN_CACHE``'s TTL (issue #392) under its own
+    key, independent of :func:`find_all_llama_servers`'s cache entry —
+    see :func:`invalidate_process_scan_cache`.
+
+    Returns:
+        List of :class:`ServerProcessInfo`. ``port``/``alias``/
+        ``model_path``/``create_time`` are ``None`` when cmdline was
+        unreadable (``cmdline_unreadable=True``) or the corresponding
+        argv flag was absent.
     """
     cached = _PROCESS_SCAN_CACHE.get(_SCAN_KEY_ALL_SERVERS_ANNOTATED)
     if cached is not None:
         return cached
 
-    annotated: list[tuple[psutil.Process, int | None, bool]] = []
+    discovered: list[ServerProcessInfo] = []
 
     for proc in psutil.process_iter(["pid", "cmdline", "name"]):
         try:
@@ -581,34 +722,46 @@ def find_all_llama_servers_annotated() -> list[tuple[psutil.Process, int | None,
                 # below to even be relevant) but cannot read argv. Surface
                 # the pid with the unreadable flag so callers can dedupe
                 # warnings rather than re-checking each scan tick.
-                if "llama-server" in (proc.name() or ""):
-                    annotated.append((proc, None, True))
+                if _is_llama_server(proc.name() or "", []):
+                    discovered.append(
+                        ServerProcessInfo(
+                            pid=proc.pid, port=None, alias=None,
+                            model_path=None, create_time=None,
+                            cmdline_unreadable=True,
+                        )
+                    )
                 continue
 
             if not cmdline:
                 continue
 
-            if "llama-server" not in proc.name() and not any(
-                "llama-server" in c for c in cmdline
-            ):
+            if not _is_llama_server(proc.name(), cmdline):
                 continue
 
-            port: int | None = None
-            for i, arg in enumerate(cmdline):
-                if arg == "--port" and i + 1 < len(cmdline):
-                    try:
-                        port = int(cmdline[i + 1])
-                    except (TypeError, ValueError):
-                        port = None
-                    break
+            try:
+                create_time = proc.create_time()
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                create_time = None
 
-            annotated.append((proc, port, False))
+            discovered.append(
+                ServerProcessInfo(
+                    pid=proc.pid,
+                    port=_extract_port_from_cmdline(cmdline),
+                    alias=_extract_flag_value(cmdline, "--alias"),
+                    model_path=(
+                        _extract_flag_value(cmdline, "-m")
+                        or _extract_flag_value(cmdline, "--model")
+                    ),
+                    create_time=create_time,
+                    cmdline_unreadable=False,
+                )
+            )
 
         except (psutil.NoSuchProcess, psutil.ZombieProcess):
             continue
 
-    _PROCESS_SCAN_CACHE.set(_SCAN_KEY_ALL_SERVERS_ANNOTATED, annotated)
-    return annotated
+    _PROCESS_SCAN_CACHE.set(_SCAN_KEY_ALL_SERVERS_ANNOTATED, discovered)
+    return discovered
 
 
 def stream_logs(pid: int | None = None, model_name: str | None = None, lines: int = 100) -> list[str]:

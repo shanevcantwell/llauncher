@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from llauncher.core import lockfile as lf
+from llauncher.core.process import ServerProcessInfo
 from llauncher.operations import orphan as orphan_ops
 from llauncher.operations.orphan import OrphanInfo
 
@@ -20,8 +21,22 @@ def _fake_proc(pid: int) -> MagicMock:
     return m
 
 
+def _fake_info(
+    pid: int, port: int | None, *, cmdline_unreadable: bool = False
+) -> ServerProcessInfo:
+    """Build a minimal ServerProcessInfo stand-in for the discover_all scan."""
+    return ServerProcessInfo(
+        pid=pid,
+        port=port,
+        alias=None,
+        model_path=None,
+        create_time=None,
+        cmdline_unreadable=cmdline_unreadable,
+    )
+
+
 # ---------------------------------------------------------------------------
-# find_all_llama_servers_annotated — port extraction and unreadable cmdline
+# discover_all — port extraction and unreadable cmdline
 # ---------------------------------------------------------------------------
 
 
@@ -34,13 +49,13 @@ class TestAnnotatedScan:
         proc_a.cmdline.return_value = ["llama-server", "--port", "8081", "-m", "/a.gguf"]
 
         with patch.object(proc.psutil, "process_iter", return_value=[proc_a]):
-            result = proc.find_all_llama_servers_annotated()
+            result = proc.discover_all()
 
         assert len(result) == 1
-        p, port, unreadable = result[0]
-        assert p.pid == 1001
-        assert port == 8081
-        assert unreadable is False
+        info = result[0]
+        assert info.pid == 1001
+        assert info.port == 8081
+        assert info.cmdline_unreadable is False
 
     def test_port_none_when_no_port_arg(self):
         from llauncher.core import process as proc
@@ -50,9 +65,12 @@ class TestAnnotatedScan:
         p.cmdline.return_value = ["llama-server", "-m", "/a.gguf"]
 
         with patch.object(proc.psutil, "process_iter", return_value=[p]):
-            result = proc.find_all_llama_servers_annotated()
+            result = proc.discover_all()
 
-        assert result == [(p, None, False)]
+        assert len(result) == 1
+        assert result[0].pid == 1002
+        assert result[0].port is None
+        assert result[0].cmdline_unreadable is False
 
     def test_access_denied_yields_unreadable(self):
         from llauncher.core import process as proc
@@ -62,12 +80,12 @@ class TestAnnotatedScan:
         p.cmdline.side_effect = proc.psutil.AccessDenied()
 
         with patch.object(proc.psutil, "process_iter", return_value=[p]):
-            result = proc.find_all_llama_servers_annotated()
+            result = proc.discover_all()
 
         assert len(result) == 1
-        proc_obj, port, unreadable = result[0]
-        assert port is None
-        assert unreadable is True
+        info = result[0]
+        assert info.port is None
+        assert info.cmdline_unreadable is True
 
     def test_non_llama_process_skipped(self):
         from llauncher.core import process as proc
@@ -77,7 +95,7 @@ class TestAnnotatedScan:
         p.cmdline.return_value = ["nginx", "-c", "/etc/nginx.conf"]
 
         with patch.object(proc.psutil, "process_iter", return_value=[p]):
-            result = proc.find_all_llama_servers_annotated()
+            result = proc.discover_all()
 
         assert result == []
 
@@ -90,7 +108,7 @@ class TestAnnotatedScan:
         with patch.object(proc.psutil, "process_iter", return_value=[p]):
             # NoSuchProcess can fire from name() too; the outer try
             # catches it without raising.
-            result = proc.find_all_llama_servers_annotated()
+            result = proc.discover_all()
 
         assert result == []
 
@@ -103,7 +121,7 @@ class TestAnnotatedScan:
 class TestListOrphans:
     def test_no_processes_returns_empty(self, tmp_path):
         with patch(
-            "llauncher.operations.orphan.proc.find_all_llama_servers_annotated",
+            "llauncher.operations.orphan.proc.discover_all",
             return_value=[],
         ):
             assert orphan_ops.list_orphans() == []
@@ -121,10 +139,9 @@ class TestListOrphans:
             "llauncher.core.settings.LAUNCHER_RUN_DIR", run_dir
         )
 
-        fake = _fake_proc(2001)
         with patch(
-            "llauncher.operations.orphan.proc.find_all_llama_servers_annotated",
-            return_value=[(fake, 8081, False)],
+            "llauncher.operations.orphan.proc.discover_all",
+            return_value=[_fake_info(2001, 8081)],
         ), patch(
             "llauncher.operations.orphan.lf.is_pid_alive", return_value=True
         ):
@@ -139,10 +156,9 @@ class TestListOrphans:
             "llauncher.core.lockfile.LAUNCHER_RUN_DIR", run_dir
         )
 
-        fake = _fake_proc(2002)
         with patch(
-            "llauncher.operations.orphan.proc.find_all_llama_servers_annotated",
-            return_value=[(fake, 8082, False)],
+            "llauncher.operations.orphan.proc.discover_all",
+            return_value=[_fake_info(2002, 8082)],
         ):
             result = orphan_ops.list_orphans()
 
@@ -157,10 +173,9 @@ class TestListOrphans:
             "llauncher.core.lockfile.LAUNCHER_RUN_DIR", run_dir
         )
 
-        fake = _fake_proc(2003)
         with patch(
-            "llauncher.operations.orphan.proc.find_all_llama_servers_annotated",
-            return_value=[(fake, 8083, False)],
+            "llauncher.operations.orphan.proc.discover_all",
+            return_value=[_fake_info(2003, 8083)],
         ), patch(
             "llauncher.operations.orphan.lf.is_pid_alive", return_value=False
         ):
@@ -177,10 +192,9 @@ class TestListOrphans:
             "llauncher.core.lockfile.LAUNCHER_RUN_DIR", run_dir
         )
 
-        fake = _fake_proc(2004)
         with patch(
-            "llauncher.operations.orphan.proc.find_all_llama_servers_annotated",
-            return_value=[(fake, 8084, False)],
+            "llauncher.operations.orphan.proc.discover_all",
+            return_value=[_fake_info(2004, 8084)],
         ), patch(
             "llauncher.operations.orphan.lf.is_pid_alive", return_value=True
         ):
@@ -195,10 +209,9 @@ class TestListOrphans:
             "llauncher.core.lockfile.LAUNCHER_RUN_DIR", run_dir
         )
 
-        fake = _fake_proc(2005)
         with patch(
-            "llauncher.operations.orphan.proc.find_all_llama_servers_annotated",
-            return_value=[(fake, None, True)],
+            "llauncher.operations.orphan.proc.discover_all",
+            return_value=[_fake_info(2005, None, cmdline_unreadable=True)],
         ):
             result = orphan_ops.list_orphans()
 
@@ -213,14 +226,14 @@ class TestListOrphans:
             "llauncher.core.lockfile.LAUNCHER_RUN_DIR", run_dir
         )
 
-        procs = [
-            (_fake_proc(3003), 8085, False),
-            (_fake_proc(3001), 8086, False),
-            (_fake_proc(3002), 8087, False),
+        infos = [
+            _fake_info(3003, 8085),
+            _fake_info(3001, 8086),
+            _fake_info(3002, 8087),
         ]
         with patch(
-            "llauncher.operations.orphan.proc.find_all_llama_servers_annotated",
-            return_value=procs,
+            "llauncher.operations.orphan.proc.discover_all",
+            return_value=infos,
         ):
             result = orphan_ops.list_orphans()
 

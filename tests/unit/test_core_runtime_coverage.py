@@ -44,7 +44,7 @@ import pytest
 
 from llauncher.core.process import (
     _newest_log,
-    find_all_llama_servers_annotated,
+    discover_all,
     find_server_by_port,
     start_server,
     wait_for_server_ready,
@@ -112,16 +112,18 @@ class TestFindServerByPortRace:
 
 
 class TestAnnotatedNonNumericPort:
-    """``find_all_llama_servers_annotated`` non-numeric ``--port`` → None
-    (528-529)."""
+    """``discover_all`` non-numeric ``--port`` → None (528-529)."""
 
     def test_non_numeric_port_yields_none_port(self):
         proc = MagicMock()
         proc.name.return_value = "llama-server"
         proc.cmdline.return_value = ["llama-server", "--port", "not-a-number"]
         with patch("psutil.process_iter", return_value=[proc]):
-            result = find_all_llama_servers_annotated()
-        assert result == [(proc, None, False)]
+            result = discover_all()
+        assert len(result) == 1
+        assert result[0].pid == proc.pid
+        assert result[0].port is None
+        assert result[0].cmdline_unreadable is False
 
 
 class TestWaitForServerReadyCancel:

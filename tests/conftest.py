@@ -552,3 +552,84 @@ def launcher_state(mock_config_store):
     # Mock process management to avoid real side effects
     with patch('llauncher.core.process.find_all_llama_servers', return_value=[]):
         yield LauncherState()
+
+
+@pytest.fixture
+def fake_managed_pid(monkeypatch):
+    """Register a lockfile whose pid resolves to a stubbed ``ServerProcessInfo``.
+
+    Issue #466 Phase 1 risk (§7, "the #463 isolation-fixture interaction"):
+    once a caller wires ``verify_pid`` onto a lockfile-claimed pid (Phase 2),
+    a fixture that writes a lockfile for a pid nothing verifies would break
+    confusingly under #463's tmpdir state-dir isolation — a fabricated pid
+    fails liveness (``None``), and ``os.getpid()`` passes liveness but fails
+    the llama-server identity check (also ``None``). Either way the failure
+    reads as "server silently absent" rather than "test fixture incomplete."
+
+    This fixture writes the lockfile AND registers the matching
+    ``verify_pid`` stub in one call, landing in Phase 1 (per the ratified
+    plan) so Phase 2 has it before it needs it. ``llauncher.core.process``
+    is patched at the module-attribute level — the same seam
+    ``test_agent.py``'s ``TestStatusScanDedup309`` docstring names as the
+    one a future caller must reference by module attribute, not a bound
+    by-name import, for a single patch point to reach it.
+
+    Returns a callable
+    ``register(port, model, pid, *, run_dir=None, alias=None,
+    model_path=None, create_time=None, cmdline_unreadable=False) -> Lockfile``.
+    Pids never passed to ``register`` fall through to the real ``verify_pid``.
+
+    ``cmdline_unreadable=True`` expresses Phase 2's #208 case — a
+    cross-uid pid that is present but whose argv this uid cannot read, so
+    it must stay in the roster as unknown-alive rather than being dropped.
+    On an ``expect_port`` mismatch the stub returns ``None`` *and* emits
+    the same WARNING the real ``verify_pid`` does (ADR-008).
+    """
+    from llauncher.core import lockfile as lf
+    from llauncher.core import process as proc_mod
+
+    stubs: dict[int, proc_mod.ServerProcessInfo] = {}
+    real_verify_pid = proc_mod.verify_pid
+
+    def _fake_verify_pid(pid: int, *, expect_port: int | None = None):
+        if pid in stubs:
+            info = stubs[pid]
+            if expect_port is not None and info.port != expect_port:
+                # Mirror the real verify_pid's ADR-008 refusal log so a
+                # test asserting on the warning behaves the same against
+                # the stub as against the real process table.
+                proc_mod.logger.warning(
+                    "verify_pid: pid %s argv port %s does not match expected "
+                    "port %s — refusing to treat this as the claimed server "
+                    "(ADR-008)",
+                    pid, info.port, expect_port,
+                )
+                return None
+            return info
+        return real_verify_pid(pid, expect_port=expect_port)
+
+    monkeypatch.setattr(proc_mod, "verify_pid", _fake_verify_pid)
+
+    def _register(
+        port: int,
+        model: str,
+        pid: int,
+        *,
+        run_dir: Path | None = None,
+        alias: str | None = None,
+        model_path: str | None = None,
+        create_time: float | None = None,
+        cmdline_unreadable: bool = False,
+    ) -> lf.Lockfile:
+        lock = lf.write_lockfile(port, model, pid, run_dir=run_dir)
+        stubs[pid] = proc_mod.ServerProcessInfo(
+            pid=pid,
+            port=port,
+            alias=alias if alias is not None else model,
+            model_path=model_path,
+            create_time=create_time,
+            cmdline_unreadable=cmdline_unreadable,
+        )
+        return lock
+
+    return _register

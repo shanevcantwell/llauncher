@@ -1,5 +1,7 @@
 """Tests for llauncher core process management."""
 
+import logging
+
 import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock, mock_open
@@ -14,7 +16,9 @@ from llauncher.core.process import (
     stop_server_by_pid,
     find_server_by_port,
     find_all_llama_servers,
-    find_all_llama_servers_annotated,
+    discover_all,
+    verify_pid,
+    ServerProcessInfo,
     invalidate_process_scan_cache,
     stream_logs,
     _tail_file,
@@ -634,11 +638,17 @@ class TestProcessScanCache:
 
         with patch("psutil.process_iter", return_value=[mock_proc]) as mock_iter:
             plain = find_all_llama_servers()
-            annotated = find_all_llama_servers_annotated()
+            discovered = discover_all()
 
-            # Distinct shapes: bare Process list vs (proc, port, bool) tuples.
+            # Distinct shapes: bare Process list vs list[ServerProcessInfo].
             assert plain == [mock_proc]
-            assert annotated == [(mock_proc, 8080, False)]
+            assert discovered == [
+                ServerProcessInfo(
+                    pid=mock_proc.pid, port=8080, alias=None,
+                    model_path=None, create_time=mock_proc.create_time(),
+                    cmdline_unreadable=False,
+                )
+            ]
             # Each populated its own cache slot rather than reusing the
             # other's — two independent scans, not one shared hit.
             assert mock_iter.call_count == 2
@@ -1400,3 +1410,230 @@ class TestBuildCommandManagedFlagDriftGuard:
             f"or DENIED_EXTRA_ARG_FLAGS: {sorted(unregistered)}. Register them "
             "so the issue #156 collision guard covers them."
         )
+
+
+class TestVerifyPid:
+    """Issue #466 Phase 1: ``verify_pid`` — pid-addressed lookup.
+
+    One row per outcome in the ratified plan's §3 contract table. Each
+    test patches ``psutil.Process`` (module-attribute style, mirroring
+    ``test_lockfile.py``'s ``is_pid_alive`` tests) rather than the real
+    process table, so these run deterministically on any host.
+    """
+
+    def test_dead_pid_returns_none(self, monkeypatch):
+        from llauncher.core import process as proc
+
+        def _raise_no_such_process(_pid):
+            raise psutil.NoSuchProcess(_pid)
+
+        monkeypatch.setattr(proc.psutil, "Process", _raise_no_such_process)
+        assert proc.verify_pid(4242) is None
+
+    def test_zombie_status_returns_none(self, monkeypatch):
+        from llauncher.core import process as proc
+
+        p = MagicMock()
+        p.is_running.return_value = True
+        p.status.return_value = psutil.STATUS_ZOMBIE
+
+        monkeypatch.setattr(proc.psutil, "Process", lambda pid: p)
+        assert proc.verify_pid(4242) is None
+
+    def test_zombie_process_exception_at_construction_returns_none(self, monkeypatch):
+        """``psutil.ZombieProcess`` subclasses ``NoSuchProcess`` — same branch."""
+        from llauncher.core import process as proc
+
+        def _raise_zombie(_pid):
+            raise psutil.ZombieProcess(_pid)
+
+        monkeypatch.setattr(proc.psutil, "Process", _raise_zombie)
+        assert proc.verify_pid(4242) is None
+
+    def test_no_such_process_race_on_cmdline_returns_none(self, monkeypatch):
+        """A process that vanishes between liveness check and cmdline read."""
+        from llauncher.core import process as proc
+
+        p = MagicMock()
+        p.is_running.return_value = True
+        p.status.return_value = psutil.STATUS_RUNNING
+        p.cmdline.side_effect = psutil.NoSuchProcess(4242)
+
+        monkeypatch.setattr(proc.psutil, "Process", lambda pid: p)
+        assert proc.verify_pid(4242) is None
+
+    def test_access_denied_on_construction_yields_unreadable_info(self, monkeypatch):
+        """#208: present-but-inaccessible must not be dropped as ``None``."""
+        from llauncher.core import process as proc
+
+        def _raise_access_denied(_pid):
+            raise psutil.AccessDenied(pid=_pid)
+
+        monkeypatch.setattr(proc.psutil, "Process", _raise_access_denied)
+        info = proc.verify_pid(4242)
+
+        assert info is not None
+        assert info.pid == 4242
+        assert info.port is None
+        assert info.alias is None
+        assert info.model_path is None
+        assert info.cmdline_unreadable is True
+
+    def test_access_denied_on_cmdline_yields_unreadable_info(self, monkeypatch):
+        """#208: liveness readable, argv is not — still unknown-alive."""
+        from llauncher.core import process as proc
+
+        p = MagicMock()
+        p.is_running.return_value = True
+        p.status.return_value = psutil.STATUS_RUNNING
+        p.cmdline.side_effect = psutil.AccessDenied(pid=4242)
+
+        monkeypatch.setattr(proc.psutil, "Process", lambda pid: p)
+        info = proc.verify_pid(4242)
+
+        assert info is not None
+        assert info.cmdline_unreadable is True
+        assert info.port is None
+
+    def test_live_non_llama_process_returns_none(self, monkeypatch):
+        """PID-reuse defense: alive + readable but not a llama-server."""
+        from llauncher.core import process as proc
+
+        p = MagicMock()
+        p.is_running.return_value = True
+        p.status.return_value = psutil.STATUS_RUNNING
+        p.cmdline.return_value = ["nginx", "-c", "/etc/nginx.conf"]
+        p.name.return_value = "nginx"
+
+        monkeypatch.setattr(proc.psutil, "Process", lambda pid: p)
+        assert proc.verify_pid(4242) is None
+
+    def test_expect_port_mismatch_returns_none_and_warns(self, monkeypatch, caplog):
+        """ADR-008: argv port disagrees with the lockfile's claim → refuse."""
+        from llauncher.core import process as proc
+
+        p = MagicMock()
+        p.is_running.return_value = True
+        p.status.return_value = psutil.STATUS_RUNNING
+        p.cmdline.return_value = ["llama-server", "--port", "8081", "-m", "/a.gguf"]
+        p.name.return_value = "llama-server"
+
+        monkeypatch.setattr(proc.psutil, "Process", lambda pid: p)
+
+        with caplog.at_level(logging.WARNING, logger="llauncher.core.process"):
+            info = proc.verify_pid(4242, expect_port=9999)
+
+        assert info is None
+        assert any("4242" in r.getMessage() for r in caplog.records)
+
+    def test_live_llama_server_returns_full_info(self, monkeypatch):
+        """The good case: alias/port/model_path/create_time populated."""
+        from llauncher.core import process as proc
+
+        p = MagicMock()
+        p.is_running.return_value = True
+        p.status.return_value = psutil.STATUS_RUNNING
+        p.cmdline.return_value = [
+            "llama-server", "--port", "8081", "--alias", "my-model",
+            "-m", "/models/a.gguf",
+        ]
+        p.name.return_value = "llama-server"
+        p.create_time.return_value = 1234567890.5
+
+        monkeypatch.setattr(proc.psutil, "Process", lambda pid: p)
+        info = proc.verify_pid(4242, expect_port=8081)
+
+        assert info == proc.ServerProcessInfo(
+            pid=4242,
+            port=8081,
+            alias="my-model",
+            model_path="/models/a.gguf",
+            create_time=1234567890.5,
+            cmdline_unreadable=False,
+        )
+
+    def test_live_llama_server_no_expect_port_still_verifies(self, monkeypatch):
+        """``expect_port=None`` (the discovery-less case) skips the port gate."""
+        from llauncher.core import process as proc
+
+        p = MagicMock()
+        p.is_running.return_value = True
+        p.status.return_value = psutil.STATUS_RUNNING
+        p.cmdline.return_value = ["llama-server", "--port", "8082"]
+        p.name.return_value = "llama-server"
+        p.create_time.return_value = 999.0
+
+        monkeypatch.setattr(proc.psutil, "Process", lambda pid: p)
+        info = proc.verify_pid(4242)
+
+        assert info.port == 8082
+        assert info.alias is None
+        assert info.model_path is None
+
+    def test_create_time_access_denied_falls_back_to_none(self, monkeypatch):
+        """A late ``AccessDenied`` on ``create_time()`` degrades gracefully."""
+        from llauncher.core import process as proc
+
+        p = MagicMock()
+        p.is_running.return_value = True
+        p.status.return_value = psutil.STATUS_RUNNING
+        p.cmdline.return_value = ["llama-server", "--port", "8081"]
+        p.name.return_value = "llama-server"
+        p.create_time.side_effect = psutil.AccessDenied(pid=4242)
+
+        monkeypatch.setattr(proc.psutil, "Process", lambda pid: p)
+        info = proc.verify_pid(4242)
+
+        assert info is not None
+        assert info.create_time is None
+
+
+class TestDiscoverAllCreateTimeGuard:
+    """Issue #466 Phase 1: ``discover_all``'s late ``create_time()`` guard.
+
+    Mirrors ``TestVerifyPid::test_create_time_access_denied_falls_back_to_none``
+    for the process-table walk: a process that exits (or becomes unreadable)
+    between the argv read and the ``create_time()`` read must still be
+    reported with ``create_time=None`` rather than silently dropped from
+    the orphan roster.
+    """
+
+    def test_create_time_access_denied_still_yields_info(self):
+        """``AccessDenied`` mid-walk degrades to ``create_time=None``."""
+        p = MagicMock()
+        p.pid = 4242
+        p.name.return_value = "llama-server"
+        p.cmdline.return_value = [
+            "llama-server", "--port", "8081", "--alias", "my-model",
+            "-m", "/models/a.gguf",
+        ]
+        p.create_time.side_effect = psutil.AccessDenied(pid=4242)
+
+        with patch("psutil.process_iter", return_value=[p]):
+            discovered = discover_all()
+
+        assert discovered == [
+            ServerProcessInfo(
+                pid=4242,
+                port=8081,
+                alias="my-model",
+                model_path="/models/a.gguf",
+                create_time=None,
+                cmdline_unreadable=False,
+            )
+        ]
+
+    def test_create_time_zombie_still_yields_info(self):
+        """A mid-walk ``ZombieProcess`` is the same degrade, not a drop."""
+        p = MagicMock()
+        p.pid = 99
+        p.name.return_value = "llama-server"
+        p.cmdline.return_value = ["llama-server", "--port", "8082"]
+        p.create_time.side_effect = psutil.ZombieProcess(pid=99)
+
+        with patch("psutil.process_iter", return_value=[p]):
+            discovered = discover_all()
+
+        assert len(discovered) == 1
+        assert discovered[0].pid == 99
+        assert discovered[0].create_time is None
