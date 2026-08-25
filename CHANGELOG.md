@@ -6,17 +6,11 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 
 ## [Unreleased]
 
-## [0.5.0-alpha] — unreleased
+## [0.5.0-alpha] — 2026-08-25
 
 ### Breaking
 
-- **`LAUNCHER_*` → `LLAUNCHER_*` env-var rename ([#151](https://github.com/shanevcantwell/llauncher/issues/151)) — tag-gated, entry finalized when it lands.**
-  This release's tag itself is gated on #151 landing (ProdM ratification,
-  [#484](https://github.com/shanevcantwell/llauncher/issues/484)); the remaining
-  single-`L` `settings.py` family (`LAUNCHER_STATE_DIR`/`RUN_DIR`/`AUDIT_PATH`/`LOG_DIR`)
-  and the UI host var move to the double-`L` `LLAUNCHER_*` name. Placeholder pending
-  the actual PR — do not release against this section until it is replaced with the
-  real migration notes.
+- **Deferred:** the `LAUNCHER_*` → `LLAUNCHER_*` state-var rename ([#151](https://github.com/shanevcantwell/llauncher/issues/151)) was tag-gated for this release and re-scheduled to the next cycle by operator decision (2026-08-25); both env families remain current in this release — see README env note.
 - **Agent env-var family renamed ([#138](https://github.com/shanevcantwell/llauncher/issues/138)).** The four service-facing agent
   environment variables now carry the leading `L` from the project name
   `llauncher`:
