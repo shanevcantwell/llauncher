@@ -1,6 +1,8 @@
 """Tests for llauncher core process management."""
 
 import logging
+import re
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from pathlib import Path
@@ -1319,6 +1321,54 @@ class TestStartServerLogsLifecycle:
         # Banner must come AFTER the previous-run lines.
         banner_idx = contents.index("=== started at")
         assert contents.index("previous run line 2") < banner_idx
+
+    def test_banner_is_utc_wallclock_anchor_with_canonical_name(
+        self, tmp_path, minimal_config
+    ):
+        """Issue #405 — the banner anchors the log to the wall clock.
+
+        llama-server's own log lines carry only time-since-start offsets,
+        so the banner must stamp an *absolute UTC* timestamp plus the
+        canonical model name (``ModelConfig.name``, the mint — same
+        identity as the ``--alias`` emission) and the port. That header is
+        what lets every relative offset in the log join to the audit
+        ledger's UTC times.
+        """
+        mock_bin = MagicMock()
+        mock_bin.exists.return_value = True
+
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        log_file = log_dir / f"{log_stem_for('test-model')}-8081.log"
+
+        before = datetime.now(timezone.utc)
+        with patch("llauncher.core.process.DEFAULT_SERVER_BINARY", mock_bin), \
+             patch("llauncher.core.process.LOG_DIR", log_dir), \
+             patch("subprocess.Popen") as mock_popen:
+            mock_popen.return_value = MagicMock()
+            start_server(minimal_config, port=8081)
+        after = datetime.now(timezone.utc)
+
+        first_line = log_file.read_text(encoding="utf-8").splitlines()[0]
+        match = re.fullmatch(
+            r"=== started at (?P<ts>\S+) port=(?P<port>\d+)"
+            r" model=(?P<model>.+) ===",
+            first_line,
+        )
+        assert match, f"banner line malformed: {first_line!r}"
+
+        # Timestamp is ISO-8601, timezone-aware, and explicitly UTC.
+        ts = datetime.fromisoformat(match["ts"])
+        assert ts.tzinfo is not None, "banner timestamp is naive (no tz)"
+        assert ts.utcoffset() == timedelta(0), (
+            f"banner timestamp not UTC: {match['ts']!r}"
+        )
+        # And it is the actual spawn time, not a constant.
+        assert before <= ts <= after
+
+        assert match["port"] == "8081"
+        # Canonical name from the mint, not a sanitized/derived string.
+        assert match["model"] == minimal_config.name == "test-model"
 
     def test_rotates_when_existing_log_exceeds_max_bytes(
         self, tmp_path, minimal_config

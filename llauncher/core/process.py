@@ -6,7 +6,7 @@ import re
 import shlex
 import subprocess
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import psutil
@@ -348,7 +348,16 @@ def start_server(
     # restart — historically these were the most useful debugging
     # artifact, and the old ``"w"`` mode destroyed them on every start.
     # The banner line below makes the boundary between runs grep-friendly.
-    banner = f"=== started at {datetime.now().isoformat()} port={port} ===\n"
+    #
+    # The timestamp is absolute UTC (issue #405): llama-server's own log
+    # lines carry only time-since-start offsets, so this header is the
+    # wall-clock anchor that lets every relative offset join to the audit
+    # ledger's UTC times. The model name is the canonical mint
+    # (``ModelConfig.name``, same identity as the ``--alias`` emission) and
+    # goes last so a name containing spaces stays contiguous up to the
+    # trailing ``===``.
+    started_utc = datetime.now(timezone.utc).isoformat()
+    banner = f"=== started at {started_utc} port={port} model={config.name} ===\n"
     try:
         with open(log_file, "a", encoding="utf-8") as log:
             log.write(banner)

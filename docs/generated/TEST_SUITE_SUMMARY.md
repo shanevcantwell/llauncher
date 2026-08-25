@@ -16,10 +16,10 @@
 
 | Category | Files | Tests |
 |----------|-------|-------|
-| Unit | 101 | 1589 |
+| Unit | 101 | 1590 |
 | Integration | 13 | 84 |
 | Other | 21 | 213 |
-| **Total** | **135** | **1886** |
+| **Total** | **135** | **1887** |
 
 ## Tests carrying special markers
 
@@ -2031,7 +2031,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_default_vram_check_mixed_none_and_real_value_uses_real_value`**
   - *#241: the genuine-capacity path is unchanged when at least one device*
 
-#### `tests/unit/test_process.py` (96 tests)
+#### `tests/unit/test_process.py` (97 tests)
 
 - **`test_preferred_port_available`**
   - *Preferred port available - returns immediately.*
@@ -2195,6 +2195,8 @@ ad-hoc markers used in the suite without declaration.
   - *A 5 MiB log requesting 10 lines must read kilobytes, not megabytes.*
 - **`test_appends_banner_and_preserves_prior_content`**
   - *A pre-existing log file is preserved; the banner appends to it.*
+- **`test_banner_is_utc_wallclock_anchor_with_canonical_name`**
+  - *Issue #405 — the banner anchors the log to the wall clock.*
 - **`test_rotates_when_existing_log_exceeds_max_bytes`**
   - *An oversized log triggers rotation before the new run appends.*
 - **`test_every_emitted_flag_is_registered`**
