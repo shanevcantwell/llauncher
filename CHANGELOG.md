@@ -117,3 +117,12 @@ Curated from `git log v0.4.1-alpha..HEAD` — see the full history for the compl
   [#485](https://github.com/shanevcantwell/llauncher/pull/485)).
 - **llama.cpp build scripts:** added a recommended build recipe for Windows and Linux
   ([#473](https://github.com/shanevcantwell/llauncher/pull/473)).
+- **`extra_args` verbatim passthrough — *pending merge at time of writing*:** the
+  `cache_type_k`/`cache_type_v` shadow fields (and the rest of the llama-server mirror
+  fields) are dropped from `ModelConfig`; `extra_args` carries llama-server flags
+  verbatim, and persisted configs are **migrated once, in place, at the door** (existing
+  field values fold into `extra_args`; no dual-parse, per this repo's no-shims rule).
+  Migration-bearing: the persisted `config.json` shape changes, deterministically and
+  without operator action. Recorded as ADR-026. Entry finalized when
+  [#483](https://github.com/shanevcantwell/llauncher/pull/483) lands
+  ([#477](https://github.com/shanevcantwell/llauncher/issues/477)).
