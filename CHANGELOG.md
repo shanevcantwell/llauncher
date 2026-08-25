@@ -8,6 +8,16 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 
 ### Added
 
+- **`llauncher model validate` — one read-only validation verb reused across
+  every door (#475, ADR-027).** `GET /models/validate` and
+  `GET /models/validate/{name}` **replace** `GET /models/health` and
+  `GET /models/health/{name}` outright (ADR-005 superseded) — no alias, no
+  in-repo consumer of the old routes. Also reachable via the CLI
+  (`llauncher model validate [NAME] [--json]`, ASCII-only `OK`/`MISSING`
+  tokens, exit `0`/`1`/`2`) and MCP (`validate_models`, peer to
+  `list_models`). Gating checks (`gguf_magic`, existing model-health/VRAM
+  checks) plus advisory `vram`/`lockfile` checks; no config write, no
+  lockfile write, no audit entry.
 - **Recommended llama.cpp build recipe, Windows + Linux (#473).**
   `scripts/build-llama-server.sh` and `scripts/windows/build-llama-server.ps1`
   build llama-server with `CMAKE_BUILD_TYPE=Release` and
@@ -153,6 +163,11 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
   exposed (#156, #242).
 - VRAM preflight check fails loud when GPU device data is unavailable
   (#150, #240).
+- **`llauncher server start`/`stop`/`swap` no longer crash with
+  `UnicodeEncodeError` on a cp1252 console (Git-Bash on Windows) after a
+  successful launch (#471).** The status glyph (`✓`/`✗`) degrades to ASCII
+  (`OK`/`X`) when `sys.stdout.encoding` can't encode it; message text and
+  exit codes are unchanged.
 
 ### Breaking changes
 
@@ -206,6 +221,21 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
   install/restart, and a missing token now fails loud instead of silently
   running unauthenticated (#282).** Consistent with this repo's
   parse-at-the-door rule — no dual-shape env file is read going forward.
+- **`ModelConfig` no longer mirrors llama-server's argument schema; 16
+  fields removed (#477, ADR-026).** `cache_type_k`, `cache_type_v`,
+  `threads`, `threads_batch`, `ubatch_size`, `batch_size`, `n_cpu_moe`,
+  `flash_attn`, `no_mmap`, `mlock`, `temperature`, `top_k`, `top_p`, `min_p`,
+  `repeat_penalty`, `reverse_prompt` are gone; `extra_args` (still `str`)
+  now carries llama-server flags verbatim with no pydantic content
+  validation. `config.json` is migrated in place, once, on first load under
+  the new code (dropped fields fold into `extra_args`, deferring to any
+  existing occurrence there; the three fields `build_command` used to emit
+  unconditionally — `threads_batch`, `ubatch_size`, `flash_attn` — always
+  materialize their effective value so argv stays byte-identical). The
+  llauncher-owned deny-list (`--alias`, `-m`/`--model`, `--host`/`--port`,
+  `--api-key`, `--metrics`, `--slots`/`--no-slots`) moves to
+  `core/process.py::build_command` as the sole launch-time enforcement
+  point.
 
 ### Internal/test
 
@@ -246,16 +276,6 @@ going into this alpha.)*
   WSL's `bash` shadowing Git Bash accounts for ~20 of them plus cascades;
   the rest are POSIX-permission-bit asserts on NTFS, `Path.home()` under a
   cleared environment, git path-quoting, and `test_ui_syntax.py`.
-- **`extra_args` entries containing `-ctk`/`-ctv` emit a repeated
-  `UserWarning` on every config load (visible in the UI's console stream)
-  until #477 lands** (dropping the `cache_type_k`/`cache_type_v` shadow
-  fields in favor of `extra_args` carrying llama-server flags verbatim).
-- **`llauncher server start` from a cp1252 console (Git-Bash on Windows)
-  prints a traceback after a successful launch, until #471/PR #478 lands.**
-  The launch itself succeeds (`GET /status` shows the process running); the
-  traceback is `UnicodeEncodeError` from printing a `✓`/`✗` glyph the
-  console can't encode, and reads as a phantom failure. PR #478 is open,
-  not yet merged, as of this entry.
 - **Cold `GET /status` still costs ≈2 process-table scans (~12.6 s
   no-load, measured on the Windows box) — #466 Phase 2 is pending.** Phase
   1 (#470, above) landed the `verify_pid`/`discover_all` primitives only;
