@@ -13,7 +13,7 @@ A "monitor llama-server instances" feature request became three things: (a) llau
 | #172 | `docs/ARCHITECTURE.md` — 7-rule layering+mint invariant, audited Branch-B conformance. Recorded 2 live violations. |
 | #173 | `CLAUDE.md` — `EMIT-CANONICAL` reconciled to **satisfied** (it had shipped at `core/process.py:build_command`; the instructions were stale). |
 | #177 | deleted stale `pi-footer-extension/` (subsumed by harness-tools). |
-| #178 | **ADR-LLNCH-019** (`docs/adrs/accepted/019-server-metrics-surface.md`) — the metrics surface. |
+| #178 | **ADR-LLNCH-019** (`docs/adrs/accepted/adr-llnch-019-server-metrics-surface.md`) — the metrics surface. |
 
 ## Open items
 
@@ -50,6 +50,6 @@ Implement ADR-LLNCH-019 — tracked as **#179** (`auto:fix`). Scope, test plan, 
 ## Re-entry pointers
 
 - `docs/ARCHITECTURE.md` — the invariant the work is governed by.
-- `docs/adrs/accepted/019-server-metrics-surface.md` — the spec to implement.
-- `docs/adrs/completed/012-footer-context-endpoint.md` — the composing sibling endpoint.
+- `docs/adrs/accepted/adr-llnch-019-server-metrics-surface.md` — the spec to implement.
+- `docs/adrs/completed/adr-llnch-012-footer-context-endpoint.md` — the composing sibling endpoint.
 - Issues #174 / #175 / #176 — tracked shortcuts & deferrals.

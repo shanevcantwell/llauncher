@@ -191,7 +191,7 @@ are **unchanged**.
 
 **On ratification (not now — these are deferred to acceptance):**
 
-- Add a note to ADR-LLNCH-018 (`accepted/018-llauncher-system-service.md`) that its UI
+- Add a note to ADR-LLNCH-018 (`accepted/adr-llnch-018-llauncher-system-service.md`) that its UI
   posture is narrowed by ADR-LLNCH-022, and update the README index row.
 - Update `docs/operations/run-as-a-service.md:3-4` and the comment at
   `scripts/systemd/install.sh:55`, whose "the UI is not service-managed" prose is
@@ -227,7 +227,7 @@ ratification; sub-problem enumeration with acceptance criteria is
 
 ## References
 
-- `docs/adrs/accepted/018-llauncher-system-service.md` — agent system service;
+- `docs/adrs/accepted/adr-llnch-018-llauncher-system-service.md` — agent system service;
   token plane (lines 57-62); posture this ADR narrows.
 - `llauncher/ui/launch.py:27,58-71` — UI loopback bind; console-script `main()`.
 - `pyproject.toml:33` — `llauncher-ui = "llauncher.ui.launch:main"`.

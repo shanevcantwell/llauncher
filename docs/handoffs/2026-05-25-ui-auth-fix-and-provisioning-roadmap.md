@@ -70,7 +70,7 @@ A mid-session tangent rewrote the git subagent's contract to absorb all `git` + 
 ### Open issues this session left untouched
 
 - **#134** — Phase 0 docs. Smallest unit of work; can ship in a single session. Recommended next move if continuing the provisioning thread.
-- **#135** — Phase 1 (Design B session tokens). 2-3 sessions including ADR draft (would file as `docs/adrs/draft/017-session-token-issuance.md`, supersedes the static-token-only portion of ADR-LLNCH-003).
+- **#135** — Phase 1 (Design B session tokens). 2-3 sessions including ADR draft (would file as `docs/adrs/draft/adr-llnch-017-session-token-issuance.md`, supersedes the static-token-only portion of ADR-LLNCH-003).
 - **#136** — Phase 2 (Design D pairing CLI). Depends on Phase 1's `SessionTokenStore`.
 - **#86** — Phase 3 (mTLS). User-punted; ADR-shaped design work, not code.
 

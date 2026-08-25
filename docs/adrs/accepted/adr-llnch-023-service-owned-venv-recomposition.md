@@ -295,8 +295,8 @@ reproducibility phase. Each is a downstream `auto:fix`; step granularity is
 ## Supersession / Amendment Relationships
 
 **Amends (does not supersede):** the **`ExecStart` venv mechanism** of ADR-LLNCH-018
-(`accepted/018-llauncher-system-service.md`) and ADR-LLNCH-022
-(`accepted/022-llauncher-ui-user-service.md`). Both ADRs' core decisions stand;
+(`accepted/adr-llnch-018-llauncher-system-service.md`) and ADR-LLNCH-022
+(`accepted/adr-llnch-022-llauncher-ui-user-service.md`). Both ADRs' core decisions stand;
 ADR-LLNCH-022 is **completed, not corrected** — it chose the right supervision model
 but was silent on venv durability under the operator's reap policy. This ADR
 fills that gap.
@@ -304,8 +304,8 @@ fills that gap.
 **Superseded by:** TBD.
 
 **On ratification (applied at acceptance, 2026-06-28 — done in the ratifying commit):**
-- [x] Amendment note added to `accepted/018-llauncher-system-service.md` and
-  `accepted/022-llauncher-ui-user-service.md` pointing to ADR-LLNCH-023 as governing
+- [x] Amendment note added to `accepted/adr-llnch-018-llauncher-system-service.md` and
+  `accepted/adr-llnch-022-llauncher-ui-user-service.md` pointing to ADR-LLNCH-023 as governing
   their `ExecStart` venv guarantee.
 - [x] README index row added (`docs/adrs/README.md`) and this file `git mv`'d
   from `draft/` to `accepted/`, Status set to `accepted`. (Moves to `completed/`
@@ -325,8 +325,8 @@ fills that gap.
   `/opt/llauncher/venv` from `git+https…@$REF`; `ln -sfn` symlinks; `chmod a+rX`.
 - `pyproject.toml:6-16,28-33` — `>=` dependency floors (no pins); console-script
   entry points. **No lockfile present in the tree** (verified).
-- `docs/adrs/accepted/018-llauncher-system-service.md`,
-  `docs/adrs/accepted/022-llauncher-ui-user-service.md` — the two ADRs amended.
+- `docs/adrs/accepted/adr-llnch-018-llauncher-system-service.md`,
+  `docs/adrs/accepted/adr-llnch-022-llauncher-ui-user-service.md` — the two ADRs amended.
 - `docs/adrs/README.md:11` — `draft/` = "not yet ratified" status convention.
 - PEP 405 — virtual environments are non-relocatable (rebuilt, not moved).
 
