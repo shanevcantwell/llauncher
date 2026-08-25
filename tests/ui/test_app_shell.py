@@ -17,6 +17,7 @@ just llauncher's own call sequencing:
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -72,6 +73,108 @@ class TestAgentDownHaltsBeforeTabs:
         assert app_harness.button == []
         assert app_harness.tabs == []
         registry.refresh_all.assert_not_called()
+
+
+def _corrupt_config_error() -> json.JSONDecodeError:
+    """The path-bearing JSONDecodeError ``ConfigStore.load()`` raises on a
+    corrupt ``config.json`` (issue #472's fail-loud contract)."""
+    return json.JSONDecodeError(
+        "Corrupt config at /home/op/.llauncher/config.json: Expecting value",
+        doc="{not json",
+        pos=0,
+    )
+
+
+def _unreadable_config_error() -> OSError:
+    """The path-bearing OSError ``ConfigStore.load()`` raises on an
+    unreadable ``config.json``."""
+    return OSError(
+        "Cannot read config at /home/op/.llauncher/config.json: "
+        "[Errno 13] Permission denied"
+    )
+
+
+class TestConfigErrorBannerOnStateBuild:
+    """Issue #476: ``main()``'s state build (``get_state()`` →
+    ``LauncherState()`` → ``ConfigStore.load()``) fails loud on a corrupt
+    or unreadable config per #472. The UI must surface that as an
+    ``st.error`` banner carrying the exception's path-bearing message and
+    ``st.stop()`` — never a raw Streamlit traceback (``at.exception``),
+    and nothing past the banner (agent check, sidebar, tabs) may render.
+    """
+
+    @pytest.mark.parametrize(
+        "raised",
+        [_corrupt_config_error(), _unreadable_config_error()],
+        ids=["corrupt-json", "unreadable-oserror"],
+    )
+    def test_config_load_failure_shows_banner_not_traceback(
+        self, app_harness, raised
+    ):
+        registry = MagicMock(name="NodeRegistry")
+
+        with patch("llauncher.ui.app.get_state", side_effect=raised), \
+             patch("llauncher.ui.app.get_registry", return_value=registry), \
+             patch("llauncher.ui.app.get_aggregator", return_value=MagicMock()), \
+             patch("llauncher.ui.app.is_agent_ready") as agent_check:
+            app_harness.run()
+
+        # The load failure surfaces as a banner, not an uncaught exception.
+        assert not app_harness.exception
+        # Page chrome still renders (title lives above the state build).
+        assert app_harness.title[0].value == "🚀 llauncher"
+        # The banner carries the exception's path-bearing message — the
+        # operator sees WHICH file to fix.
+        banner_texts = [e.value for e in app_harness.error]
+        assert any("Model config could not be loaded" in t for t in banner_texts)
+        assert any("/home/op/.llauncher/config.json" in t for t in banner_texts)
+        # st.stop() halted the script before anything else mounted.
+        assert app_harness.button == []
+        assert app_harness.tabs == []
+        agent_check.assert_not_called()
+
+
+class TestConfigErrorBannerOnRefreshClick:
+    """Issue #476, second un-wrapped site: the sidebar "Refresh All"
+    control's ``state.refresh()`` re-reads ``config.json``. A config that
+    goes corrupt *after* a healthy first render must banner-and-stop on
+    the refresh click — before ``registry.refresh_all()`` or the success
+    toast — not explode into a traceback.
+    """
+
+    def test_refresh_click_on_corrupt_config_banners_and_stops(
+        self, app_harness
+    ):
+        state = MagicMock(name="LauncherState")
+        state.refresh.side_effect = _corrupt_config_error()
+        registry = MagicMock(name="NodeRegistry")
+
+        with patch("llauncher.ui.app.get_state", return_value=state), \
+             patch("llauncher.ui.app.get_registry", return_value=registry), \
+             patch("llauncher.ui.app.get_aggregator", return_value=MagicMock()), \
+             patch("llauncher.ui.app.is_agent_ready", return_value=True), \
+             patch("llauncher.ui.app.render_node_selector", return_value="local"), \
+             patch("llauncher.ui.tabs.dashboard.render_dashboard"), \
+             patch("llauncher.ui.tabs.models.render_models_tab"), \
+             patch("llauncher.ui.tabs.nodes.render_nodes_tab"), \
+             patch("llauncher.ui.tabs.audit.render_audit_tab"):
+            app_harness.run()
+            assert not app_harness.exception
+
+            refresh_button = next(
+                b for b in app_harness.button if b.label == "🔄 Refresh All"
+            )
+            refresh_button.click()
+            app_harness.run()
+
+        assert not app_harness.exception
+        state.refresh.assert_called_once()
+        # st.stop() fired before the registry fan-out and the toast.
+        registry.refresh_all.assert_not_called()
+        assert app_harness.toast == []
+        banner_texts = [e.value for e in app_harness.error]
+        assert any("Model config could not be loaded" in t for t in banner_texts)
+        assert any("/home/op/.llauncher/config.json" in t for t in banner_texts)
 
 
 class TestRefreshAllToastSurvivesRerun:
