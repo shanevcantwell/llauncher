@@ -72,6 +72,51 @@ def render_model_card(
         _render_model_details(state, aggregator, node_name, model_name, model, running_server)
 
 
+def _arm_editing_flag(model_name: str) -> None:
+    """``on_click`` callback for the Edit button (#494).
+
+    Session-state mutation only — no ``st`` render calls — so it stays
+    correct when invoked from Streamlit's pre-script callback context
+    (ADR-LLNCH-025: this is view state, the same ``editing_{name}`` flag
+    ``forms.py`` already reads).
+    """
+    st.session_state[f"editing_{model_name}"] = True
+
+
+def _arm_deleting_flag(node_name: str, model_name: str) -> None:
+    """``on_click`` callback for the Delete button (#494). See
+    :func:`_arm_editing_flag` for why this is callback-safe.
+    """
+    st.session_state[f"deleting_{node_name}_{model_name}"] = True
+
+
+def edit_saved_toast_key(model_name: str) -> str:
+    """Session-state key for a just-saved edit's toast message (#494).
+
+    ``forms.py``'s Save callback clears the ``editing_{name}`` flag before
+    the script body runs, so ``render_edit_model`` never executes on the
+    success run — the edit form has already routed back to the card grid
+    by the time the script draws anything. The confirmation therefore
+    can't be shown from inside the (now-unrendered) form; it is shown from
+    here instead, where ``_render_model_details`` already renders once per
+    model on every run regardless of edit-mode routing. Deliberate VIEW
+    state (ADR-LLNCH-025): a message queued for one display, not cached
+    lifecycle truth.
+    """
+    return f"edit_saved_{model_name}"
+
+
+def _render_edit_saved_toast(model_name: str) -> None:
+    """Show and clear a pending "saved" toast for ``model_name``, if any.
+
+    Popped (not just read) so the toast fires exactly once — the next run
+    without a fresh save finds nothing to show.
+    """
+    message = st.session_state.pop(edit_saved_toast_key(model_name), None)
+    if message:
+        st.toast(message, icon="✅")
+
+
 def _start_error_key(node_name: str, model_name: str) -> str:
     """Session-state key for the sticky start-failure message (#401).
 
@@ -391,16 +436,42 @@ def _render_model_details(
 
     # Edit / Delete buttons (only for stopped models on local)
     st.divider()
+    # Flush a pending Save toast (#494) — see edit_saved_toast_key's
+    # docstring for why this lives here rather than in the (possibly
+    # unrendered-this-run) edit form.
+    _render_edit_saved_toast(model_name)
     if not running_server and node_name == "local":
         edit_col, delete_col = st.columns(2)
         with edit_col:
-            if st.button("✏️ Edit", width='stretch', key=f"edit_{node_name}_{model_name}_enabled"):
-                st.session_state[f"editing_{model_name}"] = True
-                st.rerun()
+            st.button(
+                "✏️ Edit",
+                width='stretch',
+                key=f"edit_{node_name}_{model_name}_enabled",
+                # on_click (#494): the callback runs BEFORE the script body,
+                # so by the time render_models_tab's editing_model check
+                # (models.py::_get_editing_model) runs later in this same
+                # script pass, the flag is already set — the edit form
+                # routes in on this one run, with no explicit st.rerun()
+                # needed. The old `if st.button(): mutate; st.rerun()` shape
+                # mutated too late (after that routing check had already
+                # run) to take effect without a second full script run, and
+                # every run pays model_registry.py's unconditional
+                # state.refresh() (2 psutil walks) — the double-run defect
+                # measured in #494.
+                on_click=_arm_editing_flag,
+                args=(model_name,),
+            )
         with delete_col:
-            if st.button("🗑️ Delete", width='stretch', key=f"delete_{node_name}_{model_name}_enabled"):
-                st.session_state[f"deleting_{node_name}_{model_name}"] = True
-                st.rerun()
+            st.button(
+                "🗑️ Delete",
+                width='stretch',
+                key=f"delete_{node_name}_{model_name}_enabled",
+                # Same on_click shape as Edit above, for the same reason
+                # (#494) — Delete's confirm gate is read by
+                # _render_delete_confirm just below, in this same run.
+                on_click=_arm_deleting_flag,
+                args=(node_name, model_name),
+            )
         _render_delete_confirm(node_name, model_name)
     elif not running_server:
         st.button("✏️ Edit", width='stretch', key=f"edit_{node_name}_{model_name}_disabled", disabled=True)

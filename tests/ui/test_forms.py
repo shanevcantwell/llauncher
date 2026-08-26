@@ -24,10 +24,12 @@ from __future__ import annotations
 import pytest
 
 from llauncher.ui.tabs.forms import (
+    _edit_error_key,
     _process_edit_model,
     render_add_model,
     render_edit_model,
 )
+from llauncher.ui.tabs.model_card import edit_saved_toast_key
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +247,16 @@ class TestEditModelSuccess:
         assert name_arg == "existing-model"
         assert updated_config.model_path == str(new_path)
         assert kwargs["caller"] == "ui"
-        assert any("Updated model 'existing-model'" in s.value for s in at.success)
+        # #494: the edit form's own script pass never re-renders after a
+        # successful save (its editing_ flag was cleared by the on_click
+        # callback before the script body ran, so this run's routing
+        # decision already moved on) — the confirmation is a toast queued
+        # here for model_card.py's per-card render to show once, not an
+        # st.success() rendered from this form.
+        assert (
+            at.session_state[edit_saved_toast_key("existing-model")]
+            == "Saved config for existing-model"
+        )
 
     def test_valid_submission_updates_state_and_clears_editing_flag(
         self, tab_harness, mock_state, mock_config_store, existing_config
@@ -325,7 +336,12 @@ class TestEditModelNotYetPersistedUpsertsViaAddModel:
         (upserted_config,), kwargs = mock_config_store.add_model.call_args
         assert upserted_config.name == "existing-model"
         assert kwargs["caller"] == "ui"
-        assert any("Saved model 'existing-model'" in s.value for s in at.success)
+        # #494: see the equivalent note in TestEditModelSuccess above — the
+        # confirmation is a queued toast, not a rendered st.success().
+        assert (
+            at.session_state[edit_saved_toast_key("existing-model")]
+            == "Saved config for existing-model"
+        )
 
 
 class TestEditModelCancel:
@@ -419,7 +435,16 @@ class TestEditModelVanishedAtSubmit:
         )
 
         assert not at.exception
-        assert any("'existing-model' not found" in e.value for e in at.error)
+        # #494: _process_edit_model is now callback-safe — it never calls
+        # st.error() directly (a no-op when invoked from an on_click
+        # callback), it persists the sticky-error flag that
+        # render_edit_model's own next render displays via
+        # _render_edit_error. Driven directly here (same idiom as before),
+        # so assert on the flag rather than a rendered element.
+        assert (
+            at.session_state[_edit_error_key("existing-model")]
+            == "Model 'existing-model' not found"
+        )
         mock_config_store.update_model.assert_not_called()
         mock_config_store.add_model.assert_not_called()
 

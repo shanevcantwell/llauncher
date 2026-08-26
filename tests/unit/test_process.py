@@ -662,9 +662,37 @@ class TestProcessScanCache:
             find_all_llama_servers()
             assert mock_iter.call_count == 1
 
-            fake_time[0] += 3.1  # past the 3s TTL
+            fake_time[0] += 15.1  # past the widened (#494) 15s TTL
             find_all_llama_servers()
             assert mock_iter.call_count == 2
+
+    def test_call_within_widened_ttl_but_past_old_ttl_hits_cache(self):
+        """Issue #494: a call 3-15s after the first must still hit the cache.
+
+        This is the exact scenario the old 3s TTL missed: a single
+        ``LauncherState.refresh()`` call already burns one scan on
+        ``find_all_llama_servers`` and a second, independent one on
+        ``discover_all`` (see ``core/process.py``'s cache-init comment) —
+        and Streamlit's ``st.tabs()`` executes *every* tab body each
+        script run, so ``dashboard.py`` and ``model_registry.py`` each call
+        ``state.refresh()`` in the very same run. A 3s TTL could not
+        survive the elapsed time of the sibling scan between those two
+        calls; the widened TTL (>= the elastic 3.1-12.3s single-scan cost
+        cited in ``discover_all``'s docstring, #309) can.
+        """
+        mock_proc = MagicMock()
+        mock_proc.name.return_value = "llama-server"
+        mock_proc.cmdline.return_value = ["llama-server", "--port", "8080"]
+
+        fake_time = [1000.0]
+        with patch("psutil.process_iter", return_value=[mock_proc]) as mock_iter, \
+             patch("time.monotonic", side_effect=lambda: fake_time[0]):
+            find_all_llama_servers()
+            assert mock_iter.call_count == 1
+
+            fake_time[0] += 10.0  # past the old 3s TTL, within the new 15s one
+            find_all_llama_servers()
+            assert mock_iter.call_count == 1
 
     def test_scan_functions_have_independent_cache_keys(self):
         """Calling one scan function must not serve the other's cached result."""

@@ -28,17 +28,43 @@ DEFAULT_SERVER_BINARY = LLAMA_SERVER_PATH
 # Issue #392: LauncherState.refresh() triggers two full psutil.process_iter
 # scans (find_all_llama_servers + discover_all), and
 # refresh() itself is called redundantly up to 3-4x per Streamlit rerun
-# (once per tab render). A full process-table scan on Windows is expensive
-# enough (measured ~8.4-8.6s for /status vs 8ms for /node-info) that this
-# redundancy alone produced the observed UI stall. A short TTL cache in
-# front of each scan collapses the redundant calls within one rerun while
+# (once per tab render — Streamlit's `st.tabs()` executes *every* tab's
+# body on every script run; only the active tab's output is switched
+# client-side). A full process-table scan on Windows is expensive enough
+# (measured ~8.4-8.6s for /status vs 8ms for /node-info; docstrings below
+# cite an elastic 3.1-12.3s range, #309) that this redundancy alone
+# produced the observed UI stall. A short TTL cache in front of each scan
+# is meant to collapse the redundant calls within one script run while
 # staying invisible across genuine start/stop actions, which explicitly
-# invalidate the cache (see llauncher.state's self.running mutation sites).
+# invalidate the cache regardless of TTL (see invalidate_process_scan_cache
+# and llauncher.state's self.running mutation sites).
+#
+# Issue #494: that collapse didn't actually happen. The original TTL here
+# (3s) was shorter than a single scan (~6-12s), so by the time a second
+# call reached the cache — e.g. dashboard.py's own state.refresh() and
+# model_registry.py's, both firing in the *same* run per the tab-execution
+# note above — the first call's entry had already expired (a refresh()
+# call's own two sequential scans alone can burn 12-24s, well past the old
+# 3s window). Concretely, this is what made Edit/Save look worse than
+# other interactions: their extra st.rerun() (fixed separately, in
+# ui/tabs/forms.py and ui/tabs/model_card.py) doubled an already-uncollapsed
+# per-run cost. Raised to comfortably exceed one scan's observed worst case
+# (12.3s) so a same-run second caller can actually hit the cache. This
+# does not change invalidation semantics: start/stop still call
+# invalidate_process_scan_cache() intrinsically (issue #402), which clears
+# the cache immediately regardless of TTL, so a post-mutation read is never
+# served stale by this change (see #418 for the one topology — the
+# delegated agent path — where that invalidation doesn't reach this
+# process at all; unaffected by this TTL value either way). The tradeoff
+# this DOES take on: an external, untracked process death/spawn (nothing
+# that calls invalidate_process_scan_cache) can now go undetected for up to
+# this TTL instead of 3s — accepted here since orphan discovery
+# (discover_all) is advisory, not gating.
 #
 # Each scan function gets its OWN cache key — they return different shapes
 # (bare Process list vs list[ServerProcessInfo]) and must never share
 # a cached result.
-_PROCESS_SCAN_CACHE = _TTLCache(ttl_seconds=3)
+_PROCESS_SCAN_CACHE = _TTLCache(ttl_seconds=15)
 _SCAN_KEY_ALL_SERVERS = "find_all_llama_servers"
 _SCAN_KEY_ALL_SERVERS_ANNOTATED = "find_all_llama_servers_annotated"
 
