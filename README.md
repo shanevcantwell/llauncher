@@ -500,8 +500,8 @@ scripts\run.bat install
 
 **Windows:**
 ```cmd
-scripts\run.bat agent      # Foreground
-scripts\run.bat stop       # Stop agent
+scripts\run.bat agent      :: Foreground
+scripts\run.bat stop       :: Stop agent
 ```
 
 Neither script has a background/detached mode — see "Running as a
