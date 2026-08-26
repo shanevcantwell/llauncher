@@ -63,7 +63,7 @@ pip install -e .
 found: C:\Users\...\.local\bin\llama-server`. Point it at your actual
 `llama-server.exe`:
 
-- **Dev / `run.bat` usage:** set `LLAMA_SERVER_PATH` in the project-root
+- **Dev / `scripts\run.bat` usage:** set `LLAMA_SERVER_PATH` in the project-root
   `.env` (template: `.env.example`), e.g.
   `LLAMA_SERVER_PATH=C:\path\to\llama-server.exe`.
 - **Service install (`scripts\windows\install.ps1`):** set it in
@@ -83,27 +83,30 @@ The UI deliberately does not auto-spawn the agent — see ADR-LLNCH-009 and the
 "Why doesn't the UI start the agent for me?" expander rendered on the
 dashboard when the agent is down.
 
+Scripts live in `scripts/`, run from the repo root:
+
 **Linux/macOS:**
 ```bash
-./run.sh install     # Set up virtual environment and install
-./run.sh agent       # Terminal 1: start agent in foreground
-./run.sh ui          # Terminal 2: start dashboard (requires agent)
-./run.sh stop        # Stop running agent
-# Optional:
-./run.sh agent-bg    # Start agent detached (logs to agent.log)
-./run.sh discover    # List discovered launch scripts
+./scripts/run.sh install     # Set up virtual environment and install
+./scripts/run.sh agent       # Terminal 1: start agent in foreground
+./scripts/run.sh ui          # Terminal 2: start dashboard (requires agent)
+./scripts/run.sh stop        # Stop running agent
+./scripts/run.sh discover    # List discovered launch scripts
 ```
 
 **Windows:**
 ```cmd
-run.bat install      :: Set up virtual environment and install
-run.bat agent        :: Terminal 1: start agent in foreground
-run.bat ui           :: Terminal 2: start dashboard (requires agent)
-run.bat stop         :: Stop running agent
-:: Optional:
-run.bat agent-bg     :: Start agent detached (logs to agent.log)
-run.bat discover     :: List discovered launch scripts
+scripts\run.bat install      :: Set up virtual environment and install
+scripts\run.bat agent        :: Terminal 1: start agent in foreground
+scripts\run.bat ui           :: Terminal 2: start dashboard (requires agent)
+scripts\run.bat stop         :: Stop running agent
+scripts\run.bat discover     :: List discovered launch scripts
 ```
+
+> There is no `agent-bg` (detached/background start) on either platform —
+> it was removed when it started contending with the systemd/NSSM-managed
+> agent. For a persistent agent, use the service installers under
+> "Running as a service" below instead of a background shell command.
 
 ### Running as a service
 
@@ -113,7 +116,7 @@ the agent ships with installers for systemd (Linux, user-mode) and NSSM
 
 The UI supports two postures — pick whichever fits how you work:
 
-- **On demand:** `llauncher-ui` (or `./run.sh ui`) starts the dashboard in
+- **On demand:** `llauncher-ui` (or `./scripts/run.sh ui`) starts the dashboard in
   the foreground for the session; close the terminal and it's gone.
 - **Per-operator `systemd --user` service** ([ADR-LLNCH-022](docs/adrs/accepted/adr-llnch-022-llauncher-ui-user-service.md)):
   install with [`scripts/systemd/install-ui.sh`](scripts/systemd/install-ui.sh)
@@ -183,12 +186,12 @@ Start the UI using the runner script (recommended):
 
 **Linux/macOS:**
 ```bash
-./run.sh ui
+./scripts/run.sh ui
 ```
 
 **Windows:**
 ```cmd
-run.bat ui
+scripts\run.bat ui
 ```
 
 > **Bind to loopback (no built-in auth).** Streamlit binds wherever the
@@ -263,7 +266,7 @@ llauncher config validate mistral-7b # schema-only round-trip, no filesystem tou
 llauncher audit --limit 50 --action started --result success
 ```
 
-Each group also accepts `--help`. The runner scripts (`./run.sh agent`, `./run.sh ui`) remain the easiest way to launch the agent and dashboard; the CLI subcommands above act against an already-running stack.
+Each group also accepts `--help`. The runner scripts (`./scripts/run.sh agent`, `./scripts/run.sh ui`) remain the easiest way to launch the agent and dashboard; the CLI subcommands above act against an already-running stack.
 
 ## Configuration
 
@@ -473,14 +476,14 @@ On every machine you want to manage (including the head):
 ```bash
 git clone https://github.com/shanevcantwell/llauncher
 cd llauncher
-./run.sh install
+./scripts/run.sh install
 ```
 
 **Windows:**
 ```cmd
 git clone https://github.com/shanevcantwell/llauncher
 cd llauncher
-run.bat install
+scripts\run.bat install
 ```
 
 #### 2. Start the Agent on Each Node
@@ -489,27 +492,28 @@ run.bat install
 
 **Linux/macOS:**
 ```bash
-./run.sh agent     # Foreground
-./run.sh agent-bg  # Background
-./run.sh stop      # Stop agent
+./scripts/run.sh agent     # Foreground
+./scripts/run.sh stop      # Stop agent
 ```
 
 **Windows:**
 ```cmd
-run.bat agent      # Foreground
-run.bat agent-bg   # Background
-run.bat stop       # Stop agent
+scripts\run.bat agent      # Foreground
+scripts\run.bat stop       # Stop agent
 ```
+
+Neither script has a background/detached mode — see "Running as a
+service" above for a persistent agent that survives reboots.
 
 **With custom configuration:**
 ```bash
 # Linux/macOS
-LLAUNCHER_AGENT_PORT=9000 LLAUNCHER_AGENT_NODE_NAME="my-server" ./run.sh agent
+LLAUNCHER_AGENT_PORT=9000 LLAUNCHER_AGENT_NODE_NAME="my-server" ./scripts/run.sh agent
 
 # Windows (PowerShell)
 $env:LLAUNCHER_AGENT_PORT="9000"
 $env:LLAUNCHER_AGENT_NODE_NAME="my-server"
-run.bat agent
+scripts\run.bat agent
 ```
 
 **Environment Variables:**
@@ -522,12 +526,12 @@ run.bat agent
 
 **Linux/macOS:**
 ```bash
-./run.sh ui
+./scripts/run.sh ui
 ```
 
 **Windows:**
 ```cmd
-run.bat ui
+scripts\run.bat ui
 ```
 
 The dashboard will automatically:
