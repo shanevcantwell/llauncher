@@ -12,7 +12,7 @@ ADR-LLNCH-024 Phase 2 under a narrower admission criterion.
 (`operating-doctrine/ground-physics/GROUND_PHYSICS.md`); project `CLAUDE.md`
 (no backcompat shims; UI is a thin client); `docs/ARCHITECTURE.md` rules 4–5.
 **Disposition:** `auto:draft` — operator ratifies before implementation.
-Decision A is ruled (2026-08-26); B and C remain, each with a proposed default
+Decisions A and C are ruled (2026-08-26); B remains, with a proposed default
 that becomes the operative clause on silent ratification.
 
 ---
@@ -92,13 +92,17 @@ Spellings verified 2026-08-26 against the operator's own build
 | `--spec-type` (values incl. `draft-mtp`) | **Gate.** `draft-mtp` with `parallel > 1` is unsupported and is a live runaway hazard on stored configs (#189, #237); `parallel` is already typed, so the constraint is over two typed fields — finite and decidable, not a model-physics oracle. | `spec_type: str \| None` (verbatim, comma-separated) | text input + preset chips | ui, cli, mcp, agent |
 | `--spec-draft-model` (`-md`, `--model-draft`) | **Constraint.** A second on-disk artifact reference — the `mmproj_path` class, not a tuning knob: it carries the `model_exists` path validator and a VRAM claim preflight must see. | `spec_draft_model_path: str \| None` | path input | ui, cli, mcp, agent |
 | `--spec-draft-n-max` | **Designated**, as a member of the gated spec family. No gate or derivation of its own — see ratification decision **B**. | `spec_draft_n_max: int \| None` | number input | ui, cli, mcp, agent |
-| `--cache-reuse N` | **Gate.** Architecturally incompatible with hybrid/recurrent-backend models; detonation is a host-level incident, not a slowdown (#184). Gating needs a backend declaration — see ratification decision **C**. | `cache_reuse: int \| None` | number input + hazard badge | ui, cli, mcp, agent |
 | `-ctk`/`--cache-type-k`, `-ctv`/`--cache-type-v` | **Designated** per-entry control (operator ruling, 2026-08-26): KV quant changes per entry and per model, and typing it is what makes it a control. llauncher neither gates nor derives from the value — and the field is `str`, never the `Literal` that caused #477. | `cache_type_k: str \| None`, `cache_type_v: str \| None` | text input + non-binding suggestion list | ui, cli, mcp, agent |
 
 `--reasoning-preserve`/`--no-reasoning-preserve` (the real spelling of the
 operator's `--no-reasoning-preserver`) and `--cont-batching`/`--no-cont-batching`
 are in the recurring vocabulary, are neither reasoned-about nor designated, and
 get chips on the second surface, not fields.
+
+**`--cache-reuse` is not admitted** (operator ruling, 2026-08-26): the
+operator's configs run `--kv-unified`, under which `--cache-reuse` has no
+effect, so there is nothing for llauncher to gate — it stays verbatim in
+`extra_args`.
 
 ## Scope vs. the ask
 
@@ -107,7 +111,9 @@ document's content against it, so scope growth is visible rather than inferred.
 
 **The ask, verbatim.**
 - #477 ratification directive: *"disable pydantic for `extra_args`."*
-- This session, on the six flags: they *"may change per entry or model"*; and
+- This session, on the six flags then named (one of which, `--cache-reuse`,
+  was declined on 2026-08-26 — see the Decision): they *"may change per entry
+  or model"*; and
   *"This is supposed to be a launcher — not a movement into a Streamlit UI to
   just type everything anyway."*
 - Decision A ruling: *"the rough thing about adding `-ctk`/`-ctv` is that it
@@ -119,9 +125,8 @@ document's content against it, so scope growth is visible rather than inferred.
 | ADR-LLNCH-028 existing at all — the named flags becoming controls | The admission criterion as a *general* rule binding future flags |
 | Per-`ModelConfig` fields, never `core/settings` host globals | The primitive-value clause generalized past `-ctk`/`-ctv` to every admitted field |
 | `str`, not `Literal`, on `-ctk`/`-ctv` | Deny-listing `-c`/`--ctx-size` and `-np`/`--parallel`, which closes #487 |
-| Surfacing invalid values at launch (#376 named as the surface) | The `kv_backend` declaration (decision **C**) — a field nobody asked for |
+| Surfacing invalid values at launch (#376 named as the surface) | A second one-shot rewrite of `config.json` within a week of #483's |
 | The chip surface — the answer to "not a Streamlit UI to type everything" | `spec_draft_n_max` (decision **B**) — no independent claim |
-| | A second one-shot rewrite of `config.json` within a week of #483's |
 
 ADR-LLNCH-026's 16-field partition is **not** re-litigated here; it is cited as
 the precedent this ADR narrows. The revert path was assessed and declined by the
@@ -142,7 +147,7 @@ Per admitted flag, per persisted entry:
    unchanged). **Never first-wins.** The published contract and the operator's
    typed intent disagreeing in silence is exactly #487's defect.
 4. **flag present, value not coercible to the field's primitive** (e.g. a
-   non-integer `--cache-reuse`) → quarantine. Note the narrowness: this rejects
+   non-integer `--spec-draft-n-max`) → quarantine. Note the narrowness: this rejects
    a *type* error, never a *value* llama-server might accept — `-ctk anything`
    migrates, and the binary judges it (#376).
 
@@ -185,13 +190,13 @@ clause forbids. What changes is the size of the owned column: 6 kept fields → 
 to 12, each admitted by the criterion above rather than by the
 "llauncher-acted-on" judgement call the partition table used.
 
-**ADR-LLNCH-024** Phase 2 is **un-withdrawn, re-scoped**: it promotes the six
+**ADR-LLNCH-024** Phase 2 is **un-withdrawn, re-scoped**: it promotes the five
 flags in this ADR's table and no others, and it inherits this ADR's migration,
 primitive-value, and deny-list clauses. Phase 1/3 dispositions from
 ADR-LLNCH-026's amendment stand; the Phase 1 column grows from ~8 rows to ~14.
 ADR-LLNCH-024's non-goal (cells encode no semantic compatibility knowledge) is
-**kept**: the MTP × `parallel` gate and the `cache-reuse` gate live in the
-launch path, not in a matrix cell. Its `RenderSpec.transform` must not become a
+**kept**: the MTP × `parallel` gate lives in the launch path, not in a matrix
+cell. Its `RenderSpec.transform` must not become a
 value-validation hook — that would re-acquire the enumeration this ADR forbids.
 
 ## Consequences
@@ -199,8 +204,8 @@ value-validation hook — that would re-acquire the enumeration this ADR forbids
 **Positive**
 - The recurring vocabulary becomes clickable across all four surfaces; the
   launcher stops being a textarea for the flags the operator changes per entry.
-- #91's footer math becomes computable; #184/#189/#237's hazards become
-  refusals instead of documentation; #487's silent drop becomes a load-time
+- #91's footer math becomes computable; #189/#237's MTP hazard becomes a
+  refusal instead of documentation; #487's silent drop becomes a load-time
   quarantine.
 - The owned column now has a criterion, so the next flag's admission is decided
   by a test and a designation rather than by a judgement call.
@@ -208,8 +213,8 @@ value-validation hook — that would re-acquire the enumeration this ADR forbids
 **Negative**
 - A second migration of `config.json` within a week of #483's. Mitigated by
   determinism and the quarantine path; the operator sees churn, not loss.
-- Six more deny-listed flags mean six more ways an existing `extra_args` string
-  becomes a launch-time refusal after migration. This is fail-loud by design and
+- Every admitted flag joins the deny-list, so an existing `extra_args` string
+  carrying one becomes a launch-time refusal after migration. This is fail-loud by design and
   the migration removes the tokens it lifts, so only a hand-edit after migration
   can hit it.
 - **The primitive-value clause trades config-time rejection for launch-time
@@ -245,7 +250,7 @@ config-field writability: a field writable in the UI form and not in the MCP
 
 **#467 becomes the tracker.** Proposed acceptance criteria:
 
-- [ ] ADR-LLNCH-028 ratified; decisions B/C resolved on the issue.
+- [ ] ADR-LLNCH-028 ratified; decision B resolved on the issue.
 - [ ] Each admitted flag has a typed `ModelConfig` field of primitive type
       (no `Literal`/enum/range), is on `DENIED_EXTRA_ARG_FLAGS`, and is
       writable through ui / cli / mcp / agent.
@@ -263,9 +268,13 @@ config-field writability: a field writable in the UI form and not in the MCP
 - [ ] **#376 landed**, or the known-fragile note is carried forward explicitly
       on #467 with the residual risk named.
 
-**Closes under it:** #92, #91, #294 (re-framed to this scope), #487, #184 and
-#237 (on decision C; otherwise both close as documentation per ADR-LLNCH-026).
-#189 stays `user:gate` until its live config is corrected.
+**Closes under it:** #92, #91, #294 (re-framed to this scope), #487.
+
+**#184** (hazard: `--cache-reuse` on hybrid-recurrent backends) closes as
+documentation — the hazard note lives in the `extra_args` help text and the
+README, not a gate. **#237**'s MTP `parallel > 1` half stays live under the
+`--spec-type` gate above; its `--cache-reuse` half closes with #184. #189
+stays `user:gate` until its live config is corrected.
 
 ## Ratification decisions
 
@@ -275,7 +284,10 @@ primitive-value clause above. The preflight KV-footprint obligation floated in
 the first draft is **withdrawn** — it was a derivation llauncher does not
 perform; the admission stands on per-entry designation instead.
 
-The two below are open. Each proposed default becomes operative if ratified
+**Decision C — `--cache-reuse` — RULED 2026-08-26.** Not admitted; no
+`kv_backend` field is created. Recorded in the Decision above.
+
+The one below is open. Its proposed default becomes operative if ratified
 without comment.
 
 **B. `--spec-draft-n-max`.** Pure tuning; nothing gates or derives from it.
@@ -283,17 +295,6 @@ without comment.
 spec-decoding control group split across a field and a textarea is worse than
 either. *Alternative:* strict criterion — it stays in `extra_args`, and the UI
 group shows a chip beside the two admitted spec fields.
-
-**C. `--cache-reuse` gate predicate.** Gating needs a hybrid/recurrent-backend
-signal, and #237 records that no ADR owns that predicate. *Proposed default:* a
-new operator-declared `kv_backend: str | None` field on `ModelConfig`
-(`hybrid_recurrent` is the only gating value; unset = no gate) — a declaration,
-not inference, so no model-physics oracle is created (ADR-LLNCH-024's non-goal
-holds) and no upstream vocabulary is enumerated either (the value space is
-llauncher's own). Launch is refused when `cache_reuse` is set and
-`kv_backend == "hybrid_recurrent"`. *Alternative:* no field, no gate —
-`--cache-reuse` stays verbatim and #184/#237 close as operator documentation,
-which is ADR-LLNCH-026's current ruling.
 
 ## Supersession relationships
 

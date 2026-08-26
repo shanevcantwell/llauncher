@@ -33,7 +33,7 @@
 >   render matrix (Phase 1) remains open future work, re-scoped as above.
 >
 > **Amendment (ADR-LLNCH-028, 2026-08-26):** Phase 2 is **reinstated**, re-scoped
-> to ADR-LLNCH-028's admitted set (six flags), with its admission criterion
+> to ADR-LLNCH-028's admitted set (five flags), with its admission criterion
 > replacing "hazardous/missing" and its primitive-value clause binding every
 > promoted field — so `RenderSpec.transform` must never become a value-validation
 > hook. The semantic-gate non-goal is unaffected: gates are launch-path clauses,

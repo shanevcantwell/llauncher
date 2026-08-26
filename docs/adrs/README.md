@@ -48,7 +48,7 @@ Folder placement and in-document Status are kept in sync.
 
 - [ADR-LLNCH-017 — Trusted-Host Session-Token Issuance (Design B)](./draft/adr-llnch-017-session-token-issuance.md) — Phase 1 of the provisioning roadmap (#135 / #137); supersedes the static-token-only framing of ADR-LLNCH-003 on ratification
 - [ADR-LLNCH-024 — Declarative Render Matrix](./draft/adr-llnch-024-declarative-render-matrix.md) — declarative config→backend-argument render matrix; Status: Draft; amended 2026-08-25 by ADR-LLNCH-026 (Phase 2 withdrawn; Phases 1/3 re-scoped to the six-field owned column) and 2026-08-26 by ADR-LLNCH-028 (Phase 2 reinstated, re-scoped to six named flags)
-- [ADR-LLNCH-028 — Typed Flags Are The Ones llauncher Reasons About](./draft/adr-llnch-028-typed-flags-are-the-ones-llauncher-reasons-about.md) — admission criterion for typed `ModelConfig` fields (gate / constrain / compute-from, or an operator-designated per-entry control) + the primitive-value clause (never a `Literal` over llama-server's vocabulary); amends ADR-LLNCH-026, reinstates ADR-LLNCH-024 Phase 2; tracker #467; decisions B/C open at ratification
+- [ADR-LLNCH-028 — Typed Flags Are The Ones llauncher Reasons About](./draft/adr-llnch-028-typed-flags-are-the-ones-llauncher-reasons-about.md) — admission criterion for typed `ModelConfig` fields (gate / constrain / compute-from, or an operator-designated per-entry control) + the primitive-value clause (never a `Literal` over llama-server's vocabulary); amends ADR-LLNCH-026, reinstates ADR-LLNCH-024 Phase 2; tracker #467; decision B open at ratification
 
 ### Pending (unmerged branch)
 
