@@ -18,6 +18,7 @@ def _reset_mcp_state():
     server_mod._mcp_state = None  # type: ignore[attr-defined]
 
 
+@contextlib.contextmanager
 def _no_real_scan():
     """Stub both process-scan seams ``LauncherState.refresh()`` walks
     (issue #496).
@@ -40,13 +41,16 @@ def _no_real_scan():
     module-attribute path (not by re-importing the bound name), matching the
     seam-patching rule the existing ``launcher_state`` fixture in
     ``tests/conftest.py`` already uses.
+
+    A ``@contextmanager`` (rather than building an ``ExitStack`` and handing
+    it back) so both patches are entered inside the ``with`` the caller
+    actually binds — if the second patch failed to enter, the first would
+    unwind via this generator's own exit instead of leaking session-wide.
     """
-    stack = contextlib.ExitStack()
-    stack.enter_context(patch("llauncher.state.find_all_llama_servers", return_value=[]))
-    stack.enter_context(
-        patch("llauncher.operations.orphan.proc.discover_all", return_value=[])
-    )
-    return stack
+    with patch("llauncher.state.find_all_llama_servers", return_value=[]), patch(
+        "llauncher.operations.orphan.proc.discover_all", return_value=[]
+    ):
+        yield
 
 
 class TestGetMcpState:
