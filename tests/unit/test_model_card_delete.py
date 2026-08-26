@@ -78,17 +78,20 @@ class TestDeleteConfirmGateBlocksUnconfirmedClick:
 
 
 class TestDeleteConfirmFiresOps:
+    """Exercises ``_confirm_delete`` (#498), the Confirm button's own
+    ``on_click`` callback -- ``_render_delete_confirm`` itself only
+    renders the warning and wires the Cancel/Confirm buttons now, so a
+    mocked ``st.button`` return value no longer fires the dispatch.
+    """
+
     def test_confirm_click_calls_ops_delete_model(self):
-        st = _mock_st(
-            clicked_keys={"delete_confirm_local_m"},
-            session_state={"deleting_local_m": True},
-        )
+        st = _mock_st(session_state={"deleting_local_m": True})
         envelope = DeleteModelResult(success=True, action="deleted", name="m", message="Removed 'm'.")
 
         with patch.object(model_card, "st", st), patch.object(
             model_card.ops, "delete_model", return_value=envelope
         ) as mock_delete:
-            model_card._render_delete_confirm("local", "m")
+            model_card._confirm_delete("m", "deleting_local_m")
 
         mock_delete.assert_called_once_with("m", caller="ui")
         st.toast.assert_called_once_with("Removed 'm'.", icon="✅")
@@ -110,16 +113,16 @@ class TestDeleteConfirmFiresOps:
 
 
 class TestDeleteCancel:
+    """Exercises ``_cancel_delete`` (#498), the Cancel button's own
+    ``on_click`` callback -- see ``TestDeleteConfirmFiresOps`` for why."""
+
     def test_cancel_click_does_not_call_ops_and_clears_flag(self):
-        st = _mock_st(
-            clicked_keys={"delete_cancel_local_m"},
-            session_state={"deleting_local_m": True},
-        )
+        st = _mock_st(session_state={"deleting_local_m": True})
 
         with patch.object(model_card, "st", st), patch.object(
             model_card.ops, "delete_model"
         ) as mock_delete:
-            model_card._render_delete_confirm("local", "m")
+            model_card._cancel_delete("deleting_local_m")
 
         mock_delete.assert_not_called()
         assert st.session_state.get("deleting_local_m") is False
@@ -130,13 +133,13 @@ class TestDeleteCancel:
 
 class TestDeleteRejectedInUse:
     """Belt-and-suspenders backend refusal surfaces via st.error + st.toast,
-    mirroring the ``_handle_start``/``_handle_stop`` failure pattern."""
+    mirroring the ``_handle_start``/``_handle_stop`` failure pattern.
+    Exercises ``_confirm_delete`` directly (#498) -- see
+    ``TestDeleteConfirmFiresOps`` for why.
+    """
 
     def test_rejected_in_use_surfaces_error_and_toast(self):
-        st = _mock_st(
-            clicked_keys={"delete_confirm_local_m"},
-            session_state={"deleting_local_m": True},
-        )
+        st = _mock_st(session_state={"deleting_local_m": True})
         envelope = DeleteModelResult(
             success=False,
             action="rejected_in_use",
@@ -148,7 +151,7 @@ class TestDeleteRejectedInUse:
         with patch.object(model_card, "st", st), patch.object(
             model_card.ops, "delete_model", return_value=envelope
         ) as mock_delete:
-            model_card._render_delete_confirm("local", "m")
+            model_card._confirm_delete("m", "deleting_local_m")
 
         mock_delete.assert_called_once_with("m", caller="ui")
         st.error.assert_called_once_with(envelope.message)
@@ -156,10 +159,7 @@ class TestDeleteRejectedInUse:
         assert st.session_state.get("deleting_local_m") is False
 
     def test_other_failure_surfaces_error_and_toast(self):
-        st = _mock_st(
-            clicked_keys={"delete_confirm_local_m"},
-            session_state={"deleting_local_m": True},
-        )
+        st = _mock_st(session_state={"deleting_local_m": True})
         envelope = DeleteModelResult(
             success=False,
             action="error",
@@ -170,7 +170,7 @@ class TestDeleteRejectedInUse:
         with patch.object(model_card, "st", st), patch.object(
             model_card.ops, "delete_model", return_value=envelope
         ):
-            model_card._render_delete_confirm("local", "m")
+            model_card._confirm_delete("m", "deleting_local_m")
 
         st.error.assert_called_once_with(envelope.message)
         st.toast.assert_called_once_with(envelope.message, icon="❌")

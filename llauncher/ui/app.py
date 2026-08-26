@@ -175,6 +175,22 @@ def main():
 
         # Refresh button. state.refresh() re-reads config.json, so the
         # same fail-loud pair as the state build applies here (#476).
+        #
+        # Issue #498: no explicit st.rerun() here. A click already causes
+        # exactly one script rerun (Streamlit's normal reactive behaviour
+        # for any widget interaction); the old trailing st.rerun() forced
+        # a wasteful *second* run. The mutations below (state.refresh(),
+        # registry.refresh_all()) land on `state`/`registry` in place and
+        # every tab below renders after this block in the same top-down
+        # pass, so they already see fresh data this run without a second
+        # execution. This site is intentionally NOT an on_click callback
+        # (unlike the model_card.py/nodes.py sites) because its fail-loud
+        # path needs st.stop(), which has no meaning in Streamlit's
+        # pre-script callback context — there is no script body running
+        # yet for it to halt, so a config-read failure would fall through
+        # and render the whole app against a half-refreshed state. (The
+        # st.error() half is callback-safe; st.stop() is what pins this
+        # one to the script body.)
         if st.button("🔄 Refresh All", width='stretch'):
             try:
                 state.refresh()
@@ -183,7 +199,6 @@ def main():
                 st.stop()
             registry.refresh_all()
             st.toast("Refreshed all nodes", icon="🔄")
-            st.rerun()
 
         st.divider()
 
