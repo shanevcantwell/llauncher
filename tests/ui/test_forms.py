@@ -24,10 +24,13 @@ from __future__ import annotations
 import pytest
 
 from llauncher.ui.tabs.forms import (
+    _edit_error_key,
     _process_edit_model,
+    _save_edit_callback,
     render_add_model,
     render_edit_model,
 )
+from llauncher.ui.tabs.model_card import edit_saved_toast_key
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +248,16 @@ class TestEditModelSuccess:
         assert name_arg == "existing-model"
         assert updated_config.model_path == str(new_path)
         assert kwargs["caller"] == "ui"
-        assert any("Updated model 'existing-model'" in s.value for s in at.success)
+        # #494: the edit form's own script pass never re-renders after a
+        # successful save (its editing_ flag was cleared by the on_click
+        # callback before the script body ran, so this run's routing
+        # decision already moved on) — the confirmation is a toast queued
+        # here for model_card.py's per-card render to show once, not an
+        # st.success() rendered from this form.
+        assert (
+            at.session_state[edit_saved_toast_key("existing-model")]
+            == "Saved config for existing-model"
+        )
 
     def test_valid_submission_updates_state_and_clears_editing_flag(
         self, tab_harness, mock_state, mock_config_store, existing_config
@@ -325,7 +337,12 @@ class TestEditModelNotYetPersistedUpsertsViaAddModel:
         (upserted_config,), kwargs = mock_config_store.add_model.call_args
         assert upserted_config.name == "existing-model"
         assert kwargs["caller"] == "ui"
-        assert any("Saved model 'existing-model'" in s.value for s in at.success)
+        # #494: see the equivalent note in TestEditModelSuccess above — the
+        # confirmation is a queued toast, not a rendered st.success().
+        assert (
+            at.session_state[edit_saved_toast_key("existing-model")]
+            == "Saved config for existing-model"
+        )
 
 
 class TestEditModelCancel:
@@ -419,7 +436,16 @@ class TestEditModelVanishedAtSubmit:
         )
 
         assert not at.exception
-        assert any("'existing-model' not found" in e.value for e in at.error)
+        # #494: _process_edit_model is now callback-safe — it never calls
+        # st.error() directly (a no-op when invoked from an on_click
+        # callback), it persists the sticky-error flag that
+        # render_edit_model's own next render displays via
+        # _render_edit_error. Driven directly here (same idiom as before),
+        # so assert on the flag rather than a rendered element.
+        assert (
+            at.session_state[_edit_error_key("existing-model")]
+            == "Model 'existing-model' not found"
+        )
         mock_config_store.update_model.assert_not_called()
         mock_config_store.add_model.assert_not_called()
 
@@ -503,3 +529,62 @@ class TestAddModelAdvancedOptions:
         mock_config_store.add_model.assert_called_once()
         (added_config,), _ = mock_config_store.add_model.call_args
         assert added_config.extra_args == "--mcp-config /x.json --flash-attn on"
+
+
+class TestSaveCallbackReadsThisModelsWidgetKeys:
+    """#494 review: the Save callback reads the submitted widget values out
+    of ``st.session_state`` by key, and those keys are namespaced by model.
+
+    Bare ``edit_*`` keys made the reads model-agnostic: whichever model's
+    form last wrote ``edit_model_path`` supplied the value that a *different*
+    model's Save then persisted. Driven directly here (the same private-
+    handler idiom as ``TestEditModelVanishedAtSubmit`` above) because that
+    read seam is exactly what the namespacing changes; the full two-form
+    flow is pinned in ``tests/ui/test_edit_save_single_run_494.py``.
+    """
+
+    def test_callback_uses_the_named_models_keys_not_another_models(
+        self, tab_harness, mock_state, mock_config_store, tmp_path
+    ):
+        from llauncher.models.config import ModelConfig
+
+        paths = {}
+        for name in ("model-a", "model-b"):
+            p = tmp_path / f"{name}.gguf"
+            p.touch()
+            paths[name] = str(p)
+            mock_state.models[name] = ModelConfig(name=name, model_path=paths[name])
+        mock_config_store.load.return_value = dict(mock_state.models)
+
+        at = tab_harness(_save_edit_callback, mock_state, "model-b", run=False)
+        # model-a's form state is still resident from an earlier edit...
+        at.session_state["edit_model_path_model-a"] = paths["model-a"]
+        at.session_state["edit_mmproj_path_model-a"] = ""
+        at.session_state["edit_n_gpu_layers_model-a"] = 1
+        at.session_state["edit_ctx_size_model-a"] = 2048
+        at.session_state["edit_parallel_model-a"] = 1
+        at.session_state["edit_metrics_model-a"] = True
+        at.session_state["edit_slots_model-a"] = True
+        at.session_state["edit_extra_args_model-a"] = "--from-a"
+        # ...alongside model-b's, which is the one being saved.
+        at.session_state["edit_model_path_model-b"] = paths["model-b"]
+        at.session_state["edit_mmproj_path_model-b"] = ""
+        at.session_state["edit_n_gpu_layers_model-b"] = 99
+        at.session_state["edit_ctx_size_model-b"] = 4096
+        at.session_state["edit_parallel_model-b"] = 4
+        at.session_state["edit_metrics_model-b"] = False
+        at.session_state["edit_slots_model-b"] = False
+        at.session_state["edit_extra_args_model-b"] = "--from-b"
+        at.run()
+
+        assert not at.exception
+        assert _edit_error_key("model-b") not in at.session_state
+        (name_arg, saved), _ = mock_config_store.update_model.call_args
+        assert name_arg == "model-b"
+        assert saved.model_path == paths["model-b"]
+        assert saved.n_gpu_layers == 99
+        assert saved.ctx_size == 4096
+        assert saved.parallel == 4
+        assert saved.metrics is False
+        assert saved.slots is False
+        assert saved.extra_args == "--from-b"

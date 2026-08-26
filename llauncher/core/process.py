@@ -28,12 +28,39 @@ DEFAULT_SERVER_BINARY = LLAMA_SERVER_PATH
 # Issue #392: LauncherState.refresh() triggers two full psutil.process_iter
 # scans (find_all_llama_servers + discover_all), and
 # refresh() itself is called redundantly up to 3-4x per Streamlit rerun
-# (once per tab render). A full process-table scan on Windows is expensive
-# enough (measured ~8.4-8.6s for /status vs 8ms for /node-info) that this
-# redundancy alone produced the observed UI stall. A short TTL cache in
-# front of each scan collapses the redundant calls within one rerun while
+# (once per tab render — Streamlit's `st.tabs()` executes *every* tab's
+# body on every script run; only the active tab's output is switched
+# client-side). A full process-table scan on Windows is expensive enough
+# (measured ~8.4-8.6s for /status vs 8ms for /node-info; docstrings below
+# cite an elastic 3.1-12.3s range, #309) that this redundancy alone
+# produced the observed UI stall. A short TTL cache in front of each scan
+# is meant to collapse the redundant calls within one script run while
 # staying invisible across genuine start/stop actions, which explicitly
-# invalidate the cache (see llauncher.state's self.running mutation sites).
+# invalidate the cache regardless of TTL (see invalidate_process_scan_cache
+# and llauncher.state's self.running mutation sites).
+#
+# Issue #494 (and #418): the TTL here stays SHORT — 3s — on purpose.
+# On the delegated topology (ADR-018 production deployment,
+# delegation.should_delegate() true) the UI process never calls
+# start_server/stop_server_by_pid itself; it POSTs to the agent, which
+# invalidates its *own* interpreter's cache instance. The Streamlit
+# process's cache is never invalidated on that path, so this TTL is the
+# ONLY staleness bound on the delegated topology: a post-mutation
+# state.refresh() can serve a pre-mutation scan for up to the TTL (#418).
+# Lengthening it lengthens that stale window proportionally, so it stays
+# at 3s until #418 lands a real cross-process invalidation.
+#
+# What this TTL does NOT solve: the same-run double refresh() —
+# dashboard.py:54 and model_registry.py:48 both fire under st.tabs on one
+# script run, and a single scan (~6-12s, #309) outlasts any TTL short
+# enough to be safe here, so the second caller misses regardless. That is
+# a call-graph problem, not a cache-tuning one; the fix is to hoist the
+# refresh so one run does one refresh.
+# tracked: one refresh per run, hoisted to app.py — #497
+#
+# In-process start/stop are unaffected either way: they call
+# invalidate_process_scan_cache() intrinsically (#402/#414), which clears
+# the cache immediately regardless of TTL.
 #
 # Each scan function gets its OWN cache key — they return different shapes
 # (bare Process list vs list[ServerProcessInfo]) and must never share
