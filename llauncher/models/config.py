@@ -45,10 +45,10 @@ def _skip_path_validation() -> Iterator[None]:
         _skip_path_validation_var.reset(token)
 
 
-# NOTE (ADR-026, issue #477): the llauncher-owned extra_args deny-list
+# NOTE (ADR-LLNCH-026, issue #477): the llauncher-owned extra_args deny-list
 # (``--alias``, ``-m``/``--model``, ``--host``/``--port``, ``--api-key``,
 # ``--metrics``, ``--slots``/``--no-slots``) used to be enforced here as a
-# pydantic field validator. Per the ADR-026 ratification it is now enforced
+# pydantic field validator. Per the ADR-LLNCH-026 ratification it is now enforced
 # exactly once, at launch time, in ``core/process.py::build_command`` — not
 # as schema validation. ``ModelConfig.extra_args`` carries llama-server
 # flags verbatim with no pydantic validation of its contents; see
@@ -132,7 +132,7 @@ class ModelConfig(BaseModel):
     #
     # Note this no longer has anything to do with ``extra_args``: the
     # deny-list validator it originally existed for (PR #101 / issue #81)
-    # was deleted by ADR-026 / issue #477, which moved that check to
+    # was deleted by ADR-LLNCH-026 / issue #477, which moved that check to
     # ``core/process.py::build_command``. The setting is kept for the
     # remaining typed fields (``n_gpu_layers``, ``ctx_size``, ``parallel``
     # and friends carry ge/gt constraints worth enforcing on assignment).
@@ -166,7 +166,7 @@ class ModelConfig(BaseModel):
             "issue #179 PM-2 de-risk)."
         ),
     )
-    # ADR-026 / issue #477: ``extra_args`` carries llama-server flags
+    # ADR-LLNCH-026 / issue #477: ``extra_args`` carries llama-server flags
     # verbatim, in the spelling the operator read out of
     # ``llama-server --help``. There is deliberately no pydantic content
     # validation here — no shell-quoting check, no managed-flag collision
@@ -177,7 +177,7 @@ class ModelConfig(BaseModel):
     # ``ExtraArgsError``.
     #
     # ``ConfigStore.load`` does NOT parse this field's content either: the
-    # ADR-026 migration tokenizes ``extra_args`` only for an entry that
+    # ADR-LLNCH-026 migration tokenizes ``extra_args`` only for an entry that
     # still carries pre-#477 mirror fields to place, and never again once
     # that entry is migrated. So the read path is exactly as permissive as
     # this write path — a quoting error the UI accepted fails at launch,
@@ -210,7 +210,7 @@ class ModelConfig(BaseModel):
           audit confirmed every persisted value was already null).
         - Migrates ``extra_args`` from ``list[str]`` to ``str``.
 
-        The 16 llama-server-mirror fields dropped by ADR-026 / issue #477
+        The 16 llama-server-mirror fields dropped by ADR-LLNCH-026 / issue #477
         (``cache_type_k``/``v``, ``threads``, ``threads_batch``,
         ``ubatch_size``, ``batch_size``, ``n_cpu_moe``, ``flash_attn``,
         ``no_mmap``, ``mlock``, ``temperature``, ``top_k``, ``top_p``,

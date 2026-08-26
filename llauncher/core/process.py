@@ -47,7 +47,7 @@ class ExtraArgsError(ValueError):
     """``extra_args`` could not be turned into argv at launch time.
 
     The one exception type callers catch for every ``extra_args`` defect
-    (ADR-026 / issue #477). ``extra_args`` carries llama-server flags
+    (ADR-LLNCH-026 / issue #477). ``extra_args`` carries llama-server flags
     verbatim with no pydantic content validation, so *both* of its failure
     modes — unparseable shell quoting and a llauncher-owned flag — first
     become observable here, in :func:`build_command`, the single
@@ -61,7 +61,7 @@ class DeniedExtraArgError(ExtraArgsError):
     """``extra_args`` carries a flag llauncher owns and enforces at launch.
 
     Raised by :func:`build_command` — the single enforcement point for
-    :data:`DENIED_EXTRA_ARG_FLAGS` (ADR-026 / issue #477). Callers
+    :data:`DENIED_EXTRA_ARG_FLAGS` (ADR-LLNCH-026 / issue #477). Callers
     (``start_server``, ``operations.start``/``operations.swap``) catch this
     alongside their other launch-failure exceptions and surface it as a
     clear, typed error rather than letting a malformed/hostile argv reach
@@ -72,7 +72,7 @@ class DeniedExtraArgError(ExtraArgsError):
 class MalformedExtraArgsError(ExtraArgsError):
     """``extra_args`` is not valid shell-token text (unbalanced quoting).
 
-    ADR-026 removed all pydantic content validation from ``extra_args``,
+    ADR-LLNCH-026 removed all pydantic content validation from ``extra_args``,
     so the UI/MCP/CLI write path accepts any string the operator types —
     deliberately, since llama-server's own parser is the authority on its
     flags. The consequence is that ``shlex.split`` can fail here, at
@@ -103,7 +103,7 @@ class MalformedExtraArgsError(ExtraArgsError):
 #   directions, so effective policy is config-driven, never the binary
 #   default; an ``extra_args`` duplicate could silently defeat that.
 #
-# ADR-026 / issue #477: this is now the *only* enforcement point for the
+# ADR-LLNCH-026 / issue #477: this is now the *only* enforcement point for the
 # deny-list — a pydantic field validator used to duplicate this check at
 # config-construction/load time; that duplication is gone. A malformed
 # config on disk is caught here, at launch, not earlier.
@@ -133,7 +133,7 @@ def _check_extra_args_deny_list(tokens: list[str]) -> None:
                 f"extra_args contains llauncher-managed flag {head!r} — "
                 f"set it via the dedicated ModelConfig field (or runtime "
                 f"parameter), or remove it. llauncher enforces this at "
-                f"launch time (ADR-026 / issue #477)."
+                f"launch time (ADR-LLNCH-026 / issue #477)."
             )
 
 
@@ -268,7 +268,7 @@ def build_command(
     # ``config.slots``, never the binary's own default.
     cmd.append("--slots" if config.slots else "--no-slots")
 
-    # Extra args (parse free-form string into arguments). ADR-026 / issue
+    # Extra args (parse free-form string into arguments). ADR-LLNCH-026 / issue
     # #477: extra_args is a verbatim passthrough with no pydantic content
     # validation — the llauncher-owned deny-list is enforced right here,
     # at launch time, the single enforcement point. A denied flag raises
@@ -281,7 +281,7 @@ def build_command(
                 f"extra_args for model {config.name!r} is not valid "
                 f"shell-token text ({e}) — check the quoting. llauncher "
                 f"stores extra_args verbatim and parses it only here, at "
-                f"launch (ADR-026 / issue #477)."
+                f"launch (ADR-LLNCH-026 / issue #477)."
             ) from e
         _check_extra_args_deny_list(extra_tokens)
         cmd.extend(extra_tokens)

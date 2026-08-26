@@ -339,7 +339,7 @@ class TestQuarantineNotTolerance:
         assert set(models) == {"good"}
         assert set(errors) == {"bad"}
         assert "Quarantined model 'bad'" in caplog.text
-        assert "Skipping the ADR-026 config rewrite" in caplog.text
+        assert "Skipping the ADR-LLNCH-026 config rewrite" in caplog.text
 
 
 class TestReadPathIsNoStricterThanWritePath:

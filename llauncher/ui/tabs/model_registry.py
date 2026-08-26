@@ -54,7 +54,7 @@ def render_model_registry(state, registry=None, aggregator=None, target="local")
         report = ops.validate_models(vram=False)
         entries = [m.model_dump(mode="json") for m in report.models]
 
-        # The registry's error list (ADR-026 / issue #477, "quarantine,
+        # The registry's error list (ADR-LLNCH-026 / issue #477, "quarantine,
         # not tolerance"): entries whose persisted shape did not migrate
         # deterministically are not loaded, so they cannot appear as a row
         # below. Without this banner they would simply vanish from the
