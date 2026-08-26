@@ -118,13 +118,14 @@ def edit_error_key(model_name: str) -> str:
     (see ``edit_saved_toast_key``); putting it the other way round would
     make a cycle. ``forms.py`` imports it as ``_edit_error_key``.
 
-    Mirrors the ``_start_error_key``/#401 idiom: the Save button's
-    ``on_click`` callback runs in Streamlit's pre-script callback context,
-    where ``st.error()`` calls are silently dropped — nothing has started
-    rendering yet this run. A failure persists the message here instead
-    and leaves ``editing_{model_name}`` set, so ``render_edit_model``
-    stays in edit mode on the next (normal, non-callback) render and can
-    display it. Deliberate VIEW state (ADR-LLNCH-025).
+    Mirrors the ``_start_error_key``/#401 idiom: a bare ``st.error()``
+    from the Save button's ``on_click`` callback *would* render (Streamlit
+    replays a callback's render calls into the run it precedes), but it
+    would land at the top of the page instead of inside the edit form, and
+    would vanish on the next unrelated rerun. A failure persists the
+    message here instead and leaves ``editing_{model_name}`` set, so
+    ``render_edit_model`` stays in edit mode on the next render and shows
+    it in place. Deliberate VIEW state (ADR-LLNCH-025).
 
     Cleared on Cancel and on a fresh Edit arm, so it never outlives the
     edit session that produced it.
@@ -184,14 +185,16 @@ def _render_start_error(node_name: str, model_name: str) -> None:
     """Render the sticky start-failure message left by ``_handle_start``.
 
     ``_handle_start`` writes the message to session state instead of
-    calling ``st.error`` directly, because the handler always ends in
-    ``st.rerun()`` (needed so the rest of the card reflects the attempt) —
-    an ``st.error`` call made just before a rerun is wiped before the
-    operator can read it (#401). Rendering from session state here, on the
-    pass *after* the rerun, is what makes the error actually sticky. It
-    stays visible until an explicit Dismiss or the next start attempt
-    supersedes it — never auto-cleared on render, so a slow reader isn't
-    racing the next script pass.
+    calling ``st.error`` directly. Originally that was because the handler
+    ended in ``st.rerun()``, which wiped a just-drawn banner before the
+    operator could read it (#401); #498 removed the rerun, but the reason
+    survives it: a banner raised from the on_click callback would render
+    at the top of the page, away from the card that failed, and would go
+    away on the next unrelated rerun. Rendering from session state here
+    puts it inline under this model's own start button and keeps it there
+    until an explicit Dismiss or the next start attempt supersedes it —
+    never auto-cleared on render, so a slow reader isn't racing the next
+    script pass.
     """
     key = _start_error_key(node_name, model_name)
     message = st.session_state.get(key)
@@ -673,12 +676,13 @@ def _confirm_delete(model_name: str, flag_key: str) -> None:
     """``on_click`` callback for the delete gate's Confirm button (#498).
 
     Dispatches the delete verb, exactly as the old click-branch did,
-    minus the trailing ``st.rerun()``. Unlike the other converted sites
-    in this module, a rejection's ``st.error()`` is kept alongside the
-    toast here -- pinned pre-#498 by
-    ``tests/unit/test_model_card_delete.py::TestDeleteRejectedInUse``
-    ("belt-and-suspenders backend refusal") -- so this call stays as it
-    was rather than being folded into the sticky-message idiom.
+    minus the trailing ``st.rerun()``. The rejection's ``st.error()``
+    banner is untouched: a render call made from an ``on_click`` callback
+    is replayed into the run the callback precedes, so it still reaches
+    the operator (``TestCallbackRenderCallsSurvive498``). The card this
+    banner belonged to may be gone by the time it renders — a successful
+    delete removes it — which is exactly why the message is not folded
+    into the per-card sticky-message idiom.
     """
     result = ops.delete_model(model_name, caller="ui")
     st.session_state[flag_key] = False
@@ -890,16 +894,17 @@ def _handle_start(
                             or "Local agent returned no result"
                         )
                         # Errors must be sticky — toasts disappear too quickly
-                        # to read on a near-instant validation failure, and
-                        # this whole handler runs as the start button's
-                        # on_click callback (#498): a bare st.error() here
-                        # would be silently dropped (nothing has started
-                        # rendering yet this run — see
-                        # forms.py::_process_edit_model). Persist to
-                        # session_state; _render_start_error renders it on
-                        # the next pass and clears it on Dismiss (deliberate
-                        # VIEW state, not cached lifecycle truth — docs
-                        # PR #411 / issue #410).
+                        # to read on a near-instant validation failure. Not
+                        # because a callback's st.error() would be dropped
+                        # (it isn't — see the aggregator branch below), but
+                        # because a bare banner would sit at the top of the
+                        # page, away from the card that failed, and would
+                        # vanish on the next unrelated rerun. Persisting to
+                        # session_state puts the message inline under this
+                        # model's own start button and keeps it there until
+                        # the operator clicks Dismiss (deliberate VIEW
+                        # state, not cached lifecycle truth — docs PR #411 /
+                        # issue #410).
                         st.session_state[error_key] = err
                         st.toast(err, icon="❌")
                 else:
@@ -918,16 +923,20 @@ def _handle_start(
         # ``target_port`` required at this entry, so the previous
         # "no-port" guard is gone — the picker upstream enforces it.
         #
-        # #498: no separate st.error() call — this handler now runs as
-        # the start button's on_click callback, where a render call like
-        # st.error() would be silently dropped (same reasoning as the
-        # sticky start_error path above); the toast below already
-        # carries the same message.
+        # #498 only removed this branch's trailing st.rerun(). The
+        # st.error() banner beside the failure toast stays: a render call
+        # made from an on_click callback is *not* dropped -- Streamlit
+        # replays it into the run the callback precedes (verified against
+        # streamlit 1.59.1 with AppTest; see
+        # tests/ui/test_model_card.py::TestCallbackRenderCallsSurvive498).
+        # It lands at the top of the page rather than inline in the card,
+        # which is where a remote-start failure belongs anyway.
         result = aggregator.start_on_node(node_name, model_name, target_port)
         if result:
             if result.get("success"):
                 st.toast(f"Starting {model_name} on {node_name}...", icon="▶️")
             else:
+                st.error(result.get("error", "Failed to start"))
                 st.toast(result.get("error", "Failed to start"), icon="❌")
     else:
         st.toast(

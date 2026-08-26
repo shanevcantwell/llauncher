@@ -1393,3 +1393,48 @@ class TestSingleScriptRunPerClick498:
         assert counted.call_count == before + 1
         mock_ops.delete_model.assert_called_once_with(MODEL, caller="ui")
         assert any("✅" == t.icon for t in at.toast)
+
+
+# ---------------------------------------------------------------------------
+# Issue #498 review: a render call made from an ``on_click`` callback is NOT
+# dropped. Streamlit replays it into the run the callback precedes -- probed
+# against streamlit 1.59.1. #498's first pass deleted the remote start
+# failure's ``st.error()`` on the opposite (wrong) premise while keeping
+# ``_confirm_delete``'s, which could not both be right. These pin the real
+# behavior for both banners, so neither can be deleted again on that reading.
+# ---------------------------------------------------------------------------
+class TestCallbackRenderCallsSurvive498:
+    """Error banners raised inside an ``on_click`` callback reach the page."""
+
+    def test_remote_start_failure_renders_its_error_banner(
+        self, tab_harness, mock_state, mock_aggregator, model_dict,
+        mock_ops, mock_should_delegate, mock_local_agent_node, port_is_free,
+    ):
+        mock_aggregator.start_on_node.return_value = {
+            "success": False, "error": "node refused: out of VRAM",
+        }
+
+        at = _card(tab_harness, mock_state, mock_aggregator, "gpu-rig", model_dict)
+        _set_port(at, node_name="gpu-rig")
+        _click_and_run(at, f"toggle_start_gpu-rig_{MODEL}")
+
+        assert not at.exception
+        assert any("out of VRAM" in el.value for el in at.error)
+        assert any("out of VRAM" in t.body for t in at.toast)
+
+    def test_rejected_delete_renders_its_error_banner(
+        self, tab_harness, card_state, mock_aggregator, model_dict, mock_ops,
+    ):
+        from tests.ui.conftest import make_op_result
+
+        mock_ops.delete_model.return_value = make_op_result(
+            success=False, action="rejected_in_use", message="model is running",
+        )
+
+        at = _card(tab_harness, card_state, mock_aggregator, "local", model_dict)
+        _click_and_run(at, f"delete_local_{MODEL}_enabled")
+        _click_and_run(at, f"delete_confirm_local_{MODEL}")
+
+        assert not at.exception
+        assert any("model is running" in el.value for el in at.error)
+        assert any("model is running" in t.body for t in at.toast)

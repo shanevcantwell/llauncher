@@ -184,10 +184,13 @@ def main():
         # every tab below renders after this block in the same top-down
         # pass, so they already see fresh data this run without a second
         # execution. This site is intentionally NOT an on_click callback
-        # (unlike the model_card.py/nodes.py sites) because its
-        # fail-loud path needs st.error()/st.stop(), which only run
-        # correctly in the normal script body, not Streamlit's pre-script
-        # callback context (see forms.py::_process_edit_model).
+        # (unlike the model_card.py/nodes.py sites) because its fail-loud
+        # path needs st.stop(), which has no meaning in Streamlit's
+        # pre-script callback context — there is no script body running
+        # yet for it to halt, so a config-read failure would fall through
+        # and render the whole app against a half-refreshed state. (The
+        # st.error() half is callback-safe; st.stop() is what pins this
+        # one to the script body.)
         if st.button("🔄 Refresh All", width='stretch'):
             try:
                 state.refresh()
