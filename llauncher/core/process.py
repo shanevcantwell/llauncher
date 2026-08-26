@@ -147,20 +147,26 @@ DENIED_EXTRA_ARG_FLAGS: frozenset[str] = frozenset({
 })
 
 
-def _check_extra_args_deny_list(tokens: list[str]) -> None:
+def _check_extra_args_deny_list(name: str, tokens: list[str]) -> None:
     """Raise :class:`DeniedExtraArgError` if ``tokens`` carries a denied flag.
 
     Matches both the bare (``--api-key foo``) and equals (``--api-key=foo``)
     forms — the head before ``=`` is what is compared.
+
+    ``name`` is the offending :attr:`ModelConfig.name` — issue #462: a
+    config-hygiene message that names the flag but not the config entry
+    is unactionable once more than one model is on the wire (the sibling
+    :class:`MalformedExtraArgsError`, raised in :func:`build_command` below,
+    already names it; this one didn't).
     """
     for token in tokens:
         head = token.split("=", 1)[0]
         if head in DENIED_EXTRA_ARG_FLAGS:
             raise DeniedExtraArgError(
-                f"extra_args contains llauncher-managed flag {head!r} — "
-                f"set it via the dedicated ModelConfig field (or runtime "
-                f"parameter), or remove it. llauncher enforces this at "
-                f"launch time (ADR-LLNCH-026 / issue #477)."
+                f"extra_args for model {name!r} contains llauncher-managed "
+                f"flag {head!r} — set it via the dedicated ModelConfig "
+                f"field (or runtime parameter), or remove it. llauncher "
+                f"enforces this at launch time (ADR-LLNCH-026 / issue #477)."
             )
 
 
@@ -310,7 +316,7 @@ def build_command(
                 f"stores extra_args verbatim and parses it only here, at "
                 f"launch (ADR-LLNCH-026 / issue #477)."
             ) from e
-        _check_extra_args_deny_list(extra_tokens)
+        _check_extra_args_deny_list(config.name, extra_tokens)
         cmd.extend(extra_tokens)
 
     return cmd
