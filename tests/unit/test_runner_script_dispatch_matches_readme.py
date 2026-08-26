@@ -45,16 +45,30 @@ def _readme_text() -> str:
     return (_repo_root() / "README.md").read_text(encoding="utf-8")
 
 
+def _find(haystack: str, needle: str, start: int, what: str) -> int:
+    """``str.index`` that fails the calling test by name instead of raising a
+    bare ValueError during collection — a README heading rename must surface
+    as a named guard failure, not as a pytest collection error."""
+    idx = haystack.find(needle, start)
+    if idx < 0:
+        pytest.fail(
+            f"README.md: could not locate {what} ({needle!r}). The #501 "
+            f"Quick Start guard can no longer parse the README — if a heading "
+            f"was renamed, update this test alongside it."
+        )
+    return idx
+
+
 def _quick_start_block(readme: str, heading: str) -> str:
     """Return the fenced code block immediately following ``heading`` inside
     the '## Quick Start' section (e.g. '**Windows:**' or '**Linux/macOS:**')."""
-    qs_start = readme.index("## Quick Start")
-    qs_end = readme.index("###", qs_start)
+    qs_start = _find(readme, "## Quick Start", 0, "the '## Quick Start' heading")
+    qs_end = _find(readme, "###", qs_start, "the end of the Quick Start section")
     section = readme[qs_start:qs_end]
-    head_idx = section.index(heading)
-    fence_start = section.index("```", head_idx)
-    fence_start = section.index("\n", fence_start) + 1
-    fence_end = section.index("```", fence_start)
+    head_idx = _find(section, heading, 0, f"the {heading} sub-heading")
+    fence_start = _find(section, "```", head_idx, f"the {heading} code fence")
+    fence_start = _find(section, "\n", fence_start, "the fence's first line") + 1
+    fence_end = _find(section, "```", fence_start, f"the {heading} closing fence")
     return section[fence_start:fence_end]
 
 
@@ -67,9 +81,10 @@ def _readme_verbs(block: str) -> set[str]:
         if not line or line.startswith("::") or line.startswith("#"):
             continue
         tokens = line.split()
-        assert tokens[0] in ("./scripts/run.sh", "scripts\\run.bat"), (
-            f"unexpected invocation prefix in Quick Start line: {line!r}"
-        )
+        if tokens[0] not in ("./scripts/run.sh", "scripts\\run.bat"):
+            pytest.fail(
+                f"unexpected invocation prefix in Quick Start line: {line!r}"
+            )
         verbs.add(tokens[1])
     return verbs
 
@@ -82,28 +97,30 @@ def _run_bat_dispatch_verbs() -> set[str]:
 def _run_sh_dispatch_verbs() -> set[str]:
     text = (_repo_root() / "scripts" / "run.sh").read_text(encoding="utf-8")
     # Case labels are 4-space-indented "verb)" lines inside the `case` block.
-    labels = set(re.findall(r"^ {4}([\w-]+)\)$", text, re.MULTILINE))
-    labels.discard("*")
-    return labels
+    # ``[\w-]+`` cannot match the `*)` default label, so no discard is needed.
+    return set(re.findall(r"^ {4}([\w-]+)\)$", text, re.MULTILINE))
 
 
-README = _readme_text()
-WINDOWS_README_VERBS = _readme_verbs(_quick_start_block(README, "**Windows:**"))
-LINUX_README_VERBS = _readme_verbs(_quick_start_block(README, "**Linux/macOS:**"))
+def _windows_verbs() -> set[str]:
+    return _readme_verbs(_quick_start_block(_readme_text(), "**Windows:**"))
+
+
+def _linux_verbs() -> set[str]:
+    return _readme_verbs(_quick_start_block(_readme_text(), "**Linux/macOS:**"))
 
 
 def test_windows_quick_start_names_at_least_one_verb():
     # Guard against the extraction itself silently finding nothing.
-    assert WINDOWS_README_VERBS
+    assert _windows_verbs()
 
 
 def test_linux_quick_start_names_at_least_one_verb():
-    assert LINUX_README_VERBS
+    assert _linux_verbs()
 
 
 def test_every_readme_windows_verb_exists_in_run_bat_dispatch():
     dispatch_verbs = _run_bat_dispatch_verbs()
-    missing = WINDOWS_README_VERBS - dispatch_verbs
+    missing = _windows_verbs() - dispatch_verbs
     assert not missing, (
         f"README documents run.bat verb(s) {sorted(missing)} that "
         f"scripts/run.bat does not dispatch"
@@ -112,7 +129,7 @@ def test_every_readme_windows_verb_exists_in_run_bat_dispatch():
 
 def test_every_readme_linux_verb_exists_in_run_sh_dispatch():
     dispatch_verbs = _run_sh_dispatch_verbs()
-    missing = LINUX_README_VERBS - dispatch_verbs
+    missing = _linux_verbs() - dispatch_verbs
     assert not missing, (
         f"README documents run.sh verb(s) {sorted(missing)} that "
         f"scripts/run.sh does not dispatch"
@@ -122,8 +139,8 @@ def test_every_readme_linux_verb_exists_in_run_sh_dispatch():
 def test_agent_bg_absent_from_readme_quick_start_verbs():
     """agent-bg was removed from both scripts (0c75c67); it must not be
     re-documented as an invocable verb in either Quick Start block."""
-    assert "agent-bg" not in WINDOWS_README_VERBS
-    assert "agent-bg" not in LINUX_README_VERBS
+    assert "agent-bg" not in _windows_verbs()
+    assert "agent-bg" not in _linux_verbs()
 
 
 @pytest.mark.parametrize("path", ["scripts/run.sh", "scripts/run.bat"])
@@ -137,10 +154,11 @@ def test_agent_bg_absent_from_scripts(path: str):
 def test_readme_quick_start_uses_scripts_prefix():
     """The invocation examples must name the real scripts/ location, not a
     bare run.sh / run.bat that only resolves from inside scripts/."""
-    windows_block = _quick_start_block(README, "**Windows:**")
-    linux_block = _quick_start_block(README, "**Linux/macOS:**")
+    readme = _readme_text()
+    windows_block = _quick_start_block(readme, "**Windows:**")
+    linux_block = _quick_start_block(readme, "**Linux/macOS:**")
     assert "scripts\\run.bat" in windows_block
     assert "scripts/run.sh" in linux_block
     # And nothing in either block still names the bare (repo-root-relative) form.
-    assert not re.search(r"(?<!scripts.)(?<!scripts/)\brun\.bat\b", windows_block)
+    assert not re.search(r"(?<!scripts.)\brun\.bat\b", windows_block)
     assert not re.search(r"(?<!scripts/)\./run\.sh\b", linux_block)
