@@ -663,10 +663,12 @@ def _confirm_delete(model_name: str, flag_key: str) -> None:
     """``on_click`` callback for the delete gate's Confirm button (#498).
 
     Dispatches the delete verb, exactly as the old click-branch did,
-    minus the trailing ``st.rerun()`` and the ``st.error()`` call (a
-    render call that would be silently dropped in this pre-script
-    callback context, per forms.py::_process_edit_model's precedent) --
-    the toast below already carries the same message.
+    minus the trailing ``st.rerun()``. Unlike the other converted sites
+    in this module, a rejection's ``st.error()`` is kept alongside the
+    toast here -- pinned pre-#498 by
+    ``tests/unit/test_model_card_delete.py::TestDeleteRejectedInUse``
+    ("belt-and-suspenders backend refusal") -- so this call stays as it
+    was rather than being folded into the sticky-message idiom.
     """
     result = ops.delete_model(model_name, caller="ui")
     st.session_state[flag_key] = False
@@ -674,6 +676,7 @@ def _confirm_delete(model_name: str, flag_key: str) -> None:
     if result.success:
         st.toast(result.message, icon="✅")
     else:
+        st.error(result.message)
         st.toast(result.message, icon="❌")
 
 

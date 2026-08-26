@@ -8,9 +8,13 @@ branch needs a unit test. These mirror ``TestDelegationRouting`` in
 and assert the delegate branch POSTs via the node while the in-process
 branch calls ``ops.*``.
 
-Streamlit is mocked at the module seam (``model_card.st``); ``st.button``
-returns True so the eviction "Confirm" path fires, and ``st.rerun`` is a
-no-op (unlike real Streamlit it does not halt execution).
+Streamlit is mocked at the module seam (``model_card.st``). Issue #498
+moved the eviction dialog's dispatch logic out of
+``_render_eviction_dialog`` (which now only renders the warning + wires
+the Cancel/Confirm buttons' ``on_click``) and into a standalone
+``_confirm_eviction`` callback; the eviction delegation tests below call
+that callback directly rather than relying on a mocked ``st.button``
+return value to fire it.
 """
 
 from __future__ import annotations
@@ -134,7 +138,7 @@ class TestHandleStopDelegation:
         with patch.object(model_card, "st", _mock_st()), patch.object(
             model_card.ops, "stop"
         ) as mock_ops_stop, _delegate(node):
-            model_card._handle_stop(state, None, "local", 8080)
+            model_card._handle_stop(state, None, "local", "m", 8080)
 
         node.stop_server.assert_called_once_with(8080)
         state.stop_server.assert_not_called()
@@ -147,7 +151,7 @@ class TestHandleStopDelegation:
         with patch.object(model_card, "st", _mock_st()), patch.object(
             model_card.ops, "stop", return_value=result
         ) as mock_ops_stop, _delegate(MagicMock(), enabled=False) as factory:
-            model_card._handle_stop(state, None, "local", 8080)
+            model_card._handle_stop(state, None, "local", "m", 8080)
 
         mock_ops_stop.assert_called_once_with(8080, caller="ui")
         state.stop_server.assert_not_called()
@@ -160,7 +164,7 @@ class TestHandleStopDelegation:
         state = MagicMock()
 
         with patch.object(model_card, "st", _mock_st()) as st, _delegate(node):
-            model_card._handle_stop(state, None, "local", 8080)
+            model_card._handle_stop(state, None, "local", "m", 8080)
 
         state.stop_server.assert_not_called()
         # Surfaced as a failure toast (icon="❌"), not an AttributeError.
@@ -171,10 +175,12 @@ class TestHandleStopDelegation:
 
 
 class TestEvictionDialogDelegation:
-    def _state(self):
-        state = MagicMock()
-        state.running = {}  # existing_model lookup → "unknown"
-        return state
+    """Exercises ``_confirm_eviction`` (#498), which now owns the
+    delegate-vs-in-process dispatch that ``_render_eviction_dialog``'s
+    Confirm-button click branch used to inline before its own trailing
+    ``st.rerun()`` was removed and the branch became an ``on_click``
+    callback.
+    """
 
     def test_eviction_delegates_over_http(self):
         node = MagicMock()
@@ -183,7 +189,7 @@ class TestEvictionDialogDelegation:
         with patch.object(model_card, "st", _mock_st()), patch.object(
             model_card.ops, "swap"
         ) as mock_ops_swap, _delegate(node):
-            model_card._render_eviction_dialog(self._state(), "local", 8080, "m", "")
+            model_card._confirm_eviction("local", 8080, "m", "")
 
         node.swap_server.assert_called_once_with("m", 8080)
         mock_ops_swap.assert_not_called()
@@ -196,7 +202,7 @@ class TestEvictionDialogDelegation:
         with patch.object(model_card, "st", _mock_st()), patch.object(
             model_card.ops, "swap", return_value=envelope
         ) as mock_ops_swap, _delegate(MagicMock(), enabled=False) as factory:
-            model_card._render_eviction_dialog(self._state(), "local", 8080, "m", "")
+            model_card._confirm_eviction("local", 8080, "m", "")
 
         mock_ops_swap.assert_called_once_with("m", 8080, caller="ui")
         factory.assert_not_called()
@@ -208,7 +214,7 @@ class TestEvictionDialogDelegation:
         with patch.object(model_card, "st", _mock_st()) as st, patch.object(
             model_card.ops, "swap"
         ), _delegate(node):
-            model_card._render_eviction_dialog(self._state(), "local", 8080, "m", "")
+            model_card._confirm_eviction("local", 8080, "m", "")
 
         # Falls through to the failure toast without raising.
         st.toast.assert_called()
