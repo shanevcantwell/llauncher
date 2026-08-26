@@ -156,8 +156,8 @@ def _check_extra_args_deny_list(name: str, tokens: list[str]) -> None:
     ``name`` is the offending :attr:`ModelConfig.name` — issue #462: a
     config-hygiene message that names the flag but not the config entry
     is unactionable once more than one model is on the wire (the sibling
-    :class:`MalformedExtraArgsError` above already names it; this one
-    didn't).
+    :class:`MalformedExtraArgsError`, raised in :func:`build_command` below,
+    already names it; this one didn't).
     """
     for token in tokens:
         head = token.split("=", 1)[0]
