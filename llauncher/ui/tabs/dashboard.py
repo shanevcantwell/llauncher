@@ -51,7 +51,11 @@ def get_servers_to_display(
     servers: list[RemoteServerInfo] = []
 
     if target == LOCAL_NODE:
-        state.refresh()
+        # Issue #497: the per-run refresh is hoisted to app.py, once,
+        # ahead of every tab -- ``state`` is already fresh for this
+        # script run by the time this reads it. Calling ``refresh()``
+        # again here would repeat the same psutil process-table walk
+        # for no new information.
         for _, server in state.running.items():
             servers.append(
                 RemoteServerInfo(

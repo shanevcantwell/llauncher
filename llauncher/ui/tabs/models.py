@@ -131,10 +131,11 @@ def _build_running_map(
 ) -> dict[tuple[str, str], RemoteServerInfo]:
     """Index running servers by ``(node_name, config_name)`` for ``target``.
 
-    Reads ``state.running`` as populated by the render's own earlier
-    ``render_model_registry`` → ``state.refresh()`` call (#370) — that
-    refresh is moments old in the same script run, so re-refreshing here
-    would repeat the same full-system psutil scan for no new information.
+    Reads ``state.running`` as populated by app.py's per-run
+    ``state.refresh()`` (#497, formerly #370's render-local refresh
+    inside ``render_model_registry``) — that refresh is moments old in
+    the same script run, so re-refreshing here would repeat the same
+    full-system psutil scan for no new information.
     """
     running_map: dict[tuple[str, str], RemoteServerInfo] = {}
 

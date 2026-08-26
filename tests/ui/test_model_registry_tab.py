@@ -318,9 +318,14 @@ class TestModelRegistryLastModifiedFormatting:
 
 
 class TestModelRegistryLocalTargetRefresh:
-    """The local target's model list is validated after refreshing local state."""
+    """The local target's model list is validated against already-fresh state.
 
-    def test_local_target_calls_state_refresh_and_validate_models(
+    #497: the per-run ``state.refresh()`` is hoisted to app.py, once, ahead
+    of every tab. This tab no longer calls it itself — it must read
+    ``state`` as already refreshed for the run.
+    """
+
+    def test_local_target_validates_models_without_its_own_refresh(
         self, tab_harness, mock_state, mock_aggregator
     ):
         report = _report([_validation(ok=True)])
@@ -333,7 +338,7 @@ class TestModelRegistryLocalTargetRefresh:
             )
 
         assert not at.exception
-        mock_state.refresh.assert_called_once()
+        mock_state.refresh.assert_not_called()
         mock_validate.assert_called_once_with(vram=False)
 
 

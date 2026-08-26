@@ -18,10 +18,13 @@ just llauncher's own call sequencing:
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
 from streamlit.testing.v1 import AppTest
+
+from llauncher.models.validation import ValidationReport
 
 
 def _main_script():  # pragma: no cover - exec'd by AppTest
@@ -146,7 +149,13 @@ class TestConfigErrorBannerOnRefreshClick:
         self, app_harness
     ):
         state = MagicMock(name="LauncherState")
-        state.refresh.side_effect = _corrupt_config_error()
+        # #497: main() now calls state.refresh() once per run, hoisted
+        # ahead of the sidebar — the first (healthy) run's hoisted
+        # refresh must succeed so the button renders; the config only
+        # goes corrupt starting with the click's own run, whose hoisted
+        # refresh is the call that raises (before the button handler's
+        # own refresh() is ever reached).
+        state.refresh.side_effect = [None, _corrupt_config_error()]
         registry = MagicMock(name="NodeRegistry")
 
         with patch("llauncher.ui.app.get_state", return_value=state), \
@@ -168,7 +177,9 @@ class TestConfigErrorBannerOnRefreshClick:
             app_harness.run()
 
         assert not app_harness.exception
-        state.refresh.assert_called_once()
+        # One hoisted refresh on the healthy first run, one hoisted
+        # refresh (which raises) on the click's run.
+        assert state.refresh.call_count == 2
         # st.stop() fired before the registry fan-out and the toast.
         registry.refresh_all.assert_not_called()
         assert app_harness.toast == []
@@ -207,8 +218,12 @@ class TestRefreshAllToastSurvivesRerun:
             app_harness.run()
 
             assert not app_harness.exception
-            assert not state.refresh.called
+            # #497: the hoisted per-run refresh already ran once here,
+            # ahead of any click. Reset so the assertions below isolate
+            # what the refresh-button click itself adds.
+            assert state.refresh.call_count == 1
             assert not registry.refresh_all.called
+            state.refresh.reset_mock()
 
             refresh_button = next(
                 b for b in app_harness.button if b.label == "🔄 Refresh All"
@@ -217,9 +232,52 @@ class TestRefreshAllToastSurvivesRerun:
             app_harness.run()
 
         assert not app_harness.exception
-        state.refresh.assert_called_once()
+        # This click's own run pays: the hoisted refresh at the top of
+        # main(), the sidebar handler's explicit refresh(), and the
+        # hoisted refresh on the st.rerun()-chased run that follows.
+        assert state.refresh.call_count == 3
         registry.refresh_all.assert_called_once()
         # The toast queued right before st.rerun() is still visible on the
         # run that follows it — pinning has_one_shot_effect (#335/#448).
         toast_bodies = [t.body for t in app_harness.toast]
         assert any("Refreshed all nodes" in b for b in toast_bodies)
+
+
+class TestHoistedRefreshRunsOnceAcrossAllTabs:
+    """Issue #497: one ``state.refresh()`` per script run, full stop.
+
+    ``dashboard.py`` and ``model_registry.py`` used to each call
+    ``state.refresh()`` unconditionally, and ``st.tabs`` executes every
+    tab body every run, so a steady-state run paid two full psutil
+    process-table walks per call, four per interaction. This test mounts
+    the real Dashboard and Models tabs (the two former call sites,
+    Models pulling in the real ``model_registry.render_model_registry``)
+    alongside the real app shell and asserts the fixture's ``state``
+    (a single shared object across every tab, exactly as production
+    passes it) sees ``refresh()`` called exactly once for the run.
+    """
+
+    def test_one_refresh_per_run_with_real_dashboard_and_models_tabs(
+        self, app_harness, mock_state, mock_registry, mock_aggregator,
+    ):
+        report = ValidationReport(
+            checked_at=datetime.now(timezone.utc), ok=True, models=[]
+        )
+
+        with patch("llauncher.ui.app.get_state", return_value=mock_state), \
+             patch("llauncher.ui.app.get_registry", return_value=mock_registry), \
+             patch("llauncher.ui.app.get_aggregator", return_value=mock_aggregator), \
+             patch("llauncher.ui.app.is_agent_ready", return_value=True), \
+             patch("llauncher.ui.app.render_node_selector", return_value="local"), \
+             patch("llauncher.operations.validate_models", return_value=report), \
+             patch("llauncher.ui.tabs.nodes.render_nodes_tab"), \
+             patch("llauncher.ui.tabs.audit.render_audit_tab"):
+            app_harness.run()
+
+        assert not app_harness.exception
+        # Exactly one refresh for the whole run -- app.py's hoisted call
+        # -- even though both the real Dashboard tab (formerly
+        # dashboard.py:54) and the real Models tab (formerly
+        # model_registry.py:48, reached via render_models_tab) executed
+        # their bodies this run.
+        mock_state.refresh.assert_called_once()

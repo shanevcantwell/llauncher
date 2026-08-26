@@ -141,6 +141,20 @@ def main():
     except (OSError, json.JSONDecodeError) as exc:
         show_config_error_banner(exc)
         st.stop()
+
+    # Issue #497: hoist the per-run refresh here, once, ahead of every
+    # tab. dashboard.py:54 and model_registry.py:48 each used to call
+    # ``state.refresh()`` unconditionally from inside ``st.tabs`` (every
+    # tab body executes every script run), paying two full ``psutil``
+    # process-table walks apiece -- up to 4 walks per interaction. A
+    # single refresh here means both tabs read ``state`` already fresh
+    # for this run instead of each re-walking the process table.
+    try:
+        state.refresh()
+    except (OSError, json.JSONDecodeError) as exc:
+        show_config_error_banner(exc)
+        st.stop()
+
     registry = get_registry()
     aggregator = get_aggregator()
 
