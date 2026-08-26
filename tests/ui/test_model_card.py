@@ -34,6 +34,8 @@ into the same call (the rerun discipline shared by all 7+ rerun sites here).
 
 from __future__ import annotations
 
+from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -83,7 +85,34 @@ def _server(node_name="local", port=PORT, config_name=MODEL, pid=PID):
     )
 
 
+def _seed_running(state, aggregator, node_name, running):
+    """Make the live sources agree with the ``running_server`` being rendered.
+
+    In production ``models.py::_build_running_map`` *derives* the card's
+    ``running_server`` from ``state.running`` (local) or
+    ``aggregator.get_all_servers()`` (remote), so the two can never disagree.
+    The card harness passes ``running_server`` straight in, so these tests
+    have to restore that invariant themselves -- and must, since the stop
+    toggle re-resolves the live port by model name rather than binding the
+    rendered one (#498 review; see ``model_card._resolve_stop_port``).
+    """
+    if running is None:
+        return
+    if node_name == "local":
+        state.running[running.port] = SimpleNamespace(
+            config_name=running.config_name,
+            port=running.port,
+            pid=running.pid,
+            start_time=datetime.fromisoformat(running.start_time),
+            logs_path=running.logs_path,
+            uptime_seconds=lambda: running.uptime_seconds,
+        )
+    elif aggregator is not None:
+        aggregator.get_all_servers.return_value = [running]
+
+
 def _card(tab_harness, state, aggregator, node_name, model, running=None):
+    _seed_running(state, aggregator, node_name, running)
     return tab_harness(
         render_model_card, state, None, aggregator, node_name, model, running
     )
@@ -1183,6 +1212,7 @@ class TestHandleStartMissingConfig:
 # ---------------------------------------------------------------------------
 def _run_count(tab_harness, state, aggregator, node_name, model, running=None):
     """Mount the real card wrapped in a call-counting double, run once."""
+    _seed_running(state, aggregator, node_name, running)
     counted = MagicMock(wraps=render_model_card)
     at = tab_harness(counted, state, None, aggregator, node_name, model, running)
     return at, counted

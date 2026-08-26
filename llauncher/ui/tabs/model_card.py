@@ -55,8 +55,18 @@ def render_model_card(
                 # on_click (#498): _handle_stop's own trailing st.rerun()
                 # used to force a second full script run just to reflect
                 # the stop; the callback context lands it in this same run.
+                #
+                # ``running_server.port`` is deliberately NOT bound here.
+                # Args bound to st.button() are captured at *this* render,
+                # but the callback fires before the next run's
+                # state.refresh() -- so a port that has since been freed
+                # and re-taken by a different model would be dispatched
+                # against its new occupant. The same stale-args trap
+                # _start_button_clicked avoids for the picker's port;
+                # _handle_stop re-resolves the port from live state by
+                # model_name instead.
                 on_click=_handle_stop,
-                args=(state, aggregator, node_name, model_name, running_server.port),
+                args=(state, aggregator, node_name, model_name),
             )
         else:
             _render_start_button(
@@ -680,12 +690,49 @@ def _confirm_delete(model_name: str, flag_key: str) -> None:
         st.toast(result.message, icon="❌")
 
 
+def _resolve_stop_port(
+    state: LauncherState,
+    aggregator: RemoteAggregator | None,
+    node_name: str,
+    model_name: str,
+) -> int | None:
+    """Re-resolve the port ``model_name`` is *currently* listening on.
+
+    The stop toggle cannot bind its port as an ``on_click`` arg: button
+    args are captured at render time, and the callback runs before the
+    next run's ``state.refresh()``, so the bound value is one run stale.
+    A port freed and re-taken between the render and the click would send
+    the stop to whatever model now holds it. Identity is the mint
+    (``ONE-MINT``): the model *name* is the stable handle, the port is an
+    envelope, so the callback re-derives the envelope from live truth.
+
+    Local resolution refreshes ``state`` first -- the callback runs ahead
+    of ``app.py``'s per-run refresh (#497), so ``state.running`` would
+    otherwise be exactly as stale as the bound port was. Remote
+    resolution reads the aggregator, the same source
+    ``models.py::_build_running_map`` indexed the card from.
+
+    Returns:
+        The live port, or ``None`` if the model is no longer running.
+    """
+    if node_name == "local":
+        state.refresh()
+        for port, server in state.running.items():
+            if server.config_name == model_name:
+                return port
+        return None
+
+    for server in aggregator.get_all_servers():
+        if server.node_name == node_name and server.config_name == model_name:
+            return server.port
+    return None
+
+
 def _handle_stop(
     state: LauncherState,
     aggregator: RemoteAggregator | None,
     node_name: str,
     model_name: str,
-    port: int,
 ) -> None:
     """Handle stopping a server with proper error handling.
 
@@ -694,13 +741,25 @@ def _handle_stop(
     reflect the stop this run (the old shape's trailing rerun forced a
     wasteful second full run).
 
+    The port is re-resolved from live state here rather than bound at the
+    call site; see :func:`_resolve_stop_port` for why.
+
     Args:
         state: The launcher state.
         aggregator: RemoteAggregator.
         node_name: Name of the node.
-        model_name: Name of the model being stopped (toast routing only).
-        port: Port of the server to stop.
+        model_name: Name of the model being stopped -- the authoritative
+            handle the live port is re-resolved from.
     """
+    if node_name == "local" or aggregator:
+        port = _resolve_stop_port(state, aggregator, node_name, model_name)
+        if port is None:
+            # The server went away between the render that drew this
+            # toggle and the click. Nothing to stop, and dispatching the
+            # stale port would hit whoever took it -- say so instead.
+            st.toast(f"{model_name} is no longer running", icon="ℹ️")
+            return
+
     if node_name == "local":
         # Delegation gate (#200/#203): a stop is a mutating op, so it routes
         # through the local agent over HTTP when one is reachable — the same
