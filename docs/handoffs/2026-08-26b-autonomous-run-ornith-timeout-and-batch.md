@@ -155,3 +155,43 @@ VRAM. H0: Windows sysmem fallback (shared GPU memory, invisible to
 counters (dedicated + shared) › warm long-prompt `prompt_per_second` ›
 `nvidia-smi` dedicated delta › generation tok/s (confounded by MoE / drafting)
 › working set (mmap-ambiguous).
+
+## Addendum 2 (late) — "still takes literally 2 minutes to swap"
+
+Operator's "swap" = stop one model, start the other, in the UI. Measured
+with a 2 s sampler (VRAM + port) around a CLI Ornith → Qwen → Ornith cycle:
+**135 s round trip** (timeline on #514). The model load is 8–20 s of it.
+
+Where the rest goes (code trace + measurement, banked):
+- **#466** (`auto:draft`, existing) — the psutil process walk itself: 6–12 s
+  per `process_iter`+`cmdline` over 272 processes; every other cost is a
+  multiple of it. The design decision (listener-first / single WMI query)
+  is the lever. Tonight's numbers added.
+- **#515** (`auto:fix`) — stop re-walks the table for a pid it already holds
+  (`swap.py:400` → `find_server_by_port`, uncached); `stop_server_by_pid` +
+  `verify_pid` already exist.
+- **#516** (`auto:fix`) — stop waits the full 3 s + 5 s grace after the
+  process is gone.
+- **#517** (`auto:fix`) — readiness is a TCP connect + log-substring match
+  (`process.py:1066`, `:1079`), never `/health` 200; `start` returned 8–10 s
+  before the model was loaded. `swap.py:206`'s docstring claims `/health` —
+  false.
+- **#518** (`auto:fix`) — stop returns on pid reap without waiting for the
+  port to release; returned 6–7 s before :8081 closed and VRAM dropped.
+- **#149** (`auto:draft`, existing) — the `swap` verb refuses Qwen outright:
+  preflight estimates VRAM as params × 1 GiB (`preflight.py:117`), so a
+  16 GB IQ4_NL "27B" needs 27 648 MiB on a 24 576 MiB card. Evidence added.
+- Post-action UI rerun paying two walks (running + orphans) — subsumed by
+  #466's design; noted there.
+
+**H0 (Qwen sysmem fallback) — untested, not refuted.** Launched into ~22 GB
+free, Qwen landed fully resident (20.2 GB dedicated / 0.39 GB shared, 1036
+prompt tok/s). The 19:32Z anomaly's precondition (near-full VRAM at launch)
+was absent. The experiment is written on #514; it needs ~3 min of GPU.
+
+End state: Ornith on :8081, GPU-resident (19.56 GB dedicated / 0.21 shared).
+
+**Next `auto:fix` batch, ready:** #515, #516, #517, #518 — all mechanical,
+disjoint from each other except #516/#518 (both in `stop_server_by_pid`;
+serialize). #466 wants the operator's design pick first; it is the one that
+turns the two minutes into seconds.
