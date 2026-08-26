@@ -79,8 +79,13 @@ def _arm_editing_flag(model_name: str) -> None:
     correct when invoked from Streamlit's pre-script callback context
     (ADR-LLNCH-025: this is view state, the same ``editing_{name}`` flag
     ``forms.py`` already reads).
+
+    Also clears any sticky edit error left behind by an earlier failed
+    Save (#494 review): the message is queued for one edit session, so a
+    freshly armed form must never open pre-seeded with a stale failure.
     """
     st.session_state[f"editing_{model_name}"] = True
+    st.session_state.pop(edit_error_key(model_name), None)
 
 
 def _arm_deleting_flag(node_name: str, model_name: str) -> None:
@@ -88,6 +93,28 @@ def _arm_deleting_flag(node_name: str, model_name: str) -> None:
     :func:`_arm_editing_flag` for why this is callback-safe.
     """
     st.session_state[f"deleting_{node_name}_{model_name}"] = True
+
+
+def edit_error_key(model_name: str) -> str:
+    """Session-state key for a sticky edit-save failure message (#494).
+
+    Defined here rather than in ``forms.py`` because both modules need it
+    and the import arrow already runs ``forms.py`` -> ``model_card.py``
+    (see ``edit_saved_toast_key``); putting it the other way round would
+    make a cycle. ``forms.py`` imports it as ``_edit_error_key``.
+
+    Mirrors the ``_start_error_key``/#401 idiom: the Save button's
+    ``on_click`` callback runs in Streamlit's pre-script callback context,
+    where ``st.error()`` calls are silently dropped — nothing has started
+    rendering yet this run. A failure persists the message here instead
+    and leaves ``editing_{model_name}`` set, so ``render_edit_model``
+    stays in edit mode on the next (normal, non-callback) render and can
+    display it. Deliberate VIEW state (ADR-LLNCH-025).
+
+    Cleared on Cancel and on a fresh Edit arm, so it never outlives the
+    edit session that produced it.
+    """
+    return f"edit_error_{model_name}"
 
 
 def edit_saved_toast_key(model_name: str) -> str:

@@ -26,6 +26,7 @@ import pytest
 from llauncher.ui.tabs.forms import (
     _edit_error_key,
     _process_edit_model,
+    _save_edit_callback,
     render_add_model,
     render_edit_model,
 )
@@ -528,3 +529,62 @@ class TestAddModelAdvancedOptions:
         mock_config_store.add_model.assert_called_once()
         (added_config,), _ = mock_config_store.add_model.call_args
         assert added_config.extra_args == "--mcp-config /x.json --flash-attn on"
+
+
+class TestSaveCallbackReadsThisModelsWidgetKeys:
+    """#494 review: the Save callback reads the submitted widget values out
+    of ``st.session_state`` by key, and those keys are namespaced by model.
+
+    Bare ``edit_*`` keys made the reads model-agnostic: whichever model's
+    form last wrote ``edit_model_path`` supplied the value that a *different*
+    model's Save then persisted. Driven directly here (the same private-
+    handler idiom as ``TestEditModelVanishedAtSubmit`` above) because that
+    read seam is exactly what the namespacing changes; the full two-form
+    flow is pinned in ``tests/ui/test_edit_save_single_run_494.py``.
+    """
+
+    def test_callback_uses_the_named_models_keys_not_another_models(
+        self, tab_harness, mock_state, mock_config_store, tmp_path
+    ):
+        from llauncher.models.config import ModelConfig
+
+        paths = {}
+        for name in ("model-a", "model-b"):
+            p = tmp_path / f"{name}.gguf"
+            p.touch()
+            paths[name] = str(p)
+            mock_state.models[name] = ModelConfig(name=name, model_path=paths[name])
+        mock_config_store.load.return_value = dict(mock_state.models)
+
+        at = tab_harness(_save_edit_callback, mock_state, "model-b", run=False)
+        # model-a's form state is still resident from an earlier edit...
+        at.session_state["edit_model_path_model-a"] = paths["model-a"]
+        at.session_state["edit_mmproj_path_model-a"] = ""
+        at.session_state["edit_n_gpu_layers_model-a"] = 1
+        at.session_state["edit_ctx_size_model-a"] = 2048
+        at.session_state["edit_parallel_model-a"] = 1
+        at.session_state["edit_metrics_model-a"] = True
+        at.session_state["edit_slots_model-a"] = True
+        at.session_state["edit_extra_args_model-a"] = "--from-a"
+        # ...alongside model-b's, which is the one being saved.
+        at.session_state["edit_model_path_model-b"] = paths["model-b"]
+        at.session_state["edit_mmproj_path_model-b"] = ""
+        at.session_state["edit_n_gpu_layers_model-b"] = 99
+        at.session_state["edit_ctx_size_model-b"] = 4096
+        at.session_state["edit_parallel_model-b"] = 4
+        at.session_state["edit_metrics_model-b"] = False
+        at.session_state["edit_slots_model-b"] = False
+        at.session_state["edit_extra_args_model-b"] = "--from-b"
+        at.run()
+
+        assert not at.exception
+        assert _edit_error_key("model-b") not in at.session_state
+        (name_arg, saved), _ = mock_config_store.update_model.call_args
+        assert name_arg == "model-b"
+        assert saved.model_path == paths["model-b"]
+        assert saved.n_gpu_layers == 99
+        assert saved.ctx_size == 4096
+        assert saved.parallel == 4
+        assert saved.metrics is False
+        assert saved.slots is False
+        assert saved.extra_args == "--from-b"

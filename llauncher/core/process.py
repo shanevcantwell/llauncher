@@ -39,32 +39,33 @@ DEFAULT_SERVER_BINARY = LLAMA_SERVER_PATH
 # invalidate the cache regardless of TTL (see invalidate_process_scan_cache
 # and llauncher.state's self.running mutation sites).
 #
-# Issue #494: that collapse didn't actually happen. The original TTL here
-# (3s) was shorter than a single scan (~6-12s), so by the time a second
-# call reached the cache — e.g. dashboard.py's own state.refresh() and
-# model_registry.py's, both firing in the *same* run per the tab-execution
-# note above — the first call's entry had already expired (a refresh()
-# call's own two sequential scans alone can burn 12-24s, well past the old
-# 3s window). Concretely, this is what made Edit/Save look worse than
-# other interactions: their extra st.rerun() (fixed separately, in
-# ui/tabs/forms.py and ui/tabs/model_card.py) doubled an already-uncollapsed
-# per-run cost. Raised to comfortably exceed one scan's observed worst case
-# (12.3s) so a same-run second caller can actually hit the cache. This
-# does not change invalidation semantics: start/stop still call
-# invalidate_process_scan_cache() intrinsically (issue #402), which clears
-# the cache immediately regardless of TTL, so a post-mutation read is never
-# served stale by this change (see #418 for the one topology — the
-# delegated agent path — where that invalidation doesn't reach this
-# process at all; unaffected by this TTL value either way). The tradeoff
-# this DOES take on: an external, untracked process death/spawn (nothing
-# that calls invalidate_process_scan_cache) can now go undetected for up to
-# this TTL instead of 3s — accepted here since orphan discovery
-# (discover_all) is advisory, not gating.
+# Issue #494 (and #418): the TTL here stays SHORT — 3s — on purpose.
+# On the delegated topology (ADR-018 production deployment,
+# delegation.should_delegate() true) the UI process never calls
+# start_server/stop_server_by_pid itself; it POSTs to the agent, which
+# invalidates its *own* interpreter's cache instance. The Streamlit
+# process's cache is never invalidated on that path, so this TTL is the
+# ONLY staleness bound on the delegated topology: a post-mutation
+# state.refresh() can serve a pre-mutation scan for up to the TTL (#418).
+# Lengthening it lengthens that stale window proportionally, so it stays
+# at 3s until #418 lands a real cross-process invalidation.
+#
+# What this TTL does NOT solve: the same-run double refresh() —
+# dashboard.py:54 and model_registry.py:48 both fire under st.tabs on one
+# script run, and a single scan (~6-12s, #309) outlasts any TTL short
+# enough to be safe here, so the second caller misses regardless. That is
+# a call-graph problem, not a cache-tuning one; the fix is to hoist the
+# refresh so one run does one refresh.
+# tracked: one refresh per run, hoisted to app.py — #497
+#
+# In-process start/stop are unaffected either way: they call
+# invalidate_process_scan_cache() intrinsically (#402/#414), which clears
+# the cache immediately regardless of TTL.
 #
 # Each scan function gets its OWN cache key — they return different shapes
 # (bare Process list vs list[ServerProcessInfo]) and must never share
 # a cached result.
-_PROCESS_SCAN_CACHE = _TTLCache(ttl_seconds=15)
+_PROCESS_SCAN_CACHE = _TTLCache(ttl_seconds=3)
 _SCAN_KEY_ALL_SERVERS = "find_all_llama_servers"
 _SCAN_KEY_ALL_SERVERS_ANNOTATED = "find_all_llama_servers_annotated"
 

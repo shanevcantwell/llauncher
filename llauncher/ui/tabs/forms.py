@@ -4,27 +4,16 @@ import streamlit as st
 
 from llauncher.state import LauncherState
 from llauncher.core.config import ConfigStore
-from llauncher.ui.tabs.model_card import edit_saved_toast_key
-
-
-def _edit_error_key(model_name: str) -> str:
-    """Session-state key for a sticky edit-save failure message (#494).
-
-    Mirrors ``model_card.py``'s ``_start_error_key``/``#401`` idiom: the
-    Save button's ``on_click`` callback (``_save_edit_callback`` /
-    ``_process_edit_model`` below) runs in Streamlit's pre-script callback
-    context, where ``st.error()`` calls are silently dropped — nothing has
-    started rendering yet this run. A failure persists the message here
-    instead and leaves ``editing_{model_name}`` set, so ``render_edit_model``
-    stays in edit mode on the next (normal, non-callback) render and can
-    display it via :func:`_render_edit_error`.
-    """
-    return f"edit_error_{model_name}"
+from llauncher.ui.tabs.model_card import (
+    edit_error_key as _edit_error_key,
+    edit_saved_toast_key,
+)
 
 
 def _render_edit_error(model_name: str) -> None:
     """Render the sticky edit-save failure message left by
-    :func:`_process_edit_model`, if any. See :func:`_edit_error_key`.
+    :func:`_process_edit_model`, if any. See
+    :func:`llauncher.ui.tabs.model_card.edit_error_key`.
     """
     message = st.session_state.get(_edit_error_key(model_name))
     if message:
@@ -202,13 +191,13 @@ def render_edit_model(state: LauncherState, model_name: str | None = None) -> No
             "Model Path",
             value=config.model_path,
             help="Path to the GGUF file",
-            key="edit_model_path",
+            key=f"edit_model_path_{model_name}",
         )
         mmproj_path = st.text_input(
             "MMProj Path (optional)",
             value=config.mmproj_path or "",
             help="Path to multimodal projector",
-            key="edit_mmproj_path",
+            key=f"edit_mmproj_path_{model_name}",
         )
 
         # Per ADR-LLNCH-010, port is no longer a model attribute — supplied at start time.
@@ -216,12 +205,12 @@ def render_edit_model(state: LauncherState, model_name: str | None = None) -> No
         with col1:
             n_gpu_layers = st.number_input(
                 "GPU Layers", min_value=0, max_value=1024, value=config.n_gpu_layers,
-                key="edit_n_gpu_layers",
+                key=f"edit_n_gpu_layers_{model_name}",
             )
         with col2:
             ctx_size = st.number_input(
                 "Context Size", min_value=1024, value=config.ctx_size,
-                key="edit_ctx_size",
+                key=f"edit_ctx_size_{model_name}",
             )
 
         with st.expander("Advanced Options", expanded=False):
@@ -229,21 +218,21 @@ def render_edit_model(state: LauncherState, model_name: str | None = None) -> No
             with col_adv1:
                 parallel = st.number_input(
                     "Parallel Slots (-np)", min_value=1, value=config.parallel,
-                    key="edit_parallel",
+                    key=f"edit_parallel_{model_name}",
                 )
             with col_adv2:
                 metrics = st.checkbox(
                     "Enable Prometheus Metrics (--metrics)",
                     value=config.metrics,
                     help="Exposes the /metrics endpoint for tps, kv-cache, and draft-acceptance telemetry.",
-                    key="edit_metrics",
+                    key=f"edit_metrics_{model_name}",
                 )
 
             slots = st.checkbox(
                 "Expose /slots monitoring endpoint (--slots)",
                 value=config.slots,
                 help="Includes per-slot prompt text — sensitive, default off.",
-                key="edit_slots",
+                key=f"edit_slots_{model_name}",
             )
 
             extra_args = st.text_area(
@@ -256,7 +245,7 @@ def render_edit_model(state: LauncherState, model_name: str | None = None) -> No
                     "--metrics, --slots/--no-slots) are rejected at launch "
                     "time."
                 ),
-                key="edit_extra_args",
+                key=f"edit_extra_args_{model_name}",
             )
 
         col_submit, col_cancel = st.columns(2)
@@ -291,6 +280,11 @@ def _cancel_edit_callback(model_name: str) -> None:
     render calls, so it is correct in the pre-script callback context.
     """
     st.session_state.pop(f"editing_{model_name}", None)
+    # #494 review: the sticky error belongs to the edit session being
+    # abandoned. Leaving it would make it reappear the next time Edit is
+    # armed for this model (see model_card._arm_editing_flag, which drops
+    # it too as a second line of defence).
+    st.session_state.pop(_edit_error_key(model_name), None)
 
 
 def _save_edit_callback(state: LauncherState, model_name: str) -> None:
@@ -299,7 +293,20 @@ def _save_edit_callback(state: LauncherState, model_name: str) -> None:
     Reads the just-submitted widget values from ``st.session_state`` by
     key — Streamlit applies a form's pending widget updates before
     invoking the submit button's callback, so these reflect the values the
-    operator entered, not the previous run's. Delegates to
+    operator entered, not the previous run's.
+
+    Keys are namespaced by model (``edit_model_path_{name}`` etc., #494
+    review). Streamlit lets a keyed widget's stored ``session_state`` value
+    override the ``value=`` argument, so bare ``edit_*`` keys shared across
+    models made a second model's form open pre-filled with the first
+    model's values — and a Save then persisted them.
+
+    Indexed, not ``.get()``-with-a-default: this callback can only run
+    from the edit form's own submit button, and every ``edit_*`` widget
+    above renders unconditionally inside that form, so a missing key means
+    the form and this reader have drifted apart. Fail loud
+    (``PARSE-AT-THE-DOOR``) rather than silently saving a default over the
+    operator's config. Delegates to
     :func:`_process_edit_model` for the actual validate/persist logic,
     unchanged from before this fix except that it no longer calls
     ``st.error``/``st.success``/``st.rerun`` directly (callback-unsafe —
@@ -308,14 +315,14 @@ def _save_edit_callback(state: LauncherState, model_name: str) -> None:
     _process_edit_model(
         state,
         model_name,
-        st.session_state.get("edit_model_path", ""),
-        st.session_state.get("edit_mmproj_path", ""),
-        st.session_state.get("edit_n_gpu_layers"),
-        st.session_state.get("edit_ctx_size"),
-        st.session_state.get("edit_parallel"),
-        st.session_state.get("edit_metrics"),
-        st.session_state.get("edit_slots"),
-        st.session_state.get("edit_extra_args", ""),
+        st.session_state[f"edit_model_path_{model_name}"],
+        st.session_state[f"edit_mmproj_path_{model_name}"],
+        st.session_state[f"edit_n_gpu_layers_{model_name}"],
+        st.session_state[f"edit_ctx_size_{model_name}"],
+        st.session_state[f"edit_parallel_{model_name}"],
+        st.session_state[f"edit_metrics_{model_name}"],
+        st.session_state[f"edit_slots_{model_name}"],
+        st.session_state[f"edit_extra_args_{model_name}"],
     )
 
 
@@ -398,7 +405,7 @@ def _process_edit_model(
             ConfigStore.add_model(updated_config, caller="ui")
 
         state.models[model_name] = updated_config
-        st.session_state[error_key] = None
+        st.session_state.pop(error_key, None)
         st.session_state[edit_saved_toast_key(model_name)] = (
             f"Saved config for {model_name}"
         )

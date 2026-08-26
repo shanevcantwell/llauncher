@@ -35,6 +35,7 @@ from unittest.mock import patch
 
 import pytest
 
+from llauncher.ui.tabs.forms import _edit_error_key
 from llauncher.ui.tabs.models import render_models_tab
 
 
@@ -177,3 +178,141 @@ class TestSaveSingleRun:
         assert any("required" in e.value for e in at.error)
         assert not at.toast
         mock_config_store.update_model.assert_not_called()
+
+
+@pytest.fixture
+def two_model_state(mock_state, tmp_path):
+    """``mock_state`` seeded with two real, on-disk-backed local models.
+
+    Same reasoning as :func:`edit_save_state` for using real
+    ``ModelConfig`` objects; two of them, because the widget-key
+    namespacing regression below is only observable across a *second*
+    model's edit form.
+    """
+    from llauncher.models.config import ModelConfig
+
+    for name in ("model-a", "model-b"):
+        path = tmp_path / f"{name}.gguf"
+        path.touch()
+        mock_state.models[name] = ModelConfig(name=name, model_path=str(path))
+    return mock_state
+
+
+class TestStickyEditErrorLifetime:
+    """#494 review: the sticky edit error belongs to one edit session.
+
+    ``_edit_error_key`` is written by a failed Save and read on the next
+    render. Nothing used to clear it on the way *out* of edit mode, so
+    Cancel (or a later Edit) reopened the form with a stale failure from a
+    previous session already on screen.
+    """
+
+    def test_cancel_then_edit_again_shows_no_stale_error(
+        self, tab_harness, edit_save_state, mock_registry, mock_aggregator,
+        mock_config_store, port_is_free,
+    ):
+        at = _tab(
+            tab_harness, edit_save_state, mock_registry, mock_aggregator,
+            run=False,
+        )
+        at.session_state["editing_existing-model"] = True
+        at.run()
+
+        # 1. Fail a Save — sticky error is armed.
+        for el in at.text_input:
+            if el.label == "Model Path":
+                el.set_value("")
+        _button_by_label(at, "Save Changes").click()
+        at.run()
+        assert any("required" in e.value for e in at.error)
+
+        # 2. Cancel out of the edit form.
+        _button_by_label(at, "Cancel").click()
+        at.run()
+        assert not at.exception
+        assert "editing_existing-model" not in at.session_state
+        assert not any("required" in e.value for e in at.error)
+        assert _edit_error_key("existing-model") not in at.session_state
+
+        # 3. Arm Edit again — the fresh form must open clean.
+        at.button(key="edit_local_existing-model_enabled").click()
+        at.run()
+        assert not at.exception
+        assert any("Edit Model: existing-model" in s.value for s in at.subheader)
+        assert not any("required" in e.value for e in at.error)
+
+    def test_arming_edit_drops_an_error_left_over_from_a_previous_session(
+        self, tab_harness, edit_save_state, mock_registry, mock_aggregator,
+        mock_config_store, port_is_free,
+    ):
+        """Second line of defence: even if the key survives some other
+        exit path (a browser refresh mid-edit, say), arming Edit clears it.
+        """
+        at = _tab(tab_harness, edit_save_state, mock_registry, mock_aggregator)
+        at.session_state[_edit_error_key("existing-model")] = "stale failure"
+
+        at.button(key="edit_local_existing-model_enabled").click()
+        at.run()
+
+        assert not at.exception
+        assert _edit_error_key("existing-model") not in at.session_state
+        assert not any("stale failure" in e.value for e in at.error)
+
+
+class TestEditWidgetKeysAreNamespacedByModel:
+    """#494 review: the edit form's widget keys were bare ``edit_*``.
+
+    Streamlit lets a keyed widget's stored ``session_state`` value win over
+    its ``value=`` argument, so after editing model A the *next* model's
+    form opened pre-filled with A's values — and a Save persisted them onto
+    B. Namespacing every key by model name is what keeps the two forms'
+    state apart.
+    """
+
+    def test_second_models_form_shows_its_own_path_and_saves_it(
+        self, tab_harness, two_model_state, mock_registry, mock_aggregator,
+        mock_config_store, port_is_free, tmp_path,
+    ):
+        mock_config_store.load.return_value = dict(two_model_state.models)
+        a_original = two_model_state.models["model-a"].model_path
+        b_original = two_model_state.models["model-b"].model_path
+
+        new_a_path = tmp_path / "a-updated.gguf"
+        new_a_path.touch()
+
+        at = _tab(tab_harness, two_model_state, mock_registry, mock_aggregator)
+
+        # Edit model-a, change its path, save.
+        at.button(key="edit_local_model-a_enabled").click()
+        at.run()
+        for el in at.text_input:
+            if el.label == "Model Path":
+                el.set_value(str(new_a_path))
+        _button_by_label(at, "Save Changes").click()
+        at.run()
+        assert not at.exception
+        (name_arg, saved_a), _ = mock_config_store.update_model.call_args
+        assert name_arg == "model-a"
+        assert saved_a.model_path == str(new_a_path)
+
+        # Now edit model-b in the same session.
+        at.button(key="edit_local_model-b_enabled").click()
+        at.run()
+        assert not at.exception
+        path_widget = next(
+            el for el in at.text_input if el.label == "Model Path"
+        )
+        # B's form shows B's path, not A's (neither A's old nor A's new).
+        assert path_widget.value == b_original
+        assert path_widget.value != a_original
+        assert path_widget.value != str(new_a_path)
+
+        # And saving B writes B's own value, not A's.
+        mock_config_store.update_model.reset_mock()
+        _button_by_label(at, "Save Changes").click()
+        at.run()
+        assert not at.exception
+        (name_arg, saved_b), _ = mock_config_store.update_model.call_args
+        assert name_arg == "model-b"
+        assert saved_b.model_path == b_original
+        assert saved_b.model_path != str(new_a_path)
