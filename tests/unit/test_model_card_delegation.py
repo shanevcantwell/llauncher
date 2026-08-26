@@ -191,7 +191,13 @@ class TestEvictionDialogDelegation:
     Confirm-button click branch used to inline before its own trailing
     ``st.rerun()`` was removed and the branch became an ``on_click``
     callback.
+
+    ``flag_key`` is the real ``_eviction_flag_key`` string the dialog arms,
+    not a placeholder: the callback writes ``st.session_state[flag_key]``,
+    and a bare ``""`` would encode a key shape the product never produces.
     """
+
+    FLAG_KEY = model_card._eviction_flag_key("local", 8080, "m")
 
     def test_eviction_delegates_over_http(self):
         node = MagicMock()
@@ -200,7 +206,7 @@ class TestEvictionDialogDelegation:
         with patch.object(model_card, "st", _mock_st()), patch.object(
             model_card.ops, "swap"
         ) as mock_ops_swap, _delegate(node):
-            model_card._confirm_eviction("local", 8080, "m", "")
+            model_card._confirm_eviction("local", 8080, "m", self.FLAG_KEY)
 
         node.swap_server.assert_called_once_with("m", 8080)
         mock_ops_swap.assert_not_called()
@@ -213,7 +219,7 @@ class TestEvictionDialogDelegation:
         with patch.object(model_card, "st", _mock_st()), patch.object(
             model_card.ops, "swap", return_value=envelope
         ) as mock_ops_swap, _delegate(MagicMock(), enabled=False) as factory:
-            model_card._confirm_eviction("local", 8080, "m", "")
+            model_card._confirm_eviction("local", 8080, "m", self.FLAG_KEY)
 
         mock_ops_swap.assert_called_once_with("m", 8080, caller="ui")
         factory.assert_not_called()
@@ -225,7 +231,7 @@ class TestEvictionDialogDelegation:
         with patch.object(model_card, "st", _mock_st()) as st, patch.object(
             model_card.ops, "swap"
         ), _delegate(node):
-            model_card._confirm_eviction("local", 8080, "m", "")
+            model_card._confirm_eviction("local", 8080, "m", self.FLAG_KEY)
 
         # Falls through to the failure toast without raising.
         st.toast.assert_called()
