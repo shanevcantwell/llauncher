@@ -107,3 +107,51 @@ close-or-hold is the call), **#338** → `auto:draft` (audit-read output shape),
 Decide #493 — it gates whether the next session opens against one durable
 agent or two competing ones. Then rebase + ratify #495. The `auto:fix` queue
 is empty; the next run needs triage first (`triage-issues`).
+
+## Addendum (same evening) — "Ornith complains qwen3.8 is on the port, but no model in VRAM"
+
+Operator returned to that state. Resolved, with two corrections to this
+session's own record along the way.
+
+**What it was.** Two facts at once. (1) The "port occupied" refusal was
+*correct*: a Qwen `llama-server` (PID 481564, started 19:32Z) was alive on
+:8081, lockfile honest, `/health` ok. (2) That server held **1.3 GB** of
+dedicated VRAM (`nvidia-smi` 3154 → 1811 MiB on stop) with a 15.5 GB working
+set — the operator's "no model in VRAM" was the true read, and every llauncher
+instrument (lockfile, psutil, `/health`, `/v1/models`, "model loaded") reported
+it as simply running. Filed **#514** (`auto:draft`, readiness ≠ residency:
+surface placement as a first-class signal).
+
+**Why Ornith failed all day (separate from #503).** The pre-#499 edit form
+wrote Qwen's `extra_args` — including `--spec-type draft-mtp` — into Ornith's
+entry at 14:11Z (`model_updated`, `caller: ui`, byte-for-byte Qwen's string);
+every Ornith launch until the operator's hand repair at 19:30Z died with
+`failed to create MTP context`. #499 fixed the leak, not the corrupted entry.
+
+**Corrections to this session's record.** The #503 "live verification PASS"
+was instrument-blind: Ornith on :8083 returned in ~1 s because it was *not*
+placed on the GPU; `nvidia-smi` was never read. Corrected on #503. A second
+verifier pass then called 3154 → 1811 MiB "20 GB freed"; corrected on #493.
+Operator's steer, verbatim: "You need to watch VRAM more closely" and "I think
+you may be trusting the wrong instruments." Both right. Rule filed as
+**harness-tools#298** (verifier contract: VRAM delta + warm prompt tok/s, never
+the launcher's self-reports).
+
+**End state.** Qwen on :8081 stopped. **Ornith-1.0-35B-UD-IQ4_NL on :8081,
+GPU-resident**: dedicated VRAM 1.8 → 21.8 GB across the launch, `model loaded`
+at 8.3 s, 133.6 tok/s generation, canonical id on `/v1/models`. Agents,
+:8082, :61747, `config.json` untouched.
+
+**Open contradiction, banked as a lab entry on #514.** Qwen is dense
+(`qwen35`, 65 blocks); its explicit `n_gpu_layers: 99` disables llama.cpp
+auto-fit (`common_fit_params … abort` ×3); its 59.7 tok/s is MTP-inflated 2.3×
+→ ~26 passes/s, which is too fast for CPU DRAM and too slow for dedicated
+VRAM. H0: Windows sysmem fallback (shared GPU memory, invisible to
+`nvidia-smi`). Falsifier: per-process `GPU Process Memory` perf counters
+(dedicated vs shared) at the next launch. Uptime pinned at "6s" is **#390**
+(`state.py:137` stamps `now()` per refresh) — evidence added.
+
+**Ranked placement instruments on this box** (for #514): per-process GPU perf
+counters (dedicated + shared) › warm long-prompt `prompt_per_second` ›
+`nvidia-smi` dedicated delta › generation tok/s (confounded by MoE / drafting)
+› working set (mmap-ambiguous).
