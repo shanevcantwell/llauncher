@@ -15,6 +15,16 @@ behind them does not).
 created and accepted in the same PR that implements it, per the ratification
 comment's point 6.
 
+> **Amendment (ADR-LLNCH-028, 2026-08-26):** the owned column is re-opened under
+> a stated admission criterion (gate / constrain / compute-from, *or* an
+> operator-designated per-entry control), and every typed field carries its
+> value as a primitive — never a `Literal` over a vocabulary llama-server owns.
+> *Does not mirror* was never *does not type*: the two collapse into one thing
+> only if a typed field re-declares upstream's value space, which ADR-LLNCH-028
+> forbids outright. This ADR's `extra_args`-verbatim decision and its
+> launch-time deny-list enforcement point are unchanged; the 16-field partition
+> is narrowed by the flags ADR-LLNCH-028 admits and otherwise stands.
+
 ---
 
 ## Decision
