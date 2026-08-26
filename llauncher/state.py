@@ -64,7 +64,7 @@ class LauncherState:
     """
 
     models: dict[str, ModelConfig] = field(default_factory=dict)
-    # Per-model config load errors from the most recent refresh (ADR-026 /
+    # Per-model config load errors from the most recent refresh (ADR-LLNCH-026 /
     # issue #477's ratified "quarantine, not tolerance"): name -> reason.
     # An entry here did NOT load and is absent from ``models``; its
     # siblings loaded normally. This is the registry's error list the
@@ -91,7 +91,7 @@ class LauncherState:
         # Load configurations from config.json (single source of truth).
         # A single malformed entry is quarantined, not fatal -- one stray
         # key must not take the UI, the agent and the CLI down with it
-        # (ADR-026 / issue #477).
+        # (ADR-LLNCH-026 / issue #477).
         self.models, self.config_errors = ConfigStore.load_with_errors()
 
         # Refresh running servers

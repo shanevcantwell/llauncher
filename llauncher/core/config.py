@@ -20,7 +20,7 @@ from llauncher.models.config import ModelConfig
 logger = logging.getLogger(__name__)
 
 
-# ADR-026 / issue #477: the 16 llama-server mirror fields dropped from
+# ADR-LLNCH-026 / issue #477: the 16 llama-server mirror fields dropped from
 # ModelConfig, mapped to the flag spelling(s) ``build_command`` used to
 # emit for them. The list holds **every spelling llama-server accepts for
 # that option** — long form first, then short aliases (``-tb``, ``-ub``,
@@ -152,7 +152,7 @@ def _format_flag_token(name: str, field: str, flag: str, value) -> str:
 def _migrate_config_dict(name: str, data: dict) -> tuple[dict, bool]:
     """One-shot migration at the door for a single persisted model entry.
 
-    PARSE-AT-THE-DOOR (ADR-026 / issue #477): for each of the 16 dropped
+    PARSE-AT-THE-DOOR (ADR-LLNCH-026 / issue #477): for each of the 16 dropped
     llama-server mirror fields present in ``data``:
 
     * field's flag already present in ``extra_args`` (any registered
@@ -301,7 +301,7 @@ class ConfigStore:
         response is exactly the defect that fix removes -- see the
         live-observed incident in issue #403.
 
-        **Per-entry failures are quarantined, not fatal** (ADR-026 /
+        **Per-entry failures are quarantined, not fatal** (ADR-LLNCH-026 /
         issue #477, ratified: "quarantine, not tolerance"). The
         file-level errors above still fail the whole load, because there
         is no registry to salvage. But a single *entry* whose shape does
@@ -314,7 +314,7 @@ class ConfigStore:
         One stray key in a 60-model registry must not take the UI, the
         agent and the CLI down with it.
 
-        The one-shot ADR-026 rewrite of ``config.json`` is **skipped
+        The one-shot ADR-LLNCH-026 rewrite of ``config.json`` is **skipped
         while any entry is quarantined**: ``save`` serializes only the
         models that loaded, so rewriting would delete the very entries
         the operator has to hand-fix.
@@ -359,7 +359,7 @@ class ConfigStore:
                 f"Corrupt config at {CONFIG_PATH}: {e.msg}", e.doc, e.pos
             ) from e
 
-        # ADR-026 / issue #477: one-shot migration at the door. Each
+        # ADR-LLNCH-026 / issue #477: one-shot migration at the door. Each
         # entry's dropped llama-server mirror fields are folded into
         # extra_args (or dropped outright if extra_args already wins)
         # before ModelConfig ever sees them. A failure is scoped to the
@@ -388,7 +388,7 @@ class ConfigStore:
         if any_dirty and not errors:
             logger.info(
                 "Migrating %d model config(s) at %s to drop llama-server "
-                "mirror fields (ADR-026 / issue #477); rewriting once.",
+                "mirror fields (ADR-LLNCH-026 / issue #477); rewriting once.",
                 len(models),
                 CONFIG_PATH,
             )
@@ -407,7 +407,7 @@ class ConfigStore:
                 )
         elif any_dirty:
             logger.warning(
-                "Skipping the ADR-026 config rewrite at %s: %d model(s) "
+                "Skipping the ADR-LLNCH-026 config rewrite at %s: %d model(s) "
                 "are quarantined (%s) and rewriting would drop them.",
                 CONFIG_PATH,
                 len(errors),
@@ -432,7 +432,7 @@ class ConfigStore:
 
         # Write to temp file first, then rename for atomicity. The temp
         # name carries this process's pid: ``load`` is itself a write path
-        # (the one-shot ADR-026 rewrite), so the UI, the agent and a CLI
+        # (the one-shot ADR-LLNCH-026 rewrite), so the UI, the agent and a CLI
         # invocation can all reach ``save`` concurrently on their first
         # post-upgrade load. A single fixed ``config.json.tmp`` would let
         # them interleave writes into one another's temp file; a

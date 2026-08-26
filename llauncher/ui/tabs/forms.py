@@ -57,7 +57,7 @@ def render_add_model(state: LauncherState) -> None:
                 help="Includes per-slot prompt text — sensitive, default off.",
             )
 
-            # ADR-026 / issue #477: extra_args is a verbatim llama-server
+            # ADR-LLNCH-026 / issue #477: extra_args is a verbatim llama-server
             # flag passthrough — no dedicated widget per flag, no pydantic
             # content validation. Denied (llauncher-owned) flags are
             # rejected at launch time, not here.
