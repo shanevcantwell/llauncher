@@ -203,15 +203,20 @@ class RemoteNode:
             headers["X-Api-Key"] = self.api_key
         return headers
 
-    def _get_client(self, timeout: float | None = None) -> httpx.Client:
+    def _get_client(self, timeout: float | httpx.Timeout | None = None) -> httpx.Client:
         """Create an HTTP client configured for this node.
 
         Args:
-            timeout: Per-call override in seconds. ``None`` (the default)
-                uses ``self.timeout``, the short control-call default. Used
+            timeout: Per-call override. ``None`` (the default) uses
+                ``self.timeout``, the short control-call default. Used
                 by :meth:`start_server`/:meth:`swap_server` (#503) to widen
-                the client timeout past the agent's readiness ceiling
-                without touching the node's general-purpose timeout.
+                the client's read/write/pool timeout past the agent's
+                readiness ceiling without touching the node's
+                general-purpose timeout. Pass an ``httpx.Timeout`` (as those
+                two callers do) to keep connect-timeout fast-fail separate
+                from the widened read timeout — a plain float widens all
+                four phases, so a wedged-but-accepting agent would block a
+                connect for the full readiness ceiling too.
         """
         return httpx.Client(timeout=timeout if timeout is not None else self.timeout)
 
@@ -424,7 +429,12 @@ class RemoteNode:
             self.last_seen = datetime.now()
             return ops.start(model_name, port, caller="local").to_dict()
         try:
-            with self._get_client(timeout=READINESS_CLIENT_TIMEOUT_S) as client:
+            # Read/write/pool widen to the readiness ceiling; connect stays
+            # at the node's short self.timeout so a wedged-but-unreachable
+            # agent still fails fast (review nit on #503/#511) rather than
+            # blocking a CLI/UI run for READINESS_CLIENT_TIMEOUT_S.
+            readiness_timeout = httpx.Timeout(READINESS_CLIENT_TIMEOUT_S, connect=self.timeout)
+            with self._get_client(timeout=readiness_timeout) as client:
                 response = client.post(
                     f"{self.base_url}/start/{port}",
                     json={"model": model_name},
@@ -460,7 +470,12 @@ class RemoteNode:
             self.last_seen = datetime.now()
             return ops.swap(model_name, port, caller="local").to_dict()
         try:
-            with self._get_client(timeout=READINESS_CLIENT_TIMEOUT_S) as client:
+            # Read/write/pool widen to the readiness ceiling; connect stays
+            # at the node's short self.timeout so a wedged-but-unreachable
+            # agent still fails fast (review nit on #503/#511) rather than
+            # blocking a CLI/UI run for READINESS_CLIENT_TIMEOUT_S.
+            readiness_timeout = httpx.Timeout(READINESS_CLIENT_TIMEOUT_S, connect=self.timeout)
+            with self._get_client(timeout=readiness_timeout) as client:
                 response = client.post(
                     f"{self.base_url}/swap/{port}",
                     json={"model": model_name},
