@@ -31,6 +31,13 @@
 >   narrower, already-shipped stand-in for the identity/security subset of
 >   what this ADR's collision check would have covered. Building the full
 >   render matrix (Phase 1) remains open future work, re-scoped as above.
+>
+> **Amendment (ADR-LLNCH-028, 2026-08-26):** Phase 2 is **reinstated**, re-scoped
+> to ADR-LLNCH-028's admitted set (five flags), with its admission criterion
+> replacing "hazardous/missing" and its primitive-value clause binding every
+> promoted field — so `RenderSpec.transform` must never become a value-validation
+> hook. The semantic-gate non-goal is unaffected: gates are launch-path clauses,
+> never matrix cells.
 **Tracking:** #156 (direct motivator — contract gap + silent flag-collision loss). Related: #184 (promote risky `extra_args` flags; keep its mechanical half, drop its semantic-gate half), #152 (schema as boundary layer), #155 (vLLM/ST backend kind — future column), #170 (the `models → core` layering wart NOT to deepen).
 **Doctrine:** `harness-tools/docs/ground-physics/GROUND_PHYSICS.md` + `CODE_CONSTITUTION.md` — `IDENTITY⊥ENVELOPE`, `ONE-MINT`, `EMIT-CANONICAL`, `PARSE-AT-THE-DOOR`, `ONE-DOOR`. Layering: `docs/ARCHITECTURE.md` rule 1 (downward-only).
 **Disposition:** `auto:draft` — operator ratifies before any implementation begins. In-document Status `Draft` is the house canon (README §statuses) for the dispatch's "Proposed."
