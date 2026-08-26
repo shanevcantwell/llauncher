@@ -4,6 +4,9 @@ Tests the get_mcp_state() lazy singleton and ensures read handlers call refresh(
 These tests verify the architectural fix for stale data in MCP read tool responses.
 """
 
+import contextlib
+from pathlib import Path
+
 import pytest
 from unittest.mock import patch, MagicMock, ANY
 
@@ -15,6 +18,41 @@ def _reset_mcp_state():
     server_mod._mcp_state = None  # type: ignore[attr-defined]
 
 
+@contextlib.contextmanager
+def _no_real_scan():
+    """Stub both process-scan seams ``LauncherState.refresh()`` walks
+    (issue #496).
+
+    ``get_mcp_state()`` constructs a real ``LauncherState``, whose
+    ``__post_init__`` calls ``refresh()``, which drives TWO unmocked
+    ``psutil.process_iter`` full process-table walks (~6s/scan on the
+    reference box each — the issue's "two scans per refresh"):
+
+    - ``refresh_running_servers()`` -> ``find_all_llama_servers()``
+      (bound in ``state.py`` via ``from llauncher.core.process import
+      find_all_llama_servers``)
+    - ``refresh_orphans()`` -> ``operations.orphan.list_orphans()`` ->
+      ``proc.discover_all()`` (bound in ``orphan.py`` via
+      ``from llauncher.core import process as proc``)
+
+    The three ``TestGetMcpState`` tests below only assert on singleton
+    identity/caching, not on what either scan finds, so patching both seams
+    removes the tax without weakening what they verify. Patched by
+    module-attribute path (not by re-importing the bound name), matching the
+    seam-patching rule the existing ``launcher_state`` fixture in
+    ``tests/conftest.py`` already uses.
+
+    A ``@contextmanager`` (rather than building an ``ExitStack`` and handing
+    it back) so both patches are entered inside the ``with`` the caller
+    actually binds — if the second patch failed to enter, the first would
+    unwind via this generator's own exit instead of leaking session-wide.
+    """
+    with patch("llauncher.state.find_all_llama_servers", return_value=[]), patch(
+        "llauncher.operations.orphan.proc.discover_all", return_value=[]
+    ):
+        yield
+
+
 class TestGetMcpState:
     """Tests for the get_mcp_state() lazy singleton pattern."""
 
@@ -23,7 +61,8 @@ class TestGetMcpState:
         _reset_mcp_state()
         from llauncher.mcp_server.server import get_mcp_state
 
-        result = get_mcp_state()
+        with _no_real_scan():
+            result = get_mcp_state()
 
         assert result is not None
         assert hasattr(result, "models")
@@ -34,8 +73,9 @@ class TestGetMcpState:
         _reset_mcp_state()
         from llauncher.mcp_server.server import get_mcp_state
 
-        first = get_mcp_state()
-        second = get_mcp_state()
+        with _no_real_scan():
+            first = get_mcp_state()
+            second = get_mcp_state()
 
         assert first is second, "get_mcp_state must return the cached singleton"
 
@@ -45,7 +85,7 @@ class TestGetMcpState:
 
         with patch.object(
             server_mod, "LauncherState", wraps=server_mod.LauncherState
-        ) as MockLauncherState:
+        ) as MockLauncherState, _no_real_scan():
             _reset_mcp_state()
             from llauncher.mcp_server.server import get_mcp_state
 
@@ -78,6 +118,40 @@ class TestGetMcpState:
                 "Failed construction should reset cache for retry"
         finally:
             server_mod._mcp_state = original_val  # type: ignore[attr-defined]
+
+    def test_get_mcp_state_first_call_does_not_touch_real_nodes_json(self):
+        """Falsifier (#496): a bare first-access call must never write the
+        real ``~/.llauncher/nodes.json`` (or its ``node_tokens.json``
+        sidecar), byte-identical before/after.
+
+        This is the module-local regression guard for the exact leak #496
+        reported (this test bypassing isolation and persisting into the
+        operator's real node registry); the suite-wide
+        ``_forbid_real_state_writes`` autouse fixture in ``tests/conftest.py``
+        already backstops every test generically, but this test pins the
+        specific claim from the issue directly against this module's own
+        first-call path rather than relying only on that generic guard.
+        """
+        real_nodes = Path.home() / ".llauncher" / "nodes.json"
+        real_tokens = Path.home() / ".llauncher" / "node_tokens.json"
+        before_nodes = real_nodes.read_bytes() if real_nodes.exists() else None
+        before_tokens = real_tokens.read_bytes() if real_tokens.exists() else None
+
+        _reset_mcp_state()
+        from llauncher.mcp_server.server import get_mcp_state
+
+        with _no_real_scan():
+            get_mcp_state()
+
+        after_nodes = real_nodes.read_bytes() if real_nodes.exists() else None
+        after_tokens = real_tokens.read_bytes() if real_tokens.exists() else None
+        assert after_nodes == before_nodes, (
+            "get_mcp_state() first call wrote to the real ~/.llauncher/nodes.json"
+        )
+        assert after_tokens == before_tokens, (
+            "get_mcp_state() first call wrote to the real "
+            "~/.llauncher/node_tokens.json sidecar"
+        )
 
     def test_mcp_state_not_initialized_at_import(self):
         """_mcp_state must be None at module import time (no eager init). (#34-A)"""
