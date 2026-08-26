@@ -1438,3 +1438,86 @@ class TestCallbackRenderCallsSurvive498:
         assert not at.exception
         assert any("model is running" in el.value for el in at.error)
         assert any("model is running" in t.body for t in at.toast)
+
+
+class TestStartSwapClientTimeout503:
+    """Issue #503: a delegated start/swap the agent completes past the
+    node's short (5s) status-call timeout must render a *success* toast,
+    never a false-negative failure toast.
+
+    ``mock_local_agent_node.start_server``/``.swap_server`` are wired with a
+    ``side_effect`` that calls through to a *real* ``RemoteNode`` against a
+    real, deliberately slow HTTP server (``tests._fake_slow_agent``) — so
+    this exercises the real ``httpx`` client timeout built by
+    ``RemoteNode._get_client``, not just the card's dispatch plumbing
+    (already covered by the plain-``MagicMock`` tests above). Deliberately
+    does not use ``forbid_direct_http`` — the whole point here is a real
+    socket round trip.
+    """
+
+    def test_start_delegated_past_5s_renders_success_not_failure_toast(
+        self, tab_harness, card_state, mock_aggregator, model_dict,
+        mock_ops, mock_should_delegate, mock_local_agent_node,
+        mock_occupancy, port_is_free,
+    ):
+        # Drives the full card (button click), not `_handle_start` directly:
+        # since #498, `_handle_start` runs as the Start button's `on_click`
+        # callback (no trailing `st.rerun()` — the callback context lands
+        # its toast in the same run). Routing through the button click
+        # mirrors `TestStartDispatch` above and exercises the real click
+        # -> callback -> delegated-HTTP-call path, not just a direct
+        # function call.
+        from llauncher.remote.node import RemoteNode
+        from tests._fake_slow_agent import slow_fake_agent
+
+        mock_should_delegate.return_value = True
+
+        with slow_fake_agent(
+            delay_s=6.0,
+            body={"success": True, "action": "started", "message": "Started m on port 8080"},
+        ) as port:
+            real_node = RemoteNode("local", "127.0.0.1", port=port, timeout=5.0)
+            mock_local_agent_node.start_server.side_effect = real_node.start_server
+
+            at = _card(tab_harness, card_state, mock_aggregator, "local", model_dict)
+            _set_port(at)
+            at.button(key=f"toggle_start_local_{MODEL}").click()
+            at.run(timeout=15)
+
+        assert not at.exception
+        mock_local_agent_node.start_server.assert_called_once_with(MODEL, PORT)
+        toast_bodies = [t.body for t in at.toast]
+        assert not any("fail" in b.lower() for b in toast_bodies)
+        assert any("started" in b.lower() for b in toast_bodies)
+
+    def test_swap_delegated_past_5s_renders_success_not_failure_toast(
+        self, tab_harness, card_state, mock_ops, mock_should_delegate,
+        mock_local_agent_node,
+    ):
+        from llauncher.remote.node import RemoteNode
+        from tests._fake_slow_agent import slow_fake_agent
+
+        mock_should_delegate.return_value = True
+
+        with slow_fake_agent(
+            delay_s=6.0,
+            body={"success": True, "action": "swapped", "message": "Swapped to m on port 8080"},
+        ) as port:
+            real_node = RemoteNode("local", "127.0.0.1", port=port, timeout=5.0)
+            mock_local_agent_node.swap_server.side_effect = real_node.swap_server
+
+            at = tab_harness(
+                _render_eviction_dialog, card_state, "local", PORT, MODEL,
+                _eviction_flag_key("local", PORT, MODEL),
+                default_timeout=15,
+            )
+            _click_and_run(at, f"evict_confirm_local_{PORT}_{MODEL}")
+
+        assert not at.exception
+        mock_local_agent_node.swap_server.assert_called_once_with(MODEL, PORT)
+        toast_bodies = [t.body for t in at.toast]
+        assert not any("fail" in b.lower() for b in toast_bodies)
+        assert any(
+            "now running on port" in b.lower() or "swapped" in b.lower()
+            for b in toast_bodies
+        )

@@ -874,6 +874,51 @@ class TestCliSwapDelegation:
         assert "empty response" in result.stdout.lower()
 
 
+class TestCliStartSwapClientTimeout503:
+    """Issue #503: the delegated CLI start/swap verbs must not report a
+    false-negative failure when the agent takes longer than the node's
+    short (5s) status-call timeout to answer — a real, legitimate delay for
+    a slow model load or the 5-phase swap mechanic.
+
+    Drives a real ``RemoteNode`` (not a ``MagicMock``) against a real HTTP
+    server (``tests._fake_slow_agent``) that sleeps past 5s before
+    answering 200, wired through ``local_agent_node`` exactly as the real
+    delegation gate does — so this exercises the actual ``httpx`` client
+    timeout ``RemoteNode._get_client`` builds, not just the CLI's dispatch
+    plumbing (already covered by the ``MagicMock``-based tests above).
+    """
+
+    def test_start_delegated_succeeds_past_5s(self, mock_config_store):
+        from llauncher.remote.node import RemoteNode
+        from tests._fake_slow_agent import slow_fake_agent
+
+        with slow_fake_agent(
+            delay_s=6.0,
+            body={"success": True, "action": "started", "message": "Started m on port 8080"},
+        ) as port:
+            real_node = RemoteNode("local", "127.0.0.1", port=port, timeout=5.0)
+            with patch("llauncher.operations.start"), _cli_delegate(real_node):
+                result = runner.invoke(app, ["server", "start", "m", "--port", "8080"])
+
+        assert result.exit_code == 0
+        assert "started m on port 8080" in result.stdout.lower()
+
+    def test_swap_delegated_succeeds_past_5s(self, mock_config_store):
+        from llauncher.remote.node import RemoteNode
+        from tests._fake_slow_agent import slow_fake_agent
+
+        with slow_fake_agent(
+            delay_s=6.0,
+            body={"success": True, "action": "swapped", "message": "Swapped to m on port 8080"},
+        ) as port:
+            real_node = RemoteNode("local", "127.0.0.1", port=port, timeout=5.0)
+            with patch("llauncher.operations.swap"), _cli_delegate(real_node):
+                result = runner.invoke(app, ["server", "swap", "m", "--port", "8080"])
+
+        assert result.exit_code == 0
+        assert "swapped to m on port 8080" in result.stdout.lower()
+
+
 # ---------------------------------------------------------------------------
 # node subcommands
 # ---------------------------------------------------------------------------

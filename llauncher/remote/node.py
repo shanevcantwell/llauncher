@@ -21,8 +21,22 @@ import httpx
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from llauncher.core.delegation import is_agent_process
+from llauncher.operations import DEFAULT_READINESS_TIMEOUT_S
 
 logger = logging.getLogger(__name__)
+
+# Issue #503: ``/start`` and ``/swap`` are synchronous on the agent side
+# (``agent/routing.py``) and can legitimately block for the full readiness
+# ceiling (``DEFAULT_READINESS_TIMEOUT_S`` = 120 s, a slow model load or the
+# 5-phase swap mechanic). The node's general-purpose ``self.timeout``
+# (default 5.0 s, ``NodeConfig.timeout``) is sized for quick status/control
+# calls and was firing a client-side ``httpx.RequestError`` timeout while the
+# agent was still working — the UI then rendered a false-negative failure
+# toast for a start/swap the agent went on to complete. Only these two verbs
+# need the longer ceiling; every other verb keeps ``self.timeout`` (ratified
+# fix shape (a), #503).
+READINESS_CLIENT_TIMEOUT_MARGIN_S = 30.0
+READINESS_CLIENT_TIMEOUT_S = DEFAULT_READINESS_TIMEOUT_S + READINESS_CLIENT_TIMEOUT_MARGIN_S
 
 
 class NodeConfig(BaseModel):
@@ -189,9 +203,17 @@ class RemoteNode:
             headers["X-Api-Key"] = self.api_key
         return headers
 
-    def _get_client(self) -> httpx.Client:
-        """Create an HTTP client configured for this node."""
-        return httpx.Client(timeout=self.timeout)
+    def _get_client(self, timeout: float | None = None) -> httpx.Client:
+        """Create an HTTP client configured for this node.
+
+        Args:
+            timeout: Per-call override in seconds. ``None`` (the default)
+                uses ``self.timeout``, the short control-call default. Used
+                by :meth:`start_server`/:meth:`swap_server` (#503) to widen
+                the client timeout past the agent's readiness ceiling
+                without touching the node's general-purpose timeout.
+        """
+        return httpx.Client(timeout=timeout if timeout is not None else self.timeout)
 
     def _targets_local_node(self) -> bool:
         """Return True if this node points at the *local* node/agent.
@@ -402,7 +424,7 @@ class RemoteNode:
             self.last_seen = datetime.now()
             return ops.start(model_name, port, caller="local").to_dict()
         try:
-            with self._get_client() as client:
+            with self._get_client(timeout=READINESS_CLIENT_TIMEOUT_S) as client:
                 response = client.post(
                     f"{self.base_url}/start/{port}",
                     json={"model": model_name},
@@ -438,7 +460,7 @@ class RemoteNode:
             self.last_seen = datetime.now()
             return ops.swap(model_name, port, caller="local").to_dict()
         try:
-            with self._get_client() as client:
+            with self._get_client(timeout=READINESS_CLIENT_TIMEOUT_S) as client:
                 response = client.post(
                     f"{self.base_url}/swap/{port}",
                     json={"model": model_name},
