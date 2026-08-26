@@ -31,10 +31,11 @@ def render_model_registry(state, registry=None, aggregator=None, target="local")
     """Render the Model Registry validation table for a single target.
 
     Args:
-        state: The local LauncherState (used to trigger a refresh before
-            a local validate, and for ``config_errors`` — the quarantined
-            entries that have no validation row; validation itself reads
-            ConfigStore fresh, not ``state.models``).
+        state: The local LauncherState, already refreshed for this script
+            run by app.py (#497) before any tab renders. Read here for
+            ``config_errors`` — the quarantined entries that have no
+            validation row; validation itself reads ConfigStore fresh,
+            not ``state.models``.
         registry: NodeRegistry for remote nodes (optional, unused directly
             — validation for a remote target goes through ``aggregator``).
         aggregator: RemoteAggregator for multi-node state (optional).
@@ -45,7 +46,11 @@ def render_model_registry(state, registry=None, aggregator=None, target="local")
     if target == "local":
         from llauncher import operations as ops
 
-        state.refresh()
+        # Issue #497: the per-run refresh is hoisted to app.py, once,
+        # ahead of every tab -- ``state`` is already fresh for this
+        # script run by the time this reads ``state.config_errors``
+        # below. Calling ``refresh()`` again here would repeat the same
+        # psutil process-table walk for no new information.
         # ``vram=False``: this tab re-renders on every Streamlit widget
         # interaction and the VRAM verdict is advisory-only, so paying an
         # ``nvidia-smi`` shell-out per rerun buys nothing the badge gates on

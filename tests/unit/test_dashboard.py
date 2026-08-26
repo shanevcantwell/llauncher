@@ -24,7 +24,9 @@ class TestGetServersToDisplay:
         result = get_servers_to_display(mock_state, mock_registry, mock_aggregator, "local")
 
         assert result == []
-        mock_state.refresh.assert_called_once()
+        # #497: the per-run refresh is hoisted to app.py; this helper
+        # reads state as already fresh and must not refresh again.
+        mock_state.refresh.assert_not_called()
         # Aggregator must NOT be queried for the local target.
         mock_aggregator.get_all_servers.assert_not_called()
 

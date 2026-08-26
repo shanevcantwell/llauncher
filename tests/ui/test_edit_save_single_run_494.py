@@ -3,10 +3,19 @@
 The defect: Edit / Cancel / Save (and Delete) each did
 ``if st.button(...): mutate session_state; st.rerun()``. The click already
 triggers one script run; the explicit ``st.rerun()`` inside the click
-branch aborted that run and started a second — and every script run pays
-``model_registry.py``'s unconditional ``state.refresh()`` (two full
+branch aborted that run and started a second — and every script run used to
+pay ``model_registry.py``'s unconditional ``state.refresh()`` (two full
 ``psutil`` process-table scans), so Edit/Save cost twice what any other
 interaction did.
+
+Issue #497 later hoisted that ``state.refresh()`` out of
+``model_registry.py`` entirely, up to a single per-run call in
+``app.py`` — ahead of every tab, including this module's harness, which
+mounts ``render_models_tab`` directly and never runs ``app.py``. So the
+refresh-count assertions here now pin the *complement* of the original
+#494 contract: this tab must perform **zero** of its own ``refresh()``
+calls, on any click, because the one-per-run refresh happens upstream,
+outside what this harness renders.
 
 Unlike ``test_forms.py`` / ``test_model_card.py``, which each drive a
 single sub-renderer with everything above/below it mocked, this module
@@ -91,10 +100,11 @@ def _tab(tab_harness, state, registry, aggregator, *, run=True):
 
 class TestEditSingleRun:
     """Clicking Edit must land the edit form in exactly one script run,
-    paying exactly one ``state.refresh()``.
+    paying zero of this tab's own ``state.refresh()`` calls (#497 moved
+    the per-run refresh upstream to app.py, outside this harness).
     """
 
-    def test_edit_click_causes_one_refresh_and_routes_to_the_form(
+    def test_edit_click_causes_no_tab_local_refresh_and_routes_to_the_form(
         self, tab_harness, edit_save_state, mock_registry, mock_aggregator,
         mock_config_store, port_is_free,
     ):
@@ -105,7 +115,7 @@ class TestEditSingleRun:
         at.run()
 
         assert not at.exception
-        assert edit_save_state.refresh.call_count == 1
+        assert edit_save_state.refresh.call_count == 0
         assert at.session_state["editing_existing-model"] is True
         assert any(
             "Edit Model: existing-model" in s.value for s in at.subheader
@@ -115,10 +125,11 @@ class TestEditSingleRun:
 class TestSaveSingleRun:
     """Clicking Save Changes must persist, route back to the card grid,
     and show the confirmation toast, all within one script run paying
-    exactly one ``state.refresh()``.
+    zero of this tab's own ``state.refresh()`` calls (#497 moved the
+    per-run refresh upstream to app.py, outside this harness).
     """
 
-    def test_save_click_causes_one_refresh_routes_back_and_toasts(
+    def test_save_click_causes_no_tab_local_refresh_routes_back_and_toasts(
         self, tab_harness, edit_save_state, mock_registry, mock_aggregator,
         mock_config_store, port_is_free,
     ):
@@ -138,8 +149,9 @@ class TestSaveSingleRun:
         at.run()
 
         assert not at.exception
-        # One script run, one refresh() — the #494 measurement.
-        assert edit_save_state.refresh.call_count == 1
+        # One script run, zero of this tab's own refresh() calls — the
+        # #497 measurement (the per-run refresh now lives in app.py).
+        assert edit_save_state.refresh.call_count == 0
         # Routed back to the card grid within that same run (no lingering
         # edit form) rather than needing a further interaction.
         assert not any("Edit Model" in s.value for s in at.subheader)

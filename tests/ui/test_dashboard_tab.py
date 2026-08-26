@@ -88,7 +88,9 @@ class TestGetServersToDisplay:
         )
 
         assert servers == []
-        mock_state.refresh.assert_called_once()
+        # #497: the per-run refresh is hoisted to app.py; this helper
+        # reads state as already fresh and must not refresh again.
+        mock_state.refresh.assert_not_called()
 
     def test_local_target_maps_running_server_to_remote_server_info(
         self, mock_state, mock_registry, mock_aggregator

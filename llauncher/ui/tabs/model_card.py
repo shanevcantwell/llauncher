@@ -482,9 +482,12 @@ def _render_model_details(
                 # needed. The old `if st.button(): mutate; st.rerun()` shape
                 # mutated too late (after that routing check had already
                 # run) to take effect without a second full script run, and
-                # every run pays model_registry.py's unconditional
-                # state.refresh() (2 psutil walks) — the double-run defect
-                # measured in #494.
+                # at the time every run paid model_registry.py's
+                # unconditional state.refresh() (2 psutil walks) — the
+                # double-run defect measured in #494. That refresh has
+                # since been hoisted to a single per-run call in app.py
+                # (#497), so a second run now costs one walk pair, not
+                # two; the on_click shape stays right regardless.
                 on_click=_arm_editing_flag,
                 args=(model_name,),
             )
