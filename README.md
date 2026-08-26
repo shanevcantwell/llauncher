@@ -85,9 +85,11 @@ dashboard when the agent is down.
 
 Scripts live in `scripts/`, run from the repo root:
 
-**Linux/macOS:**
+**Linux/macOS:** install first with `pip install --user -e .` from the repo
+root (see [Installation](#installation)) — `run.sh install` is disabled, since
+it populated a repo-local `.venv` disconnected from your global commands
+(issue #154).
 ```bash
-./scripts/run.sh install     # Set up virtual environment and install
 ./scripts/run.sh agent       # Terminal 1: start agent in foreground
 ./scripts/run.sh ui          # Terminal 2: start dashboard (requires agent)
 ./scripts/run.sh stop        # Stop running agent
@@ -476,7 +478,7 @@ On every machine you want to manage (including the head):
 ```bash
 git clone https://github.com/shanevcantwell/llauncher
 cd llauncher
-./scripts/run.sh install
+pip install --user -e .
 ```
 
 **Windows:**
