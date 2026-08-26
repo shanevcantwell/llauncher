@@ -37,7 +37,7 @@ facades under ``forbid_direct_http``. What lives here, by surface:
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from llauncher.remote.node import NodeStatus, RemoteNode
 from llauncher.ui.tabs.nodes import render_node_list, render_nodes_tab
@@ -679,3 +679,115 @@ class TestAddNodeFormSubmit:
         assert any(
             "node 'gpu-rig' already exists" in el.value for el in at.error
         )
+
+
+# ---------------------------------------------------------------------------
+# Issue #498: every ``st.rerun()`` in this module was redundant -- a click
+# already causes exactly one script rerun on its own, and each control's
+# feedback (toast/success/error) already rendered inline, synchronously,
+# before the old trailing rerun fired. ``_run_count`` wraps
+# ``render_nodes_tab`` in a ``MagicMock(wraps=...)`` so its call count *is*
+# the number of full script executions one ``at.run()`` performed for one
+# click (the same idiom ``test_model_card.py``'s ``TestSingleScriptRunPerClick498``
+# uses) -- a reintroduced double-run defect would show call_count jumping by
+# 2 per click, not 1.
+# ---------------------------------------------------------------------------
+def _run_count(tab_harness, registry, aggregator):
+    counted = MagicMock(wraps=render_nodes_tab)
+    at = tab_harness(counted, registry, aggregator)
+    return at, counted
+
+
+class TestSingleScriptRunPerClick498:
+    """Every simplified (rerun-deleted) site here costs exactly one script
+    execution per click."""
+
+    def test_refresh_all_is_one_run(
+        self, tab_harness, mock_aggregator, make_node, registry_factory,
+    ):
+        node = make_node(name="gpu-rig", status=NodeStatus.ONLINE, online=True)
+        registry = registry_factory([node])
+        at, counted = _run_count(tab_harness, registry, mock_aggregator)
+        before = counted.call_count
+
+        _button_by_key(at, "refresh_all_nodes").click()
+        at.run()
+
+        assert not at.exception
+        assert counted.call_count == before + 1
+        registry.refresh_all.assert_called_once()
+
+    def test_save_token_is_one_run(
+        self, tab_harness, mock_aggregator, make_node, registry_factory,
+    ):
+        node = make_node(name="gpu-rig", status=NodeStatus.ONLINE, online=True)
+        registry = registry_factory([node])
+        at, counted = _run_count(tab_harness, registry, mock_aggregator)
+        before = counted.call_count
+
+        _button_by_key(at, "save_key_gpu-rig").click()
+        at.run()
+
+        assert not at.exception
+        assert counted.call_count == before + 1
+        registry.add_node.assert_called_once()
+        assert any("Token cleared" in el.value for el in at.success)
+
+    def test_test_connection_is_one_run(
+        self, tab_harness, mock_aggregator, make_node, registry_factory,
+    ):
+        node = make_node(name="gpu-rig", status=NodeStatus.ONLINE, online=True)
+        registry = registry_factory([node])
+        at, counted = _run_count(tab_harness, registry, mock_aggregator)
+        before = counted.call_count
+
+        _button_by_key(at, "test_gpu-rig").click()
+        at.run()
+
+        assert not at.exception
+        assert counted.call_count == before + 1
+        node.ping.assert_called_once()
+
+    def test_remove_node_is_one_run_and_leaves_the_remaining_node_intact(
+        self, tab_harness, mock_aggregator, make_node, registry_factory,
+    ):
+        """Also pins the ``list(registry)`` snapshot fix (#498): removing
+        one node mid-loop must not raise, and the sibling node rendered
+        after it in iteration order must still render this same run.
+        """
+        doomed = make_node(name="doomed-rig", status=NodeStatus.ONLINE, online=True)
+        survivor = make_node(name="zzz-rig", status=NodeStatus.ONLINE, online=True)
+        registry = registry_factory([doomed, survivor])
+        at, counted = _run_count(tab_harness, registry, mock_aggregator)
+        before = counted.call_count
+
+        _button_by_key(at, "remove_doomed-rig").click()
+        at.run()
+
+        assert not at.exception
+        assert counted.call_count == before + 1
+        registry.remove_node.assert_called_once_with("doomed-rig")
+        assert any("Node removed" in el.value for el in at.success)
+        # The survivor, iterated after the removed node, still rendered
+        # (its own expander mounted this same run).
+        assert any("zzz-rig" in el.label for el in at.expander)
+
+    def test_add_node_submit_is_one_run(
+        self, tab_harness, mock_aggregator, make_node, registry_factory,
+    ):
+        registry = registry_factory([])
+        added_node = make_node(name="gpu-rig", status=NodeStatus.ONLINE, online=True)
+        registry.get_node.side_effect = None
+        registry.get_node.return_value = added_node
+        at, counted = _run_count(tab_harness, registry, mock_aggregator)
+        _input_by_label(at, "Node Name").set_value("gpu-rig")
+        _input_by_label(at, "Host").set_value("192.168.1.50")
+        before = counted.call_count
+
+        _button_by_label(at, "➕ Add Node").click()
+        at.run()
+
+        assert not at.exception
+        assert counted.call_count == before + 1
+        registry.add_node.assert_called_once()
+        assert any("Node added" in el.value for el in at.success)

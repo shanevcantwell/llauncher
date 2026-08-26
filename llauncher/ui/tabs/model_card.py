@@ -8,6 +8,7 @@ from llauncher.core import delegation
 from llauncher.core.process import stream_logs
 from llauncher.remote.state import RemoteAggregator
 from llauncher.remote.node import RemoteServerInfo, local_agent_node
+from llauncher.ui.components import port_picker as _port_picker
 from llauncher.ui.components.port_picker import render_port_picker
 from llauncher.ui.utils import format_uptime
 
@@ -46,13 +47,17 @@ def render_model_card(
     # Status button is the clickable toggle (outside expander)
     with button_col:
         if is_running and running_server:
-            if st.button(
+            st.button(
                 status_icon,
                 key=f"toggle_stop_{node_name}_{model_name}",
                 help=f"Stop {model_name}",
                 width='stretch',
-            ):
-                _handle_stop(state, aggregator, node_name, running_server.port)
+                # on_click (#498): _handle_stop's own trailing st.rerun()
+                # used to force a second full script run just to reflect
+                # the stop; the callback context lands it in this same run.
+                on_click=_handle_stop,
+                args=(state, aggregator, node_name, model_name, running_server.port),
+            )
         else:
             _render_start_button(
                 state, aggregator, node_name, model_name, status_icon
@@ -155,6 +160,16 @@ def _start_error_key(node_name: str, model_name: str) -> str:
     return f"start_error_{node_name}_{model_name}"
 
 
+def _dismiss_start_error(key: str) -> None:
+    """``on_click`` callback for the sticky start-error Dismiss button (#498).
+
+    Pure ``session_state`` mutation -- callback-safe (ADR-LLNCH-025 view
+    state). See :func:`_render_start_error`'s docstring for why this is
+    on_click rather than the old ``if st.button(): mutate; st.rerun()``.
+    """
+    st.session_state[key] = None
+
+
 def _render_start_error(node_name: str, model_name: str) -> None:
     """Render the sticky start-failure message left by ``_handle_start``.
 
@@ -174,13 +189,19 @@ def _render_start_error(node_name: str, model_name: str) -> None:
         return
 
     st.error(message)
-    if st.button(
+    st.button(
         "Dismiss",
         key=f"{key}_dismiss",
         width='stretch',
-    ):
-        st.session_state[key] = None
-        st.rerun()
+        # on_click (#498): runs before the script body, so by the time
+        # this same function re-renders on the next pass, session_state
+        # is already cleared -- ``message`` above reads None and the
+        # ``if not message: return`` guard skips the banner this run.
+        # The old ``if st.button(): mutate; st.rerun()`` shape needed a
+        # second full script run to hide the banner; on_click needs none.
+        on_click=_dismiss_start_error,
+        args=(key,),
+    )
 
 
 def _render_start_button(
@@ -230,20 +251,59 @@ def _render_start_button(
         model_name=model_name,
     )
 
-    if st.button(
+    st.button(
         status_icon,
         key=f"toggle_start_{node_name}_{model_name}",
         help=f"Start {model_name}",
         width='stretch',
         disabled=chosen_port is None,
-    ):
-        if chosen_port is None:
-            # Defence-in-depth: ``disabled=True`` already blocks the
-            # click, but if a future Streamlit upgrade fires the
-            # callback anyway, refusing to call ``_handle_start`` here
-            # preserves the ADR-LLNCH-010 invariant.
-            return
-        _handle_start(state, aggregator, node_name, model_name, target_port=chosen_port)
+        # on_click (#498): _handle_start's own trailing st.rerun() calls
+        # used to force a second full script run to reflect the attempt;
+        # the callback context lands each branch in this same run.
+        #
+        # The port picker's *widget key* is passed, not chosen_port
+        # itself: on_click args are bound to whatever was passed to
+        # st.button() on the PRIOR render (the callback fires before this
+        # run's script body -- including this run's render_port_picker()
+        # call -- ever executes), so a value freshly typed this run would
+        # arrive as last run's stale value. The widget's own entry in
+        # st.session_state, in contrast, is synced from the frontend
+        # before any callback runs (the same fact forms.py's
+        # _save_edit_callback relies on) -- so the callback below reads
+        # the port fresh by key instead.
+        on_click=_start_button_clicked,
+        args=(state, aggregator, node_name, model_name, f"start_{node_name}_{model_name}_port"),
+    )
+
+
+def _start_button_clicked(
+    state: LauncherState,
+    aggregator: RemoteAggregator | None,
+    node_name: str,
+    model_name: str,
+    port_key: str,
+) -> None:
+    """``on_click`` wrapper for the start toggle (#498).
+
+    Reads the chosen port fresh from ``st.session_state[port_key]`` (see
+    the caller's comment for why) and re-applies the picker's blacklist
+    gate before dispatching to :func:`_handle_start`. Defence-in-depth:
+    ``disabled=True`` on the button already blocks the click for both
+    cases (no port typed, or a blacklisted one) on the render that
+    computed it, but if a future Streamlit upgrade fires the callback
+    anyway, refusing to call ``_handle_start`` here preserves the
+    ADR-LLNCH-010 invariant. Checked against ``_port_picker`` (module
+    reference, not an imported name) so this stays in lockstep with
+    :func:`render_port_picker`'s own check rather than a second,
+    driftable copy of ``BLACKLISTED_PORTS``.
+    """
+    chosen_port = st.session_state.get(port_key)
+    if chosen_port is None:
+        return
+    chosen_port = int(chosen_port)
+    if chosen_port in _port_picker.BLACKLISTED_PORTS:
+        return
+    _handle_start(state, aggregator, node_name, model_name, target_port=chosen_port)
 
 
 def _eviction_flag_key(node_name: str, port: int, model_name: str) -> str:
@@ -334,60 +394,87 @@ def _render_eviction_dialog(
 
     col1, col2 = st.columns(2)
     with col1:
-        if st.button(
+        st.button(
             "Cancel",
             key=f"evict_cancel_{node_name}_{port}_{model_name}",
             width='stretch',
-        ):
-            st.session_state[flag_key] = False
-            st.rerun()
+            # on_click (#498): pure session-state mutation, callback-safe.
+            on_click=_cancel_eviction,
+            args=(flag_key,),
+        )
     with col2:
-        if st.button(
+        st.button(
             "Confirm Eviction",
             key=f"evict_confirm_{node_name}_{port}_{model_name}",
             width='stretch',
             type="primary",
-        ):
-            st.session_state[flag_key] = False
-            # v2 ops migration (issue #57): route eviction through
-            # ``operations.swap`` instead of the legacy
-            # ``state.start_with_eviction_compat`` path. The M4 tab
-            # restructure (#50) must preserve this call.
-            #
-            # Delegation gate (#200): the evict-and-start branch of a
-            # local-node launch is itself a spawn, so it routes to the
-            # agent over HTTP when one is present (or an override forces
-            # it). With no agent reachable it falls back to the in-process
-            # swap (dev/standalone), preserving the toast taxonomy below.
-            if delegation.should_delegate():
-                # ``or {}`` guards the ``dict | None`` seam (see _handle_start).
-                res = local_agent_node().swap_server(model_name, port) or {}
-                if res.get("success"):
-                    st.toast(f"{model_name} now running on port {port}", icon="✅")
-                else:
-                    msg = res.get("message") or res.get("error") or "Eviction failed"
-                    st.toast(msg, icon="❌")
-            else:
-                result = ops.swap(model_name, port, caller="ui")
-                if result.success and result.action == "swapped":
-                    st.toast(f"{model_name} now running on port {port}", icon="✅")
-                elif result.success and result.action == "already_running":
-                    st.toast(f"{model_name} already running on port {port}", icon="ℹ️")
-                elif result.action == "rolled_back":
-                    st.toast(
-                        f"Swap failed — rolled back to {result.previous_model} "
-                        f"({result.message})",
-                        icon="⚠️",
-                    )
-                elif result.action in ("failed", "rejected_stop_failed"):
-                    st.toast(
-                        f"Port {port} unavailable — manual intervention required "
-                        f"({result.message})",
-                        icon="❌",
-                    )
-                else:
-                    st.toast(f"Eviction failed: {result.message}", icon="❌")
-            st.rerun()
+            # on_click (#498): the old shape's trailing st.rerun() forced
+            # a second full script run to reflect the swap.
+            on_click=_confirm_eviction,
+            args=(node_name, port, model_name, flag_key),
+        )
+
+
+def _cancel_eviction(flag_key: str) -> None:
+    """``on_click`` callback for the eviction dialog's Cancel button (#498).
+
+    Pure ``session_state`` mutation -- callback-safe (ADR-LLNCH-025).
+    """
+    st.session_state[flag_key] = False
+
+
+def _confirm_eviction(node_name: str, port: int, model_name: str, flag_key: str) -> None:
+    """``on_click`` callback for the eviction dialog's Confirm button (#498).
+
+    Dispatches the swap verb, exactly as the old click-branch did, minus
+    the trailing ``st.rerun()`` -- the callback context lands the result
+    in this same run without one.
+
+    Args:
+        node_name: Name of the node.
+        port: Port that is in use.
+        model_name: Name of the model to start.
+        flag_key: The session_state key gating the dialog, cleared here.
+    """
+    st.session_state[flag_key] = False
+    # v2 ops migration (issue #57): route eviction through
+    # ``operations.swap`` instead of the legacy
+    # ``state.start_with_eviction_compat`` path. The M4 tab
+    # restructure (#50) must preserve this call.
+    #
+    # Delegation gate (#200): the evict-and-start branch of a
+    # local-node launch is itself a spawn, so it routes to the
+    # agent over HTTP when one is present (or an override forces
+    # it). With no agent reachable it falls back to the in-process
+    # swap (dev/standalone), preserving the toast taxonomy below.
+    if delegation.should_delegate():
+        # ``or {}`` guards the ``dict | None`` seam (see _handle_start).
+        res = local_agent_node().swap_server(model_name, port) or {}
+        if res.get("success"):
+            st.toast(f"{model_name} now running on port {port}", icon="✅")
+        else:
+            msg = res.get("message") or res.get("error") or "Eviction failed"
+            st.toast(msg, icon="❌")
+    else:
+        result = ops.swap(model_name, port, caller="ui")
+        if result.success and result.action == "swapped":
+            st.toast(f"{model_name} now running on port {port}", icon="✅")
+        elif result.success and result.action == "already_running":
+            st.toast(f"{model_name} already running on port {port}", icon="ℹ️")
+        elif result.action == "rolled_back":
+            st.toast(
+                f"Swap failed — rolled back to {result.previous_model} "
+                f"({result.message})",
+                icon="⚠️",
+            )
+        elif result.action in ("failed", "rejected_stop_failed"):
+            st.toast(
+                f"Port {port} unavailable — manual intervention required "
+                f"({result.message})",
+                icon="❌",
+            )
+        else:
+            st.toast(f"Eviction failed: {result.message}", icon="❌")
 
 
 def _render_model_details(
@@ -446,8 +533,13 @@ def _render_model_details(
     if running_server:
         st.divider()
         with st.expander("📄 Logs (last 100 lines)", expanded=False):
-            if st.button("🔄 Refresh", key=f"refresh_logs_{node_name}_{model_name}"):
-                st.rerun()
+            # #498: no explicit st.rerun() -- a click already causes
+            # exactly one script rerun (any widget interaction does),
+            # and the log read just below runs unconditionally on every
+            # render, so this button needs no action of its own. The old
+            # ``if st.button(): st.rerun()`` shape paid a second,
+            # entirely redundant full script run per click.
+            st.button("🔄 Refresh", key=f"refresh_logs_{node_name}_{model_name}")
 
             if node_name == "local":
                 logs = stream_logs(pid=running_server.pid, lines=100)
@@ -538,51 +630,72 @@ def _render_delete_confirm(node_name: str, model_name: str) -> None:
 
     col1, col2 = st.columns(2)
     with col1:
-        if st.button(
+        st.button(
             "Cancel",
             key=f"delete_cancel_{node_name}_{model_name}",
             width='stretch',
-        ):
-            st.session_state[flag_key] = False
-            st.rerun()
+            # on_click (#498): pure session-state mutation, callback-safe.
+            on_click=_cancel_delete,
+            args=(flag_key,),
+        )
     with col2:
-        if st.button(
+        st.button(
             "Confirm Delete",
             key=f"delete_confirm_{node_name}_{model_name}",
             width='stretch',
             type="primary",
-        ):
-            result = ops.delete_model(model_name, caller="ui")
-            st.session_state[flag_key] = False
+            # on_click (#498): the old shape's trailing st.rerun() forced
+            # a second full script run to reflect the delete.
+            on_click=_confirm_delete,
+            args=(model_name, flag_key),
+        )
 
-            if result.success:
-                st.toast(result.message, icon="✅")
-            elif result.action == "rejected_in_use":
-                # Belt-and-suspenders: the UI gate (``not running_server``)
-                # should normally prevent this, but the backend check
-                # (live lockfile scan) is the real enforcement — surface it
-                # with the same sticky-error + toast pattern
-                # ``_handle_start``/``_handle_stop`` use for failures.
-                st.error(result.message)
-                st.toast(result.message, icon="❌")
-            else:
-                st.error(result.message)
-                st.toast(result.message, icon="❌")
-            st.rerun()
+
+def _cancel_delete(flag_key: str) -> None:
+    """``on_click`` callback for the delete gate's Cancel button (#498).
+
+    Pure ``session_state`` mutation -- callback-safe (ADR-LLNCH-025).
+    """
+    st.session_state[flag_key] = False
+
+
+def _confirm_delete(model_name: str, flag_key: str) -> None:
+    """``on_click`` callback for the delete gate's Confirm button (#498).
+
+    Dispatches the delete verb, exactly as the old click-branch did,
+    minus the trailing ``st.rerun()`` and the ``st.error()`` call (a
+    render call that would be silently dropped in this pre-script
+    callback context, per forms.py::_process_edit_model's precedent) --
+    the toast below already carries the same message.
+    """
+    result = ops.delete_model(model_name, caller="ui")
+    st.session_state[flag_key] = False
+
+    if result.success:
+        st.toast(result.message, icon="✅")
+    else:
+        st.toast(result.message, icon="❌")
 
 
 def _handle_stop(
     state: LauncherState,
     aggregator: RemoteAggregator | None,
     node_name: str,
+    model_name: str,
     port: int,
 ) -> None:
     """Handle stopping a server with proper error handling.
+
+    ``on_click`` callback for the card's stop toggle (#498) -- runs
+    before the script body, so no explicit ``st.rerun()`` is needed to
+    reflect the stop this run (the old shape's trailing rerun forced a
+    wasteful second full run).
 
     Args:
         state: The launcher state.
         aggregator: RemoteAggregator.
         node_name: Name of the node.
+        model_name: Name of the model being stopped (toast routing only).
         port: Port of the server to stop.
     """
     if node_name == "local":
@@ -630,7 +743,6 @@ def _handle_stop(
         st.toast(message, icon="✅")
     else:
         st.toast(message, icon="❌")
-    st.rerun()
 
 
 def _handle_start(
@@ -670,16 +782,20 @@ def _handle_start(
         # since _render_eviction_dialog_if_armed below reads state.running
         # anyway.
         if target_port in state.running:
-            # Port is occupied by another llauncher server. Arm the pending-
-            # confirmation flag and rerun (#412) rather than rendering the
-            # dialog inline here: an unconditional st.rerun() anywhere else
-            # on the card between this click and the operator's Confirm/
-            # Cancel would otherwise silently drop the dialog, since nothing
-            # previously recorded that a confirmation was pending.
+            # Port is occupied by another llauncher server. Arm the
+            # pending-confirmation flag (#412) rather than rendering the
+            # dialog inline here: a rerun from *anywhere else* on the
+            # card between this click and the operator's Confirm/Cancel
+            # would otherwise silently drop a render-transient dialog,
+            # since nothing would have recorded that a confirmation was
+            # pending. #498: this whole handler now runs as the start
+            # button's on_click callback, which fires before the script
+            # body -- so this flag is already armed by the time
+            # _render_eviction_dialog_if_armed checks it later in this
+            # same run, with no explicit st.rerun() needed.
             st.session_state[
                 _eviction_flag_key(node_name, target_port, model_name)
             ] = True
-            st.rerun()
         else:
             resolved_port = target_port
             valid, msg = state.can_start(config, caller="ui", port=resolved_port)
@@ -713,12 +829,15 @@ def _handle_start(
                         )
                         # Errors must be sticky — toasts disappear too quickly
                         # to read on a near-instant validation failure, and
-                        # st.error() here would be wiped by the st.rerun()
-                        # below before the operator can read it (#401).
-                        # Persist to session_state; _render_start_error
-                        # renders it on the next pass and clears it on
-                        # Dismiss (deliberate VIEW state, not cached
-                        # lifecycle truth — docs PR #411 / issue #410).
+                        # this whole handler runs as the start button's
+                        # on_click callback (#498): a bare st.error() here
+                        # would be silently dropped (nothing has started
+                        # rendering yet this run — see
+                        # forms.py::_process_edit_model). Persist to
+                        # session_state; _render_start_error renders it on
+                        # the next pass and clears it on Dismiss (deliberate
+                        # VIEW state, not cached lifecycle truth — docs
+                        # PR #411 / issue #410).
                         st.session_state[error_key] = err
                         st.toast(err, icon="❌")
                 else:
@@ -732,19 +851,22 @@ def _handle_start(
             else:
                 st.session_state[error_key] = f"Cannot start: {msg}"
                 st.toast(f"Cannot start: {msg}", icon="❌")
-            st.rerun()
     elif aggregator:
         # Per ADR-LLNCH-010, port is at the call site. M4 Slice 13 (#50) made
         # ``target_port`` required at this entry, so the previous
         # "no-port" guard is gone — the picker upstream enforces it.
+        #
+        # #498: no separate st.error() call — this handler now runs as
+        # the start button's on_click callback, where a render call like
+        # st.error() would be silently dropped (same reasoning as the
+        # sticky start_error path above); the toast below already
+        # carries the same message.
         result = aggregator.start_on_node(node_name, model_name, target_port)
         if result:
             if result.get("success"):
                 st.toast(f"Starting {model_name} on {node_name}...", icon="▶️")
             else:
-                st.error(result.get("error", "Failed to start"))
                 st.toast(result.get("error", "Failed to start"), icon="❌")
-        st.rerun()
     else:
         st.toast(
             f"Cannot start remote model: no connection to {node_name}",

@@ -1167,3 +1167,199 @@ class TestHandleStartMissingConfig:
         assert any("Model config not found" in b and MODEL in b for b in toast_bodies)
         mock_ops.start.assert_not_called()
         mock_local_agent_node.start_server.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Issue #498: every remaining ``st.rerun()`` site in this module was
+# converted to the #494 on_click-callback shape (or, where nothing renders
+# earlier in the same pass that depends on it, simply had its redundant
+# trailing ``st.rerun()`` deleted -- a click already causes exactly one
+# script rerun on its own). ``_run_count`` wraps ``render_model_card`` in a
+# ``MagicMock(wraps=...)`` so its call count *is* the number of full script
+# executions AppTest's ``at.run()`` performed for one click -- the same
+# "wrap it with a counter" idiom #494's own module docstring calls for,
+# adapted to a call count instead of a refresh count now that #497 moved the
+# per-run refresh out of anything this harness renders.
+# ---------------------------------------------------------------------------
+def _run_count(tab_harness, state, aggregator, node_name, model, running=None):
+    """Mount the real card wrapped in a call-counting double, run once."""
+    counted = MagicMock(wraps=render_model_card)
+    at = tab_harness(counted, state, None, aggregator, node_name, model, running)
+    return at, counted
+
+
+class TestSingleScriptRunPerClick498:
+    """Every converted/simplified site here costs exactly one script
+    execution per click -- not the two a lingering ``st.rerun()`` would
+    cost. Each test clicks once, calls ``at.run()`` once (AppTest folds any
+    *remaining* internal rerun into that one call, so a leftover double-run
+    defect would show up as ``call_count`` jumping by 2, not 1), and asserts
+    the render-side-effect it should carry lands in that same run.
+    """
+
+    def test_dismiss_start_error_is_one_run_and_hides_the_banner(
+        self, tab_harness, card_state, mock_aggregator, model_dict,
+        mock_ops, mock_should_delegate, mock_local_agent_node,
+        mock_occupancy, port_is_free,
+    ):
+        from tests.ui.conftest import make_op_result
+
+        mock_ops.start.return_value = make_op_result(
+            success=False, action="rejected_occupied", message="port occupied"
+        )
+        at, counted = _run_count(tab_harness, card_state, mock_aggregator, "local", model_dict)
+        _set_port(at)
+        at.button(key=f"toggle_start_local_{MODEL}").click()
+        at.run()
+        assert any("port occupied" in e.value for e in at.error)
+        before = counted.call_count
+
+        at.button(key=f"start_error_local_{MODEL}_dismiss").click()
+        at.run()
+
+        assert not at.exception
+        assert counted.call_count == before + 1
+        assert not at.error
+
+    def test_stop_click_is_one_run_and_dispatches(
+        self, tab_harness, card_state, mock_aggregator, model_dict,
+        mock_ops, mock_should_delegate, mock_local_agent_node, mock_stream_logs,
+    ):
+        at, counted = _run_count(
+            tab_harness, card_state, mock_aggregator, "local", model_dict, _server()
+        )
+        before = counted.call_count
+
+        at.button(key=f"toggle_stop_local_{MODEL}").click()
+        at.run()
+
+        assert not at.exception
+        assert counted.call_count == before + 1
+        mock_ops.stop.assert_called_once_with(PORT, caller="ui")
+        assert any("✅" == t.icon for t in at.toast)
+
+    def test_start_into_occupied_port_is_one_run_and_arms_the_dialog(
+        self, tab_harness, card_state, mock_aggregator, model_dict,
+        mock_ops, mock_should_delegate, mock_local_agent_node,
+        mock_occupancy, port_is_free,
+    ):
+        card_state.running[PORT] = MagicMock(config_name="occupant-model")
+        mock_occupancy.running[PORT] = MagicMock(config_name="occupant-model")
+        at, counted = _run_count(tab_harness, card_state, mock_aggregator, "local", model_dict)
+        _set_port(at)
+        at.run()
+        before = counted.call_count
+
+        at.button(key=f"toggle_start_local_{MODEL}").click()
+        at.run()
+
+        assert not at.exception
+        assert counted.call_count == before + 1
+        # The dialog is live in this same run -- no second click needed.
+        assert at.button(key=f"evict_confirm_local_{PORT}_{MODEL}") is not None
+
+    def test_start_success_is_one_run_and_dispatches(
+        self, tab_harness, card_state, mock_aggregator, model_dict,
+        mock_ops, mock_should_delegate, mock_local_agent_node,
+        mock_occupancy, port_is_free,
+    ):
+        at, counted = _run_count(tab_harness, card_state, mock_aggregator, "local", model_dict)
+        _set_port(at)
+        at.run()
+        before = counted.call_count
+
+        at.button(key=f"toggle_start_local_{MODEL}").click()
+        at.run()
+
+        assert not at.exception
+        assert counted.call_count == before + 1
+        mock_ops.start.assert_called_once_with(MODEL, PORT, caller="ui")
+
+    def test_eviction_cancel_is_one_run(
+        self, tab_harness, card_state, mock_aggregator, model_dict,
+        mock_ops, mock_should_delegate, mock_local_agent_node,
+        mock_occupancy, port_is_free,
+    ):
+        card_state.running[PORT] = MagicMock(config_name="occupant-model")
+        mock_occupancy.running[PORT] = MagicMock(config_name="occupant-model")
+        at, counted = _run_count(tab_harness, card_state, mock_aggregator, "local", model_dict)
+        _set_port(at)
+        at.button(key=f"toggle_start_local_{MODEL}").click()
+        at.run()
+        before = counted.call_count
+
+        at.button(key=f"evict_cancel_local_{PORT}_{MODEL}").click()
+        at.run()
+
+        assert not at.exception
+        assert counted.call_count == before + 1
+        mock_ops.swap.assert_not_called()
+        assert at.session_state[_eviction_flag_key("local", PORT, MODEL)] is False
+
+    def test_eviction_confirm_is_one_run_and_dispatches(
+        self, tab_harness, card_state, mock_aggregator, model_dict,
+        mock_ops, mock_should_delegate, mock_local_agent_node,
+        mock_occupancy, port_is_free,
+    ):
+        card_state.running[PORT] = MagicMock(config_name="occupant-model")
+        mock_occupancy.running[PORT] = MagicMock(config_name="occupant-model")
+        at, counted = _run_count(tab_harness, card_state, mock_aggregator, "local", model_dict)
+        _set_port(at)
+        at.button(key=f"toggle_start_local_{MODEL}").click()
+        at.run()
+        before = counted.call_count
+
+        at.button(key=f"evict_confirm_local_{PORT}_{MODEL}").click()
+        at.run()
+
+        assert not at.exception
+        assert counted.call_count == before + 1
+        mock_ops.swap.assert_called_once_with(MODEL, PORT, caller="ui")
+
+    def test_refresh_logs_is_one_run_and_rereads(
+        self, tab_harness, card_state, mock_aggregator, model_dict, mock_stream_logs,
+    ):
+        at, counted = _run_count(
+            tab_harness, card_state, mock_aggregator, "local", model_dict, _server()
+        )
+        before = counted.call_count
+        reads_before = mock_stream_logs.call_count
+
+        at.button(key=f"refresh_logs_local_{MODEL}").click()
+        at.run()
+
+        assert not at.exception
+        assert counted.call_count == before + 1
+        assert mock_stream_logs.call_count > reads_before
+
+    def test_delete_cancel_is_one_run(
+        self, tab_harness, card_state, mock_aggregator, model_dict, mock_ops,
+    ):
+        at, counted = _run_count(tab_harness, card_state, mock_aggregator, "local", model_dict)
+        at.button(key=f"delete_local_{MODEL}_enabled").click()
+        at.run()
+        before = counted.call_count
+
+        at.button(key=f"delete_cancel_local_{MODEL}").click()
+        at.run()
+
+        assert not at.exception
+        assert counted.call_count == before + 1
+        mock_ops.delete_model.assert_not_called()
+        assert at.session_state[f"deleting_local_{MODEL}"] is False
+
+    def test_delete_confirm_is_one_run_and_dispatches(
+        self, tab_harness, card_state, mock_aggregator, model_dict, mock_ops,
+    ):
+        at, counted = _run_count(tab_harness, card_state, mock_aggregator, "local", model_dict)
+        at.button(key=f"delete_local_{MODEL}_enabled").click()
+        at.run()
+        before = counted.call_count
+
+        at.button(key=f"delete_confirm_local_{MODEL}").click()
+        at.run()
+
+        assert not at.exception
+        assert counted.call_count == before + 1
+        mock_ops.delete_model.assert_called_once_with(MODEL, caller="ui")
+        assert any("✅" == t.icon for t in at.toast)

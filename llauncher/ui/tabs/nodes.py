@@ -40,16 +40,24 @@ def render_node_list(registry: NodeRegistry, aggregator) -> None:
         st.info("No nodes registered yet. Add a node using the form below.")
         return
 
-    # Refresh button
+    # Refresh button. #498: no explicit st.rerun() -- a click already
+    # causes exactly one script rerun, and the node cards render below
+    # this block in the same top-down pass, so they already read
+    # `registry` freshly refreshed this run without a second execution.
     col1, col2 = st.columns([1, 3])
     with col1:
         if st.button("🔄 Refresh All", width='stretch', key="refresh_all_nodes"):
             registry.refresh_all()
             st.toast("Refreshed all nodes", icon="🔄")
-            st.rerun()
 
-    # Node cards
-    for node in registry:
+    # Node cards. #498: snapshotted via list() rather than iterating the
+    # registry's live view directly -- the Remove Node action below
+    # mutates the registry mid-loop now that its own st.rerun() (which
+    # used to abort the run outright, sidestepping this) is gone. Without
+    # the snapshot, removing a node while iterating registry.__iter__'s
+    # live dict view would raise "dictionary changed size during
+    # iteration" on the very next node.
+    for node in list(registry):
         # Status badge
         if node.status == NodeStatus.ONLINE:
             status_icon = "🟢"
@@ -119,6 +127,10 @@ def render_node_list(registry: NodeRegistry, aggregator) -> None:
                             "Leave blank and save to clear."
                         ),
                     )
+                    # #498: no explicit st.rerun() -- the success/error
+                    # banner below renders inline, synchronously, in this
+                    # same click's run; a click alone already causes
+                    # exactly one script rerun.
                     if st.button(
                         "💾 Save token",
                         width='stretch',
@@ -139,11 +151,17 @@ def render_node_list(registry: NodeRegistry, aggregator) -> None:
                             )
                         else:
                             st.error(msg)
-                        st.rerun()
 
             # Actions
             action_col1, action_col2 = st.columns(2)
 
+            # #498: neither button below calls st.rerun() any more -- a
+            # click already causes exactly one script rerun, and each
+            # feedback call (toast / success / error) renders inline,
+            # synchronously, right where the click is handled, in this
+            # same run. Remove Node is safe to leave mid-loop now that
+            # the node list above iterates a list() snapshot rather than
+            # the registry's live view.
             with action_col1:
                 if st.button(
                     "🔍 Test Connection",
@@ -161,7 +179,6 @@ def render_node_list(registry: NodeRegistry, aggregator) -> None:
                             f"Connection failed: {node._error_message}",
                             icon="❌"
                         )
-                    st.rerun()
 
             with action_col2:
                 if node.name == "local":
@@ -178,7 +195,6 @@ def render_node_list(registry: NodeRegistry, aggregator) -> None:
                             st.success(message)
                         else:
                             st.error(message)
-                        st.rerun()
 
 
 def render_add_node_form(registry: NodeRegistry) -> None:
@@ -304,6 +320,13 @@ def render_add_node_form(registry: NodeRegistry) -> None:
             )
 
             if success:
+                # #498: no explicit st.rerun() -- the confirmation banners
+                # below render inline, synchronously, in this same
+                # submit's run. The new node itself will appear in the
+                # node list above on the *next* rerun (that list already
+                # rendered, earlier in this same script pass, before this
+                # form) rather than this one -- an acceptable one-click
+                # lag against the double-run this fix removes.
                 st.success(message)
                 # Test connection immediately
                 node = registry.get_node(node_name)
@@ -313,7 +336,6 @@ def render_add_node_form(registry: NodeRegistry) -> None:
                     st.warning(
                         f"Node added but connection failed: {node._error_message}"
                     )
-                st.rerun()
             else:
                 st.error(message)
 

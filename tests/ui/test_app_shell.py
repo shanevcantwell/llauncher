@@ -234,18 +234,18 @@ class TestConfigErrorBannerOnRefreshClick:
         assert any("/home/op/.llauncher/config.json" in t for t in banner_texts)
 
 
-class TestRefreshAllToastSurvivesRerun:
-    """``main()``'s sidebar "Refresh All" control (``app.py`` lines
-    ~126-130): clicking it dispatches ``state.refresh()`` /
-    ``registry.refresh_all()``, queues a confirmation toast, and calls
-    ``st.rerun()`` — all folded into one ``at.run()`` by AppTest's rerun
-    discipline (the same idiom ``tests/ui/test_nodes_tab.py`` pins for the
-    Nodes tab's own Refresh All). This is the app-shell twin of that
-    control, and additionally asserts the toast text survives onto the
-    *next* script run rather than being dropped by the rerun.
+class TestRefreshAllClickIsSingleRun:
+    """``main()``'s sidebar "Refresh All" control: clicking it dispatches
+    ``state.refresh()`` / ``registry.refresh_all()`` and shows a
+    confirmation toast, all within the ONE script run the click itself
+    causes (issue #498) -- no explicit ``st.rerun()``. Before #498 the
+    handler ended in an explicit ``st.rerun()``, forcing a second full
+    run (and a third ``state.refresh()`` call, on top of #497's hoisted
+    per-run one) just to reflect a click that already reruns the script
+    on its own.
     """
 
-    def test_refresh_all_click_dispatches_and_toast_survives_rerun(
+    def test_refresh_all_click_dispatches_and_toasts_in_one_run(
         self, app_harness
     ):
         state = MagicMock(name="LauncherState")
@@ -278,15 +278,52 @@ class TestRefreshAllToastSurvivesRerun:
             app_harness.run()
 
         assert not app_harness.exception
-        # This click's own run pays: the hoisted refresh at the top of
-        # main(), the sidebar handler's explicit refresh(), and the
-        # hoisted refresh on the st.rerun()-chased run that follows.
-        assert state.refresh.call_count == 3
+        # #498: exactly one script run for this click, so this click's
+        # own run pays only the hoisted refresh at the top of main() plus
+        # the sidebar handler's own explicit refresh() -- no third,
+        # rerun-chased call.
+        assert state.refresh.call_count == 2
         registry.refresh_all.assert_called_once()
-        # The toast queued right before st.rerun() is still visible on the
-        # run that follows it — pinning has_one_shot_effect (#335/#448).
+        # The toast is visible in the same run the click produced (no
+        # rerun needed to surface it).
         toast_bodies = [t.body for t in app_harness.toast]
         assert any("Refreshed all nodes" in b for b in toast_bodies)
+
+    def test_refresh_all_click_executes_main_exactly_once(self, app_harness):
+        """Direct proof of the #498 fix: wraps ``app.main`` in a
+        call-counting double (the same idiom ``test_model_card.py``'s
+        ``TestSingleScriptRunPerClick498`` and ``test_nodes_tab.py``'s
+        twin use) so its call count *is* the number of full script
+        executions one click produced. ``_main_script`` re-imports
+        ``main`` from the module on every run, so patching the module
+        attribute here is visible to every run AppTest performs.
+        """
+        import llauncher.ui.app as app_module
+
+        state = MagicMock(name="LauncherState")
+        registry = MagicMock(name="NodeRegistry")
+
+        with patch.object(app_module, "main", wraps=app_module.main) as counted, \
+             patch("llauncher.ui.app.get_state", return_value=state), \
+             patch("llauncher.ui.app.get_registry", return_value=registry), \
+             patch("llauncher.ui.app.get_aggregator", return_value=MagicMock()), \
+             patch("llauncher.ui.app.is_agent_ready", return_value=True), \
+             patch("llauncher.ui.app.render_node_selector", return_value="local"), \
+             patch("llauncher.ui.tabs.dashboard.render_dashboard"), \
+             patch("llauncher.ui.tabs.models.render_models_tab"), \
+             patch("llauncher.ui.tabs.nodes.render_nodes_tab"), \
+             patch("llauncher.ui.tabs.audit.render_audit_tab"):
+            app_harness.run()
+            before = counted.call_count
+
+            refresh_button = next(
+                b for b in app_harness.button if b.label == "🔄 Refresh All"
+            )
+            refresh_button.click()
+            app_harness.run()
+
+        assert not app_harness.exception
+        assert counted.call_count == before + 1
 
 
 class TestHoistedRefreshRunsOnceAcrossAllTabs:
