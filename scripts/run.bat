@@ -13,7 +13,7 @@ if /i "%~1"=="install" goto :install
 REM For all other commands, ensure venv exists first
 if not exist "%PROJECT_DIR%\.venv\Scripts\python.exe" (
     echo [ERROR] Virtual environment not found.
-    echo Please run: run.bat install
+    echo Please run: %~0 install
     exit /b 1
 )
 
@@ -62,11 +62,11 @@ goto :help
     echo [OK] Installation complete
     echo.
     echo Commands available:
-    echo   run.bat mcp       - Start MCP server
-    echo   run.bat agent     - Start remote management agent (foreground)
-    echo   run.bat ui        - Start Streamlit UI (requires agent; start it first)
-    echo   run.bat stop      - Stop running agent
-    echo   run.bat discover  - List discovered launch scripts
+    echo   %~0 mcp       - Start MCP server
+    echo   %~0 agent     - Start remote management agent (foreground)
+    echo   %~0 ui        - Start Streamlit UI (requires agent; start it first)
+    echo   %~0 stop      - Stop running agent
+    echo   %~0 discover  - List discovered launch scripts
     goto :end
 
 :mcp
@@ -106,7 +106,7 @@ goto :help
 :help
     echo llauncher - MCP-first launcher for llama.cpp servers
     echo.
-    echo Usage: run.bat [command]
+    echo Usage: %~0 [command]
     echo.
     echo Commands:
     echo   install    Install llauncher and dependencies
@@ -122,7 +122,7 @@ goto :help
     echo   LLAUNCHER_AGENT_NODE_NAME Friendly name for this node
     echo.
     echo First time setup:
-    echo   run.bat install
+    echo   %~0 install
     goto :end
 
 :end
