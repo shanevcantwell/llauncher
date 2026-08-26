@@ -405,6 +405,33 @@ class TestBuildCommandDenyList:
         assert "--log-disable" in cmd
         assert "--flash-attn" in cmd
 
+    def test_denial_names_the_offending_config_entry(self) -> None:
+        """Issue #462: the deny-list message must name the config entry
+        it belongs to, not just the flag — in a multi-model registry an
+        anonymous message is unactionable. Two configs, only one carries
+        a denied flag: the raised message names that one and not the
+        other.
+        """
+        clean = ModelConfig.from_dict_unvalidated({
+            "name": "qwen3.8-27b",
+            "model_path": "/fake/clean.gguf",
+        })
+        offending = ModelConfig.from_dict_unvalidated({
+            "name": "other-model",
+            "model_path": "/fake/offending.gguf",
+            "extra_args": "--api-key leaked",
+        })
+
+        # The clean config builds without incident.
+        build_command(clean, port=8080)
+
+        with pytest.raises(DeniedExtraArgError) as exc_info:
+            build_command(offending, port=8081)
+
+        message = str(exc_info.value)
+        assert "other-model" in message
+        assert "qwen3.8-27b" not in message
+
 
 class TestStartServer:
     """Tests for start_server function."""
