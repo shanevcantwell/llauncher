@@ -50,14 +50,19 @@ class TestAgentDownHaltsBeforeTabs:
     """``main()``'s agent-down branch (``app.py`` lines ~116-118): the
     banner renders and ``st.stop()`` halts the script before any tab or
     sidebar control mounts.
+
+    #497's hoisted ``state.refresh()`` sits *below* this gate, so an
+    agent-down run keeps paying zero ``psutil`` process-table walks —
+    pinned here so a future re-hoist above the gate goes red.
     """
 
     def test_agent_down_shows_banner_and_stops_before_sidebar_and_tabs(
         self, app_harness
     ):
         registry = MagicMock(name="NodeRegistry")
+        state = MagicMock(name="LauncherState")
 
-        with patch("llauncher.ui.app.get_state", return_value=MagicMock()), \
+        with patch("llauncher.ui.app.get_state", return_value=state), \
              patch("llauncher.ui.app.get_registry", return_value=registry), \
              patch("llauncher.ui.app.get_aggregator", return_value=MagicMock()), \
              patch("llauncher.ui.app.is_agent_ready", return_value=False):
@@ -76,6 +81,9 @@ class TestAgentDownHaltsBeforeTabs:
         assert app_harness.button == []
         assert app_harness.tabs == []
         registry.refresh_all.assert_not_called()
+        # ...including the hoisted per-run refresh: an agent-down run
+        # renders only a banner and must not walk the process table.
+        state.refresh.assert_not_called()
 
 
 def _corrupt_config_error() -> json.JSONDecodeError:
