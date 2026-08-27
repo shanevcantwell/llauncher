@@ -22,10 +22,10 @@
 
 | Category | Files | Tests |
 |----------|-------|-------|
-| Unit | 102 | 1607 |
+| Unit | 104 | 1649 |
 | Integration | 13 | 84 |
-| Other | 21 | 216 |
-| **Total** | **136** | **1907** |
+| Other | 22 | 248 |
+| **Total** | **139** | **1981** |
 
 ## Tests carrying special markers
 
@@ -142,7 +142,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_delegates_to_operations_validate_models`**
 - **`test_defaults_names_none_vram_true`**
 
-#### `tests/unit/mcp/test_phase1_lazy_singleton.py` (23 tests)
+#### `tests/unit/mcp/test_phase1_lazy_singleton.py` (24 tests)
 
 - **`test_get_mcp_state_returns_instance`**
   - *First call creates an instance (not None).*
@@ -152,6 +152,8 @@ ad-hoc markers used in the suite without declaration.
   - *On first access, state is fresh (configs loaded from disk).*
 - **`test_get_mcp_state_partial_failure_clears_cache`**
   - *Partial construction failure resets _mcp_state to allow retry (#34-F).*
+- **`test_get_mcp_state_first_call_does_not_touch_real_nodes_json`**
+  - *Falsifier (#496): a bare first-access call must never write the*
 - **`test_mcp_state_not_initialized_at_import`**
   - *_mcp_state must be None at module import time (no eager init). (#34-A)*
 - **`test_read_handler_calls_refresh_list_models`**
@@ -827,7 +829,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_install_cli_sh_calls_the_floor_check_before_venv_creation`**
   - *The floor check must run BEFORE `python3 -m venv`, never after —*
 
-#### `tests/unit/test_cli.py` (81 tests)
+#### `tests/unit/test_cli.py` (83 tests)
 
 - **`test_help_shows_all_command_groups`**
   - *CLI help should display all four subcommand groups.*
@@ -907,6 +909,8 @@ ad-hoc markers used in the suite without declaration.
 - **`test_swap_delegated_failure_exits_nonzero`**
 - **`test_swap_delegated_none_result_is_safe`**
   - *A ``None`` delegated body must surface as an error, not raise.*
+- **`test_start_delegated_succeeds_past_5s`**
+- **`test_swap_delegated_succeeds_past_5s`**
 - **`test_node_add_and_list`**
   - *Adding a node should persist it and list should show it.*
 - **`test_node_add_with_api_key_persists`**
@@ -1591,7 +1595,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_blank_lines_with_legacy_key_migration_and_dedupe`**
   - *Full #303 scenario: blank lines + comments + a legacy key + a*
 
-#### `tests/unit/test_model_card_delegation.py` (9 tests)
+#### `tests/unit/test_model_card_delegation.py` (14 tests)
 
 - **`test_local_start_delegates_over_http`**
 - **`test_local_start_in_process_when_no_agent`**
@@ -1604,6 +1608,13 @@ ad-hoc markers used in the suite without declaration.
 - **`test_eviction_delegates_over_http`**
 - **`test_eviction_in_process_when_no_agent`**
 - **`test_eviction_none_result_is_safe`**
+- **`test_local_stop_uses_the_models_current_port_not_the_rendered_one`**
+  - *The card rendered while ``m`` held 8080; by click time it holds*
+- **`test_local_stop_of_a_vanished_server_dispatches_nothing`**
+- **`test_remote_stop_uses_the_models_current_port_not_the_rendered_one`**
+- **`test_remote_stop_of_a_vanished_server_dispatches_nothing`**
+- **`test_no_aggregator_still_reports_the_missing_connection`**
+  - *The ``no connection to node`` branch predates the live re-resolve*
 
 #### `tests/unit/test_model_card_delete.py` (8 tests)
 
@@ -2034,7 +2045,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_default_vram_check_mixed_none_and_real_value_uses_real_value`**
   - *#241: the genuine-capacity path is unchanged when at least one device*
 
-#### `tests/unit/test_process.py` (106 tests)
+#### `tests/unit/test_process.py` (130 tests)
 
 - **`test_preferred_port_available`**
   - *Preferred port available - returns immediately.*
@@ -2048,6 +2059,10 @@ ad-hoc markers used in the suite without declaration.
   - *No preferred port, first port in range available.*
 - **`test_preferred_port_in_range_skipped`**
   - *Preferred port within range is skipped during scan.*
+- **`test_socket_table_read_once_for_multi_candidate_scan`**
+  - *#521: one net_connections() call, however many ports are probed.*
+- **`test_access_denied_falls_back_to_bind_probe_per_candidate`**
+  - *An unreadable socket table degrades to the bind probe, not a crash.*
 - **`test_minimal_config`**
   - *Minimal config produces basic command.*
 - **`test_full_config`**
@@ -2092,6 +2107,8 @@ ad-hoc markers used in the suite without declaration.
   - *ADR-026: constructing/assigning a denied flag into extra_args*
 - **`test_port_denied`**
 - **`test_benign_flag_not_denied`**
+- **`test_denial_names_the_offending_config_entry`**
+  - *Issue #462: the deny-list message must name the config entry*
 - **`test_normal_start`**
   - *Normal successful server start.*
 - **`test_binary_not_found`**
@@ -2120,6 +2137,30 @@ ad-hoc markers used in the suite without declaration.
   - *Find all llama-server processes.*
 - **`test_find_all_servers_empty`**
   - *Find all llama-server processes when none running.*
+- **`test_configured_binary_name_is_scanned`**
+  - *A process literally named the configured binary gets cmdline() read.*
+- **`test_interpreter_name_with_llama_server_in_argv_is_scanned`**
+  - *A wrapper invocation (python/bash/...) still matches via argv.*
+- **`test_interpreter_name_without_llama_server_in_argv_no_match`**
+  - *An interpreter process gets its argv read but is filtered out on content.*
+- **`test_non_candidate_name_never_gets_cmdline_read`**
+  - *A process whose name is neither the binary nor an interpreter is*
+- **`test_uppercase_exe_binary_name_matches`**
+  - *Windows reports names in whatever case the binary was created*
+- **`test_configured_binary_name_comes_from_settings`**
+  - *#521 review: the name gate is derived from the *configured**
+- **`test_binary_name_set_tracks_a_settings_change`**
+  - *The derived set is cached, but keyed on the setting — changing*
+- **`test_shell_lookalike_names_are_not_interpreters`**
+  - *Exact-match interpreter gate (#521 review): a prefix rule made*
+- **`test_versioned_and_extra_interpreters_are_candidates`**
+  - *python3.12, and the launcher/wrapper names added in review.*
+- **`test_discover_all_never_reads_cmdline_of_non_candidate`**
+  - *The name gate covers ``discover_all``, not just*
+- **`test_candidate_with_empty_cmdline_is_skipped`**
+  - *A name-gate candidate whose argv reads back empty (a kernel/*
+- **`test_find_server_by_port_never_reads_cmdline_of_non_candidate`**
+  - *…and covers ``find_server_by_port``, the third walk site.*
 - **`test_repeated_calls_within_ttl_hit_cache`**
   - *Two calls within the TTL window scan psutil.process_iter once.*
 - **`test_call_after_ttl_rescans`**
@@ -2147,13 +2188,35 @@ ad-hoc markers used in the suite without declaration.
 - **`test_tail_file_fewer_lines`**
   - *Tail file returns all lines when fewer than requested.*
 - **`test_port_in_use`**
-  - *Port is in use when found in process cmdline.*
+  - *Port is in use when a TCP socket is listening on it.*
 - **`test_port_not_in_use`**
-  - *Port is not in use when not found.*
+  - *Port is not in use when no socket is listening on it.*
 - **`test_no_partial_match`**
-  - *Port 8080 does not match --port 80800.*
-- **`test_port_in_use_equals_format`**
-  - *Port is in use when found with --port=8080 format.*
+  - *Port 8080 does not match a socket bound to 80800.*
+- **`test_no_connections_returns_false`**
+  - *An empty socket table means no port is in use.*
+- **`test_connection_without_laddr_is_skipped`**
+  - *A connection with no local address (e.g. outbound, unbound) is ignored.*
+- **`test_time_wait_does_not_count_as_in_use`**
+  - *A TIME_WAIT remnant is not occupancy — a new server binds over it.*
+- **`test_close_wait_does_not_count_as_in_use`**
+  - *Likewise CLOSE_WAIT — a half-closed connection holds no listener.*
+- **`test_listen_counts_as_in_use`**
+  - *The positive twin of the two above: LISTEN, and only LISTEN.*
+- **`test_established_client_socket_does_not_count`**
+  - *An outbound connection whose local port collides is not occupancy.*
+- **`test_access_denied_falls_back_to_bind_probe_free`**
+  - *#521: net_connections may be denied (macOS/BSD non-root, hardened*
+- **`test_access_denied_falls_back_to_bind_probe_in_use`**
+  - *Same fallback, occupied side: EADDRINUSE means in use.*
+- **`test_bind_probe_treats_unexpected_oserror_as_in_use`**
+  - *A probe that fails for any other reason must not hand out the port.*
+- **`test_bind_probe_does_not_set_reuseaddr`**
+  - *SO_REUSEADDR would let the probe bind over a live listener on*
+- **`test_real_bound_socket_detected`**
+  - *A real listening socket is detected via the live socket table.*
+- **`test_real_free_port_not_detected`**
+  - *A port released right after bind (nothing listening) reads as free.*
 - **`test_blacklisted_port_skipped`**
   - *Blacklisted ports are skipped during allocation.*
 - **`test_preferred_port_skipped_during_scan`**
@@ -2162,10 +2225,6 @@ ad-hoc markers used in the suite without declaration.
   - *Preferred port in scan range but blacklisted gets skipped twice.*
 - **`test_no_available_ports_returns_failure`**
   - *Returns failure when all ports in range are in use.*
-- **`test_is_port_in_use_access_denied`**
-  - *AccessDenied exception is handled gracefully.*
-- **`test_is_port_in_use_no_such_process`**
-  - *NoSuchProcess exception is handled gracefully.*
 - **`test_wait_for_server_ready_success`**
   - *Server becomes ready within timeout.*
 - **`test_wait_for_server_ready_timeout`**
@@ -2574,6 +2633,13 @@ ad-hoc markers used in the suite without declaration.
 - **`test_vram_true_is_the_default`**
 - **`test_self_loop_forwards_vram_false`**
 
+#### `tests/unit/test_remote_node_start_swap_timeout.py` (3 tests)
+
+- **`test_start_server_reports_success_past_5s`**
+- **`test_other_verbs_keep_the_short_default`**
+  - *A verb outside the #503 scope (get_status) must still honor the*
+- **`test_swap_server_reports_success_past_5s`**
+
 #### `tests/unit/test_remote_state_extended.py` (25 tests)
 
 - **`test_get_all_servers_offline_with_cache`**
@@ -2675,6 +2741,19 @@ ad-hoc markers used in the suite without declaration.
   - *Even without a .venv, `stop` must still reach the agent via PATH.*
 - **`test_stop_activates_existing_venv_if_present`**
   - *A pre-existing .venv is still activated (its agent takes precedence).*
+
+#### `tests/unit/test_runner_script_dispatch_matches_readme.py` (7 tests)
+
+- **`test_windows_quick_start_names_at_least_one_verb`**
+- **`test_linux_quick_start_names_at_least_one_verb`**
+- **`test_every_readme_windows_verb_exists_in_run_bat_dispatch`**
+- **`test_every_readme_linux_verb_exists_in_run_sh_dispatch`**
+- **`test_agent_bg_absent_from_readme_quick_start_verbs`**
+  - *agent-bg was removed from both scripts (0c75c67); it must not be*
+- **`test_agent_bg_absent_from_scripts`**
+  - *Neither script implements agent-bg; it must not be reintroduced in*
+- **`test_readme_quick_start_uses_scripts_prefix`**
+  - *The invocation examples must name the real scripts/ location, not a*
 
 #### `tests/unit/test_server_metrics.py` (35 tests)
 
@@ -3379,12 +3458,16 @@ ad-hoc markers used in the suite without declaration.
 - **`test_routing_health_reports_shared_version`**
 - **`test_server_app_reports_shared_version`**
 
-#### `tests/ui/test_app_shell.py` (4 tests)
+#### `tests/ui/test_app_shell.py` (7 tests)
 
 - **`test_agent_down_shows_banner_and_stops_before_sidebar_and_tabs`**
 - **`test_config_load_failure_shows_banner_not_traceback`**
+- **`test_hoisted_refresh_failure_banners_and_stops_before_sidebar`**
 - **`test_refresh_click_on_corrupt_config_banners_and_stops`**
-- **`test_refresh_all_click_dispatches_and_toast_survives_rerun`**
+- **`test_refresh_all_click_dispatches_and_toasts_in_one_run`**
+- **`test_refresh_all_click_executes_main_exactly_once`**
+  - *Direct proof of the #498 fix: wraps ``app.main`` in a*
+- **`test_one_refresh_per_run_with_real_dashboard_and_models_tabs`**
 
 #### `tests/ui/test_audit_tab.py` (16 tests)
 
@@ -3430,7 +3513,18 @@ ad-hoc markers used in the suite without declaration.
 - **`test_remote_target_renders_servers_and_models_from_aggregator`**
 - **`test_remote_target_with_no_data_shows_empty_state`**
 
-#### `tests/ui/test_forms.py` (18 tests)
+#### `tests/ui/test_edit_save_single_run_494.py` (6 tests)
+
+- **`test_edit_click_causes_no_tab_local_refresh_and_routes_to_the_form`**
+- **`test_save_click_causes_no_tab_local_refresh_routes_back_and_toasts`**
+- **`test_save_validation_failure_leaves_a_sticky_error_not_a_toast`**
+  - *A failed Save must not silently vanish (operator constraint):*
+- **`test_cancel_then_edit_again_shows_no_stale_error`**
+- **`test_arming_edit_drops_an_error_left_over_from_a_previous_session`**
+  - *Second line of defence: even if the key survives some other*
+- **`test_second_models_form_shows_its_own_path_and_saves_it`**
+
+#### `tests/ui/test_forms.py` (19 tests)
 
 - **`test_valid_submission_calls_config_store_add_model`**
 - **`test_valid_submission_shows_success_and_updates_state`**
@@ -3450,8 +3544,9 @@ ad-hoc markers used in the suite without declaration.
 - **`test_update_model_raises_shows_error_not_exception`**
 - **`test_slots_and_parallel_pass_through_to_config`**
 - **`test_extra_args_passes_through_to_config_verbatim`**
+- **`test_callback_uses_the_named_models_keys_not_another_models`**
 
-#### `tests/ui/test_model_card.py` (50 tests)
+#### `tests/ui/test_model_card.py` (63 tests)
 
 - **`test_start_with_no_agent_dispatches_in_process_ops_start`**
 - **`test_start_with_agent_present_delegates_over_http`**
@@ -3509,6 +3604,19 @@ ad-hoc markers used in the suite without declaration.
 - **`test_recheck_rejects_a_middle_segment_that_parses_but_mismatches`**
   - *The post-parse re-verify (~line 225-226): a middle segment that*
 - **`test_config_vanished_between_render_and_click_toasts_and_returns`**
+- **`test_dismiss_start_error_is_one_run_and_hides_the_banner`**
+- **`test_stop_click_is_one_run_and_dispatches`**
+- **`test_start_into_occupied_port_is_one_run_and_arms_the_dialog`**
+- **`test_start_success_is_one_run_and_dispatches`**
+- **`test_eviction_cancel_is_one_run`**
+- **`test_eviction_confirm_is_one_run_and_dispatches`**
+- **`test_refresh_logs_is_one_run_and_rereads`**
+- **`test_delete_cancel_is_one_run`**
+- **`test_delete_confirm_is_one_run_and_dispatches`**
+- **`test_remote_start_failure_renders_its_error_banner`**
+- **`test_rejected_delete_renders_its_error_banner`**
+- **`test_start_delegated_past_5s_renders_success_not_failure_toast`**
+- **`test_swap_delegated_past_5s_renders_success_not_failure_toast`**
 
 #### `tests/ui/test_model_registry_tab.py` (19 tests)
 
@@ -3529,7 +3637,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_iso_string_last_modified_renders_formatted_timestamp`**
   - *A remote report's ``last_modified`` arrives as a JSON ISO string*
 - **`test_none_last_modified_renders_em_dash`**
-- **`test_local_target_calls_state_refresh_and_validate_models`**
+- **`test_local_target_validates_models_without_its_own_refresh`**
 - **`test_local_render_suppresses_the_vram_check`**
 - **`test_remote_render_suppresses_the_peers_vram_check`**
 - **`test_quarantined_entry_renders_an_error_banner`**
@@ -3554,7 +3662,7 @@ ad-hoc markers used in the suite without declaration.
 - **`test_remote_target_cards_come_from_the_aggregator_not_local_state`**
 - **`test_remote_running_servers_are_filtered_to_the_target_node`**
 
-#### `tests/ui/test_nodes_tab.py` (29 tests)
+#### `tests/ui/test_nodes_tab.py` (38 tests)
 
 - **`test_registry_with_no_nodes_renders_header_and_add_form`**
 - **`test_add_node_form_fields_render`**
@@ -3610,4 +3718,18 @@ ad-hoc markers used in the suite without declaration.
   - *A successful add whose immediate readiness ping fails reports*
 - **`test_add_node_failure_shows_error`**
   - *A rejected add (e.g. duplicate name) surfaces the registry's*
+- **`test_refresh_all_is_one_run`**
+- **`test_save_token_is_one_run`**
+- **`test_test_connection_is_one_run`**
+- **`test_remove_node_is_one_run_and_leaves_the_remaining_node_intact`**
+  - *The sibling node after the removed one in iteration order must*
+- **`test_add_node_submit_is_one_run`**
+- **`test_test_connection_updates_the_status_badge_this_run`**
+  - *``ping()`` rewrites ``node.status``; the badge and the expander*
+- **`test_removed_nodes_card_does_not_render_this_run`**
+  - *A click branch left the doomed node's own fully-rendered card*
+- **`test_added_node_appears_in_the_node_list_this_run`**
+  - *The node list renders above the Add Node form, so a click*
+- **`test_add_node_requires_name_and_host`**
+  - *The required-field guard moved into the callback with the rest*
 
