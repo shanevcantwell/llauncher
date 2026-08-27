@@ -155,6 +155,29 @@ def _is_cmdline_scan_candidate(name: str | None) -> bool:
     return stem in _INTERPRETER_NAMES or bool(_PYTHON_NAME_RE.match(stem))
 
 
+def _matches_binary(candidate: str) -> bool:
+    """True when ``candidate`` IS a configured llama-server binary (#524).
+
+    Exact, case-insensitive match against :func:`_configured_binary_names`
+    after stripping any directory component and a trailing ``.exe`` — not
+    a substring test. A directory-qualified path
+    (``C:\\tools\\LLAMA-SERVER.EXE``) and an argv element that is merely the
+    binary name both match; an unrelated token that happens to contain the
+    binary name as a substring (``llama-server-monitor.exe``, an arg like
+    ``--log=llama-server.log``) does not — that's the behavior change from
+    the prior substring check.
+    """
+    if not candidate:
+        return False
+    base = candidate.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if base.endswith(".exe"):
+        base = base[:-4]
+    configured = {
+        n[:-4] if n.endswith(".exe") else n for n in _configured_binary_names()
+    }
+    return base in configured
+
+
 class ExtraArgsError(ValueError):
     """``extra_args`` could not be turned into argv at launch time.
 
@@ -694,7 +717,7 @@ def find_server_by_port(port: int) -> psutil.Process | None:
                 continue
 
             # Check if this is a llama-server with the right port
-            if "llama-server" in name or any("llama-server" in c for c in cmdline):
+            if _matches_binary(name) or any(_matches_binary(c) for c in cmdline):
                 # Check command line for port
                 for i, arg in enumerate(cmdline):
                     if arg in ("--port", "-p") and i + 1 < len(cmdline):
@@ -735,7 +758,7 @@ def find_all_llama_servers() -> list[psutil.Process]:
             if not cmdline:
                 continue
 
-            if "llama-server" in name or any("llama-server" in c for c in cmdline):
+            if _matches_binary(name) or any(_matches_binary(c) for c in cmdline):
                 servers.append(proc)
 
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
@@ -782,13 +805,14 @@ class ServerProcessInfo:
 def _is_llama_server(name: str, cmdline: list[str]) -> bool:
     """Shared identity predicate for :func:`verify_pid` and :func:`discover_all`.
 
-    A process counts as a llama-server when its ``name()`` contains
-    "llama-server" OR any argv element does (covers a direct binary
-    invocation as well as a shell/wrapper invocation). Single definition
-    per #466 §3 — both scan primitives must agree on what a llama-server
-    is.
+    A process counts as a llama-server when its ``name()`` IS a configured
+    llama-server binary (:func:`_matches_binary`) OR any argv element is
+    (covers a direct binary invocation as well as a shell/wrapper
+    invocation). Single definition per #466 §3 — both scan primitives must
+    agree on what a llama-server is. Exact, case-insensitive match (#524)
+    — not the substring test this replaced.
     """
-    return "llama-server" in (name or "") or any("llama-server" in c for c in cmdline)
+    return _matches_binary(name) or any(_matches_binary(c) for c in cmdline)
 
 
 def _extract_port_from_cmdline(cmdline: list[str]) -> int | None:

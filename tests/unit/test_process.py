@@ -778,10 +778,12 @@ class TestNameFirstScanFilter:
         with; the name gate is case-insensitive and ``.exe``-tolerant, so
         such a process still gets its argv read.
 
-        (Whether the *downstream* ``"llama-server" in name`` match is
-        case-sensitive is pre-existing behavior #521 does not touch —
-        this asserts only that the new gate does not swallow the process
-        before that matcher ever sees it.)
+        (Updated for #524: the downstream matcher is now
+        ``_matches_binary``, exact and case-insensitive rather than the old
+        substring test — see ``TestExactBinaryNameMatch`` for coverage of
+        that matcher directly. This test still only asserts the name gate
+        does not swallow the process before the downstream matcher sees
+        it.)
         """
         assert process_module._is_cmdline_scan_candidate("LLAMA-SERVER.EXE")
 
@@ -891,6 +893,88 @@ class TestNameFirstScanFilter:
 
         mock_proc.cmdline.assert_not_called()
         assert found is None
+
+
+class TestExactBinaryNameMatch:
+    """Issue #524: the downstream match is exact and case-insensitive, not
+    a substring test. #522's name-first gate (``_is_cmdline_scan_candidate``)
+    decides who gets ``cmdline()`` read; ``_matches_binary`` (used by
+    ``_is_llama_server``, ``find_all_llama_servers``, and
+    ``find_server_by_port``) decides who matches.
+    """
+
+    def test_uppercase_exe_name_is_discovered(self):
+        """A process literally named an uppercase ``.exe`` variant matches."""
+        mock_proc = MagicMock()
+        mock_proc.info = {"pid": 1, "name": "LLAMA-SERVER.EXE"}
+        mock_proc.cmdline.return_value = ["C:\\bin\\LLAMA-SERVER.EXE", "--port", "8080"]
+
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            results = find_all_llama_servers()
+
+        assert results == [mock_proc]
+
+    def test_fork_name_from_settings_is_discovered(self, monkeypatch):
+        """A seat pointing LLAMA_SERVER_PATH at a forked/renamed build
+        discovers a process named after that fork, not just the defaults."""
+        monkeypatch.setattr(
+            process_module.settings,
+            "LLAMA_SERVER_PATH",
+            Path("/opt/forks/ornith-server"),
+        )
+        monkeypatch.setattr(process_module, "_BINARY_NAMES_CACHE", None)
+
+        mock_proc = MagicMock()
+        mock_proc.info = {"pid": 2, "name": "ornith-server"}
+        mock_proc.cmdline.return_value = ["ornith-server", "--port", "8080"]
+
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            results = find_all_llama_servers()
+
+        assert results == [mock_proc]
+
+    def test_path_qualified_argv_element_is_discovered(self):
+        """A wrapper invocation whose argv carries a directory-qualified
+        binary path (not a bare name) still matches — ``_matches_binary``
+        strips the directory before comparing."""
+        mock_proc = MagicMock()
+        mock_proc.info = {"pid": 3, "name": "python3"}
+        mock_proc.cmdline.return_value = [
+            "python3", "wrapper.py", "/opt/llama.cpp/bin/llama-server", "--port", "8080",
+        ]
+
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            results = find_all_llama_servers()
+
+        assert results == [mock_proc]
+
+    def test_substring_only_match_is_not_discovered(self):
+        """Behavior change (#524): a process whose name/argv merely
+        *contains* the binary name as a substring — but isn't it — no
+        longer matches. ``llama-server-monitor.exe`` is name-gated in (it
+        contains the configured name), reads its argv, but the exact
+        matcher then rejects both name and argv."""
+        mock_proc = MagicMock()
+        mock_proc.info = {"pid": 4, "name": "llama-server-monitor.exe"}
+        mock_proc.cmdline.return_value = [
+            "llama-server-monitor.exe", "--log=llama-server.log",
+        ]
+
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            results = find_all_llama_servers()
+
+        assert results == []
+
+    def test_matches_binary_helper_directly(self):
+        """Unit-level coverage of ``_matches_binary`` itself: directory and
+        ``.exe`` stripping, case-insensitivity, and substring rejection."""
+        assert process_module._matches_binary("llama-server")
+        assert process_module._matches_binary("LLAMA-SERVER.EXE")
+        assert process_module._matches_binary("C:\\tools\\LLAMA-SERVER.EXE")
+        assert process_module._matches_binary("/opt/llama.cpp/bin/llama-server")
+        assert not process_module._matches_binary("llama-server-monitor.exe")
+        assert not process_module._matches_binary("--log=llama-server.log")
+        assert not process_module._matches_binary("")
 
 
 class TestProcessScanCache:
