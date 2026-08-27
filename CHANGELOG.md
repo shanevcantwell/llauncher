@@ -6,6 +6,37 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 
 ## [Unreleased]
 
+## [0.5.1-alpha] — 2026-08-27
+
+### Windows UI performance — the change 0.5.0-alpha deferred, delivered
+
+0.5.0-alpha shipped the PID-first primitives (#466 Phase 1) with the note "no user-visible latency change in this alpha; that's Phase 2." This release delivers the change, by a different route: the stall was a Windows envelope cost, not the architecture.
+
+- **Root cause (#521).** Every `psutil` process walk fetched `cmdline()` for all ~300 processes — ~3.1 s per walk on Windows (a per-process handle open + PEB read with no batch path), milliseconds on Linux. Every Streamlit stall on the Windows seat was an integer multiple of that quantum; #497/#498 had already removed the walks from the title-paint and tab-switch paths (≈40 s → ~0 each), but `state.refresh_running_servers` and the uncached `is_port_in_use` (via `can_start`, every Start click) still walked.
+- **Fix (#522).** Walks read `pid`+`name` and call `cmdline()` only for name-matched candidates (configured llama-server binary or an interpreter/shell, so wrapper launches still match). `is_port_in_use` reads the TCP socket table — LISTEN only, bind-probe fallback on `AccessDenied` — instead of scanning every argv for `--port`. `find_available_port` reads the socket table once. Envelope only: the OS remains ground truth (ADR-LLNCH-008 rule 3); the TTL cache and `state.py` are untouched.
+- **Measured (Windows seat, headless driver, same protocol before/after).** Models tab clickable **50.0 s → 1.7 s**; port edit → Start enabled **43.4 s → 0.59 s**; UI-reports-running lag **+32 s → none**; tab switch / expander **33–46 ms**. Microbenchmark: full walk 3,083 ms → name-first 2.4 ms; `is_port_in_use` 6,170 ms → 0.8 ms. Operator-confirmed indistinguishable from the Linux UX. Record: `docs/experiments/2026-08-27-ui-stall-quantum.md` (+ `bench_psutil_walk.py`).
+- **Behavior change.** "Port in use" now means a socket holds the port, not "some process's argv mentions it" — strictly more correct, and TIME_WAIT no longer reports a just-stopped port as occupied.
+
+### Also since 0.5.0-alpha
+
+- Handoffs: 2026-08-26 Windows-seat series (three addenda)
+- fix(remote): per-verb client timeout for start/swap so slow model loads are not reported as failures (#503) (#511)
+- perf(ui): remaining st.rerun() sites cost one script run per click (#498) (#510)
+- docs(readme): correct run.sh/run.bat paths, drop stale agent-bg (#501) (#508)
+- test(mcp): isolate lazy-singleton tests from real psutil scans and nodes.json (#496) (#506)
+- fix(process): name the config entry in the extra_args deny-list error (#462) (#505)
+- perf(ui): hoist state.refresh() to one call per script run (#497) (#507)
+- fix(ui): Edit / Save Changes run the script once — on_click callbacks replace st.rerun() (#494) (#499)
+- docs(adr): namespace bare ADR-026 citations in source comments (#489) (#492)
+
+### Known issues (carried or new)
+
+- 57 environment/portability test failures on the Windows seat at d433c75 (#523, supersedes #364); CI-green still requires Linux.
+- `stop` reports success before the port is released (#518) — reproduced live 2026-08-27; #515–#517 (stop/start mechanics) remain open.
+- #466 Phase 2/3 (PID-first `state.py`) remains open; no longer load-bearing for Windows latency.
+- llama-server discovery is case-sensitive/substring on name and argv (#524, fix in flight).
+- `Restart-Service llauncher-agent` terminates managed llama-server children (#480, carried from 0.5.0-alpha).
+
 ## [0.5.0-alpha] — 2026-08-25
 
 ### Breaking
