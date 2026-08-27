@@ -3,7 +3,9 @@
 import logging
 import importlib
 import re
+import socket
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 from pathlib import Path
@@ -657,6 +659,69 @@ class TestFindServer:
             assert results == []
 
 
+class TestNameFirstScanFilter:
+    """Issue #521: cmdline() is only paid for on name-first candidates.
+
+    On Windows, ``Process.cmdline()`` is a per-process handle open + PEB
+    read with no batch path — a walk that reads it for every process on
+    the table measured a 3.1s floor (~315 processes). The fix narrows the
+    walk to ``process_iter(["pid", "name"])`` and calls ``cmdline()``
+    only for processes whose name is a configured llama-server binary or
+    a known interpreter/shell name (the wrapper-invocation case). These
+    tests profile that narrowing directly via ``find_all_llama_servers``,
+    the simplest of the three walk sites sharing the filter.
+    """
+
+    def test_configured_binary_name_is_scanned(self):
+        """A process literally named the configured binary gets cmdline() read."""
+        mock_proc = MagicMock()
+        mock_proc.name.return_value = "llama-server"
+        mock_proc.cmdline.return_value = ["llama-server", "--port", "8080"]
+
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            results = find_all_llama_servers()
+
+        mock_proc.cmdline.assert_called_once()
+        assert results == [mock_proc]
+
+    def test_interpreter_name_with_llama_server_in_argv_is_scanned(self):
+        """A wrapper invocation (python/bash/...) still matches via argv."""
+        mock_proc = MagicMock()
+        mock_proc.name.return_value = "python3"
+        mock_proc.cmdline.return_value = ["python3", "launch.py", "--exec", "llama-server"]
+
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            results = find_all_llama_servers()
+
+        mock_proc.cmdline.assert_called_once()
+        assert results == [mock_proc]
+
+    def test_interpreter_name_without_llama_server_in_argv_no_match(self):
+        """An interpreter process gets its argv read but is filtered out on content."""
+        mock_proc = MagicMock()
+        mock_proc.name.return_value = "python3"
+        mock_proc.cmdline.return_value = ["python3", "unrelated_script.py"]
+
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            results = find_all_llama_servers()
+
+        mock_proc.cmdline.assert_called_once()
+        assert results == []
+
+    def test_non_candidate_name_never_gets_cmdline_read(self):
+        """A process whose name is neither the binary nor an interpreter is
+        skipped without ever calling cmdline() — the whole point of #521."""
+        mock_proc = MagicMock()
+        mock_proc.name.return_value = "chrome.exe"
+        mock_proc.cmdline.return_value = ["chrome.exe", "--type=renderer", "llama-server"]
+
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            results = find_all_llama_servers()
+
+        mock_proc.cmdline.assert_not_called()
+        assert results == []
+
+
 class TestProcessScanCache:
     """Tests for the issue #392 TTL cache fronting the process-table scans.
 
@@ -870,43 +935,74 @@ class TestTailFile:
 
 
 class TestIsPortInUse:
-    """Tests for is_port_in_use function."""
+    """Tests for is_port_in_use function.
+
+    Issue #521: is_port_in_use switched from an every-process argv scan
+    (looking for a ``--port``/``-p`` flag matching the target port) to
+    ``psutil.net_connections(kind="tcp")`` — a socket bound/listening on
+    the port, any status. This is a deliberate semantics change (settled
+    by #521, not just a perf fix): "port in use" now means "a socket
+    holds it," not "some process's argv mentions it." The old
+    argv-format tests (``--port=N`` vs ``--port N``, partial-match
+    guarding) tested string-matching behavior that no longer exists and
+    are replaced below with socket-table-shaped fixtures.
+    """
+
+    @staticmethod
+    def _conn(port: int, ip: str = "0.0.0.0"):
+        """Build a fake ``psutil._common.sconn``-shaped object."""
+        laddr = SimpleNamespace(ip=ip, port=port)
+        return SimpleNamespace(laddr=laddr)
 
     def test_port_in_use(self):
-        """Port is in use when found in process cmdline."""
-        mock_proc = MagicMock()
-        mock_proc.cmdline.return_value = ["llama-server", "--port", "8080"]
-
-        with patch("psutil.process_iter", return_value=[mock_proc]):
+        """Port is in use when a TCP socket's local address holds it."""
+        with patch("psutil.net_connections", return_value=[self._conn(8080)]):
             result = is_port_in_use(8080)
             assert result is True
 
     def test_port_not_in_use(self):
-        """Port is not in use when not found."""
-        mock_proc = MagicMock()
-        mock_proc.cmdline.return_value = ["llama-server", "--port", "9000"]
-
-        with patch("psutil.process_iter", return_value=[mock_proc]):
+        """Port is not in use when no socket's local address holds it."""
+        with patch("psutil.net_connections", return_value=[self._conn(9000)]):
             result = is_port_in_use(8080)
             assert result is False
 
     def test_no_partial_match(self):
-        """Port 8080 does not match --port 80800."""
-        mock_proc = MagicMock()
-        mock_proc.cmdline.return_value = ["llama-server", "--port", "80800"]
-
-        with patch("psutil.process_iter", return_value=[mock_proc]):
+        """Port 8080 does not match a socket bound to 80800."""
+        with patch("psutil.net_connections", return_value=[self._conn(80800)]):
             result = is_port_in_use(8080)
             assert result is False
 
-    def test_port_in_use_equals_format(self):
-        """Port is in use when found with --port=8080 format."""
-        mock_proc = MagicMock()
-        mock_proc.cmdline.return_value = ["llama-server", "--port=8080"]
+    def test_no_connections_returns_false(self):
+        """An empty socket table means no port is in use."""
+        with patch("psutil.net_connections", return_value=[]):
+            result = is_port_in_use(8080)
+            assert result is False
 
-        with patch("psutil.process_iter", return_value=[mock_proc]):
+    def test_connection_without_laddr_is_skipped(self):
+        """A connection with no local address (e.g. outbound, unbound) is ignored."""
+        no_laddr = SimpleNamespace(laddr=None)
+        with patch("psutil.net_connections", return_value=[no_laddr, self._conn(8080)]):
             result = is_port_in_use(8080)
             assert result is True
+
+    def test_real_bound_socket_detected(self):
+        """A real bound-and-listening socket is detected via the live socket table."""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(("127.0.0.1", 0))
+        sock.listen(1)
+        try:
+            port = sock.getsockname()[1]
+            assert is_port_in_use(port) is True
+        finally:
+            sock.close()
+
+    def test_real_free_port_not_detected(self):
+        """A port released right after bind (nothing listening) reads as free."""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+        sock.close()
+        assert is_port_in_use(port) is False
 
 
 class TestFindAvailablePortEdgeCases:
@@ -983,28 +1079,6 @@ class TestFindAvailablePortEdgeCases:
             assert success is False
             assert port == 0
             assert "no available" in msg.lower()
-
-
-class TestIsPortInUseExceptions:
-    """Tests for is_port_in_use exception handling."""
-
-    def test_is_port_in_use_access_denied(self):
-        """AccessDenied exception is handled gracefully."""
-        mock_proc = MagicMock()
-        mock_proc.cmdline.side_effect = psutil.AccessDenied(12345)
-
-        with patch("psutil.process_iter", return_value=[mock_proc]):
-            result = is_port_in_use(8080)
-            assert result is False  # No port found, exception handled
-
-    def test_is_port_in_use_no_such_process(self):
-        """NoSuchProcess exception is handled gracefully."""
-        mock_proc = MagicMock()
-        mock_proc.cmdline.side_effect = psutil.NoSuchProcess(12345, None)
-
-        with patch("psutil.process_iter", return_value=[mock_proc]):
-            result = is_port_in_use(8080)
-            assert result is False  # No port found, exception handled
 
 
 class TestWaitForServerReady:

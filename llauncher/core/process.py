@@ -69,6 +69,44 @@ _PROCESS_SCAN_CACHE = _TTLCache(ttl_seconds=3)
 _SCAN_KEY_ALL_SERVERS = "find_all_llama_servers"
 _SCAN_KEY_ALL_SERVERS_ANNOTATED = "find_all_llama_servers_annotated"
 
+# Issue #521: on Windows, psutil.Process.cmdline() is a per-process handle
+# open + PEB read with no batch path — walking ~315 processes and reading
+# cmdline() on every one of them measured a 3.1s floor, dominated by
+# protected/system processes. The fix is name-first filtering: fetch only
+# ["pid", "name"] for the walk (median 1.1ms), and pay for cmdline() only
+# on processes whose name is worth reading argv from — either the
+# configured llama-server binary (settings.py's candidate list, ~line 44)
+# or a known interpreter/shell name (the wrapper-invocation case, e.g.
+# "python launch.py ... llama-server ..." or "bash run.sh ... llama-server
+# ...", where "llama-server" only appears in argv, not in name()).
+# Everything else never gets a cmdline() call — measured 1.5ms for the
+# same walk with this filter applied.
+_CONFIGURED_BINARY_NAMES = ("llama-server", "llama-server.exe")
+_INTERPRETER_NAMES = (
+    "python", "python3", "pythonw", "py",
+    "sh", "bash", "zsh", "dash", "ash",
+    "cmd", "powershell", "pwsh",
+)
+
+
+def _is_cmdline_scan_candidate(name: str | None) -> bool:
+    """Name-first filter (#521): is ``name`` worth a ``cmdline()`` read?
+
+    True when ``name`` is the configured llama-server binary (direct
+    invocation) or a known interpreter/shell name (the wrapper-invocation
+    case — the actual "llama-server" evidence lives in argv, which this
+    function's caller has not read yet). Comparison is case-insensitive;
+    a trailing ``.exe`` is stripped before the interpreter-name check so
+    "python3.exe"/"cmd.exe" match the same as their POSIX names.
+    """
+    name_lower = (name or "").lower()
+    if not name_lower:
+        return False
+    if any(binary in name_lower for binary in _CONFIGURED_BINARY_NAMES):
+        return True
+    stem = name_lower[:-4] if name_lower.endswith(".exe") else name_lower
+    return any(stem == interp or stem.startswith(interp) for interp in _INTERPRETER_NAMES)
+
 
 class ExtraArgsError(ValueError):
     """``extra_args`` could not be turned into argv at launch time.
@@ -585,14 +623,18 @@ def find_server_by_port(port: int) -> psutil.Process | None:
     Returns:
         The process if found, None otherwise.
     """
-    for proc in psutil.process_iter(["pid", "cmdline", "name"]):
+    for proc in psutil.process_iter(["pid", "name"]):
         try:
+            name = proc.name()
+            if not _is_cmdline_scan_candidate(name):
+                continue
+
             cmdline = proc.cmdline()
             if not cmdline:
                 continue
 
             # Check if this is a llama-server with the right port
-            if "llama-server" in proc.name() or any("llama-server" in c for c in cmdline):
+            if "llama-server" in name or any("llama-server" in c for c in cmdline):
                 # Check command line for port
                 for i, arg in enumerate(cmdline):
                     if arg in ("--port", "-p") and i + 1 < len(cmdline):
@@ -623,13 +665,17 @@ def find_all_llama_servers() -> list[psutil.Process]:
 
     servers = []
 
-    for proc in psutil.process_iter(["pid", "cmdline", "name"]):
+    for proc in psutil.process_iter(["pid", "name"]):
         try:
+            name = proc.name()
+            if not _is_cmdline_scan_candidate(name):
+                continue
+
             cmdline = proc.cmdline()
             if not cmdline:
                 continue
 
-            if "llama-server" in proc.name() or any("llama-server" in c for c in cmdline):
+            if "llama-server" in name or any("llama-server" in c for c in cmdline):
                 servers.append(proc)
 
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
@@ -813,8 +859,12 @@ def discover_all() -> list[ServerProcessInfo]:
 
     discovered: list[ServerProcessInfo] = []
 
-    for proc in psutil.process_iter(["pid", "cmdline", "name"]):
+    for proc in psutil.process_iter(["pid", "name"]):
         try:
+            name = proc.name()
+            if not _is_cmdline_scan_candidate(name):
+                continue
+
             try:
                 cmdline = proc.cmdline()
             except psutil.AccessDenied:
@@ -822,7 +872,7 @@ def discover_all() -> list[ServerProcessInfo]:
                 # below to even be relevant) but cannot read argv. Surface
                 # the pid with the unreadable flag so callers can dedupe
                 # warnings rather than re-checking each scan tick.
-                if _is_llama_server(proc.name() or "", []):
+                if _is_llama_server(name or "", []):
                     discovered.append(
                         ServerProcessInfo(
                             pid=proc.pid, port=None, alias=None,
@@ -835,7 +885,7 @@ def discover_all() -> list[ServerProcessInfo]:
             if not cmdline:
                 continue
 
-            if not _is_llama_server(proc.name(), cmdline):
+            if not _is_llama_server(name, cmdline):
                 continue
 
             try:
@@ -1087,27 +1137,30 @@ def wait_for_server_ready(
 
 
 def is_port_in_use(port: int) -> bool:
-    """Check if a port is currently in use by any process.
+    """Check if a port is currently bound/listening.
+
+    Issue #521: previously this walked every process's argv looking for a
+    ``--port``/``-p`` flag matching ``port`` — an every-process
+    ``cmdline()`` scan (6.2s uncached on the Windows seat that motivated
+    the fix). It now reads the OS socket table directly via
+    ``psutil.net_connections(kind="tcp")`` (0.3ms measured) and checks
+    whether any TCP connection's local address holds ``port``.
+
+    This is a semantics change, not just a perf one: "port in use" now
+    means "a socket holds it" rather than "some process's argv mentions
+    it" — strictly more correct (it also catches a listener started with
+    no ``--port`` flag, or a non-llama-server process squatting the port)
+    and four orders of magnitude cheaper.
 
     Args:
         port: Port number to check.
 
     Returns:
-        True if port is in use, False otherwise.
+        True if any TCP socket is bound to ``port`` locally, False
+        otherwise.
     """
-    for proc in psutil.process_iter(["pid", "cmdline"]):
-        try:
-            cmdline = proc.cmdline()
-            if not cmdline:
-                continue
-
-            for i, arg in enumerate(cmdline):
-                if arg in ("--port", "-p") and i + 1 < len(cmdline):
-                    if cmdline[i + 1] == str(port):
-                        return True
-                if arg.startswith(f"--port={port}") or arg.startswith(f"-p{port}"):
-                    return True
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
+    for conn in psutil.net_connections(kind="tcp"):
+        if conn.laddr and conn.laddr.port == port:
+            return True
 
     return False
