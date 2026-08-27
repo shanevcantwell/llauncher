@@ -61,14 +61,62 @@ post-fix (317 processes, 1 name match):
 Both figures land comfortably under the #521 acceptance criterion of
 < 50 ms for each.
 
+Post-fix `is_port_in_use` answers a narrower question than the walk it
+replaced: **a socket in the LISTEN state** holds the port. Non-LISTEN
+states (TIME_WAIT, CLOSE_WAIT, an outbound socket whose local port
+collides) are not occupancy — a fresh server binds straight over them,
+and counting them is exactly the phantom "port occupied" #518 chases.
+When the socket table cannot be read at all (`psutil.AccessDenied` —
+macOS/BSD as non-root, hardened Linux), the function falls back to a
+bind probe on the single port in question (no `SO_REUSEADDR`, so it
+fails exactly where a real listener would).
+
 ## After-table (headless driver, same T0→T10b protocol as the before-table)
 
-**TODO** — a separate measurement step (second Streamlit instance on
-:8502 from the fix branch, same Playwright driver/protocol as #520's
-before-table). Not run as part of #521's implementation; captured here
-as a placeholder so the record has a single home once it lands.
+Measured 2026-08-27 on the Windows seat: second Streamlit instance on
+:8502 launched from the fix worktree, Ornith started on :8091, same
+headless Playwright driver and T0 (before browser launch) as the
+before-table. Artifacts under `%TEMP%\ui_drive_after\`.
 
-Expected shape per the prediction above: port-blur → Start-enabled
-< 3.1 s, first full render < 10 s, server-ready → 🟢 lag reduced (not
-gated by #521's acceptance criteria, but expected to drop given
-`find_server_by_port` shares the same name-first filter).
+| milestone | before (Δ from T0 / Δ prev) | after (Δ from T0 / Δ prev) |
+|---|---|---|
+| T3 title visible | 1.3 s | 1.2 s |
+| T4 Models tab clickable | +51.3 s / **+50.0 s** | +2.9 s / **+1.7 s** |
+| T6 port typed + blurred | +51.5 s | +3.2 s |
+| T7 Start toggle enabled | +94.9 s / **+43.4 s** | +3.8 s / **+0.59 s** |
+| T8 clicked | +95.0 s | +4.0 s |
+| T10b /v1/models 200 | +155.8 s / +60.7 s after click | +23.1 s / +19.2 s after click |
+| T10 UI shows running | ≈+188 s / **≈+32 s after server ready** | +21.7 s / **1.5 s before server ready** |
+
+Post-start interaction latencies on :8502 (all sub-50 ms, i.e. below the
+threshold at which a click reads as instant): Dashboard tab 45.9 ms,
+back to Models 42.7 ms, expand Details 33.2 ms, collapse 36.8 ms,
+port-edit blur → toggle enabled on the Qwen3.8 card 8.8 ms.
+
+### Reading the table
+
+1. **Both gated criteria hold.** Port-blur → Start-enabled is +0.59 s,
+   under the < 3.1 s gate (it was +43.4 s — fourteen quanta). First full
+   render is +2.9 s, under the < 10 s gate (it was +51.3 s).
+2. **The 32 s UI-lag row was walks too — it inverted rather than
+   shrank.** "UI shows running" now lands 1.5 s *before* `/v1/models`
+   answers 200, because the optimistic toast fires ahead of the glyph
+   flip; the lag did not become small, it changed sign. A detection
+   nuance in the driver, not a claim that the UI is precognitive.
+3. **The 60.7 s → 19.2 s model-load delta is not this fix.** That is the
+   OS file cache — the second load of the same GGUF on the same day.
+   #521 does not touch the load path; nobody should credit it here.
+4. **Measurement hazard, for the record.** With llauncher pip-installed
+   editable against the shared checkout, `PYTHONPATH=<worktree>` is
+   defeated when the cwd *is* the shared checkout: `''` precedes
+   `PYTHONPATH` on `sys.path`, so the checkout's copy wins and the
+   "after" run silently measures the "before" code. Invoke from a
+   neutral cwd (or from the worktree itself) and verify
+   `llauncher.__file__` before trusting any worktree measurement.
+5. **H0 verdict: confirmed.** The quantum was the Windows `cmdline()`
+   envelope cost — a per-process handle-open + PEB read with no batch
+   path — and every stall decomposed as N × that cost. The fix stayed in
+   envelope space: no trust-model change, OS still ground truth
+   (ADR-LLNCH-008 rule 3), `state.py` untouched.
+
+Cross-refs: #520 (run ledger) · #521 (fix) · #522 (PR).
