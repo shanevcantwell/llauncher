@@ -1,5 +1,6 @@
 """Tests for llauncher core process management."""
 
+import errno
 import logging
 import importlib
 import re
@@ -33,6 +34,7 @@ from llauncher.core.process import (
     ExtraArgsError,
     MalformedExtraArgsError,
 )
+from llauncher.core import process as process_module
 from llauncher.models.config import ModelConfig
 
 
@@ -76,11 +78,19 @@ def full_config():
 
 
 class TestFindAvailablePort:
-    """Tests for find_available_port function."""
+    """Tests for find_available_port function.
+
+    Issue #521: ``find_available_port`` reads the socket table ONCE per
+    call (``_listening_ports``) and tests candidates against that set,
+    instead of calling ``is_port_in_use`` (and therefore
+    ``psutil.net_connections``) once per candidate. These tests patch the
+    single-read seam accordingly; the function's public behavior is
+    unchanged.
+    """
 
     def test_preferred_port_available(self):
         """Preferred port available - returns immediately."""
-        with patch("llauncher.core.process.is_port_in_use", return_value=False):
+        with patch("llauncher.core.process._listening_ports", return_value=set()):
             success, port, msg = find_available_port(preferred_port=9000)
             assert success is True
             assert port == 9000
@@ -88,14 +98,10 @@ class TestFindAvailablePort:
 
     def test_preferred_port_in_use_first_available(self):
         """Preferred port in use, first scanned port available."""
-
-        def port_in_use(p):
-            return p == 9000  # Only 9000 is in use
-
         # Pin the blacklist empty so the scan is independent of the
         # ``BLACKLISTED_PORTS`` env var (which defaults to [] but is set on
         # some dev hosts); 8080 is then the first allocatable port.
-        with patch("llauncher.core.process.is_port_in_use", side_effect=port_in_use), \
+        with patch("llauncher.core.process._listening_ports", return_value={9000}), \
              patch("llauncher.core.process.BLACKLISTED_PORTS", []):
             success, port, msg = find_available_port(preferred_port=9000, start=8080, end=8090)
             assert success is True
@@ -104,18 +110,20 @@ class TestFindAvailablePort:
 
     def test_preferred_port_in_use_scan_multiple(self):
         """Preferred port in use, must scan through multiple ports."""
-
-        def port_in_use(p):
-            return p in [9000, 8080, 8081, 8082]
-
-        with patch("llauncher.core.process.is_port_in_use", side_effect=port_in_use):
+        with patch(
+            "llauncher.core.process._listening_ports",
+            return_value={9000, 8080, 8081, 8082},
+        ):
             success, port, msg = find_available_port(preferred_port=9000, start=8080, end=8090)
             assert success is True
             assert port == 8083
 
     def test_all_ports_in_use(self):
         """All ports in range in use - returns failure."""
-        with patch("llauncher.core.process.is_port_in_use", return_value=True):
+        with patch(
+            "llauncher.core.process._listening_ports",
+            return_value={8080, 8081, 8082},
+        ):
             success, port, msg = find_available_port(start=8080, end=8082)
             assert success is False
             assert port == 0
@@ -123,7 +131,7 @@ class TestFindAvailablePort:
 
     def test_no_preferred_port_first_available(self):
         """No preferred port, first port in range available."""
-        with patch("llauncher.core.process.is_port_in_use", return_value=False), \
+        with patch("llauncher.core.process._listening_ports", return_value=set()), \
              patch("llauncher.core.process.BLACKLISTED_PORTS", []):
             success, port, msg = find_available_port(start=8080, end=8090)
             assert success is True
@@ -131,16 +139,52 @@ class TestFindAvailablePort:
 
     def test_preferred_port_in_range_skipped(self):
         """Preferred port within range is skipped during scan."""
-
-        def port_in_use(p):
-            return p == 8085  # Preferred port is in range and in use
-
-        with patch("llauncher.core.process.is_port_in_use", side_effect=port_in_use), \
+        with patch("llauncher.core.process._listening_ports", return_value={8085}), \
              patch("llauncher.core.process.BLACKLISTED_PORTS", []):
             success, port, msg = find_available_port(preferred_port=8085, start=8080, end=8090)
             assert success is True
             # First allocatable in range, not the preferred (8085 is in use).
             assert port == 8080
+
+    def test_socket_table_read_once_for_multi_candidate_scan(self):
+        """#521: one net_connections() call, however many ports are probed.
+
+        The regression this guards: ``find_available_port`` used to call
+        ``is_port_in_use`` per candidate, so a scan over 8080..8090 meant
+        eleven full socket-table reads (and, before #521, eleven full
+        process-table walks).
+        """
+        listening = [
+            SimpleNamespace(
+                status=psutil.CONN_LISTEN,
+                laddr=SimpleNamespace(ip="0.0.0.0", port=p),
+            )
+            for p in range(8080, 8090)
+        ]
+        with patch("psutil.net_connections", return_value=listening) as mock_conns, \
+             patch("llauncher.core.process.BLACKLISTED_PORTS", []):
+            success, port, _ = find_available_port(start=8080, end=8095)
+
+        assert success is True
+        assert port == 8090
+        assert mock_conns.call_count == 1
+
+    def test_access_denied_falls_back_to_bind_probe_per_candidate(self):
+        """An unreadable socket table degrades to the bind probe, not a crash."""
+        probed: list[int] = []
+
+        def fake_probe(candidate: int) -> bool:
+            probed.append(candidate)
+            return candidate < 8082
+
+        with patch("psutil.net_connections", side_effect=psutil.AccessDenied(1)), \
+             patch("llauncher.core.process._bind_probe_port_in_use", side_effect=fake_probe), \
+             patch("llauncher.core.process.BLACKLISTED_PORTS", []):
+            success, port, _ = find_available_port(start=8080, end=8090)
+
+        assert success is True
+        assert port == 8082
+        assert probed == [8080, 8081, 8082]
 
 
 class TestBuildCommand:
@@ -626,6 +670,7 @@ class TestFindServer:
         """Find server by port when found via --port <n> format."""
         mock_proc = MagicMock()
         mock_proc.name.return_value = "llama-server"
+        mock_proc.info = {"pid": mock_proc.pid, "name": "llama-server"}
         mock_proc.cmdline.return_value = ["llama-server", "--port", "8080"]
 
         with patch("psutil.process_iter", return_value=[mock_proc]):
@@ -636,14 +681,17 @@ class TestFindServer:
         """Find all llama-server processes."""
         mock_proc1 = MagicMock()
         mock_proc1.name.return_value = "llama-server"
+        mock_proc1.info = {"pid": mock_proc1.pid, "name": "llama-server"}
         mock_proc1.cmdline.return_value = ["llama-server", "--port", "8080"]
 
         mock_proc2 = MagicMock()
         mock_proc2.name.return_value = "other"
+        mock_proc2.info = {"pid": mock_proc2.pid, "name": "other"}
         mock_proc2.cmdline.return_value = ["other-process"]
 
         mock_proc3 = MagicMock()
         mock_proc3.name.return_value = "bash"
+        mock_proc3.info = {"pid": mock_proc3.pid, "name": "bash"}
         mock_proc3.cmdline.return_value = ["bash", "llama-server"]
 
         with patch("psutil.process_iter", return_value=[mock_proc1, mock_proc2, mock_proc3]):
@@ -676,6 +724,7 @@ class TestNameFirstScanFilter:
         """A process literally named the configured binary gets cmdline() read."""
         mock_proc = MagicMock()
         mock_proc.name.return_value = "llama-server"
+        mock_proc.info = {"pid": mock_proc.pid, "name": "llama-server"}
         mock_proc.cmdline.return_value = ["llama-server", "--port", "8080"]
 
         with patch("psutil.process_iter", return_value=[mock_proc]):
@@ -688,6 +737,7 @@ class TestNameFirstScanFilter:
         """A wrapper invocation (python/bash/...) still matches via argv."""
         mock_proc = MagicMock()
         mock_proc.name.return_value = "python3"
+        mock_proc.info = {"pid": mock_proc.pid, "name": "python3"}
         mock_proc.cmdline.return_value = ["python3", "launch.py", "--exec", "llama-server"]
 
         with patch("psutil.process_iter", return_value=[mock_proc]):
@@ -700,6 +750,7 @@ class TestNameFirstScanFilter:
         """An interpreter process gets its argv read but is filtered out on content."""
         mock_proc = MagicMock()
         mock_proc.name.return_value = "python3"
+        mock_proc.info = {"pid": mock_proc.pid, "name": "python3"}
         mock_proc.cmdline.return_value = ["python3", "unrelated_script.py"]
 
         with patch("psutil.process_iter", return_value=[mock_proc]):
@@ -713,6 +764,7 @@ class TestNameFirstScanFilter:
         skipped without ever calling cmdline() — the whole point of #521."""
         mock_proc = MagicMock()
         mock_proc.name.return_value = "chrome.exe"
+        mock_proc.info = {"pid": mock_proc.pid, "name": "chrome.exe"}
         mock_proc.cmdline.return_value = ["chrome.exe", "--type=renderer", "llama-server"]
 
         with patch("psutil.process_iter", return_value=[mock_proc]):
@@ -720,6 +772,125 @@ class TestNameFirstScanFilter:
 
         mock_proc.cmdline.assert_not_called()
         assert results == []
+
+    def test_uppercase_exe_binary_name_matches(self):
+        """Windows reports names in whatever case the binary was created
+        with; the name gate is case-insensitive and ``.exe``-tolerant, so
+        such a process still gets its argv read.
+
+        (Whether the *downstream* ``"llama-server" in name`` match is
+        case-sensitive is pre-existing behavior #521 does not touch —
+        this asserts only that the new gate does not swallow the process
+        before that matcher ever sees it.)
+        """
+        assert process_module._is_cmdline_scan_candidate("LLAMA-SERVER.EXE")
+
+        mock_proc = MagicMock()
+        mock_proc.info = {"pid": 4242, "name": "LLAMA-SERVER.EXE"}
+        mock_proc.cmdline.return_value = ["C:\\bin\\LLAMA-SERVER.EXE", "--port", "8080"]
+
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            find_all_llama_servers()
+
+        mock_proc.cmdline.assert_called_once()
+
+    def test_configured_binary_name_comes_from_settings(self, monkeypatch):
+        """#521 review: the name gate is derived from the *configured*
+        llama-server path, not a hardcoded pair — a seat pointing
+        LLAMA_SERVER_PATH at a renamed/forked build must still get its
+        argv read rather than being skipped by name."""
+        monkeypatch.setattr(
+            process_module.settings,
+            "LLAMA_SERVER_PATH",
+            Path("/opt/forks/llamafile-srv-b4567.exe"),
+        )
+        monkeypatch.setattr(process_module, "_BINARY_NAMES_CACHE", None)
+
+        assert "llamafile-srv-b4567.exe" in process_module._configured_binary_names()
+        # The two defaults survive alongside the configured name.
+        assert "llama-server" in process_module._configured_binary_names()
+        assert process_module._is_cmdline_scan_candidate("llamafile-srv-b4567.exe")
+        # Without the settings-derived name it would be skipped outright.
+        monkeypatch.setattr(process_module, "_BINARY_NAMES_CACHE", None)
+        monkeypatch.setattr(
+            process_module.settings, "LLAMA_SERVER_PATH", Path("/usr/bin/llama-server")
+        )
+        assert not process_module._is_cmdline_scan_candidate("llamafile-srv-b4567.exe")
+
+    def test_binary_name_set_tracks_a_settings_change(self, monkeypatch):
+        """The derived set is cached, but keyed on the setting — changing
+        LLAMA_SERVER_PATH rebuilds it rather than serving a stale set."""
+        monkeypatch.setattr(process_module, "_BINARY_NAMES_CACHE", None)
+        monkeypatch.setattr(
+            process_module.settings, "LLAMA_SERVER_PATH", Path("/a/first-server")
+        )
+        assert "first-server" in process_module._configured_binary_names()
+        # Cache hit: same value, same set object.
+        assert "first-server" in process_module._configured_binary_names()
+
+        monkeypatch.setattr(
+            process_module.settings, "LLAMA_SERVER_PATH", Path("/b/second-server")
+        )
+        names = process_module._configured_binary_names()
+        assert "second-server" in names
+        assert "first-server" not in names
+
+    def test_shell_lookalike_names_are_not_interpreters(self):
+        """Exact-match interpreter gate (#521 review): a prefix rule made
+        every ``sh*``/``py*`` process pay the cmdline() cost."""
+        for name in ("shellexperiencehost.exe", "pycharm64.exe", "python-installer.exe"):
+            assert not process_module._is_cmdline_scan_candidate(name), name
+
+    def test_versioned_and_extra_interpreters_are_candidates(self):
+        """python3.12, and the launcher/wrapper names added in review."""
+        for name in (
+            "python", "python3", "python3.12", "pythonw.exe", "py.exe",
+            "bash", "fish", "ksh", "node", "perl", "ruby", "env", "nohup",
+            "wsl.exe", "sudo",
+        ):
+            assert process_module._is_cmdline_scan_candidate(name), name
+
+    def test_discover_all_never_reads_cmdline_of_non_candidate(self):
+        """The name gate covers ``discover_all``, not just
+        ``find_all_llama_servers`` — it is the walk on the UI's refresh path."""
+        mock_proc = MagicMock()
+        mock_proc.info = {"pid": 999, "name": "svchost.exe"}
+        mock_proc.cmdline.return_value = ["svchost.exe", "-k", "llama-server"]
+
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            results = discover_all()
+
+        mock_proc.cmdline.assert_not_called()
+        assert results == []
+
+    def test_candidate_with_empty_cmdline_is_skipped(self):
+        """A name-gate candidate whose argv reads back empty (a kernel/
+        zombie-ish process, or a race with exit) is skipped by all three
+        walk sites rather than being matched on name alone."""
+        def _proc():
+            m = MagicMock()
+            m.info = {"pid": 4321, "name": "llama-server"}
+            m.cmdline.return_value = []
+            return m
+
+        with patch("psutil.process_iter", return_value=[_proc()]):
+            assert find_all_llama_servers() == []
+        with patch("psutil.process_iter", return_value=[_proc()]):
+            assert find_server_by_port(8080) is None
+        with patch("psutil.process_iter", return_value=[_proc()]):
+            assert discover_all() == []
+
+    def test_find_server_by_port_never_reads_cmdline_of_non_candidate(self):
+        """…and covers ``find_server_by_port``, the third walk site."""
+        mock_proc = MagicMock()
+        mock_proc.info = {"pid": 999, "name": "svchost.exe"}
+        mock_proc.cmdline.return_value = ["svchost.exe", "--port", "8080"]
+
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            found = find_server_by_port(8080)
+
+        mock_proc.cmdline.assert_not_called()
+        assert found is None
 
 
 class TestProcessScanCache:
@@ -733,6 +904,7 @@ class TestProcessScanCache:
         """Two calls within the TTL window scan psutil.process_iter once."""
         mock_proc = MagicMock()
         mock_proc.name.return_value = "llama-server"
+        mock_proc.info = {"pid": mock_proc.pid, "name": "llama-server"}
         mock_proc.cmdline.return_value = ["llama-server", "--port", "8080"]
 
         with patch("psutil.process_iter", return_value=[mock_proc]) as mock_iter:
@@ -746,6 +918,7 @@ class TestProcessScanCache:
         """A call after the TTL has elapsed triggers a fresh scan."""
         mock_proc = MagicMock()
         mock_proc.name.return_value = "llama-server"
+        mock_proc.info = {"pid": mock_proc.pid, "name": "llama-server"}
         mock_proc.cmdline.return_value = ["llama-server", "--port", "8080"]
 
         fake_time = [1000.0]
@@ -762,6 +935,7 @@ class TestProcessScanCache:
         """Calling one scan function must not serve the other's cached result."""
         mock_proc = MagicMock()
         mock_proc.name.return_value = "llama-server"
+        mock_proc.info = {"pid": mock_proc.pid, "name": "llama-server"}
         mock_proc.cmdline.return_value = ["llama-server", "--port", "8080"]
 
         with patch("psutil.process_iter", return_value=[mock_proc]) as mock_iter:
@@ -785,6 +959,7 @@ class TestProcessScanCache:
         """invalidate_process_scan_cache() forces a rescan even inside the TTL."""
         mock_proc = MagicMock()
         mock_proc.name.return_value = "llama-server"
+        mock_proc.info = {"pid": mock_proc.pid, "name": "llama-server"}
         mock_proc.cmdline.return_value = ["llama-server", "--port", "8080"]
 
         with patch("psutil.process_iter", return_value=[mock_proc]) as mock_iter:
@@ -939,29 +1114,33 @@ class TestIsPortInUse:
 
     Issue #521: is_port_in_use switched from an every-process argv scan
     (looking for a ``--port``/``-p`` flag matching the target port) to
-    ``psutil.net_connections(kind="tcp")`` — a socket bound/listening on
-    the port, any status. This is a deliberate semantics change (settled
-    by #521, not just a perf fix): "port in use" now means "a socket
-    holds it," not "some process's argv mentions it." The old
-    argv-format tests (``--port=N`` vs ``--port N``, partial-match
-    guarding) tested string-matching behavior that no longer exists and
-    are replaced below with socket-table-shaped fixtures.
+    ``psutil.net_connections(kind="tcp")`` — a socket **listening** on
+    the port. This is a deliberate semantics change (settled by #521, not
+    just a perf fix): "port in use" now means "a socket is listening on
+    it," not "some process's argv mentions it." The old argv-format tests
+    (``--port=N`` vs ``--port N``, partial-match guarding) tested
+    string-matching behavior that no longer exists and are replaced below
+    with socket-table-shaped fixtures.
+
+    Only LISTEN counts: a TIME_WAIT/CLOSE_WAIT remnant of a stopped
+    server does not stop a new one from binding, and reporting it as
+    occupancy is the phantom "port occupied" #518 chases.
     """
 
     @staticmethod
-    def _conn(port: int, ip: str = "0.0.0.0"):
+    def _conn(port: int, ip: str = "0.0.0.0", status: str = psutil.CONN_LISTEN):
         """Build a fake ``psutil._common.sconn``-shaped object."""
         laddr = SimpleNamespace(ip=ip, port=port)
-        return SimpleNamespace(laddr=laddr)
+        return SimpleNamespace(laddr=laddr, status=status)
 
     def test_port_in_use(self):
-        """Port is in use when a TCP socket's local address holds it."""
+        """Port is in use when a TCP socket is listening on it."""
         with patch("psutil.net_connections", return_value=[self._conn(8080)]):
             result = is_port_in_use(8080)
             assert result is True
 
     def test_port_not_in_use(self):
-        """Port is not in use when no socket's local address holds it."""
+        """Port is not in use when no socket is listening on it."""
         with patch("psutil.net_connections", return_value=[self._conn(9000)]):
             result = is_port_in_use(8080)
             assert result is False
@@ -980,13 +1159,94 @@ class TestIsPortInUse:
 
     def test_connection_without_laddr_is_skipped(self):
         """A connection with no local address (e.g. outbound, unbound) is ignored."""
-        no_laddr = SimpleNamespace(laddr=None)
+        no_laddr = SimpleNamespace(laddr=None, status=psutil.CONN_LISTEN)
         with patch("psutil.net_connections", return_value=[no_laddr, self._conn(8080)]):
             result = is_port_in_use(8080)
             assert result is True
 
+    def test_time_wait_does_not_count_as_in_use(self):
+        """A TIME_WAIT remnant is not occupancy — a new server binds over it.
+
+        This is the #518 interaction: a just-stopped server leaves the
+        port in TIME_WAIT for up to a couple of minutes; counting that as
+        "in use" is what makes a restart report a phantom port conflict.
+        """
+        with patch(
+            "psutil.net_connections",
+            return_value=[self._conn(8080, status=psutil.CONN_TIME_WAIT)],
+        ):
+            assert is_port_in_use(8080) is False
+
+    def test_close_wait_does_not_count_as_in_use(self):
+        """Likewise CLOSE_WAIT — a half-closed connection holds no listener."""
+        with patch(
+            "psutil.net_connections",
+            return_value=[self._conn(8080, status=psutil.CONN_CLOSE_WAIT)],
+        ):
+            assert is_port_in_use(8080) is False
+
+    def test_listen_counts_as_in_use(self):
+        """The positive twin of the two above: LISTEN, and only LISTEN."""
+        with patch(
+            "psutil.net_connections",
+            return_value=[
+                self._conn(8080, status=psutil.CONN_TIME_WAIT),
+                self._conn(8080, status=psutil.CONN_LISTEN),
+            ],
+        ):
+            assert is_port_in_use(8080) is True
+
+    def test_established_client_socket_does_not_count(self):
+        """An outbound connection whose local port collides is not occupancy."""
+        with patch(
+            "psutil.net_connections",
+            return_value=[self._conn(8080, ip="127.0.0.1", status=psutil.CONN_ESTABLISHED)],
+        ):
+            assert is_port_in_use(8080) is False
+
+    def test_access_denied_falls_back_to_bind_probe_free(self):
+        """#521: net_connections may be denied (macOS/BSD non-root, hardened
+        Linux). The fallback binds the port itself; a clean bind is free."""
+        with patch("psutil.net_connections", side_effect=psutil.AccessDenied(1)):
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+            sock.close()
+            assert is_port_in_use(port) is False
+
+    def test_access_denied_falls_back_to_bind_probe_in_use(self):
+        """Same fallback, occupied side: EADDRINUSE means in use."""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(("127.0.0.1", 0))
+        sock.listen(1)
+        try:
+            port = sock.getsockname()[1]
+            with patch("psutil.net_connections", side_effect=psutil.AccessDenied(1)):
+                assert is_port_in_use(port) is True
+        finally:
+            sock.close()
+
+    def test_bind_probe_treats_unexpected_oserror_as_in_use(self):
+        """A probe that fails for any other reason must not hand out the port."""
+        failing = MagicMock()
+        failing.bind.side_effect = OSError(errno.EACCES, "permission denied")
+        with patch("psutil.net_connections", side_effect=psutil.AccessDenied(1)), \
+             patch("socket.socket", return_value=failing):
+            assert is_port_in_use(80) is True
+        failing.close.assert_called_once()
+
+    def test_bind_probe_does_not_set_reuseaddr(self):
+        """SO_REUSEADDR would let the probe bind over a live listener on
+        POSIX, inverting the answer — the probe must not set it."""
+        probe = MagicMock()
+        probe.bind.return_value = None
+        with patch("psutil.net_connections", side_effect=psutil.AccessDenied(1)), \
+             patch("socket.socket", return_value=probe):
+            assert is_port_in_use(8080) is False
+        probe.setsockopt.assert_not_called()
+
     def test_real_bound_socket_detected(self):
-        """A real bound-and-listening socket is detected via the live socket table."""
+        """A real listening socket is detected via the live socket table."""
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.bind(("127.0.0.1", 0))
         sock.listen(1)
@@ -1017,11 +1277,8 @@ class TestFindAvailablePortEdgeCases:
 
     def test_blacklisted_port_skipped(self):
         """Blacklisted ports are skipped during allocation."""
-        def port_in_use(p):
-            return p == 9005  # Only 9005 is in use
-
         # Mock BLACKLISTED_PORTS to include 9000-9002
-        with patch("llauncher.core.process.is_port_in_use", side_effect=port_in_use):
+        with patch("llauncher.core.process._listening_ports", return_value={9005}):
             with patch("llauncher.core.process.BLACKLISTED_PORTS", [9000, 9001, 9002]):
                 # 9000-9002 are blacklisted, 9003-9004 available, 9005 in use
                 success, port, msg = find_available_port(start=9000, end=9010)
@@ -1032,39 +1289,34 @@ class TestFindAvailablePortEdgeCases:
     def test_preferred_port_skipped_during_scan(self):
         """Preferred port is skipped during range scan if already tried.
 
-        This specifically tests line 52 where preferred_port is within the
-        scan range and gets skipped because it was already tried.
+        Guards the "already tried, skip it" branch: the preferred port is
+        tested exactly once (the initial check) and never re-tested when
+        the scan walks past it. Counted through a set that records every
+        membership test, since #521 replaced the per-candidate
+        ``is_port_in_use`` call with a lookup in the hoisted LISTEN set.
         """
         preferred = 8085
-        call_count = [0]  # Track calls to verify line 52 is hit
+        call_count = [0]
 
-        def port_in_use(p):
-            # Track when we check the preferred port during scan
-            if p == preferred:
-                call_count[0] += 1
-            # Preferred port 8085 is in use (failed initial check)
-            # Ports 8080-8084 are also in use
-            # Port 8086 is available
-            return p in [8085, 8080, 8081, 8082, 8083, 8084]
+        class CountingSet(set):
+            def __contains__(self, item):
+                if item == preferred:
+                    call_count[0] += 1
+                return super().__contains__(item)
 
-        with patch("llauncher.core.process.is_port_in_use", side_effect=port_in_use):
-            # Preferred 8085 is in the range [8080, 8090] and was already tried
-            # The scan will encounter 8085 at iteration 5 and should skip it via line 52
-            # Line 52 should prevent is_port_in_use from being called for 8085 during scan
+        in_use = CountingSet({8085, 8080, 8081, 8082, 8083, 8084})
+
+        with patch("llauncher.core.process._listening_ports", return_value=in_use), \
+             patch("llauncher.core.process.BLACKLISTED_PORTS", []):
             success, port, msg = find_available_port(preferred_port=preferred, start=8080, end=8090)
             assert success is True
             assert port == 8086  # First available after skipping preferred and in-use ports
             assert "auto-allocated" in msg.lower()
-            # is_port_in_use should be called once for initial preferred check,
-            # then NOT called again for 8085 during scan (line 52 skips it)
-            assert call_count[0] == 1, f"Expected 1 call (initial check only), got {call_count[0]}"
+            assert call_count[0] == 1, f"Expected 1 check (initial only), got {call_count[0]}"
 
     def test_preferred_port_in_range_but_blacklisted(self):
         """Preferred port in scan range but blacklisted gets skipped twice."""
-        def port_in_use(p):
-            return p == 8090  # Only 8090 is in use
-
-        with patch("llauncher.core.process.is_port_in_use", side_effect=port_in_use):
+        with patch("llauncher.core.process._listening_ports", return_value={8090}):
             with patch("llauncher.core.process.BLACKLISTED_PORTS", [8085]):
                 # Preferred 8085 is blacklisted, so initial check fails
                 # Scan starts at 8080, finds it available
@@ -1074,7 +1326,10 @@ class TestFindAvailablePortEdgeCases:
 
     def test_no_available_ports_returns_failure(self):
         """Returns failure when all ports in range are in use."""
-        with patch("llauncher.core.process.is_port_in_use", return_value=True):
+        with patch(
+            "llauncher.core.process._listening_ports",
+            return_value={8080, 8081, 8082},
+        ):
             success, port, msg = find_available_port(start=8080, end=8082)
             assert success is False
             assert port == 0
@@ -1259,6 +1514,7 @@ class TestFindServerExceptions:
         """ZombieProcess exception is handled in find_all_llama_servers."""
         mock_proc = MagicMock()
         mock_proc.name.return_value = "llama-server"
+        mock_proc.info = {"pid": mock_proc.pid, "name": "llama-server"}
         mock_proc.cmdline.side_effect = psutil.ZombieProcess(12345, None)
 
         with patch("psutil.process_iter", return_value=[mock_proc]):
@@ -1269,6 +1525,7 @@ class TestFindServerExceptions:
         """Find server with --port=8080 format."""
         mock_proc = MagicMock()
         mock_proc.name.return_value = "llama-server"
+        mock_proc.info = {"pid": mock_proc.pid, "name": "llama-server"}
         mock_proc.cmdline.return_value = ["llama-server", "--port=8080"]
 
         with patch("psutil.process_iter", return_value=[mock_proc]):
@@ -1684,6 +1941,7 @@ class TestVerifyPid:
         p.status.return_value = psutil.STATUS_RUNNING
         p.cmdline.return_value = ["nginx", "-c", "/etc/nginx.conf"]
         p.name.return_value = "nginx"
+        p.info = {"pid": p.pid, "name": "nginx"}
 
         monkeypatch.setattr(proc.psutil, "Process", lambda pid: p)
         assert proc.verify_pid(4242) is None
@@ -1697,6 +1955,7 @@ class TestVerifyPid:
         p.status.return_value = psutil.STATUS_RUNNING
         p.cmdline.return_value = ["llama-server", "--port", "8081", "-m", "/a.gguf"]
         p.name.return_value = "llama-server"
+        p.info = {"pid": p.pid, "name": "llama-server"}
 
         monkeypatch.setattr(proc.psutil, "Process", lambda pid: p)
 
@@ -1718,6 +1977,7 @@ class TestVerifyPid:
             "-m", "/models/a.gguf",
         ]
         p.name.return_value = "llama-server"
+        p.info = {"pid": p.pid, "name": "llama-server"}
         p.create_time.return_value = 1234567890.5
 
         monkeypatch.setattr(proc.psutil, "Process", lambda pid: p)
@@ -1741,6 +2001,7 @@ class TestVerifyPid:
         p.status.return_value = psutil.STATUS_RUNNING
         p.cmdline.return_value = ["llama-server", "--port", "8082"]
         p.name.return_value = "llama-server"
+        p.info = {"pid": p.pid, "name": "llama-server"}
         p.create_time.return_value = 999.0
 
         monkeypatch.setattr(proc.psutil, "Process", lambda pid: p)
@@ -1759,6 +2020,7 @@ class TestVerifyPid:
         p.status.return_value = psutil.STATUS_RUNNING
         p.cmdline.return_value = ["llama-server", "--port", "8081"]
         p.name.return_value = "llama-server"
+        p.info = {"pid": p.pid, "name": "llama-server"}
         p.create_time.side_effect = psutil.AccessDenied(pid=4242)
 
         monkeypatch.setattr(proc.psutil, "Process", lambda pid: p)
@@ -1783,6 +2045,7 @@ class TestDiscoverAllCreateTimeGuard:
         p = MagicMock()
         p.pid = 4242
         p.name.return_value = "llama-server"
+        p.info = {"pid": p.pid, "name": "llama-server"}
         p.cmdline.return_value = [
             "llama-server", "--port", "8081", "--alias", "my-model",
             "-m", "/models/a.gguf",
@@ -1808,6 +2071,7 @@ class TestDiscoverAllCreateTimeGuard:
         p = MagicMock()
         p.pid = 99
         p.name.return_value = "llama-server"
+        p.info = {"pid": p.pid, "name": "llama-server"}
         p.cmdline.return_value = ["llama-server", "--port", "8082"]
         p.create_time.side_effect = psutil.ZombieProcess(pid=99)
 

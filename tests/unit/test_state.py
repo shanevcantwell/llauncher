@@ -633,6 +633,7 @@ class TestProcessScanCacheIntegration:
         mock_proc = MagicMock()
         mock_proc.pid = 4242
         mock_proc.name.return_value = "llama-server"
+        mock_proc.info = {"pid": mock_proc.pid, "name": "llama-server"}
         mock_proc.cmdline.return_value = [
             "llama-server", "--port", "9321", "-m", str(model_path),
         ]
@@ -695,6 +696,7 @@ class TestProcessScanCacheIntegration:
         mock_proc = MagicMock()
         mock_proc.pid = 5150
         mock_proc.name.return_value = "llama-server"
+        mock_proc.info = {"pid": mock_proc.pid, "name": "llama-server"}
         mock_proc.cmdline.return_value = [
             "llama-server",
             "--port", "8082",
@@ -734,6 +736,7 @@ class TestProcessScanCacheIntegration:
         mock_proc = MagicMock()
         mock_proc.pid = 6161
         mock_proc.name.return_value = "llama-server"
+        mock_proc.info = {"pid": mock_proc.pid, "name": "llama-server"}
         mock_proc.cmdline.return_value = [
             "llama-server", "--port", "9999", "-m", str(model_path),
         ]

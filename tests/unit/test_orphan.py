@@ -46,6 +46,7 @@ class TestAnnotatedScan:
 
         proc_a = _fake_proc(1001)
         proc_a.name.return_value = "llama-server"
+        proc_a.info = {"pid": proc_a.pid, "name": "llama-server"}
         proc_a.cmdline.return_value = ["llama-server", "--port", "8081", "-m", "/a.gguf"]
 
         with patch.object(proc.psutil, "process_iter", return_value=[proc_a]):
@@ -62,6 +63,7 @@ class TestAnnotatedScan:
 
         p = _fake_proc(1002)
         p.name.return_value = "llama-server"
+        p.info = {"pid": p.pid, "name": "llama-server"}
         p.cmdline.return_value = ["llama-server", "-m", "/a.gguf"]
 
         with patch.object(proc.psutil, "process_iter", return_value=[p]):
@@ -77,6 +79,7 @@ class TestAnnotatedScan:
 
         p = _fake_proc(1003)
         p.name.return_value = "llama-server"
+        p.info = {"pid": p.pid, "name": "llama-server"}
         p.cmdline.side_effect = proc.psutil.AccessDenied()
 
         with patch.object(proc.psutil, "process_iter", return_value=[p]):
@@ -92,6 +95,7 @@ class TestAnnotatedScan:
 
         p = _fake_proc(1004)
         p.name.return_value = "nginx"
+        p.info = {"pid": p.pid, "name": "nginx"}
         p.cmdline.return_value = ["nginx", "-c", "/etc/nginx.conf"]
 
         with patch.object(proc.psutil, "process_iter", return_value=[p]):
@@ -103,10 +107,12 @@ class TestAnnotatedScan:
         from llauncher.core import process as proc
 
         p = _fake_proc(1005)
-        p.name.side_effect = proc.psutil.NoSuchProcess(pid=1005)
+        p.info = {"pid": p.pid, "name": "llama-server"}
+        p.cmdline.side_effect = proc.psutil.NoSuchProcess(pid=1005)
 
         with patch.object(proc.psutil, "process_iter", return_value=[p]):
-            # NoSuchProcess can fire from name() too; the outer try
+            # A process that exits between the name-first walk (#521) and
+            # the cmdline() read raises NoSuchProcess; the outer try
             # catches it without raising.
             result = proc.discover_all()
 

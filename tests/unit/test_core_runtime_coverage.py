@@ -100,12 +100,14 @@ class TestFindServerByPortRace:
 
     def test_cmdline_raises_nosuchprocess_then_returns_none(self):
         proc = MagicMock()
+        proc.info = {"pid": 1, "name": "llama-server"}
         proc.cmdline.side_effect = psutil.NoSuchProcess(pid=1)
         with patch("psutil.process_iter", return_value=[proc]):
             assert find_server_by_port(8081) is None
 
     def test_cmdline_raises_accessdenied_then_returns_none(self):
         proc = MagicMock()
+        proc.info = {"pid": 2, "name": "llama-server"}
         proc.cmdline.side_effect = psutil.AccessDenied(pid=2)
         with patch("psutil.process_iter", return_value=[proc]):
             assert find_server_by_port(8081) is None
@@ -117,6 +119,7 @@ class TestAnnotatedNonNumericPort:
     def test_non_numeric_port_yields_none_port(self):
         proc = MagicMock()
         proc.name.return_value = "llama-server"
+        proc.info = {"pid": proc.pid, "name": "llama-server"}
         proc.cmdline.return_value = ["llama-server", "--port", "not-a-number"]
         with patch("psutil.process_iter", return_value=[proc]):
             result = discover_all()

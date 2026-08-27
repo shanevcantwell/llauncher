@@ -123,6 +123,7 @@ class TestFakeManagedPidFallthrough:
         p.is_running.return_value = True
         p.status.return_value = psutil.STATUS_RUNNING
         p.name.return_value = "llama-server"
+        p.info = {"pid": p.pid, "name": "llama-server"}
         p.cmdline.return_value = [
             "llama-server", "--port", "8090", "--alias", "foreign",
             "-m", "/models/foreign.gguf",

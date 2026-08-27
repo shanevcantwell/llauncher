@@ -1,9 +1,11 @@
 """Process management for llama-server instances."""
 
+import errno
 import hashlib
 import logging
 import re
 import shlex
+import socket
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -21,6 +23,12 @@ from llauncher.models.config import ModelConfig
 from llauncher.util.cache import _TTLCache
 
 logger = logging.getLogger(__name__)
+
+# EADDRINUSE and its Winsock twin (10048), used by the bind-probe
+# fallback in :func:`_bind_probe_port_in_use`.
+_EADDRINUSE_ERRNOS = frozenset(
+    {errno.EADDRINUSE, getattr(errno, "WSAEADDRINUSE", 10048)}
+)
 
 
 DEFAULT_SERVER_BINARY = LLAMA_SERVER_PATH
@@ -75,24 +83,63 @@ _SCAN_KEY_ALL_SERVERS_ANNOTATED = "find_all_llama_servers_annotated"
 # protected/system processes. The fix is name-first filtering: fetch only
 # ["pid", "name"] for the walk (median 1.1ms), and pay for cmdline() only
 # on processes whose name is worth reading argv from — either the
-# configured llama-server binary (settings.py's candidate list, ~line 44)
-# or a known interpreter/shell name (the wrapper-invocation case, e.g.
-# "python launch.py ... llama-server ..." or "bash run.sh ... llama-server
-# ...", where "llama-server" only appears in argv, not in name()).
+# configured llama-server binary (settings.LLAMA_SERVER_PATH) or a known
+# interpreter/shell name (the wrapper-invocation case, e.g. "python
+# launch.py ... llama-server ..." or "bash run.sh ... llama-server ...",
+# where "llama-server" only appears in argv, not in name()).
 # Everything else never gets a cmdline() call — measured 1.5ms for the
 # same walk with this filter applied.
-_CONFIGURED_BINARY_NAMES = ("llama-server", "llama-server.exe")
-_INTERPRETER_NAMES = (
-    "python", "python3", "pythonw", "py",
-    "sh", "bash", "zsh", "dash", "ash",
+_DEFAULT_BINARY_NAMES = ("llama-server", "llama-server.exe")
+
+# Interpreters/shells/launchers that can front a llama-server invocation.
+# Exact (case-insensitive, ``.exe`` stripped) matches only: a prefix rule
+# would drag in unrelated processes ("shellexperiencehost", "pycharm")
+# and hand each of them the per-process cmdline() cost this filter
+# exists to avoid. Versioned CPython names are covered by the regex
+# below rather than by listing every "python3.NN".
+_INTERPRETER_NAMES = frozenset({
+    "py", "pyw",
+    "sh", "bash", "zsh", "dash", "ash", "fish", "ksh", "csh", "tcsh",
     "cmd", "powershell", "pwsh",
-)
+    "perl", "ruby", "node",
+    "env", "nohup", "wsl", "sudo",
+})
+
+# "python", "pythonw", "python3", "python3.12", "pythonw3.12", …
+_PYTHON_NAME_RE = re.compile(r"^pythonw?\d*(\.\d+)?$")
+
+# Cache of (configured LLAMA_SERVER_PATH, derived name set). Rebuilt when
+# the setting changes so tests can monkeypatch ``settings`` freely; a
+# plain module constant would freeze the import-time value.
+_BINARY_NAMES_CACHE: tuple[object, frozenset[str]] | None = None
+
+
+def _configured_binary_names() -> frozenset[str]:
+    """Lowercased llama-server binary names worth a ``cmdline()`` read.
+
+    The configured binary's filename (``settings.LLAMA_SERVER_PATH``)
+    plus the two defaults, so a seat that runs a renamed/forked build
+    ("llama-server-b4567.exe") is still discovered.
+    """
+    global _BINARY_NAMES_CACHE
+    configured = getattr(settings, "LLAMA_SERVER_PATH", None)
+    cached = _BINARY_NAMES_CACHE
+    if cached is not None and cached[0] == configured:
+        return cached[1]
+    names = {name.lower() for name in _DEFAULT_BINARY_NAMES}
+    if configured:
+        configured_name = Path(configured).name.lower()
+        if configured_name:
+            names.add(configured_name)
+    frozen = frozenset(names)
+    _BINARY_NAMES_CACHE = (configured, frozen)
+    return frozen
 
 
 def _is_cmdline_scan_candidate(name: str | None) -> bool:
     """Name-first filter (#521): is ``name`` worth a ``cmdline()`` read?
 
-    True when ``name`` is the configured llama-server binary (direct
+    True when ``name`` is a configured llama-server binary name (direct
     invocation) or a known interpreter/shell name (the wrapper-invocation
     case — the actual "llama-server" evidence lives in argv, which this
     function's caller has not read yet). Comparison is case-insensitive;
@@ -102,10 +149,10 @@ def _is_cmdline_scan_candidate(name: str | None) -> bool:
     name_lower = (name or "").lower()
     if not name_lower:
         return False
-    if any(binary in name_lower for binary in _CONFIGURED_BINARY_NAMES):
+    if any(binary in name_lower for binary in _configured_binary_names()):
         return True
     stem = name_lower[:-4] if name_lower.endswith(".exe") else name_lower
-    return any(stem == interp or stem.startswith(interp) for interp in _INTERPRETER_NAMES)
+    return stem in _INTERPRETER_NAMES or bool(_PYTHON_NAME_RE.match(stem))
 
 
 class ExtraArgsError(ValueError):
@@ -257,9 +304,22 @@ def find_available_port(
     if start is None:
         start = DEFAULT_PORT
 
+    # Issue #521: read the socket table ONCE for the whole scan rather
+    # than calling is_port_in_use() per candidate — a range scan over
+    # 8081..8999 would otherwise be ~900 net_connections() calls. Public
+    # behavior is unchanged; only the number of syscalls is.
+    listening = _listening_ports()
+
+    def _in_use(candidate: int) -> bool:
+        if listening is None:
+            # Socket table unreadable (AccessDenied); fall back to the
+            # per-port bind probe, same as is_port_in_use would.
+            return _bind_probe_port_in_use(candidate)
+        return candidate in listening
+
     # Try preferred port first
     if preferred_port is not None:
-        if not is_port_in_use(preferred_port) and preferred_port not in BLACKLISTED_PORTS:
+        if not _in_use(preferred_port) and preferred_port not in BLACKLISTED_PORTS:
             return True, preferred_port, f"Using preferred port {preferred_port}"
 
     # Scan range for first available
@@ -268,7 +328,7 @@ def find_available_port(
             continue  # Skip blacklisted ports
         if preferred_port is not None and port == preferred_port:
             continue  # Skip preferred (already tried)
-        if not is_port_in_use(port):
+        if not _in_use(port):
             return True, port, f"Auto-allocated port {port}"
 
     return False, 0, "No available ports in range"
@@ -625,7 +685,7 @@ def find_server_by_port(port: int) -> psutil.Process | None:
     """
     for proc in psutil.process_iter(["pid", "name"]):
         try:
-            name = proc.name()
+            name = proc.info.get("name")
             if not _is_cmdline_scan_candidate(name):
                 continue
 
@@ -667,7 +727,7 @@ def find_all_llama_servers() -> list[psutil.Process]:
 
     for proc in psutil.process_iter(["pid", "name"]):
         try:
-            name = proc.name()
+            name = proc.info.get("name")
             if not _is_cmdline_scan_candidate(name):
                 continue
 
@@ -861,7 +921,7 @@ def discover_all() -> list[ServerProcessInfo]:
 
     for proc in psutil.process_iter(["pid", "name"]):
         try:
-            name = proc.name()
+            name = proc.info.get("name")
             if not _is_cmdline_scan_candidate(name):
                 continue
 
@@ -1136,31 +1196,81 @@ def wait_for_server_ready(
     return False, last_logs
 
 
+def _listening_ports() -> set[int] | None:
+    """Ports held by a TCP socket in the LISTEN state, or None.
+
+    ``None`` means the socket table could not be read at all
+    (``psutil.AccessDenied`` — macOS/BSD as non-root, hardened Linux
+    without ``CAP_NET_ADMIN``); callers fall back to
+    :func:`_bind_probe_port_in_use` for the single port they care about.
+
+    Only LISTEN counts (#521, interacting with #518): a socket lingering
+    in TIME_WAIT or CLOSE_WAIT after a stop does *not* occupy the port
+    for a new server — reporting it as occupied is exactly the "port
+    occupied" phantom the restart path keeps tripping over.
+    """
+    try:
+        conns = psutil.net_connections(kind="tcp")
+    except psutil.AccessDenied:
+        return None
+    return {
+        conn.laddr.port
+        for conn in conns
+        if conn.status == psutil.CONN_LISTEN and conn.laddr
+    }
+
+
+def _bind_probe_port_in_use(port: int) -> bool:
+    """AccessDenied fallback for :func:`is_port_in_use`: try to bind.
+
+    Deliberately does *not* set ``SO_REUSEADDR`` — the probe must fail
+    exactly when a real listener would fail to bind. ``EADDRINUSE``
+    (``WSAEADDRINUSE`` 10048 on Windows) means occupied; a clean bind
+    means free. Any other ``OSError`` (e.g. ``EACCES`` on a privileged
+    port) is reported as occupied: we could not take the port, so we
+    must not hand it out.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind(("127.0.0.1", port))
+    except OSError as exc:
+        if exc.errno in _EADDRINUSE_ERRNOS:
+            return True
+        logger.debug("Bind probe for port %d failed with %r; treating as in use", port, exc)
+        return True
+    finally:
+        sock.close()
+    return False
+
+
 def is_port_in_use(port: int) -> bool:
-    """Check if a port is currently bound/listening.
+    """Check if a port is currently held by a listening socket.
 
     Issue #521: previously this walked every process's argv looking for a
     ``--port``/``-p`` flag matching ``port`` — an every-process
     ``cmdline()`` scan (6.2s uncached on the Windows seat that motivated
     the fix). It now reads the OS socket table directly via
     ``psutil.net_connections(kind="tcp")`` (0.3ms measured) and checks
-    whether any TCP connection's local address holds ``port``.
+    whether any socket is **listening** on ``port``.
 
     This is a semantics change, not just a perf one: "port in use" now
-    means "a socket holds it" rather than "some process's argv mentions
-    it" — strictly more correct (it also catches a listener started with
-    no ``--port`` flag, or a non-llama-server process squatting the port)
-    and four orders of magnitude cheaper.
+    means "a socket is listening on it" rather than "some process's argv
+    mentions it" — strictly more correct (it also catches a listener
+    started with no ``--port`` flag, or a non-llama-server process
+    squatting the port) and four orders of magnitude cheaper.
+
+    Non-LISTEN states (TIME_WAIT, CLOSE_WAIT, ESTABLISHED client sockets
+    whose local port happens to collide) are *not* occupancy: a fresh
+    server binds over them. Counting them is the "port occupied"
+    phantom #518 chases.
 
     Args:
         port: Port number to check.
 
     Returns:
-        True if any TCP socket is bound to ``port`` locally, False
-        otherwise.
+        True if a TCP socket is listening on ``port``, False otherwise.
     """
-    for conn in psutil.net_connections(kind="tcp"):
-        if conn.laddr and conn.laddr.port == port:
-            return True
-
-    return False
+    listening = _listening_ports()
+    if listening is None:
+        return _bind_probe_port_in_use(port)
+    return port in listening
