@@ -25,9 +25,19 @@ Two surfaces are exercised:
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "extracts and runs the UI systemd ExecStartPre backstop fragment "
+        "via `bash -c` against a rerooted /opt/llauncher/venv; the systemd "
+        "unit fragment and its POSIX paths don't apply on Windows"
+    ),
+)
 
 
 def _repo_root() -> Path:

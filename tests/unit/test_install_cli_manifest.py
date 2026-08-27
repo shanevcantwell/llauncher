@@ -21,12 +21,18 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 pytestmark = pytest.mark.skipif(
-    shutil.which("bash") is None, reason="bash not available"
+    sys.platform == "win32" or shutil.which("bash") is None,
+    reason=(
+        "sources scripts/systemd/venv_manifest.sh via `bash -c` and "
+        "drives install-cli.sh's ExecStart wiring; both assume a POSIX "
+        "systemd deployment not present on Windows"
+    ),
 )
 
 

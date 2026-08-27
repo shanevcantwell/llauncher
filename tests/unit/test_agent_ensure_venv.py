@@ -24,9 +24,18 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "invokes `bash scripts/run.sh setup` against a copied run.sh with "
+        "a #!/bin/bash shebang; the setup/venv-populate flow is POSIX-only"
+    ),
+)
 
 
 def _repo_root() -> Path:

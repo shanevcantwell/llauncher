@@ -25,9 +25,19 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "drives the real scripts/run.sh stop as a bash script; run.sh's "
+        "shebang, PATH-shadowed console-script stand-in, and POSIX venv "
+        "bin/ layout don't exist on Windows"
+    ),
+)
 
 
 def _repo_root() -> Path:

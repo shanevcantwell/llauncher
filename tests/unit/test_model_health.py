@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -104,6 +105,10 @@ def test_symlink_to_nonexistent():
 
 # ── 6. Unreadable file (no read permission) ───────────────────
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="NTFS has no POSIX mode bits; chmod is a no-op for read/owner bits",
+)
 def test_unreadable_file():
     """File without read permission returns valid=False."""
     with tempfile.NamedTemporaryFile(suffix=".gguf", delete=False, mode="wb") as f:

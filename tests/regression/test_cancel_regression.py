@@ -32,6 +32,7 @@ from __future__ import annotations
 import json
 import os
 import os as _os
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -174,6 +175,14 @@ def test_take_marker_cleans_up_partial_write_on_exception(tmp_path: Path) -> Non
     )
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "test double unlinks the marker while the write handle is open — "
+        "Windows file locking raises WinError 32 before the simulated "
+        "OSError; core/marker.py itself closes before cleanup"
+    ),
+)
 def test_take_marker_partial_write_cleanup_tolerates_missing_file(
     tmp_path: Path,
 ) -> None:

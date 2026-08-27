@@ -15,8 +15,11 @@ chmod-degradation behavior under test is unchanged.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 from llauncher.core.agent_token import _generate_and_persist_token
 
@@ -91,6 +94,10 @@ def test_generate_token_append_inserts_newline_when_missing(tmp_path: Path) -> N
     assert parsed["LLAUNCHER_AGENT_TOKEN"] == token
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="NTFS has no POSIX mode bits; chmod is a no-op for read/owner bits",
+)
 def test_generate_token_append_preserves_existing_file_permissions(tmp_path: Path) -> None:
     """Appending to an existing agent.env must NOT tighten its mode.
 

@@ -16,12 +16,18 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 pytestmark = pytest.mark.skipif(
-    shutil.which("bash") is None, reason="bash not available"
+    sys.platform == "win32" or shutil.which("bash") is None,
+    reason=(
+        "sources scripts/systemd/check_python_floor.sh via `bash -c` and "
+        "probes real interpreters by POSIX name (e.g. python3.11); those "
+        "binaries and the sourcing mechanism don't exist on Windows"
+    ),
 )
 
 

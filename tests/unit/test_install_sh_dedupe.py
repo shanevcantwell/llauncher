@@ -18,12 +18,18 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 pytestmark = pytest.mark.skipif(
-    shutil.which("bash") is None, reason="bash not available"
+    sys.platform == "win32" or shutil.which("bash") is None,
+    reason=(
+        "sources scripts/systemd/migrate_env_keys.sh via bash; the "
+        "migration logic assumes POSIX env-file paths/quoting not "
+        "exercised on Windows"
+    ),
 )
 
 

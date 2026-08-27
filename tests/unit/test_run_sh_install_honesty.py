@@ -30,9 +30,19 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "drives the real scripts/run.sh as a bash script in a hermetic "
+        "PROJECT_DIR; run.sh's shebang and POSIX venv bin/ layout don't "
+        "exist on Windows"
+    ),
+)
 
 
 GLOBAL_INSTALL_CMD = "pip install --user -e ."

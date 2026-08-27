@@ -26,12 +26,18 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 pytestmark = pytest.mark.skipif(
-    shutil.which("bash") is None, reason="bash not available"
+    sys.platform == "win32" or shutil.which("bash") is None,
+    reason=(
+        "drives scripts/systemd/install.sh and install-ui.sh via bash "
+        "against a rerooted /opt/llauncher/venv preflight; the pinned-venv "
+        "layout and paths are POSIX-only"
+    ),
 )
 
 
