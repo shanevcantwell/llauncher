@@ -14,12 +14,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 
 - **Root cause (#521).** Every `psutil` process walk fetched `cmdline()` for all ~300 processes — ~3.1 s per walk on Windows (a per-process handle open + PEB read with no batch path), milliseconds on Linux. Every Streamlit stall on the Windows seat was an integer multiple of that quantum; #497/#498 had already removed the walks from the title-paint and tab-switch paths (≈40 s → ~0 each), but `state.refresh_running_servers` and the uncached `is_port_in_use` (via `can_start`, every Start click) still walked.
 - **Fix (#522).** Walks read `pid`+`name` and call `cmdline()` only for name-matched candidates (configured llama-server binary or an interpreter/shell, so wrapper launches still match). `is_port_in_use` reads the TCP socket table — LISTEN only, bind-probe fallback on `AccessDenied` — instead of scanning every argv for `--port`. `find_available_port` reads the socket table once. Envelope only: the OS remains ground truth (ADR-LLNCH-008 rule 3); the TTL cache and `state.py` are untouched.
-- **Measured (Windows seat, headless driver, same protocol before/after).** Models tab clickable **50.0 s → 1.7 s**; port edit → Start enabled **43.4 s → 0.59 s**; UI-reports-running lag **+32 s → none**; tab switch / expander **33–46 ms**. Microbenchmark: full walk 3,083 ms → name-first 2.4 ms; `is_port_in_use` 6,170 ms → 0.8 ms. Operator-confirmed indistinguishable from the Linux UX. Record: `docs/experiments/2026-08-27-ui-stall-quantum.md` (+ `bench_psutil_walk.py`).
+- **Measured (Windows seat, headless driver, same protocol before/after).** Models tab clickable **50.0 s → 1.7 s**; port edit → Start enabled **43.4 s → 0.59 s**; UI-reports-running lag **+32 s → eliminated** (the row inverted by 1.5 s — a driver detection nuance, not a real lead); tab switch / expander **33–46 ms**. Microbenchmark (same run, `docs/experiments/bench_psutil_walk.py`): full walk 3,162 ms → name-first 2.4 ms; `is_port_in_use` ~6,170 ms → 0.8 ms. Operator-confirmed indistinguishable from the Linux UX (recorded on #521). Record: `docs/experiments/2026-08-27-ui-stall-quantum.md` (+ `bench_psutil_walk.py`).
 - **Behavior change.** "Port in use" now means a socket holds the port, not "some process's argv mentions it" — strictly more correct, and TIME_WAIT no longer reports a just-stopped port as occupied.
 
 ### Also since 0.5.0-alpha
 
-- Handoffs: 2026-08-26 Windows-seat series (three addenda)
+- Handoffs: four Windows-seat docs (2026-08-26, 2026-08-26b, and its two addenda)
 - fix(remote): per-verb client timeout for start/swap so slow model loads are not reported as failures (#503) (#511)
 - perf(ui): remaining st.rerun() sites cost one script run per click (#498) (#510)
 - docs(readme): correct run.sh/run.bat paths, drop stale agent-bg (#501) (#508)
