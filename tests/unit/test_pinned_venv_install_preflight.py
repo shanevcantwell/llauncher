@@ -32,12 +32,7 @@ from pathlib import Path
 import pytest
 
 pytestmark = pytest.mark.skipif(
-    sys.platform == "win32" or shutil.which("bash") is None,
-    reason=(
-        "drives scripts/systemd/install.sh and install-ui.sh via bash "
-        "against a rerooted /opt/llauncher/venv preflight; the pinned-venv "
-        "layout and paths are POSIX-only"
-    ),
+    shutil.which("bash") is None, reason="bash not available"
 )
 
 
@@ -83,6 +78,14 @@ def _make_entrypoint(fake_opt_venv: Path, name: str) -> Path:
 # ─────────────────────── install.sh (--user mode) ───────────────────────
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "drives scripts/systemd/install.sh and install-ui.sh against a "
+        "rerooted /opt/llauncher/venv preflight that depends on POSIX "
+        "venv bin/ layout and exec bits; not present on Windows"
+    ),
+)
 def test_user_mode_fails_loud_when_pinned_venv_absent(tmp_path: Path):
     """--user install.sh must exit nonzero, naming the ritual, when the
     pinned /opt/llauncher/venv has never been composed."""
@@ -135,6 +138,14 @@ def test_user_mode_preflight_passes_when_pinned_venv_present(tmp_path: Path):
     assert "not been composed" not in combined
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "drives scripts/systemd/install.sh and install-ui.sh against a "
+        "rerooted /opt/llauncher/venv preflight that depends on POSIX "
+        "venv bin/ layout and exec bits; not present on Windows"
+    ),
+)
 def test_system_mode_preflight_unchanged_checks_dev_tree_venv(tmp_path: Path):
     """--system mode must NOT be redirected to /opt — it still checks this
     checkout's own .venv (ADR-LLNCH-023 Phase A, untouched by #360). Run as a
@@ -164,6 +175,14 @@ def test_system_mode_preflight_unchanged_checks_dev_tree_venv(tmp_path: Path):
 # ─────────────────────── install-ui.sh ───────────────────────
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "drives scripts/systemd/install.sh and install-ui.sh against a "
+        "rerooted /opt/llauncher/venv preflight that depends on POSIX "
+        "venv bin/ layout and exec bits; not present on Windows"
+    ),
+)
 def test_install_ui_fails_loud_when_pinned_venv_absent(tmp_path: Path):
     """install-ui.sh must exit nonzero, naming the ritual, when the pinned
     /opt/llauncher/venv has never been composed — this is a HARD preflight

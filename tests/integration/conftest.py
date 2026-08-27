@@ -2,7 +2,9 @@
 
 Provides:
 
-- ``stub_binary``  — Path to ``tests/integration/_stubs/llama-server-stub``.
+- ``stub_binary``  — Path to a launchable ``llama-server-stub`` (the
+                     checked-in shebang script on POSIX; a per-session
+                     generated ``.cmd`` wrapper on Windows).
 - ``mcp_env``      — Isolated run-dir, log-dir, audit-path, config-path, and
                      ``LLAMA_SERVER_PATH`` pointing at the stub.
 - ``mcp_dispatch`` — Coroutine ``(name, args)`` that drives the exact
@@ -35,15 +37,7 @@ from fastapi.testclient import TestClient
 
 
 HERE = Path(__file__).parent
-# The shebang script has no PE header, so Windows' CreateProcess refuses it
-# outright (WinError 193). Windows *can* launch a .cmd/.bat file directly
-# (unlike a POSIX shell script), so a checked-in sibling shim
-# (``llama-server-stub.cmd``) re-invokes the real stub under `python` on
-# PATH, forwarding argv unchanged — product behavior is untouched, only
-# the invocation envelope differs (#523, A(i)).
-STUB_PATH = HERE / "_stubs" / (
-    "llama-server-stub.cmd" if sys.platform == "win32" else "llama-server-stub"
-)
+STUB_PATH = HERE / "_stubs" / "llama-server-stub"
 
 
 # ``integration_real`` is declared in pytest.ini's markers= block (single
@@ -54,10 +48,31 @@ STUB_PATH = HERE / "_stubs" / (
 
 
 @pytest.fixture(scope="session")
-def stub_binary() -> Path:
+def stub_binary(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The stub, in a form this platform's ``CreateProcess``/``execve`` accepts.
+
+    On POSIX the shebang script is launched directly. On Windows it has no
+    PE header, so ``CreateProcess`` refuses it outright (WinError 193);
+    Windows *can* launch a ``.cmd`` directly, so we generate one per session
+    that re-invokes the real stub under **this interpreter**
+    (``sys.executable``, absolute and quoted) rather than whatever bare
+    ``python`` PATH happens to resolve to — the test venv is frequently not
+    on PATH. Product behavior is untouched; only the invocation envelope
+    differs (#523, A(i)).
+    """
     assert STUB_PATH.exists(), f"stub missing: {STUB_PATH}"
-    assert os.access(STUB_PATH, os.X_OK), f"stub not executable: {STUB_PATH}"
-    return STUB_PATH
+    if sys.platform != "win32":
+        assert os.access(STUB_PATH, os.X_OK), f"stub not executable: {STUB_PATH}"
+        return STUB_PATH
+
+    shim = tmp_path_factory.mktemp("stub") / "llama-server-stub.cmd"
+    shim.write_text(
+        "@echo off\r\n" f'"{sys.executable}" "{STUB_PATH}" %*\r\n',
+        encoding="ascii",
+        newline="",
+    )
+    assert os.access(shim, os.X_OK), f"stub not executable: {shim}"
+    return shim
 
 
 @pytest.fixture

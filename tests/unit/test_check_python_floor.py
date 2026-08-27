@@ -22,12 +22,7 @@ from pathlib import Path
 import pytest
 
 pytestmark = pytest.mark.skipif(
-    sys.platform == "win32" or shutil.which("bash") is None,
-    reason=(
-        "sources scripts/systemd/check_python_floor.sh via `bash -c` and "
-        "probes real interpreters by POSIX name (e.g. python3.11); those "
-        "binaries and the sourcing mechanism don't exist on Windows"
-    ),
+    shutil.which("bash") is None, reason="bash not available"
 )
 
 
@@ -73,6 +68,14 @@ def _make_fake_python(tmp_path: Path, name: str, version_info: str) -> Path:
 # ─────────────────────── check_python_floor() ───────────────────────
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "probes real interpreters by POSIX name (e.g. python3.11) and "
+        "relies on POSIX exec bits for the stand-in interpreters; those "
+        "binaries and that mechanism do not exist on Windows"
+    ),
+)
 @pytest.mark.parametrize("py_bin", ["python3.11", "python3.12"])
 def test_floor_passes_for_real_interpreters_at_or_above_floor(py_bin: str):
     """Against real interpreters already on this host (>=3.11), the check
@@ -87,6 +90,14 @@ def test_floor_passes_for_real_interpreters_at_or_above_floor(py_bin: str):
     assert result.stderr == ""
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "probes real interpreters by POSIX name (e.g. python3.11) and "
+        "relies on POSIX exec bits for the stand-in interpreters; those "
+        "binaries and that mechanism do not exist on Windows"
+    ),
+)
 def test_floor_fails_loud_for_real_interpreter_below_floor():
     """Against a real 3.10 interpreter (below the 3.11 floor), the check
     must exit nonzero and name BOTH the found version and the required
@@ -102,6 +113,14 @@ def test_floor_fails_loud_for_real_interpreter_below_floor():
     assert "3.11" in combined
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "probes real interpreters by POSIX name (e.g. python3.11) and "
+        "relies on POSIX exec bits for the stand-in interpreters; those "
+        "binaries and that mechanism do not exist on Windows"
+    ),
+)
 def test_floor_fails_loud_when_interpreter_missing():
     """A nonexistent binary must fail loud, naming the binary — never
     silently proceed as if the floor were satisfied."""
@@ -113,6 +132,14 @@ def test_floor_fails_loud_when_interpreter_missing():
     assert "python3.99-definitely-nonexistent" in combined
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "probes real interpreters by POSIX name (e.g. python3.11) and "
+        "relies on POSIX exec bits for the stand-in interpreters; those "
+        "binaries and that mechanism do not exist on Windows"
+    ),
+)
 def test_floor_boundary_exact_minor_passes(tmp_path: Path):
     """Exactly the floor version (3.11) must pass, not be rejected as
     below it (off-by-one guard on the comparison)."""
@@ -142,6 +169,14 @@ def test_floor_boundary_one_minor_below_fails(tmp_path: Path):
     assert result.returncode != 0
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "probes real interpreters by POSIX name (e.g. python3.11) and "
+        "relies on POSIX exec bits for the stand-in interpreters; those "
+        "binaries and that mechanism do not exist on Windows"
+    ),
+)
 def test_floor_major_version_above_floor_passes(tmp_path: Path):
     """A hypothetical future major version (4.0) must clear a 3.11 floor."""
     fake = _make_fake_python(tmp_path, "fake-python", "4.0")
@@ -156,6 +191,14 @@ def test_floor_major_version_above_floor_passes(tmp_path: Path):
     assert result.returncode == 0, result.stderr
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "probes real interpreters by POSIX name (e.g. python3.11) and "
+        "relies on POSIX exec bits for the stand-in interpreters; those "
+        "binaries and that mechanism do not exist on Windows"
+    ),
+)
 def test_floor_uses_caller_err_when_defined(tmp_path: Path):
     """When the caller defines an `err` function (as install.sh does), the
     helper's messages route through it rather than bare stderr."""

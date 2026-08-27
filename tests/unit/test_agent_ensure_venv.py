@@ -29,14 +29,6 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.skipif(
-    sys.platform == "win32",
-    reason=(
-        "invokes `bash scripts/run.sh setup` against a copied run.sh with "
-        "a #!/bin/bash shebang; the setup/venv-populate flow is POSIX-only"
-    ),
-)
-
 
 def _repo_root() -> Path:
     """Walk up from this file until a ``.git`` entry is found."""
@@ -115,6 +107,13 @@ def _run_setup(project_dir: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "invokes `bash scripts/run.sh setup` against a copied run.sh with "
+        "a #!/bin/bash shebang; the setup/venv-populate flow is POSIX-only"
+    ),
+)
 def test_setup_lazy_noop_when_entrypoint_present(project_dir: Path):
     """OQ3: present entry point ⇒ no recompose, clean exit."""
     venv_bin = project_dir / ".venv" / "bin"
@@ -132,6 +131,13 @@ def test_setup_lazy_noop_when_entrypoint_present(project_dir: Path):
     assert "Recomposing" not in combined
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "invokes `bash scripts/run.sh setup` against a copied run.sh with "
+        "a #!/bin/bash shebang; the setup/venv-populate flow is POSIX-only"
+    ),
+)
 def test_setup_populates_when_missing(project_dir: Path):
     """Missing entry point ⇒ editable install runs and yields the entry point."""
     venv_bin = _make_fake_venv(
@@ -147,6 +153,13 @@ def test_setup_populates_when_missing(project_dir: Path):
     assert (venv_bin / "llauncher-agent").exists()
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "invokes `bash scripts/run.sh setup` against a copied run.sh with "
+        "a #!/bin/bash shebang; the setup/venv-populate flow is POSIX-only"
+    ),
+)
 def test_setup_fails_loud_on_pip_error(project_dir: Path):
     """Fail-loud: nonzero pip ⇒ nonzero exit + actionable message, no success."""
     _make_fake_venv(project_dir, pip_creates_entrypoint=False, pip_returns=1)
@@ -160,6 +173,13 @@ def test_setup_fails_loud_on_pip_error(project_dir: Path):
     assert "recomposed" not in combined
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "invokes `bash scripts/run.sh setup` against a copied run.sh with "
+        "a #!/bin/bash shebang; the setup/venv-populate flow is POSIX-only"
+    ),
+)
 def test_setup_fails_loud_when_entrypoint_absent_after_install(project_dir: Path):
     """A pip that 'succeeds' but leaves no entry point must still fail loud."""
     _make_fake_venv(project_dir, pip_creates_entrypoint=False, pip_returns=0)

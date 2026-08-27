@@ -30,15 +30,6 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.skipif(
-    sys.platform == "win32",
-    reason=(
-        "drives the real scripts/run.sh stop as a bash script; run.sh's "
-        "shebang, PATH-shadowed console-script stand-in, and POSIX venv "
-        "bin/ layout don't exist on Windows"
-    ),
-)
-
 
 def _repo_root() -> Path:
     """Walk up from this file until a ``.git`` entry is found."""
@@ -100,6 +91,14 @@ def test_stop_does_not_bootstrap_venv_when_absent(run_sh: Path, tmp_path: Path):
     assert "Virtual environment not found" not in combined
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "drives the real scripts/run.sh stop as a bash script; run.sh's "
+        "shebang, PATH-shadowed console-script stand-in, and POSIX venv "
+        "bin/ layout don't exist on Windows"
+    ),
+)
 def test_stop_still_invokes_agent_stop_without_venv(run_sh: Path, tmp_path: Path):
     """Even without a .venv, `stop` must still reach the agent via PATH."""
     env = _make_stub_agent_on_path(tmp_path)
@@ -111,6 +110,14 @@ def test_stop_still_invokes_agent_stop_without_venv(run_sh: Path, tmp_path: Path
     assert "stub llauncher-agent called: --stop" in combined
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "drives the real scripts/run.sh stop as a bash script; run.sh's "
+        "shebang, PATH-shadowed console-script stand-in, and POSIX venv "
+        "bin/ layout don't exist on Windows"
+    ),
+)
 def test_stop_activates_existing_venv_if_present(run_sh: Path, tmp_path: Path):
     """A pre-existing .venv is still activated (its agent takes precedence)."""
     venv_bin = tmp_path / ".venv" / "bin"

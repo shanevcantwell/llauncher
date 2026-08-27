@@ -35,15 +35,6 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.skipif(
-    sys.platform == "win32",
-    reason=(
-        "drives the real scripts/run.sh as a bash script in a hermetic "
-        "PROJECT_DIR; run.sh's shebang and POSIX venv bin/ layout don't "
-        "exist on Windows"
-    ),
-)
-
 
 GLOBAL_INSTALL_CMD = "pip install --user -e ."
 
@@ -98,6 +89,14 @@ def test_install_is_disabled_and_nonzero(run_sh: Path):
     assert "complete" not in combined.lower()
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "drives the real scripts/run.sh as a bash script in a hermetic "
+        "PROJECT_DIR; run.sh's shebang and POSIX venv bin/ layout don't "
+        "exist on Windows"
+    ),
+)
 def test_install_points_at_global_path(run_sh: Path):
     """The disabled-install message surfaces the real global command."""
     result = _invoke(run_sh, "install")
@@ -121,6 +120,14 @@ def test_install_does_not_bootstrap_venv(run_sh: Path, tmp_path: Path):
 # ─────────── Criterion 2: global path discoverable from help ────────
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "drives the real scripts/run.sh as a bash script in a hermetic "
+        "PROJECT_DIR; run.sh's shebang and POSIX venv bin/ layout don't "
+        "exist on Windows"
+    ),
+)
 @pytest.mark.parametrize("args", [(), ("help",), ("bogus-cmd",)])
 def test_help_surfaces_global_install_path(run_sh: Path, args: tuple[str, ...]):
     """A bare / unknown invocation prints the global install command."""
@@ -130,6 +137,14 @@ def test_help_surfaces_global_install_path(run_sh: Path, args: tuple[str, ...]):
     assert GLOBAL_INSTALL_CMD in combined
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "drives the real scripts/run.sh as a bash script in a hermetic "
+        "PROJECT_DIR; run.sh's shebang and POSIX venv bin/ layout don't "
+        "exist on Windows"
+    ),
+)
 def test_help_does_not_route_setup_to_disabled_install(run_sh: Path):
     """Help must not send first-time users to the disabled ``install``.
 

@@ -33,15 +33,6 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.skipif(
-    sys.platform == "win32",
-    reason=(
-        "extracts and runs the systemd ExecStartPre backstop fragment via "
-        "`bash -c` against a rerooted /opt/llauncher/venv; the systemd "
-        "unit fragment and its POSIX paths don't apply on Windows"
-    ),
-)
-
 
 def _repo_root() -> Path:
     """Walk up from this file until a ``.git`` entry is found."""
@@ -166,6 +157,14 @@ def _make_entrypoint(fake_root: Path) -> Path:
     return ep
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "runs the systemd ExecStartPre backstop fragment via `bash -c` "
+        "against a rerooted /opt/llauncher/venv with a real executable "
+        "entrypoint; POSIX exec bits do not exist on Windows"
+    ),
+)
 def test_backstop_noop_when_entrypoint_present(tmp_path: Path):
     """Present, executable entry point => clean exit, no message."""
     cmd = _backstop_command(AGENT_UNIT.read_text())

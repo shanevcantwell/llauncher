@@ -27,12 +27,7 @@ from pathlib import Path
 import pytest
 
 pytestmark = pytest.mark.skipif(
-    sys.platform == "win32" or shutil.which("bash") is None,
-    reason=(
-        "sources scripts/systemd/venv_manifest.sh via `bash -c` and "
-        "drives install-cli.sh's ExecStart wiring; both assume a POSIX "
-        "systemd deployment not present on Windows"
-    ),
+    shutil.which("bash") is None, reason="bash not available"
 )
 
 
@@ -81,6 +76,14 @@ def _write_manifest(
     )
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "composes the venv manifest by running pip freeze inside a "
+        "rerooted POSIX venv layout (bin/, exec bits); that layout does "
+        "not exist on Windows"
+    ),
+)
 def test_manifest_contains_ref_and_pip_freeze(tmp_path: Path):
     manifest = tmp_path / "venv-manifest.txt"
     fake_pip = _make_fake_pip(tmp_path, "llauncher==0.4.0\nfastapi==0.111.0\n")
@@ -93,6 +96,14 @@ def test_manifest_contains_ref_and_pip_freeze(tmp_path: Path):
     assert "fastapi==0.111.0" in text
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "composes the venv manifest by running pip freeze inside a "
+        "rerooted POSIX venv layout (bin/, exec bits); that layout does "
+        "not exist on Windows"
+    ),
+)
 def test_manifest_has_a_composed_timestamp(tmp_path: Path):
     manifest = tmp_path / "venv-manifest.txt"
     fake_pip = _make_fake_pip(tmp_path, "llauncher==0.4.0\n")
@@ -106,6 +117,14 @@ def test_manifest_has_a_composed_timestamp(tmp_path: Path):
     assert composed_lines[0].endswith("Z")
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "composes the venv manifest by running pip freeze inside a "
+        "rerooted POSIX venv layout (bin/, exec bits); that layout does "
+        "not exist on Windows"
+    ),
+)
 def test_manifest_warns_against_hand_editing(tmp_path: Path):
     manifest = tmp_path / "venv-manifest.txt"
     fake_pip = _make_fake_pip(tmp_path, "llauncher==0.4.0\n")
@@ -115,6 +134,14 @@ def test_manifest_warns_against_hand_editing(tmp_path: Path):
     assert "do not hand-edit" in manifest.read_text().lower()
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "composes the venv manifest by running pip freeze inside a "
+        "rerooted POSIX venv layout (bin/, exec bits); that layout does "
+        "not exist on Windows"
+    ),
+)
 def test_recompose_overwrites_stale_manifest(tmp_path: Path):
     """Re-running the ritual must describe the CURRENT venv, not append to
     or preserve a stale prior composition."""
