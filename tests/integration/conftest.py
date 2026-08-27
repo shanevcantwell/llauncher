@@ -26,6 +26,7 @@ are marked ``@pytest.mark.integration_real`` and skip by default.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +35,15 @@ from fastapi.testclient import TestClient
 
 
 HERE = Path(__file__).parent
-STUB_PATH = HERE / "_stubs" / "llama-server-stub"
+# The shebang script has no PE header, so Windows' CreateProcess refuses it
+# outright (WinError 193). Windows *can* launch a .cmd/.bat file directly
+# (unlike a POSIX shell script), so a checked-in sibling shim
+# (``llama-server-stub.cmd``) re-invokes the real stub under `python` on
+# PATH, forwarding argv unchanged — product behavior is untouched, only
+# the invocation envelope differs (#523, A(i)).
+STUB_PATH = HERE / "_stubs" / (
+    "llama-server-stub.cmd" if sys.platform == "win32" else "llama-server-stub"
+)
 
 
 # ``integration_real`` is declared in pytest.ini's markers= block (single
