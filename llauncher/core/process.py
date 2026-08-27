@@ -108,10 +108,13 @@ _INTERPRETER_NAMES = frozenset({
 # "python", "pythonw", "python3", "python3.12", "pythonw3.12", …
 _PYTHON_NAME_RE = re.compile(r"^pythonw?\d*(\.\d+)?$")
 
-# Cache of (configured LLAMA_SERVER_PATH, derived name set). Rebuilt when
-# the setting changes so tests can monkeypatch ``settings`` freely; a
-# plain module constant would freeze the import-time value.
-_BINARY_NAMES_CACHE: tuple[object, frozenset[str]] | None = None
+# Cache of (configured LLAMA_SERVER_PATH, derived name set, the same set
+# with a trailing ``.exe`` stripped). Rebuilt when the setting changes so
+# tests can monkeypatch ``settings`` freely; a plain module constant would
+# freeze the import-time value. The stripped set is stored rather than
+# recomputed because :func:`_matches_binary` runs once per candidate
+# string — name plus every argv element of every scanned process.
+_BINARY_NAMES_CACHE: tuple[object, frozenset[str], frozenset[str]] | None = None
 
 
 def _configured_binary_names() -> frozenset[str]:
@@ -121,19 +124,34 @@ def _configured_binary_names() -> frozenset[str]:
     plus the two defaults, so a seat that runs a renamed/forked build
     ("llama-server-b4567.exe") is still discovered.
     """
+    return _binary_name_sets()[0]
+
+
+def _configured_binary_stems() -> frozenset[str]:
+    """:func:`_configured_binary_names` with a trailing ``.exe`` stripped.
+
+    The set :func:`_matches_binary` compares against. Cached alongside the
+    raw set so it is not rebuilt per candidate string.
+    """
+    return _binary_name_sets()[1]
+
+
+def _binary_name_sets() -> tuple[frozenset[str], frozenset[str]]:
+    """(raw names, ``.exe``-stripped names), rebuilt only when settings change."""
     global _BINARY_NAMES_CACHE
     configured = getattr(settings, "LLAMA_SERVER_PATH", None)
     cached = _BINARY_NAMES_CACHE
     if cached is not None and cached[0] == configured:
-        return cached[1]
+        return cached[1], cached[2]
     names = {name.lower() for name in _DEFAULT_BINARY_NAMES}
     if configured:
         configured_name = Path(configured).name.lower()
         if configured_name:
             names.add(configured_name)
     frozen = frozenset(names)
-    _BINARY_NAMES_CACHE = (configured, frozen)
-    return frozen
+    stems = frozenset(n[:-4] if n.endswith(".exe") else n for n in frozen)
+    _BINARY_NAMES_CACHE = (configured, frozen, stems)
+    return frozen, stems
 
 
 def _is_cmdline_scan_candidate(name: str | None) -> bool:
@@ -172,10 +190,38 @@ def _matches_binary(candidate: str) -> bool:
     base = candidate.replace("\\", "/").rsplit("/", 1)[-1].lower()
     if base.endswith(".exe"):
         base = base[:-4]
-    configured = {
-        n[:-4] if n.endswith(".exe") else n for n in _configured_binary_names()
-    }
-    return base in configured
+    return base in _configured_binary_stems()
+
+
+def _matches_binary_argv_element(element: str) -> bool:
+    """True when an argv *element* names a configured llama-server binary.
+
+    :func:`_matches_binary` on the element itself, plus — when the element
+    contains whitespace — on each of its shell tokens. That second pass is
+    the single-element shell command: ``bash -c "/opt/llama.cpp/bin/llama-server
+    --port 8080"`` carries the whole command line in one argv element, so an
+    element-level exact match alone would miss it. Unbalanced quoting makes
+    ``shlex`` raise; a plain whitespace split is tested alongside the
+    ``shlex`` tokens (and stands alone when ``shlex`` raises), which also
+    covers a Windows path inside the element: POSIX ``shlex`` reads its
+    backslashes as escapes and mangles it. Elements without whitespace skip the split entirely — the
+    common case, and this runs per argv element of every scanned process.
+    """
+    if _matches_binary(element):
+        return True
+    if not element or not any(ch.isspace() for ch in element):
+        return False
+    tokens = element.split()
+    try:
+        tokens += shlex.split(element, posix=True)
+    except ValueError:
+        pass
+    return any(_matches_binary(token) for token in tokens)
+
+
+def _argv_has_binary(cmdline: list[str]) -> bool:
+    """True when any argv element (or shell token within one) is the binary."""
+    return any(_matches_binary_argv_element(c) for c in cmdline)
 
 
 class ExtraArgsError(ValueError):
@@ -717,7 +763,7 @@ def find_server_by_port(port: int) -> psutil.Process | None:
                 continue
 
             # Check if this is a llama-server with the right port
-            if _matches_binary(name) or any(_matches_binary(c) for c in cmdline):
+            if _matches_binary(name) or _argv_has_binary(cmdline):
                 # Check command line for port
                 for i, arg in enumerate(cmdline):
                     if arg in ("--port", "-p") and i + 1 < len(cmdline):
@@ -758,7 +804,7 @@ def find_all_llama_servers() -> list[psutil.Process]:
             if not cmdline:
                 continue
 
-            if _matches_binary(name) or any(_matches_binary(c) for c in cmdline):
+            if _matches_binary(name) or _argv_has_binary(cmdline):
                 servers.append(proc)
 
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
@@ -808,11 +854,12 @@ def _is_llama_server(name: str, cmdline: list[str]) -> bool:
     A process counts as a llama-server when its ``name()`` IS a configured
     llama-server binary (:func:`_matches_binary`) OR any argv element is
     (covers a direct binary invocation as well as a shell/wrapper
-    invocation). Single definition per #466 §3 — both scan primitives must
+    invocation, including one whose whole command line arrives as a single
+    argv element). Single definition per #466 §3 — both scan primitives must
     agree on what a llama-server is. Exact, case-insensitive match (#524)
     — not the substring test this replaced.
     """
-    return _matches_binary(name) or any(_matches_binary(c) for c in cmdline)
+    return _matches_binary(name) or _argv_has_binary(cmdline)
 
 
 def _extract_port_from_cmdline(cmdline: list[str]) -> int | None:

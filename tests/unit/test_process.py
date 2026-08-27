@@ -976,6 +976,99 @@ class TestExactBinaryNameMatch:
         assert not process_module._matches_binary("--log=llama-server.log")
         assert not process_module._matches_binary("")
 
+    def test_single_element_shell_command_is_discovered(self):
+        """A ``sh -c`` wrapper carries its whole command line in ONE argv
+        element, so an element-level exact match alone would miss it.
+        ``_matches_binary_argv_element`` also tests the element's shell
+        tokens."""
+        mock_proc = MagicMock()
+        mock_proc.info = {"pid": 5, "name": "bash"}
+        mock_proc.cmdline.return_value = [
+            "bash", "-c", "/opt/llama.cpp/bin/llama-server --port 8080",
+        ]
+
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            results = find_all_llama_servers()
+
+        assert results == [mock_proc]
+
+    def test_single_element_windows_shell_command_is_discovered(self):
+        """The Windows twin: ``cmd.exe /c "<path> --port 8080"``, with an
+        uppercase ``.exe`` and backslash-separated path inside the single
+        element."""
+        mock_proc = MagicMock()
+        mock_proc.info = {"pid": 6, "name": "cmd.exe"}
+        mock_proc.cmdline.return_value = [
+            "cmd.exe", "/c", "C:\tools\LLAMA-SERVER.EXE --port 8080",
+        ]
+
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            results = find_all_llama_servers()
+
+        assert results == [mock_proc]
+
+    def test_single_element_shell_command_substring_decoy_is_not_discovered(self):
+        """Token-level matching inherits the exact test: a decoy token
+        inside a shell command element does not match."""
+        mock_proc = MagicMock()
+        mock_proc.info = {"pid": 7, "name": "bash"}
+        mock_proc.cmdline.return_value = [
+            "bash", "-c", "echo llama-server-monitor --port 1",
+        ]
+
+        with patch("psutil.process_iter", return_value=[mock_proc]):
+            results = find_all_llama_servers()
+
+        assert results == []
+
+    def test_unbalanced_quoting_falls_back_to_whitespace_split(self):
+        """``shlex.split`` raises on unbalanced quotes; the element is
+        whitespace-split rather than dropped, so the binary is still
+        found."""
+        assert process_module._matches_binary_argv_element(
+            'sh -c "/opt/llama.cpp/bin/llama-server --port 8080'
+        )
+
+    def test_element_without_whitespace_is_not_split(self):
+        """Cheapness guard: the shlex pass is skipped for elements with no
+        whitespace, which is the overwhelmingly common case."""
+        with patch.object(
+            process_module.shlex, "split", side_effect=AssertionError("split called")
+        ):
+            assert not process_module._matches_binary_argv_element("--n-gpu-layers")
+            assert process_module._matches_binary_argv_element("llama-server")
+
+    def test_unconfigured_fork_name_is_gated_out_before_cmdline(self):
+        """Configuration, not heuristics, is the path to fork discovery.
+
+        A process running an unconfigured forked build is not discovered no
+        matter how llama-server-ish its argv looks. A fork name that shares
+        no substring with the configured names (``llama-cuda-server``) is
+        rejected at #522's name-first gate — ``cmdline()`` is never called,
+        so its argv is never even consulted. A fork name that happens to
+        contain a configured name (``llama-server-cuda``) passes that gate
+        but is then rejected by ``_matches_binary``'s exact test. Either
+        way the seat must point ``LLAMA_SERVER_PATH`` at the fork to have
+        it discovered.
+        """
+        gated_out = MagicMock()
+        gated_out.info = {"pid": 8, "name": "llama-cuda-server"}
+        gated_out.cmdline.side_effect = AssertionError("cmdline() must not be called")
+
+        matched_out = MagicMock()
+        matched_out.info = {"pid": 9, "name": "llama-server-cuda"}
+        matched_out.cmdline.return_value = [
+            "/opt/forks/llama-server-cuda", "--port", "8080", "--model", "m.gguf",
+        ]
+
+        assert not process_module._is_cmdline_scan_candidate("llama-cuda-server")
+
+        with patch("psutil.process_iter", return_value=[gated_out, matched_out]):
+            results = find_all_llama_servers()
+
+        assert results == []
+        gated_out.cmdline.assert_not_called()
+
 
 class TestProcessScanCache:
     """Tests for the issue #392 TTL cache fronting the process-table scans.
