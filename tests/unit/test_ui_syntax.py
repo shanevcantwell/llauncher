@@ -17,7 +17,7 @@ class TestDashboardColumnUnpacking:
         - col1, col2, col3 = st.columns(3)  # OK: 3 vars, 3 columns
         """
         dashboard_path = Path(__file__).parent.parent.parent / "llauncher" / "ui" / "tabs" / "dashboard.py"
-        content = dashboard_path.read_text()
+        content = dashboard_path.read_text(encoding="utf-8")
 
         # Find all st.columns() calls and their unpacking
         tree = ast.parse(content)
@@ -57,7 +57,7 @@ class TestDashboardSyntax:
     def test_dashboard_syntax_valid(self):
         """Verify dashboard.py has valid Python syntax."""
         dashboard_path = Path(__file__).parent.parent.parent / "llauncher" / "ui" / "tabs" / "dashboard.py"
-        content = dashboard_path.read_text()
+        content = dashboard_path.read_text(encoding="utf-8")
 
         # This will raise SyntaxError if invalid
         ast.parse(content)
@@ -84,7 +84,7 @@ class TestModelsTabSyntax:
         from pathlib import Path
 
         path = Path(__file__).parent.parent.parent / "llauncher" / "ui" / "tabs" / "models.py"
-        ast.parse(path.read_text())
+        ast.parse(path.read_text(encoding="utf-8"))
 
     def test_models_tab_imports_valid(self):
         from llauncher.ui.tabs import models
@@ -98,7 +98,7 @@ class TestAppSyntax:
     def test_app_syntax_valid(self):
         """Verify app.py has valid Python syntax."""
         app_path = Path(__file__).parent.parent.parent / "llauncher" / "ui" / "app.py"
-        content = app_path.read_text()
+        content = app_path.read_text(encoding="utf-8")
 
         # This will raise SyntaxError if invalid
         ast.parse(content)
@@ -108,7 +108,7 @@ class TestAppSyntax:
         # Note: We can't fully import the app due to Streamlit dependencies,
         # but we can verify the syntax is correct
         app_path = Path(__file__).parent.parent.parent / "llauncher" / "ui" / "app.py"
-        content = app_path.read_text()
+        content = app_path.read_text(encoding="utf-8")
 
         # Check for common import errors
         tree = ast.parse(content)

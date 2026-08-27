@@ -98,8 +98,10 @@ def test_worktree_style_alias_resolves_onto_canonical_source_root() -> None:
     scratch_wt_path = "/tmp/wt-abc123/llauncher/core/config.py"
     canonical_path = "llauncher/core/config.py"
 
-    mapped_worktree = aliases.map(worktree_path)
-    mapped_scratch = aliases.map(scratch_wt_path)
+    # coverage.py's alias mapping returns OS-native separators; normalize
+    # to forward slashes so the assertion holds on Windows too (#523).
+    mapped_worktree = aliases.map(worktree_path).replace("\\", "/")
+    mapped_scratch = aliases.map(scratch_wt_path).replace("\\", "/")
 
     assert mapped_worktree == canonical_path, (
         f"worktree-shaped path {worktree_path!r} mapped to "

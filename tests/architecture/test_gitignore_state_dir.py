@@ -27,6 +27,20 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GITIGNORE = _REPO_ROOT / ".gitignore"
 
 
+def _degitquote(line: str) -> str:
+    """Undo git's core.quotePath C-style quoting of a `check-ignore` path.
+
+    Git wraps a path in double quotes and backslash-escapes it whenever it
+    contains a byte outside the "safe" set (this includes every backslash,
+    so every absolute Windows path is quoted). Escapes here are limited to
+    the two byte classes `check-ignore` output can actually contain:
+    literal backslashes (from Windows paths) and double quotes.
+    """
+    if len(line) >= 2 and line[0] == '"' and line[-1] == '"':
+        line = line[1:-1].replace('\\\\', '\\').replace('\\"', '"')
+    return line.replace("\\", "/")
+
+
 def test_gitignore_has_no_tilde_home_patterns() -> None:
     """No ``.gitignore`` line may rely on tilde expansion.
 
@@ -72,13 +86,19 @@ def test_llauncher_state_dir_ignored_at_any_depth(tmp_path: Path) -> None:
             capture_output=True,
             text=True,
         )
-        matched = set(result.stdout.splitlines())
+        # Git always reports paths with '/' separators and, per
+        # core.quotePath, C-style-quotes any path containing a backslash
+        # (true of every absolute Windows path) or other non-ASCII/special
+        # byte. Strip that quoting and normalize separators before the
+        # membership check so the probe is comparable on both platforms
+        # (#523).
+        matched = {_degitquote(line) for line in result.stdout.splitlines()}
         assert result.returncode == 0, (
             f"git check-ignore did not match all probes: "
             f"stdout={result.stdout!r} stderr={result.stderr!r}"
         )
         for probe in probes:
-            assert str(probe) in matched, f"{probe} was not reported ignored"
+            assert probe.as_posix() in matched, f"{probe} was not reported ignored"
     finally:
         for probe in reversed(created):
             probe.rmdir()

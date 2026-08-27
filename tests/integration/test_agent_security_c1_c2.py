@@ -36,6 +36,7 @@ from __future__ import annotations
 import io
 import os
 import stat
+import sys
 from pathlib import Path
 
 import pytest
@@ -187,6 +188,10 @@ def _isolate_home(monkeypatch, tmp_path):
     return home
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="NTFS has no POSIX mode bits; chmod is a no-op for read/owner bits",
+)
 def test_loopback_first_run_generates_token_file(monkeypatch, tmp_path):
     """C1-e: first loopback start with no env token writes 0600 agent.env."""
     from llauncher.agent.config import AgentConfig
